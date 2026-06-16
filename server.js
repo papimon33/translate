@@ -47,18 +47,14 @@ const server = http.createServer(app);
 /* ================================================================== */
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
-const MONGODB_URI = process.env.MONGODB_URI;   // 있으면 Mongo, 없으면 로컬 파일
-const MONGODB_DB = process.env.MONGODB_DB;      // 기본값 없음 — Mongo 쓸 거면 반드시 주입
+const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
+const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
 let sessions = [];  // 메모리 캐시(항상 진실의 원천)
 let col = null;     // Mongo 컬렉션. null 이면 파일 모드.
 
 async function loadSessions() {
   if (MONGODB_URI) {
-    if (!MONGODB_DB) {
-      console.error('[sessions] MONGODB_URI 는 있으나 MONGODB_DB 가 없습니다 — DB 이름을 환경변수로 넣어주세요.');
-      process.exit(1);
-    }
     try {
       const { MongoClient } = await import('mongodb');
       const client = new MongoClient(MONGODB_URI);
