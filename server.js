@@ -3,6 +3,7 @@ import express from 'express';
 import http from 'http';
 import os from 'os';
 import fs from 'fs';
+import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
 import { fileURLToPath } from 'url';
@@ -37,6 +38,57 @@ if (!fs.existsSync(STATIC_DIR)) {
   console.warn('\n[경고] dist 폴더가 없습니다. 먼저 `npm run build` 를 실행하세요. (npm start 는 자동 빌드)\n');
 }
 app.use(express.static(STATIC_DIR));
+
+/* ================================================================== */
+/*  인증 (단일 공용 비밀번호) — 호스트(데스크톱)만 보호                  */
+/*  APP_PASSWORD 미설정 시 인증 비활성(로컬 개발용). 모바일 뷰어는 항상 */
+/*  공개(QR 접속): /ws/viewer, GET /api/sessions/:id, /api/qr 는 열림.   */
+/* ================================================================== */
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const AUTH_ENABLED = !!APP_PASSWORD;
+const AUTH_COOKIE = 'kac_auth';
+// 비번에서 파생한 고정 토큰(서버 재시작에도 유효, 별도 세션 저장 불필요).
+const AUTH_TOKEN = AUTH_ENABLED
+  ? crypto.createHmac('sha256', APP_PASSWORD).update('kac-host-auth-v1').digest('hex')
+  : '';
+if (!AUTH_ENABLED) console.warn('[auth] APP_PASSWORD 미설정 — 인증 없이 공개로 동작합니다.');
+
+function getCookie(req, name) {
+  const h = req.headers.cookie || '';
+  for (const part of h.split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
+function isAuthed(req) {
+  if (!AUTH_ENABLED) return true;
+  return getCookie(req, AUTH_COOKIE) === AUTH_TOKEN;
+}
+function requireAuth(req, res, next) {
+  if (isAuthed(req)) return next();
+  res.status(401).json({ error: 'unauthorized' });
+}
+function isHttps(req) {
+  return String(req.headers['x-forwarded-proto'] || req.protocol || '').split(',')[0].trim() === 'https';
+}
+
+app.get('/api/auth-status', (req, res) => res.json({ required: AUTH_ENABLED, authed: isAuthed(req) }));
+app.post('/api/login', (req, res) => {
+  if (!AUTH_ENABLED) return res.json({ ok: true });
+  const pw = Buffer.from(String((req.body && req.body.password) || ''));
+  const expect = Buffer.from(APP_PASSWORD);
+  const ok = pw.length === expect.length && crypto.timingSafeEqual(pw, expect);
+  if (!ok) return res.status(401).json({ error: 'wrong password' });
+  const secure = isHttps(req) ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${AUTH_TOKEN}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`);
+  res.json({ ok: true });
+});
+app.post('/api/logout', (req, res) => {
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  res.json({ ok: true });
+});
 
 const server = http.createServer(app);
 
@@ -123,14 +175,14 @@ function newId() {
 }
 
 /* ---- 세션 REST API ---- */
-app.get('/api/sessions', (req, res) => {
+app.get('/api/sessions', requireAuth, (req, res) => {
   const list = sessions
     .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
 });
 
-app.post('/api/sessions', (req, res) => {
+app.post('/api/sessions', requireAuth, (req, res) => {
   const now = Date.now();
   const b = req.body || {};
   const pipeline = b.pipeline === 'translate' ? 'translate' : 'whisper';
@@ -159,7 +211,7 @@ app.get('/api/sessions/:id', (req, res) => {
   res.json(s);
 });
 
-app.patch('/api/sessions/:id', (req, res) => {
+app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   // pipeline 은 생성 시 고정. title·inLang 수정 허용. outLang 은 translate 의 타깃 변경용.
@@ -175,7 +227,7 @@ app.patch('/api/sessions/:id', (req, res) => {
   res.json(s);
 });
 
-app.delete('/api/sessions/:id', (req, res) => {
+app.delete('/api/sessions/:id', requireAuth, (req, res) => {
   const i = sessions.findIndex((s) => s.id === req.params.id);
   if (i >= 0) {
     sessions.splice(i, 1);
@@ -421,6 +473,11 @@ const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
+  if (pathname === '/ws/host' && !isAuthed(req)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
   if (pathname === '/ws/host' || pathname === '/ws/viewer') {
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws._kind = pathname === '/ws/host' ? 'host' : 'viewer';

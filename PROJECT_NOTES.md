@@ -45,7 +45,7 @@
 - [x] **Render 설정**: `render.yaml`(Blueprint). plan=free, build `npm install --include=dev && npm run build`(무료티어 NODE_ENV=production이라 vite devDep 빠짐 방지), start `node server.js`. PORT는 Render 자동 주입.
 - [x] **QR public 도메인**: `/api/qr`가 요청 `x-forwarded-proto`/`x-forwarded-host`(Render 프록시) 사용. localhost/사설IP 접속이면 `getLanIp()`로 폴백(로컬 와이파이 폰 접속 유지).
 - [x] **세션 영속화 → MongoDB Atlas**: `MONGODB_URI`(Render secret) 있으면 Mongo, 없으면 `data/sessions.json` 파일 폴백(로컬 dev). DB 이름 `MONGODB_DB`는 코드 기본값 `kac_translator`(env로 덮어쓰기 가능, DB/컬렉션은 첫 저장 시 자동 생성). 저장 `flushSessions`(debounced replaceOne upsert), 삭제 `deleteSessionStore`(deleteOne). 코드: server.js `loadSessions`/`saveSessions`/`flushSessions`/`deleteSessionStore`.
-- [ ] **접근 제한**: 공개 시 아무나 OpenAI 키를 소모하므로 비밀번호/인증 필요. (미구현)
+- [x] **접근 제한 → 단일 공용 비밀번호**: `APP_PASSWORD`(Render secret) 설정 시 데스크톱에 로그인 페이지(`client/src/components/Login.jsx`). 비번→HttpOnly 쿠키(HMAC 토큰). **호스트만 보호**: `requireAuth` 가 세션 list/create/patch/delete + `/ws/host` 차단. **모바일 뷰어는 공개**: `/ws/viewer`, GET `/api/sessions/:id`, `/api/qr` 는 열림(QR 접속 유지). `APP_PASSWORD` 미설정 시 인증 비활성(로컬). 코드: server.js `isAuthed`/`requireAuth`/`/api/login`·`logout`·`auth-status`.
 - 주의: 무료 티어는 15분 유휴 시 슬립 → 첫 접속 cold start ~30초. WS는 클라가 이미 `wss/ws` 자동 선택(`location.protocol/host`).
 
 ## 주의
