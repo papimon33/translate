@@ -1,6 +1,6 @@
 # Render 배포 설정 (Blueprint).
 # 대시보드에서 New + > Blueprint 로 이 저장소를 연결하면 자동 적용됩니다.
-# sync:false 인 비밀값(OPENAI_API_KEY)은 Render 대시보드에서 직접 입력하세요.
+# sync:false 인 값(OPENAI_API_KEY, MONGODB_URI, MONGODB_DB)은 Render 대시보드에서 직접 입력하세요.
 services:
   - type: web
     name: kac-translator
@@ -13,8 +13,11 @@ services:
     envVars:
       - key: OPENAI_API_KEY
         sync: false          # 대시보드에서 입력
+      - key: MONGODB_URI
+        sync: false          # MongoDB Atlas 연결 문자열, 대시보드에서 입력
+      - key: MONGODB_DB
+        sync: false          # DB 이름, 대시보드에서 입력 (코드 기본값 없음)
       - key: TARGET_LANG
         value: ko
     # 모델(TRANSCRIBE/TRANSLATE/REFINE)은 server.js 에 코드 고정 → 환경변수 불필요.
-    # 세션은 data/sessions.json 파일 저장(무료 티어는 휘발성: 재배포/재시작 시 초기화).
     # PORT 는 Render 가 자동 주입 → server.js 가 process.env.PORT 사용(설정 불필요).
