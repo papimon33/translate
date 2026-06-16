@@ -12,9 +12,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = Number(process.env.PORT || 3000);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const TRANSCRIBE_MODEL = process.env.TRANSCRIBE_MODEL || 'gpt-realtime-whisper';
-const TRANSLATE_MODEL = process.env.TRANSLATE_MODEL || 'gpt-realtime-translate';
-const REFINE_MODEL = process.env.REFINE_MODEL || 'gpt-5-mini';
+// 모델은 코드 고정(환경변수로 안 받음). 바꾸려면 여기서 직접 수정.
+const TRANSCRIBE_MODEL = 'gpt-realtime-whisper';
+const TRANSLATE_MODEL = 'gpt-realtime-translate';
+const REFINE_MODEL = 'gpt-5-mini';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 
 const LANG_NAMES = {
