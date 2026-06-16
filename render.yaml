@@ -10,7 +10,7 @@ services:
     # 무료 티어는 NODE_ENV=production 이라 devDependencies(vite) 가 빠지므로 --include=dev 필수.
     buildCommand: npm install --include=dev && npm run build
     startCommand: node server.js
-    healthCheckPath: /api/sessions
+    healthCheckPath: /health
     envVars:
       - key: OPENAI_API_KEY
         sync: false          # 대시보드에서 입력

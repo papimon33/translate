@@ -236,6 +236,9 @@ app.get('/api/qr', async (req, res) => {
   }
 });
 
+/* 헬스체크 (Render healthCheck / UptimeRobot 슬립 방지용 핑) */
+app.get('/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
+
 /* SPA 폴백: API 외 GET 은 React index.html */
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
