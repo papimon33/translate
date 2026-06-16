@@ -1,0 +1,414 @@
+import React, { useEffect, useRef, useState } from 'react';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Button from '@mui/material/Button';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import Switch from '@mui/material/Switch';
+import Fab from '@mui/material/Fab';
+import Chip from '@mui/material/Chip';
+import LinearProgress from '@mui/material/LinearProgress';
+import Divider from '@mui/material/Divider';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Tooltip from '@mui/material/Tooltip';
+import { alpha } from '@mui/material/styles';
+import { keyframes } from '@mui/system';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import MicNoneIcon from '@mui/icons-material/MicNone';
+import QrCode2Icon from '@mui/icons-material/QrCode2';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import StopIcon from '@mui/icons-material/Stop';
+import { api } from '../api.js';
+import { LANGS, LANG_LABEL } from '../theme.js';
+import { startRecorder } from '../audio.js';
+
+const SRC = [
+  { v: 'mic', label: '마이크' },
+  { v: 'system', label: '시스템' },
+  { v: 'both', label: '모두' },
+];
+const OUT4 = [
+  { code: 'ko', label: '한국어' },
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: '日本語' },
+  { code: 'zh', label: '中文' },
+];
+const PIPES = [
+  { v: 'whisper', label: 'Whisper + GPT 번역' },
+  { v: 'translate', label: 'Translate + GPT 다듬기' },
+];
+
+const pulse = keyframes`
+  0% { box-shadow: 0 0 0 0 rgba(244,63,94,.5); }
+  70% { box-shadow: 0 0 0 16px rgba(244,63,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(244,63,94,0); }
+`;
+
+function Field({ label, children }) {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+      <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.02em' }}>{label}</Typography>
+      {children}
+    </Box>
+  );
+}
+
+const selSx = { '& .MuiSelect-select': { py: 0.85 }, bgcolor: 'background.paper' };
+
+export default function TranslateView({ session: initial, onBack }) {
+  const [cfg, setCfg] = useState({
+    pipeline: initial.pipeline || 'whisper',
+    inLang: initial.inLang || 'auto',
+    langs: initial.langs && initial.langs.length ? initial.langs : [initial.outLang || 'ko'],
+    outLang: initial.outLang || 'ko',
+  });
+  const [dispLang, setDispLang] = useState(initial.outLang || 'ko'); // 화면에 표시할 언어
+  const [sourceMode, setSourceMode] = useState('mic');
+  const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
+  const [messages, setMessages] = useState([]);
+  const [partials, setPartials] = useState({ left: '', right: '' });
+  const [recording, setRecording] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [qr, setQr] = useState(null);
+  const [qrOpen, setQrOpen] = useState(false);
+  const recRef = useRef(null);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    api.get(initial.id).then((s) => {
+      const ls = s.langs && s.langs.length ? s.langs : [s.outLang || 'ko'];
+      setMessages(
+        s.items.map((it) => ({
+          id: it.id,
+          side: it.side,
+          texts: it.texts || (it.text ? { [ls[0]]: it.text } : {}), // 옛 형식 호환
+          source: it.source,
+        }))
+      );
+      setCfg({
+        pipeline: s.pipeline || 'whisper',
+        inLang: s.inLang || 'auto',
+        langs: s.langs && s.langs.length ? s.langs : [s.outLang || 'ko'],
+        outLang: s.outLang || 'ko',
+      });
+      setDispLang(s.outLang || 'ko');
+    });
+    api.qr(initial.id).then(setQr);
+    return () => recRef.current?.stop();
+    // eslint-disable-next-line
+  }, [initial.id]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, partials]);
+
+  const patch = (next) => {
+    setCfg((c) => ({ ...c, ...next }));
+    api.patch(initial.id, next);
+  };
+
+  const onMessage = (m) => {
+    if (m.type === 'partial') {
+      setPartials((p) => ({ ...p, [m.side || 'right']: m.text || '' }));
+    } else if (m.type === 'sentence') {
+      const side = m.side || 'right';
+      setPartials((p) => ({ ...p, [side]: '' }));
+      setMessages((arr) => {
+        const i = arr.findIndex((x) => x.id === m.id);
+        if (i >= 0) {
+          const copy = arr.slice();
+          copy[i] = { ...copy[i], texts: { ...copy[i].texts, ...(m.texts || {}) }, source: m.source ?? copy[i].source };
+          return copy;
+        }
+        return [...arr, { id: m.id, side, texts: m.texts || {}, source: m.source }];
+      });
+    }
+  };
+
+  const start = async () => {
+    try {
+      recRef.current = await startRecorder({
+        sessionId: initial.id,
+        mode: sourceMode,
+        inLang: cfg.inLang,
+        outLang: cfg.outLang,
+        pipeline: cfg.pipeline,
+        refine: true,
+        onMessage,
+        onMeter: (rms) => {
+          const db = 20 * Math.log10(rms + 1e-8);
+          setLevel(Math.max(0, Math.min(100, ((db + 60) / 60) * 100)));
+        },
+      });
+      setRecording(true);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  const stop = () => {
+    recRef.current?.stop();
+    recRef.current = null;
+    setRecording(false);
+    setLevel(0);
+    setPartials({ left: '', right: '' });
+  };
+
+  const toggleSrc = (v) => {
+    setSrcVisible(v);
+    localStorage.setItem('kac-src', v ? '1' : '0');
+  };
+  // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
+  const showSource = cfg.pipeline === 'whisper' && srcVisible;
+  const showPartial = true;
+  const pipeLabel = PIPES.find((p) => p.v === cfg.pipeline)?.label;
+
+  return (
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/* 타이틀 바 */}
+      <Box sx={{ px: 3, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <IconButton onClick={onBack} size="small" sx={{ border: 1, borderColor: 'divider' }}>
+          <ArrowBackIcon fontSize="small" />
+        </IconButton>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 17, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>
+            {initial.title}
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{pipeLabel}</Typography>
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Chip
+          size="small"
+          color={recording ? 'error' : 'default'}
+          variant={recording ? 'filled' : 'outlined'}
+          label={recording ? '● 녹음 중' : '대기'}
+          sx={{ fontWeight: 700 }}
+        />
+        <Tooltip title="모바일로 보기">
+          <IconButton onClick={() => setQrOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
+            <QrCode2Icon />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* 컨트롤 바 */}
+      <Box sx={{ px: 3, pb: 1.5 }}>
+        <Paper
+          variant="outlined"
+          sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: 3, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
+        >
+          <Field label="오디오 소스">
+            <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
+              {SRC.map((s) => (
+                <MenuItem key={s.v} value={s.v}>{s.label}</MenuItem>
+              ))}
+            </Select>
+          </Field>
+          {cfg.pipeline === 'whisper' && (
+            <Field label="입력 언어">
+              <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 120 }}>
+                {LANGS.map((l) => (
+                  <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <Field label="출력 언어">
+            <Select
+              size="small"
+              value={dispLang}
+              disabled={cfg.pipeline === 'translate' && recording}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDispLang(v);
+                if (cfg.pipeline === 'translate') {
+                  setCfg((c) => ({ ...c, outLang: v }));
+                  api.patch(initial.id, { outLang: v }); // translate 타깃 변경
+                }
+              }}
+              sx={{ ...selSx, minWidth: 120 }}
+            >
+              {OUT4.map((l) => (
+                <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>
+              ))}
+            </Select>
+          </Field>
+          <Field label="원어 표시">
+            <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+              <Switch checked={srcVisible} onChange={(e) => toggleSrc(e.target.checked)} />
+            </Box>
+          </Field>
+
+          <Box sx={{ flex: 1 }} />
+
+          <Field label="마이크 입력">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 37 }}>
+              <MicNoneIcon fontSize="small" sx={{ color: level > 2 ? 'success.main' : 'text.disabled' }} />
+              <LinearProgress
+                variant="determinate"
+                value={level}
+                color="success"
+                sx={{ width: 90, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }}
+              />
+            </Box>
+          </Field>
+        </Paper>
+      </Box>
+
+      <Divider />
+
+      {/* 채팅 */}
+      <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <Box ref={scrollRef} sx={{ position: 'absolute', inset: 0, overflowY: 'auto', px: 3, py: 3, pb: 16 }}>
+          <Box sx={{ maxWidth: 880, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 1.75 }}>
+            {messages.length === 0 && !partials.left && !partials.right && (
+              <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
+                <PlayArrowIcon sx={{ fontSize: 40, opacity: 0.4 }} />
+                <Typography sx={{ fontSize: 14, mt: 1 }}>아래 재생 버튼을 누르고 말하면 번역이 표시됩니다.</Typography>
+              </Box>
+            )}
+            {messages.map((m) => {
+              // 선택 언어만 표시(다른 언어로 대체하지 않음). 아직 없으면 원문을 placeholder 로.
+              const t = m.texts ? m.texts[dispLang] || '' : '';
+              return <Row key={m.id} side={m.side} text={t} source={m.source} showSource={showSource} />;
+            })}
+            {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
+            {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
+          </Box>
+        </Box>
+
+        {/* 하단 그라데이션 + FAB */}
+        <Box
+          sx={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: 130,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+            background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
+          }}
+        >
+          <Tooltip title={recording ? '중지' : '녹음 시작'}>
+            <Fab
+              color="error"
+              onClick={recording ? stop : start}
+              sx={{ pointerEvents: 'auto', width: 60, height: 60, animation: recording ? `${pulse} 1.6s infinite` : 'none' }}
+              aria-label={recording ? '중지' : '시작'}
+            >
+              {recording ? <StopIcon /> : <PlayArrowIcon sx={{ fontSize: 30 }} />}
+            </Fab>
+          </Tooltip>
+        </Box>
+      </Box>
+
+      <Dialog open={qrOpen} onClose={() => setQrOpen(false)}>
+        <DialogTitle sx={{ fontWeight: 800 }}>모바일로 보기</DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', pb: 3 }}>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
+            같은 와이파이의 휴대폰으로 QR을 스캔하세요.
+          </Typography>
+          {qr ? (
+            <>
+              <Box component="img" src={qr.qr} alt="QR" sx={{ width: 230, bgcolor: '#fff', borderRadius: 3, p: 1 }} />
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1.5, wordBreak: 'break-all' }}>{qr.url}</Typography>
+            </>
+          ) : (
+            '생성 중...'
+          )}
+        </DialogContent>
+      </Dialog>
+    </Box>
+  );
+}
+
+// CJK 는 2칸으로 세는 시각적 길이
+function isWide(c) {
+  return /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(c);
+}
+// 한 줄(약 CAPV 시각폭)을 넘으면 '지우고 처음부터' 보이도록, 마지막 구간만 반환
+function oneLineReset(text) {
+  const CAPV = 66;
+  let segStart = 0;
+  let v = 0;
+  for (let i = 0; i < text.length; i++) {
+    const w = isWide(text[i]) ? 2 : 1;
+    if (v + w > CAPV) {
+      segStart = i;
+      v = w;
+    } else {
+      v += w;
+    }
+  }
+  return text.slice(segStart);
+}
+
+// 진행 중 원어/번역: 항상 한 줄, 넘치면 비우고 처음부터
+function PartialLine({ side, text }) {
+  if (!text) return null;
+  const right = side === 'right';
+  return (
+    <Box sx={{ display: 'flex', justifyContent: right ? 'flex-end' : 'flex-start' }}>
+      <Box
+        sx={{
+          maxWidth: '76%',
+          minWidth: 0,
+          textAlign: right ? 'right' : 'left',
+          pl: right ? 0 : 1.75,
+          pr: right ? 1.75 : 0,
+          opacity: 0.6,
+          overflow: 'hidden',
+          ...(right
+            ? { borderRight: '3px solid', borderColor: 'primary.main' }
+            : { borderLeft: '3px solid', borderColor: 'divider' }),
+        }}
+      >
+        <Typography
+          noWrap
+          sx={{ fontSize: 18, lineHeight: 1.6, fontStyle: 'italic', color: 'text.secondary', overflow: 'hidden' }}
+        >
+          {oneLineReset(text)}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+// 데스크톱: 선택된 단일 언어를 표시
+function Row({ side, text, source, showSource }) {
+  const right = side === 'right';
+  const pending = !text && !!source; // 선택 언어 번역 대기 중 → 원문을 흐리게
+  const mainText = pending ? source : text;
+  const subSource = showSource ? source : null;
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: right ? 'flex-end' : 'flex-start' }}>
+      <Box
+        sx={{
+          maxWidth: '78%',
+          textAlign: right ? 'right' : 'left',
+          pl: right ? 0 : 1.75,
+          pr: right ? 1.75 : 0,
+          ...(right
+            ? { borderRight: '3px solid', borderColor: 'primary.main' }
+            : { borderLeft: '3px solid', borderColor: 'divider' }),
+        }}
+      >
+        <Typography
+          sx={{
+            fontSize: 18,
+            lineHeight: 1.55,
+            fontWeight: 500,
+            color: pending ? 'text.secondary' : right ? 'primary.main' : 'text.primary',
+            fontStyle: pending ? 'italic' : 'normal',
+          }}
+        >
+          {mainText}
+        </Typography>
+        {pending && <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
+        {subSource && !pending && (
+          <Typography sx={{ fontSize: 13, color: 'text.disabled', lineHeight: 1.45, mt: 0.5 }}>{source}</Typography>
+        )}
+      </Box>
+    </Box>
+  );
+}
