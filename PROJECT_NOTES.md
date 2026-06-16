@@ -44,7 +44,7 @@
 ## 배포 (Render + MongoDB Atlas)
 - [x] **Render 설정**: `render.yaml`(Blueprint). plan=free, build `npm install --include=dev && npm run build`(무료티어 NODE_ENV=production이라 vite devDep 빠짐 방지), start `node server.js`. PORT는 Render 자동 주입.
 - [x] **QR public 도메인**: `/api/qr`가 요청 `x-forwarded-proto`/`x-forwarded-host`(Render 프록시) 사용. localhost/사설IP 접속이면 `getLanIp()`로 폴백(로컬 와이파이 폰 접속 유지).
-- [x] **세션 DB → MongoDB Atlas**: `MONGODB_URI` 있으면 Mongo, 없으면 `data/sessions.json` 파일 폴백(로컬 dev 무변경). 저장은 `flushSessions`(활성 세션 debounced replaceOne upsert), 삭제는 `deleteSessionStore`(Mongo deleteOne). 메모리 `sessions` 배열이 진실의 원천. 코드: server.js `loadSessions`/`saveSessions`/`flushSessions`/`deleteSessionStore`.
+- [ ] **세션 영속화**: 현재 `data/sessions.json` 파일 저장(server.js `loadSessions`/`saveSessions`). **무료 티어는 파일이 휘발성** → 재배포·재시작 시 세션 초기화됨. 유지하려면 Render 유료 디스크 or 외부 DB 필요(MongoDB Atlas 연동은 사용자 요청으로 제거함).
 - [ ] **접근 제한**: 공개 시 아무나 OpenAI 키를 소모하므로 비밀번호/인증 필요. (미구현)
 - 주의: 무료 티어는 15분 유휴 시 슬립 → 첫 접속 cold start ~30초. WS는 클라가 이미 `wss/ws` 자동 선택(`location.protocol/host`).
 
