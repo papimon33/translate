@@ -878,12 +878,14 @@ function handleHost(ws) {
   };
   // 문장 항목: texts = { 언어코드: 번역문 }. 같은 id 로 여러 번 호출하면 언어별로 병합됨.
   const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, terms: item.terms || {} });
-  // 완성 문장의 언어별 텍스트에서 용어집 매칭 구간 계산
+  // 완성 문장의 텍스트에서 용어집 매칭 구간 계산 (translate 파이프라인 + 한글만)
   const computeTerms = (item) => {
     const terms = {};
-    for (const [lang, txt] of Object.entries(item.texts || {})) {
-      const spans = annotate(txt);
-      if (spans.length) terms[lang] = spans;
+    if (pipeline === 'translate') {
+      for (const [lang, txt] of Object.entries(item.texts || {})) {
+        const spans = annotate(txt);
+        if (spans.length) terms[lang] = spans;
+      }
     }
     item.terms = terms;
   };

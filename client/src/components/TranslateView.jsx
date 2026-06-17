@@ -71,6 +71,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [dispLang, setDispLang] = useState(initial.outLang || 'ko'); // 화면에 표시할 언어
   const [sourceMode, setSourceMode] = useState('mic');
   const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
+  const [glossOn, setGlossOn] = useState(localStorage.getItem('kac-gloss') !== '0');
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -251,6 +252,19 @@ export default function TranslateView({ session: initial, onBack }) {
               <Switch checked={srcVisible} onChange={(e) => toggleSrc(e.target.checked)} />
             </Box>
           </Field>
+          {cfg.pipeline === 'translate' && (
+            <Field label="용어집">
+              <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+                <Switch
+                  checked={glossOn}
+                  onChange={(e) => {
+                    setGlossOn(e.target.checked);
+                    localStorage.setItem('kac-gloss', e.target.checked ? '1' : '0');
+                  }}
+                />
+              </Box>
+            </Field>
+          )}
 
           <Box sx={{ flex: 1 }} />
 
@@ -282,8 +296,15 @@ export default function TranslateView({ session: initial, onBack }) {
             )}
             {messages.map((m) => {
               // 선택 언어만 표시(다른 언어로 대체하지 않음). 아직 없으면 원문을 placeholder 로.
-              const t = m.texts ? m.texts[dispLang] || '' : '';
-              const spans = m.terms ? m.terms[dispLang] : null;
+              // translate 는 항목당 1개 언어만 저장 → 출력언어 변경 시 기존 메시지가 사라지지
+              // 않도록 보유 텍스트로 폴백. whisper 는 선택 언어만(대체 X).
+              let t = m.texts ? m.texts[dispLang] || '' : '';
+              let usedLang = dispLang;
+              if (!t && cfg.pipeline === 'translate' && m.texts) {
+                const keys = Object.keys(m.texts);
+                if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
+              }
+              const spans = glossOn && m.terms ? m.terms[usedLang] : null;
               return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
@@ -410,7 +431,28 @@ function HighlightedText({ text, spans }) {
   spans.forEach((sp, k) => {
     if (sp.start > pos) out.push(text.slice(pos, sp.start));
     out.push(
-      <Tooltip key={k} title={sp.meaning || sp.term} arrow placement="top">
+      <Tooltip
+        key={k}
+        arrow
+        placement="top"
+        title={
+          <Box sx={{ py: 0.25 }}>
+            <Box sx={{ fontWeight: 800, fontSize: 13, mb: 0.5 }}>{sp.term}</Box>
+            <Box sx={{ fontSize: 12.5, lineHeight: 1.6, fontWeight: 400 }}>{sp.meaning}</Box>
+          </Box>
+        }
+        slotProps={{
+          tooltip: {
+            sx: {
+              maxWidth: 320,
+              wordBreak: 'keep-all', // 한글 단어 단위 줄바꿈
+              bgcolor: 'rgba(33,37,48,0.97)',
+              px: 1.5,
+              py: 1,
+            },
+          },
+        }}
+      >
         <Box
           component="span"
           sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationThickness: '1.5px', cursor: 'help' }}
@@ -448,7 +490,7 @@ function Row({ side, text, spans, source, showSource }) {
           sx={{
             fontSize: 18,
             lineHeight: 1.55,
-            fontWeight: 100,
+            fontWeight: 300,
             color: pending ? 'text.secondary' : right ? 'primary.main' : 'text.primary',
             fontStyle: pending ? 'italic' : 'normal',
           }}

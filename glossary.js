@@ -13,13 +13,12 @@ function isAlnum(ch) {
   return !!ch && /[A-Za-z0-9]/.test(ch);
 }
 
-// rows: [{ en, ko, meaning }]
+// rows: [{ en, ko, meaning }] — 한글 용어만 매칭(부분 일치). 영문은 매칭하지 않음.
 export function setGlossary(rows) {
   patterns = [];
   count = 0;
   for (const r of rows || []) {
     const meaning = (r.meaning || '').trim();
-    if (r.en && r.en.trim()) patterns.push({ orig: r.en.trim(), norm: r.en.trim().toLowerCase(), meaning, lang: 'en' });
     if (r.ko && r.ko.trim()) patterns.push({ orig: r.ko.trim(), norm: r.ko.trim().toLowerCase(), meaning, lang: 'ko' });
   }
   patterns.forEach((p) => (p.len = p.norm.length));

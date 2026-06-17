@@ -130,6 +130,7 @@ const cards = new Map(); // id -> {el, line, src, texts, source}
 let order = []; // 표시 순서 id 목록
 let latestId = null;
 let curLang = 'ko';
+let sessionPipeline = 'whisper';
 
 /* ---- 설정 저장값 ---- */
 function applyTheme(t){ document.documentElement.setAttribute('data-theme', t); localStorage.setItem('kac-theme', t); $('darkToggle').checked = (t==='dark'); }
@@ -146,8 +147,9 @@ applyFs();
 /* ---- 언어 select (항상 한·영·일·중) ---- */
 async function loadSession(){
   let title = 'KAC Translator';
-  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s && s.title) title = s.title; } catch {}
+  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; } } catch {}
   titleEl.textContent = title;
+  rerender();
   const saved = localStorage.getItem('kac-mlang-'+sessionId);
   curLang = (saved && ALL4.includes(saved)) ? saved : 'ko';
   langSel.innerHTML='';
@@ -163,8 +165,13 @@ async function loadQr(){
   } catch {}
 }
 
-// 선택 언어만 표시(다른 언어로 대체하지 않음)
-function pick(texts){ return (texts && texts[curLang]) ? texts[curLang] : ''; }
+// whisper: 선택 언어만 표시(대체 X). translate: 1개 언어만 저장 → 보유 텍스트로 폴백.
+function pick(texts){
+  if(!texts) return '';
+  if(texts[curLang]) return texts[curLang];
+  if(sessionPipeline === 'translate'){ const k=Object.keys(texts); if(k.length) return texts[k[0]]; }
+  return '';
+}
 function atBottom(){ return document.body.scrollHeight - window.scrollY - window.innerHeight < 160; }
 function scrollDown(){ window.scrollTo(0, document.body.scrollHeight); }
 
