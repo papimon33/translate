@@ -52,6 +52,7 @@ const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 const GLOSSARY_FILE = path.join(DATA_DIR, 'glossary.json'); // 로컬 폴백(공개 repo에 안 올림)
+const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
@@ -60,10 +61,12 @@ let users = [];     // 생성된 사용자 { id, username, salt, hash, role, cre
 let usageDaily = {}; // { 'YYYY-MM-DD': { whisperMs, translateMs } } — 파이프라인별 사용시간 일별 집계
 let glossaryRows = []; // [{ en, ko, meaning }] — 용어집(공개 repo 미커밋, Mongo/파일 저장)
 let glossaryUpdatedAt = 0;
+let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
 let glossaryCol = null;
+let summariesCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
@@ -76,15 +79,18 @@ async function loadStore() {
       usersCol = db.collection('users');
       usageCol = db.collection('usageDaily');
       glossaryCol = db.collection('glossary');
+      summariesCol = db.collection('summaries');
       await col.createIndex({ id: 1 }, { unique: true });
       await usersCol.createIndex({ id: 1 }, { unique: true });
       await usageCol.createIndex({ date: 1 }, { unique: true });
+      await summariesCol.createIndex({ id: 1 }, { unique: true });
       sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
       users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
       const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
       usageDaily = {};
       rows.forEach((r) => (usageDaily[r.date] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
       glossaryRows = await glossaryCol.find({}, { projection: { _id: 0 } }).toArray();
+      summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
       console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length} / 용어 ${glossaryRows.length}`);
       return;
     } catch (e) {
@@ -93,6 +99,7 @@ async function loadStore() {
       usersCol = null;
       usageCol = null;
       glossaryCol = null;
+      summariesCol = null;
     }
   }
   try {
@@ -112,6 +119,10 @@ async function loadStore() {
     if (fs.existsSync(GLOSSARY_FILE)) {
       const g = JSON.parse(fs.readFileSync(GLOSSARY_FILE, 'utf8'));
       if (Array.isArray(g)) glossaryRows = g;
+    }
+    if (fs.existsSync(SUMMARIES_FILE)) {
+      const s = JSON.parse(fs.readFileSync(SUMMARIES_FILE, 'utf8'));
+      if (Array.isArray(s)) summaries = s;
     }
   } catch (e) {
     console.error('[store] 로드 실패', e);
@@ -221,6 +232,40 @@ async function flushUsage() {
 await loadStore();
 setGlossary(glossaryRows); // 부팅 시 자동자 구성
 if (glossaryRows.length) console.log(`[glossary] 용어 ${glossaryRows.length}행 → 패턴 ${glossarySize()}개`);
+
+/* ---- AI 요약 저장 ---- */
+let summarySaveTimer = null;
+function saveSummaries() {
+  if (summarySaveTimer) return;
+  summarySaveTimer = setTimeout(() => {
+    summarySaveTimer = null;
+    flushSummaries().catch((e) => console.error('[summary] 저장 실패', e));
+  }, 300);
+}
+async function flushSummaries() {
+  if (summariesCol) {
+    if (!summaries.length) return;
+    const ops = summaries.map((s) => ({ replaceOne: { filter: { id: s.id }, replacement: s, upsert: true } }));
+    await summariesCol.bulkWrite(ops, { ordered: false });
+  } else {
+    fs.writeFileSync(SUMMARIES_FILE, JSON.stringify(summaries, null, 2));
+  }
+}
+async function deleteSummaryStore(id) {
+  if (summariesCol) {
+    try { await summariesCol.deleteOne({ id }); } catch (e) { console.error('[summary] 삭제 실패', e); }
+  } else {
+    saveSummaries();
+  }
+}
+// 서버 재시작으로 중단된 '요약중'은 실패로 표시(무한 스피너 방지, 재시도 가능)
+{
+  let changed = false;
+  for (const s of summaries) {
+    if (s.status === 'pending') { s.status = 'error'; s.error = '서버 재시작으로 중단되었습니다. 다시 시도해 주세요.'; s.updatedAt = Date.now(); changed = true; }
+  }
+  if (changed) saveSummaries();
+}
 
 /* ---- 용어집 저장 + CSV 파싱 ---- */
 async function persistGlossary() {
@@ -501,6 +546,137 @@ app.post('/api/admin/glossary', requireAdmin, async (req, res) => {
     console.error('[glossary] 저장 실패', e);
   }
   res.json({ count: glossaryRows.length, patterns: glossarySize(), updatedAt: glossaryUpdatedAt });
+});
+
+/* ================================================================== */
+/*  AI 요약 (gpt-5-nano) — 세션 전문을 체계적으로 요약                   */
+/* ================================================================== */
+const SUMMARY_MODEL = 'gpt-5-nano';
+const SUMMARY_SYS =
+  `너는 회의·대화 기록 요약 전문가다. 주어진 전사/번역 전문을 바탕으로 한국어로 체계적이고 자세한 요약을 작성한다.\n` +
+  `규칙:\n` +
+  `- 요약 본문만 출력한다. "다음은 요약입니다" 같은 머리말·맺음말·메타발언을 절대 넣지 않는다.\n` +
+  `- 소제목(## )과 불릿(- )으로 체계적으로 정리한다. 핵심 주제, 주요 논의·결정사항, 수치·일정·담당자 등 구체 정보, (있다면) 후속 조치를 빠짐없이 담는다.\n` +
+  `- 전문에 없는 내용을 지어내지 않는다. 불확실한 건 추정하지 않는다.\n` +
+  `- 자세하되 군더더기 없이 정보 밀도 높게 작성한다.`;
+const SUMMARY_MAX_INPUT = 16000; // 단일 호출 입력 문자 한도
+const SUMMARY_CHUNK = 12000;
+
+async function chatComplete(system, user, maxTokens) {
+  const body = {
+    model: SUMMARY_MODEL,
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    max_completion_tokens: maxTokens,
+  };
+  if (/^gpt-5/.test(SUMMARY_MODEL)) body.reasoning_effort = 'low';
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error('OpenAI ' + r.status + ': ' + (await r.text()).slice(0, 160));
+  const data = await r.json();
+  const txt = data?.choices?.[0]?.message?.content?.trim();
+  if (!txt) throw new Error('빈 응답');
+  return txt;
+}
+function sessionTranscript(session) {
+  const lines = [];
+  for (const it of session.items || []) {
+    let t = it.texts ? it.texts.ko || Object.values(it.texts)[0] || '' : it.text || '';
+    t = (t || '').trim();
+    if (t) lines.push(t);
+  }
+  return lines.join('\n');
+}
+async function summarizeTranscript(transcript) {
+  const text = transcript.trim();
+  if (text.length <= SUMMARY_MAX_INPUT) {
+    return await chatComplete(SUMMARY_SYS, `다음 전문을 요약하라:\n\n${text}`, 2000);
+  }
+  // 길면 청크별 핵심 노트 → 통합 요약(map-reduce)
+  const chunks = [];
+  let cur = '';
+  for (const ln of text.split('\n')) {
+    if ((cur + '\n' + ln).length > SUMMARY_CHUNK && cur) { chunks.push(cur); cur = ln; }
+    else cur = cur ? cur + '\n' + ln : ln;
+  }
+  if (cur) chunks.push(cur);
+  const notesSys = '다음 회의 전문 일부에서 핵심 정보(주제, 논의·결정, 수치·일정·담당, 후속조치)를 불릿으로 빠짐없이 정리하라. 머리말 없이 불릿만 출력.';
+  const notes = [];
+  for (let i = 0; i < chunks.length; i++) {
+    notes.push(await chatComplete(notesSys, `(${i + 1}/${chunks.length})\n\n${chunks[i]}`, 1200));
+  }
+  let combined = notes.join('\n');
+  if (combined.length > SUMMARY_MAX_INPUT) combined = combined.slice(0, SUMMARY_MAX_INPUT);
+  return await chatComplete(SUMMARY_SYS, `다음은 회의 각 구간의 핵심 노트다. 이를 종합해 전체 요약을 작성하라:\n\n${combined}`, 2500);
+}
+async function runSummary(rec, transcript) {
+  try {
+    const summary = await summarizeTranscript(transcript);
+    rec.status = 'done';
+    rec.summary = summary;
+    rec.error = '';
+  } catch (e) {
+    rec.status = 'error';
+    rec.error = e && e.message ? String(e.message).slice(0, 300) : '요약 실패';
+    console.error('[summary] 실패', e);
+  }
+  rec.updatedAt = Date.now();
+  saveSummaries();
+}
+function pubSummary(s, withBody) {
+  const o = { id: s.id, sessionId: s.sessionId, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, status: s.status, error: s.error || '' };
+  if (withBody) o.summary = s.summary || '';
+  return o;
+}
+
+app.get('/api/summaries', requireAuth, (req, res) => {
+  const list = summaries
+    .filter((s) => s.owner === req.user.id)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((s) => pubSummary(s, false));
+  res.json(list);
+});
+app.get('/api/summaries/:id', requireAuth, (req, res) => {
+  const s = summaries.find((x) => x.id === req.params.id);
+  if (!s || s.owner !== req.user.id) return res.status(404).json({ error: 'not found' });
+  res.json(pubSummary(s, true));
+});
+app.post('/api/summaries', requireAuth, (req, res) => {
+  const sessionId = String((req.body && req.body.sessionId) || '');
+  const session = getSession(sessionId);
+  if (!session) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' });
+  if (session.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const transcript = sessionTranscript(session);
+  const now = Date.now();
+  // 세션당 1개 — 기존 레코드 재사용(재생성/재시도 시 덮어쓰기)
+  let rec = summaries.find((s) => s.sessionId === sessionId && s.owner === req.user.id);
+  if (!rec) { rec = { id: newId(), sessionId, owner: req.user.id, createdAt: now }; summaries.push(rec); }
+  rec.title = session.title || '(제목 없음)';
+  rec.updatedAt = now;
+  rec.summary = '';
+  rec.error = '';
+  if (transcript.trim().length < 10) {
+    rec.status = 'error';
+    rec.error = '요약할 내용이 부족합니다.';
+    saveSummaries();
+    return res.json(pubSummary(rec, false));
+  }
+  rec.status = 'pending';
+  saveSummaries();
+  runSummary(rec, transcript); // 비동기 백그라운드 처리(화면 이탈해도 진행)
+  res.json(pubSummary(rec, false));
+});
+app.delete('/api/summaries/:id', requireAuth, (req, res) => {
+  const i = summaries.findIndex((s) => s.id === req.params.id);
+  if (i >= 0) {
+    if (summaries[i].owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    const id = summaries[i].id;
+    summaries.splice(i, 1);
+    deleteSummaryStore(id);
+  }
+  res.json({ ok: true });
 });
 
 /* ---- 세션 REST API ---- */

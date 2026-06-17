@@ -63,6 +63,13 @@
 - **매칭 시점**: 문장 확정(`upsertItem`)에서 `computeTerms`가 언어별 텍스트를 annotate → `item.terms={lang:[{start,end,term,meaning}]}`. WS `sentence`/`snapshot` 메시지 + 저장에 포함.
 - **렌더**: 데스크톱 `TranslateView` `HighlightedText`(굵게+밑줄, MUI Tooltip 해설). 모바일 `mobile.html` `renderLine`(굵게+밑줄, **탭하면 해설 팝업** `.termpop`). 검증: ko "계류장"+en "APRON 2" 하이라이트·툴팁 확인.
 
+## AI 요약 (gpt-5-nano)
+- 세션 케밥 'AI 요약' → `POST /api/summaries {sessionId}` → 서버가 **비동기 백그라운드**로 요약(화면 이탈해도 진행). 세션당 1개(재요청 시 덮어쓰기/재시도).
+- 요약 로직(server.js): `sessionTranscript`(ko 우선) → `summarizeTranscript`. 16000자 초과면 **map-reduce**(청크별 노트→통합). 프롬프트 `SUMMARY_SYS`(머리말 없이 본문만, ##/불릿, 지어내기 금지). 전문<10자면 즉시 `error`.
+- 상태 `pending|done|error`. 서버 재시작 시 `pending`→`error`(무한 스피너 방지). 저장: Mongo `summaries`/파일 `data/summaries.json`, 사용자별.
+- 라우트: `GET /api/summaries`(목록·본문 제외), `GET /:id`(본문 포함), `POST`(생성/재생성), `DELETE`.
+- 프론트: Nav 'AI 요약' → `SummaryPage`(목록 최신순, 상태뱃지 요약중/완료/실패, 폴링 3s, 검색, 빈상태, 펼치면 본문+복사·다운로드, 실패 시 재시도, 삭제).
+
 ## 주의
 - OpenAI 실시간 모델은 **GA API** 사용(베타 헤더 X). `gpt-realtime-translate`는 `/v1/realtime/translations` 전용 엔드포인트.
 - OpenAI 비용은 호스팅과 별개로 항상 발생(음성 모델). whisch 다국어는 전사 1회 + 언어당 텍스트 번역.

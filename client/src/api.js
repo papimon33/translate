@@ -41,6 +41,19 @@ export const api = {
 
   adminUsers: () => fetch('/api/admin/users').then(json),
   adminUsage: () => fetch('/api/admin/usage').then(json),
+  summaries: () => fetch('/api/summaries').then(json),
+  summary: (id) => fetch('/api/summaries/' + id).then(json),
+  createSummary: (sessionId) =>
+    fetch('/api/summaries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '요약 시작 실패');
+      return r.json();
+    }),
+  deleteSummary: (id) => fetch('/api/summaries/' + id, { method: 'DELETE' }).then(json),
+
   adminGlossary: () => fetch('/api/admin/glossary').then(json),
   adminUploadGlossary: (csv) =>
     fetch('/api/admin/glossary', {

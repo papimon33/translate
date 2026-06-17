@@ -20,7 +20,10 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Select from '@mui/material/Select';
 import { alpha } from '@mui/material/styles';
 import { MULTI_LANGS, OUT_LANGS } from '../theme.js';
+import Snackbar from '@mui/material/Snackbar';
+import MuiAlert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
@@ -44,6 +47,7 @@ export default function SessionList({ onOpen }) {
   const [name, setName] = useState('');
   const [pipeline, setPipeline] = useState('whisper');
   const [menu, setMenu] = useState(null);
+  const [snack, setSnack] = useState(null);
 
   const reload = () => api.list().then(setList);
   useEffect(() => {
@@ -84,6 +88,16 @@ export default function SessionList({ onOpen }) {
     if (!confirm('이 세션을 삭제할까요?')) return;
     await api.remove(id);
     reload();
+  };
+  const summarize = async () => {
+    const s = menu.session;
+    setMenu(null);
+    try {
+      await api.createSummary(s.id);
+      setSnack({ ok: true, msg: 'AI 요약을 시작했습니다. ‘AI 요약’ 메뉴에서 진행 상태를 확인하세요.' });
+    } catch (e) {
+      setSnack({ ok: false, msg: e.message || '요약 시작 실패' });
+    }
   };
 
   const empty = list && list.length === 0;
@@ -169,6 +183,12 @@ export default function SessionList({ onOpen }) {
       </Box>
 
       <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
+        <MenuItem onClick={summarize}>
+          <ListItemIcon>
+            <AutoAwesomeIcon fontSize="small" />
+          </ListItemIcon>
+          AI 요약
+        </MenuItem>
         <MenuItem onClick={exportSession}>
           <ListItemIcon>
             <DownloadIcon fontSize="small" />
@@ -225,6 +245,19 @@ export default function SessionList({ onOpen }) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={!!snack}
+        autoHideDuration={4000}
+        onClose={() => setSnack(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {snack ? (
+          <MuiAlert elevation={6} variant="filled" severity={snack.ok ? 'success' : 'error'} onClose={() => setSnack(null)}>
+            {snack.msg}
+          </MuiAlert>
+        ) : undefined}
+      </Snackbar>
     </>
   );
 }
