@@ -16,6 +16,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Alert from '@mui/material/Alert';
+import Tooltip from '@mui/material/Tooltip';
+import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import { api } from '../api.js';
@@ -28,15 +30,57 @@ function fmtDuration(ms) {
   if (m > 0) return `${m}분 ${s % 60}초`;
   return `${s}초`;
 }
+function fmtCost(usd) {
+  return '$' + (usd || 0).toFixed(usd >= 1 ? 2 : 4);
+}
+function fmtNum(n) {
+  return (n || 0).toLocaleString('en-US');
+}
+
+function DailyChart({ daily }) {
+  const data = (daily || []).slice(-14);
+  if (!data.length) {
+    return (
+      <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 4, textAlign: 'center' }}>
+        아직 사용량 데이터가 없습니다. 번역을 실행하면 집계됩니다.
+      </Typography>
+    );
+  }
+  const max = Math.max(...data.map((d) => d.cost), 1e-9);
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 160, mt: 1 }}>
+      {data.map((d) => (
+        <Box key={d.date} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+          <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{fmtCost(d.cost)}</Typography>
+          <Tooltip title={`${d.date} · ${fmtNum(d.tokens)} 토큰 · ${fmtCost(d.cost)}`}>
+            <Box
+              sx={{
+                width: '70%',
+                height: `${Math.max(2, (d.cost / max) * 110)}px`,
+                borderRadius: 1,
+                background: (t) => `linear-gradient(180deg, ${t.palette.primary.main}, ${alpha(t.palette.primary.main, 0.5)})`,
+              }}
+            />
+          </Tooltip>
+          <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{d.date.slice(5)}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
 
 export default function AdminPage() {
   const [list, setList] = useState(null);
+  const [usage, setUsage] = useState(null);
   const [dlg, setDlg] = useState(false);
   const [form, setForm] = useState({ id: '', username: '', password: '' });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const reload = () => api.adminUsers().then(setList).catch(() => setList([]));
+  const reload = () => {
+    api.adminUsers().then(setList).catch(() => setList([]));
+    api.adminUsage().then(setUsage).catch(() => setUsage(null));
+  };
   useEffect(() => {
     reload();
   }, []);
@@ -86,6 +130,30 @@ export default function AdminPage() {
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: 4 }}>
         <Box sx={{ maxWidth: 920, mx: 'auto' }}>
+          {/* 토큰 사용 비용 대시보드 */}
+          <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
+              <Box>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>총 토큰 사용 비용</Typography>
+                <Typography sx={{ fontSize: 32, fontWeight: 800, color: 'primary.main', lineHeight: 1.2 }}>
+                  {usage ? fmtCost(usage.totalCost) : '—'}
+                </Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  {usage ? `${fmtNum(usage.totalTokens)} 토큰` : ''}
+                </Typography>
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 280 }}>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>일별 사용 비용 (최근 14일)</Typography>
+                <DailyChart daily={usage?.daily} />
+              </Box>
+            </Box>
+            {usage && (
+              <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 2 }}>
+                ※ GPT 번역 토큰 기준 추정치 (입력 ${usage.priceIn}/1M · 출력 ${usage.priceOut}/1M). 실시간 음성 비용은 별도이며 미포함.
+              </Typography>
+            )}
+          </Paper>
+
           <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
             <Table>
               <TableHead>

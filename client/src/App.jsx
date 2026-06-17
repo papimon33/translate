@@ -92,6 +92,7 @@ export default function App() {
             setView('admin');
           }}
           onLogout={logout}
+          onUserUpdate={(u) => setUser(u)}
         />
         <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           {main}

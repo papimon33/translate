@@ -49,13 +49,16 @@ const server = http.createServer(app);
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
 let sessions = [];  // 메모리 캐시(항상 진실의 원천)
 let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
+let usageDaily = {}; // { 'YYYY-MM-DD': { inTokens, outTokens } } — GPT 번역 토큰 일별 집계
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
+let usageCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
@@ -66,16 +69,22 @@ async function loadStore() {
       const db = client.db(MONGODB_DB);
       col = db.collection('sessions');
       usersCol = db.collection('users');
+      usageCol = db.collection('usageDaily');
       await col.createIndex({ id: 1 }, { unique: true });
       await usersCol.createIndex({ id: 1 }, { unique: true });
+      await usageCol.createIndex({ date: 1 }, { unique: true });
       sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
       users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
+      const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
+      usageDaily = {};
+      rows.forEach((r) => (usageDaily[r.date] = { inTokens: r.inTokens || 0, outTokens: r.outTokens || 0 }));
       console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
       return;
     } catch (e) {
       console.error('[store] MongoDB 연결 실패 — 로컬 파일 모드로 폴백', e);
       col = null;
       usersCol = null;
+      usageCol = null;
     }
   }
   try {
@@ -87,6 +96,10 @@ async function loadStore() {
     if (fs.existsSync(USERS_FILE)) {
       users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
       if (!Array.isArray(users)) users = [];
+    }
+    if (fs.existsSync(USAGE_FILE)) {
+      const u = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8'));
+      if (u && typeof u === 'object') usageDaily = u;
     }
   } catch (e) {
     console.error('[store] 로드 실패', e);
@@ -153,6 +166,46 @@ async function deleteUserStore(id) {
     }
   } else {
     saveUsers();
+  }
+}
+
+/* ---- 토큰 사용량(일별) 집계 + 비용 ---- */
+// 가격(USD per 1M tokens). 모델 가격에 맞춰 환경변수로 조정. 기본값은 gpt-5-mini 가정치.
+const PRICE_IN_PER_1M = Number(process.env.PRICE_IN_PER_1M || 0.25);
+const PRICE_OUT_PER_1M = Number(process.env.PRICE_OUT_PER_1M || 2);
+function costOf(inT, outT) {
+  return (inT / 1e6) * PRICE_IN_PER_1M + (outT / 1e6) * PRICE_OUT_PER_1M;
+}
+function dateKey() {
+  return new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
+}
+function recordTokens(usage) {
+  if (!usage) return;
+  const inT = usage.prompt_tokens || usage.input_tokens || 0;
+  const outT = usage.completion_tokens || usage.output_tokens || 0;
+  if (!inT && !outT) return;
+  const k = dateKey();
+  const d = usageDaily[k] || (usageDaily[k] = { inTokens: 0, outTokens: 0 });
+  d.inTokens += inT;
+  d.outTokens += outT;
+  saveUsage();
+}
+let usageSaveTimer = null;
+function saveUsage() {
+  if (usageSaveTimer) return;
+  usageSaveTimer = setTimeout(() => {
+    usageSaveTimer = null;
+    flushUsage().catch((e) => console.error('[usage] 저장 실패', e));
+  }, 1000);
+}
+async function flushUsage() {
+  if (usageCol) {
+    const ops = Object.entries(usageDaily).map(([date, v]) => ({
+      replaceOne: { filter: { date }, replacement: { date, inTokens: v.inTokens, outTokens: v.outTokens }, upsert: true },
+    }));
+    if (ops.length) await usageCol.bulkWrite(ops, { ordered: false });
+  } else {
+    fs.writeFileSync(USAGE_FILE, JSON.stringify(usageDaily, null, 2));
   }
 }
 
@@ -264,6 +317,21 @@ app.get('/api/me', (req, res) => {
   const u = currentUser(req);
   res.json({ user: u ? { id: u.id, username: u.username, role: u.role } : null });
 });
+// 본인 정보 변경: ID 불가, 사용자명·비밀번호 변경(비번은 password/passwordConfirm 일치 확인).
+app.patch('/api/me', requireAuth, (req, res) => {
+  if (req.user.role === 'admin') return res.status(400).json({ error: '관리자 계정은 환경변수로 관리됩니다.' });
+  const stored = users.find((x) => x.id === req.user.id);
+  if (!stored) return res.status(404).json({ error: 'not found' });
+  const b = req.body || {};
+  if (typeof b.username === 'string' && b.username.trim()) stored.username = b.username.trim();
+  if (b.password) {
+    if (b.password !== b.passwordConfirm) return res.status(400).json({ error: '비밀번호가 일치하지 않습니다.' });
+    stored.salt = crypto.randomBytes(16).toString('hex');
+    stored.hash = hashPassword(b.password, stored.salt);
+  }
+  saveUsers();
+  res.json({ user: { id: stored.id, username: stored.username, role: stored.role } });
+});
 app.post('/api/login', (req, res) => {
   const b = req.body || {};
   const id = String(b.id || '').trim();
@@ -322,6 +390,28 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
     if (!col) saveSessions();
   }
   res.json({ ok: true });
+});
+
+// 토큰 사용량/비용 — 일별 + 합계 (관리자)
+app.get('/api/admin/usage', requireAdmin, (req, res) => {
+  const daily = Object.keys(usageDaily)
+    .sort()
+    .map((date) => {
+      const d = usageDaily[date];
+      return {
+        date,
+        inTokens: d.inTokens, outTokens: d.outTokens, tokens: d.inTokens + d.outTokens,
+        cost: costOf(d.inTokens, d.outTokens),
+      };
+    });
+  const totalIn = daily.reduce((a, d) => a + d.inTokens, 0);
+  const totalOut = daily.reduce((a, d) => a + d.outTokens, 0);
+  res.json({
+    daily,
+    totalTokens: totalIn + totalOut,
+    totalCost: costOf(totalIn, totalOut),
+    priceIn: PRICE_IN_PER_1M, priceOut: PRICE_OUT_PER_1M,
+  });
 });
 
 /* ---- 세션 REST API ---- */
@@ -491,6 +581,7 @@ async function translateText(text, targetLang, polish, context) {
       return text;
     }
     const data = await r.json();
+    recordTokens(data && data.usage);
     return data?.choices?.[0]?.message?.content?.trim() || text;
   } catch (e) {
     console.error('[translate] error', e);
@@ -519,6 +610,7 @@ async function spacingPolish(text) {
     });
     if (!r.ok) return text;
     const data = await r.json();
+    recordTokens(data && data.usage);
     return data?.choices?.[0]?.message?.content?.trim() || text;
   } catch {
     return text;
@@ -572,6 +664,7 @@ async function segmentTranslate(text, context, force, targetLang, polish) {
       return { translation: await translateText(text, targetLang, polish, context), remainder: '' };
     }
     const data = await r.json();
+    recordTokens(data && data.usage);
     const obj = JSON.parse(data?.choices?.[0]?.message?.content || '{}');
     return { translation: (obj.translation || '').trim(), remainder: (obj.remainder || '').trim() };
   } catch (e) {

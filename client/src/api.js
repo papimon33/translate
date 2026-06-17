@@ -29,8 +29,18 @@ export const api = {
       return r.json();
     }),
   logout: () => fetch('/api/logout', { method: 'POST' }).then(json),
+  updateMe: (body) =>
+    fetch('/api/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '변경 실패');
+      return r.json();
+    }),
 
   adminUsers: () => fetch('/api/admin/users').then(json),
+  adminUsage: () => fetch('/api/admin/usage').then(json),
   adminCreateUser: (body) =>
     fetch('/api/admin/users', {
       method: 'POST',

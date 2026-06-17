@@ -8,20 +8,31 @@ import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import Divider from '@mui/material/Divider';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Alert from '@mui/material/Alert';
 import { alpha } from '@mui/material/styles';
 import ViewSidebarOutlinedIcon from '@mui/icons-material/ViewSidebarOutlined';
+import GraphicEqIcon from '@mui/icons-material/GraphicEq';
 import TranslateIcon from '@mui/icons-material/Translate';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
+import { api } from '../api.js';
 
 const W = 248;
 const WC = 72;
 
-export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode, user, view, onHome, onAdmin, onLogout }) {
+export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode, user, view, onHome, onAdmin, onLogout, onUserUpdate }) {
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
+  const [edit, setEdit] = useState(false);
   const isAdmin = user?.role === 'admin';
   const initial = (user?.username || user?.id || '?').trim().charAt(0).toUpperCase();
 
@@ -39,33 +50,29 @@ export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode,
         p: 1.25,
       }}
     >
-      {/* 상단: (펼침) 프로필 + 로고 + 토글 / (접힘) 토글만 */}
+      {/* 상단: (펼침) 로고 + 제목 + 토글 / (접힘) 토글만 */}
       <Box
         sx={{
-          display: 'flex', alignItems: 'center', gap: 1,
+          display: 'flex', alignItems: 'center', gap: 1.25,
           px: collapsed ? 0 : 0.5, py: 0.5, mb: 1.5,
           justifyContent: collapsed ? 'center' : 'flex-start',
         }}
       >
         {!collapsed && (
           <>
-            <Tooltip title="프로필">
-              <Avatar
-                onClick={(e) => setMenu(e.currentTarget)}
-                sx={{
-                  width: 38, height: 38, flex: 'none', cursor: 'pointer', fontWeight: 800, fontSize: 16, color: '#fff',
-                  background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b87ff' : '#6366f1'})`,
-                  boxShadow: (t) => `0 6px 16px ${alpha(t.palette.primary.main, 0.4)}`,
-                }}
-              >
-                {initial}
-              </Avatar>
-            </Tooltip>
+            <Box
+              sx={{
+                width: 38, height: 38, borderRadius: 2.5, flex: 'none',
+                display: 'grid', placeItems: 'center', color: '#fff',
+                background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b87ff' : '#6366f1'})`,
+                boxShadow: (t) => `0 6px 16px ${alpha(t.palette.primary.main, 0.4)}`,
+              }}
+            >
+              <GraphicEqIcon fontSize="small" />
+            </Box>
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography sx={{ fontWeight: 800, fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap' }}>KAC Translator</Typography>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {user?.username || user?.id}{isAdmin ? ' · 관리자' : ''}
-              </Typography>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'nowrap' }}>실시간 음성 번역</Typography>
             </Box>
           </>
         )}
@@ -94,15 +101,49 @@ export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode,
           onClick={onToggleTheme}
           muted
         />
-        <NavItem collapsed={collapsed} icon={<LogoutIcon fontSize="small" />} label="로그아웃" onClick={onLogout} muted />
+        {/* 프로필 (좌측 최하단) */}
+        <Box
+          onClick={(e) => setMenu(e.currentTarget)}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1.25, cursor: 'pointer',
+            px: collapsed ? 0 : 1, py: 1, borderRadius: 2.5,
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            '&:hover': { bgcolor: 'action.hover' },
+          }}
+        >
+          <Avatar
+            sx={{
+              width: 32, height: 32, flex: 'none', fontWeight: 800, fontSize: 14, color: '#fff',
+              background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b87ff' : '#6366f1'})`,
+            }}
+          >
+            {initial}
+          </Avatar>
+          {!collapsed && (
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {user?.username || user?.id}
+              </Typography>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                {user?.id}{isAdmin ? ' · 관리자' : ''}
+              </Typography>
+            </Box>
+          )}
+        </Box>
       </Box>
 
-      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
+      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} transformOrigin={{ vertical: 'bottom', horizontal: 'left' }} anchorOrigin={{ vertical: 'top', horizontal: 'left' }}>
         <Box sx={{ px: 2, py: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: 14 }}>{user?.username || user?.id}</Typography>
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{user?.id}{isAdmin ? ' · 관리자' : ''}</Typography>
         </Box>
         <Divider />
+        {!isAdmin && (
+          <MenuItem onClick={() => { setMenu(null); setEdit(true); }}>
+            <ListItemIcon><ManageAccountsOutlinedIcon fontSize="small" /></ListItemIcon>
+            정보 변경
+          </MenuItem>
+        )}
         {isAdmin && (
           <MenuItem onClick={() => { setMenu(null); onAdmin(); }}>
             <ListItemIcon><AdminPanelSettingsOutlinedIcon fontSize="small" /></ListItemIcon>
@@ -114,7 +155,81 @@ export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode,
           로그아웃
         </MenuItem>
       </Menu>
+
+      <ProfileEditDialog
+        open={edit}
+        user={user}
+        onClose={() => setEdit(false)}
+        onSaved={(u) => { setEdit(false); onUserUpdate && onUserUpdate(u); }}
+      />
     </Box>
+  );
+}
+
+function ProfileEditDialog({ open, user, onClose, onSaved }) {
+  const [username, setUsername] = useState('');
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      setUsername(user?.username || '');
+      setPw('');
+      setPw2('');
+      setErr('');
+    }
+  }, [open, user]);
+
+  const save = async () => {
+    if (pw && pw !== pw2) {
+      setErr('비밀번호가 일치하지 않습니다.');
+      return;
+    }
+    setBusy(true);
+    setErr('');
+    try {
+      const body = { username };
+      if (pw) {
+        body.password = pw;
+        body.passwordConfirm = pw2;
+      }
+      const { user: u } = await api.updateMe(body);
+      onSaved(u);
+    } catch (e) {
+      setErr(e.message || '변경 실패');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
+      <DialogTitle sx={{ fontWeight: 800 }}>내 정보 변경</DialogTitle>
+      <DialogContent>
+        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        <TextField fullWidth label="ID" value={user?.id || ''} disabled sx={{ mb: 2 }} />
+        <TextField
+          fullWidth label="사용자명" value={username}
+          onChange={(e) => setUsername(e.target.value)} sx={{ mb: 2 }}
+        />
+        <TextField
+          fullWidth type="password" label="새 비밀번호 (변경 시에만)" value={pw}
+          onChange={(e) => setPw(e.target.value)} sx={{ mb: 2 }}
+        />
+        <TextField
+          fullWidth type="password" label="비밀번호 확인" value={pw2}
+          onChange={(e) => setPw2(e.target.value)}
+          error={!!pw2 && pw !== pw2}
+          helperText={!!pw2 && pw !== pw2 ? '비밀번호가 일치하지 않습니다.' : ''}
+        />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <Button onClick={onClose}>취소</Button>
+        <Button variant="contained" onClick={save} disabled={busy}>저장</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
