@@ -98,7 +98,14 @@ export default function AdminPage() {
     setGlossBusy(true);
     setGlossMsg('');
     try {
-      const text = await file.text();
+      // 인코딩 자동 감지: UTF-8 우선, 실패하면 EUC-KR/CP949(엑셀 한국어판 CSV)로 디코드
+      const buf = await file.arrayBuffer();
+      let text;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+      } catch {
+        text = new TextDecoder('euc-kr').decode(buf);
+      }
       const r = await api.adminUploadGlossary(text);
       setGloss(r);
       setGlossMsg(`✓ ${r.count.toLocaleString('en-US')}개 용어 등록 완료`);
