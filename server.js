@@ -17,7 +17,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // 모델은 코드 고정(환경변수로 안 받음). 바꾸려면 여기서 직접 수정.
 const TRANSCRIBE_MODEL = 'gpt-realtime-whisper';
 const TRANSLATE_MODEL = 'gpt-realtime-translate';
-const REFINE_MODEL = 'gpt-5-mini';
+const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 
 const LANG_NAMES = {
@@ -507,7 +507,7 @@ app.post('/api/admin/glossary', requireAdmin, async (req, res) => {
 app.get('/api/sessions', requireAuth, (req, res) => {
   const list = sessions
     .filter((s) => s.owner === req.user.id) // 사용자마다 자기 세션만
-    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length }))
+    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper' }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
 });

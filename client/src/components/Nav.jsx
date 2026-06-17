@@ -29,7 +29,7 @@ import { api } from '../api.js';
 const W = 248;
 const WC = 72;
 
-export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode, user, view, onHome, onAdmin, onLogout, onUserUpdate }) {
+export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, onHome, onAdmin, onLogout, onUserUpdate }) {
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
   const [edit, setEdit] = useState(false);
@@ -76,11 +76,13 @@ export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode,
             </Box>
           </>
         )}
-        <Tooltip title={collapsed ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
-          <IconButton onClick={onToggleCollapsed} sx={{ flex: 'none' }}>
-            <ViewSidebarOutlinedIcon fontSize="small" sx={{ transform: collapsed ? 'scaleX(-1)' : 'none' }} />
-          </IconButton>
-        </Tooltip>
+        {!mobile && (
+          <Tooltip title={collapsed ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
+            <IconButton onClick={onToggleCollapsed} sx={{ flex: 'none' }}>
+              <ViewSidebarOutlinedIcon fontSize="small" sx={{ transform: collapsed ? 'scaleX(-1)' : 'none' }} />
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
 
       {!collapsed && (

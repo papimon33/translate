@@ -7,6 +7,7 @@ import Button from '@mui/material/Button';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Switch from '@mui/material/Switch';
+import Slider from '@mui/material/Slider';
 import Fab from '@mui/material/Fab';
 import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
@@ -24,7 +25,16 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import VolumeDownIcon from '@mui/icons-material/VolumeDown';
+import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import { api } from '../api.js';
+
+function VolumeIcon({ level }) {
+  if (!level) return <VolumeOffIcon fontSize="small" sx={{ color: 'text.disabled' }} />;
+  if (level < 0.6) return <VolumeDownIcon fontSize="small" sx={{ color: 'text.secondary' }} />;
+  return <VolumeUpIcon fontSize="small" sx={{ color: 'text.secondary' }} />;
+}
 import { LANGS, LANG_LABEL } from '../theme.js';
 import { startRecorder } from '../audio.js';
 
@@ -40,8 +50,8 @@ const OUT4 = [
   { code: 'zh', label: '中文' },
 ];
 const PIPES = [
-  { v: 'whisper', label: 'Whisper + GPT 번역' },
-  { v: 'translate', label: 'Translate + GPT 다듬기' },
+  { v: 'whisper', label: '다국어 번역' },
+  { v: 'translate', label: '실시간 통역' },
 ];
 
 const pulse = keyframes`
@@ -71,8 +81,11 @@ export default function TranslateView({ session: initial, onBack }) {
   const [dispLang, setDispLang] = useState(initial.outLang || 'ko'); // 화면에 표시할 언어
   const [sourceMode, setSourceMode] = useState('mic');
   const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
-  const [glossOn, setGlossOn] = useState(localStorage.getItem('kac-gloss') !== '0');
   const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
+  const [volume, setVolume] = useState(() => {
+    const v = Number(localStorage.getItem('kac-vol'));
+    return Number.isFinite(v) && v > 0 ? v : 1;
+  });
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -151,6 +164,7 @@ export default function TranslateView({ session: initial, onBack }) {
         pipeline: cfg.pipeline,
         refine: true,
         audioOut: cfg.pipeline === 'translate' && audioOutOn,
+        volume,
         onMessage,
         onMeter: (rms) => {
           const db = 20 * Math.log10(rms + 1e-8);
@@ -182,7 +196,7 @@ export default function TranslateView({ session: initial, onBack }) {
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* 타이틀 바 */}
-      <Box sx={{ px: 3, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      <Box sx={{ px: { xs: 1.5, sm: 3 }, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
         <IconButton onClick={onBack} size="small" sx={{ border: 1, borderColor: 'divider' }}>
           <ArrowBackIcon fontSize="small" />
         </IconButton>
@@ -208,7 +222,7 @@ export default function TranslateView({ session: initial, onBack }) {
       </Box>
 
       {/* 컨트롤 바 */}
-      <Box sx={{ px: 3, pb: 1.5 }}>
+      <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: 1.5 }}>
         <Paper
           variant="outlined"
           sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: 3, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
@@ -255,19 +269,6 @@ export default function TranslateView({ session: initial, onBack }) {
             </Box>
           </Field>
           {cfg.pipeline === 'translate' && (
-            <Field label="용어집">
-              <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
-                <Switch
-                  checked={glossOn}
-                  onChange={(e) => {
-                    setGlossOn(e.target.checked);
-                    localStorage.setItem('kac-gloss', e.target.checked ? '1' : '0');
-                  }}
-                />
-              </Box>
-            </Field>
-          )}
-          {cfg.pipeline === 'translate' && (
             <Field label="음성 출력">
               <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
                 <Switch
@@ -278,6 +279,26 @@ export default function TranslateView({ session: initial, onBack }) {
                     localStorage.setItem('kac-audioout', v ? '1' : '0');
                     if (recRef.current && recRef.current.setAudioOut) recRef.current.setAudioOut(v);
                   }}
+                />
+              </Box>
+            </Field>
+          )}
+          {cfg.pipeline === 'translate' && audioOutOn && (
+            <Field label="볼륨">
+              <Box sx={{ height: 37, display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
+                <VolumeIcon level={volume} />
+                <Slider
+                  size="small"
+                  value={volume}
+                  min={0}
+                  max={1.5}
+                  step={0.05}
+                  onChange={(e, v) => {
+                    setVolume(v);
+                    localStorage.setItem('kac-vol', String(v));
+                    if (recRef.current && recRef.current.setVolume) recRef.current.setVolume(v);
+                  }}
+                  sx={{ width: 90 }}
                 />
               </Box>
             </Field>
@@ -303,12 +324,11 @@ export default function TranslateView({ session: initial, onBack }) {
 
       {/* 채팅 */}
       <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
-        <Box ref={scrollRef} sx={{ position: 'absolute', inset: 0, overflowY: 'auto', px: 3, py: 3, pb: 16 }}>
+        <Box ref={scrollRef} sx={{ position: 'absolute', inset: 0, overflowY: 'auto', px: { xs: 1.5, sm: 3 }, py: 3, pb: 16 }}>
           <Box sx={{ maxWidth: 880, mx: 'auto', display: 'flex', flexDirection: 'column', gap: '30px' }}>
             {messages.length === 0 && !partials.left && !partials.right && (
               <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
-                <PlayArrowIcon sx={{ fontSize: 40, opacity: 0.4 }} />
-                <Typography sx={{ fontSize: 14, mt: 1 }}>아래 재생 버튼을 누르고 말하면 번역이 표시됩니다.</Typography>
+                <Typography sx={{ fontSize: 14 }}>버튼을 클릭해 실시간 번역을 시작하세요.</Typography>
               </Box>
             )}
             {messages.map((m) => {
@@ -321,7 +341,7 @@ export default function TranslateView({ session: initial, onBack }) {
                 const keys = Object.keys(m.texts);
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
-              const spans = glossOn && m.terms ? m.terms[usedLang] : null;
+              const spans = m.terms ? m.terms[usedLang] : null;
               return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
@@ -337,16 +357,31 @@ export default function TranslateView({ session: initial, onBack }) {
             background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
           }}
         >
-          <Tooltip title={recording ? '중지' : '녹음 시작'}>
-            <Fab
-              color="error"
-              onClick={recording ? stop : start}
-              sx={{ pointerEvents: 'auto', width: 60, height: 60, animation: recording ? `${pulse} 1.6s infinite` : 'none' }}
-              aria-label={recording ? '중지' : '시작'}
-            >
-              {recording ? <StopIcon /> : <PlayArrowIcon sx={{ fontSize: 30 }} />}
-            </Fab>
-          </Tooltip>
+          <Button
+            onClick={recording ? stop : start}
+            disableElevation
+            startIcon={
+              recording ? (
+                <Box sx={{ width: 9, height: 9, borderRadius: '2px', bgcolor: '#ff5a5f', animation: `${pulse} 1.6s infinite` }} />
+              ) : (
+                <Box sx={{ width: 0, height: 0, borderStyle: 'solid', borderWidth: '5px 0 5px 8px', borderColor: 'transparent transparent transparent #fff' }} />
+              )
+            }
+            sx={{
+              pointerEvents: 'auto',
+              px: 3.5,
+              py: 1.25,
+              borderRadius: 2.5,
+              fontSize: 15,
+              fontWeight: 700,
+              color: '#fff',
+              bgcolor: '#111',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
+              '&:hover': { bgcolor: '#000' },
+            }}
+          >
+            {recording ? '중지' : '시작'}
+          </Button>
         </Box>
       </Box>
 

@@ -91,20 +91,15 @@ export default function SessionList({ onOpen }) {
   return (
     <>
       {/* 헤더 */}
-      <Box sx={{ px: 4, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'flex-end', gap: 2 }}>
-        <Box>
-          <Typography variant="h6">실시간 번역</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
-            세션을 열어 이어보거나 새로 시작하세요.
-          </Typography>
-        </Box>
+      <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Typography variant="h6">실시간 번역</Typography>
         <Box sx={{ flex: 1 }} />
-        <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>
           새 세션
         </Button>
       </Box>
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 4 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
           {empty && (
             <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
@@ -152,7 +147,14 @@ export default function SessionList({ onOpen }) {
                   <Typography sx={{ fontWeight: 700, fontSize: 15.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.title || '(제목 없음)'}
                   </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                    <Chip
+                      size="small"
+                      label={s.pipeline === 'translate' ? '실시간 통역' : '다국어 번역'}
+                      color="primary"
+                      variant="outlined"
+                      sx={{ height: 20, fontSize: 11 }}
+                    />
                     <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{rel(s.updatedAt)}</Typography>
                     <Chip size="small" label={`${s.count}문장`} sx={{ height: 20, fontSize: 11 }} />
                   </Box>
@@ -209,15 +211,12 @@ export default function SessionList({ onOpen }) {
               </Typography>
             </ToggleButton>
             <ToggleButton value="translate" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-              <b>실시간 번역</b>
+              <b>실시간 통역</b>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                호스트가 설정한 언어로 고품질-실시간 번역
+                자막 및 음성으로 실시간 통역
               </Typography>
             </ToggleButton>
           </ToggleButtonGroup>
-          <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 0.75 }}>
-            ※ 번역 방식은 생성 후 변경할 수 없습니다. {pipeline === 'whisper' ? '출력 언어는 화면에서 선택합니다(한·영·일·중).' : '출력 언어는 화면에서 선택합니다.'}
-          </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setDlg(false)}>취소</Button>

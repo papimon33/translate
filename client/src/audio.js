@@ -53,7 +53,7 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume } = opts;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -69,6 +69,9 @@ export async function startRecorder(opts) {
   // 번역 음성 재생(translate): 서버가 보내는 24kHz PCM16 청크를 끊김 없이 스케줄링
   let audioOutOn = !!audioOut;
   let outCursor = 0;
+  const outGain = audioCtx.createGain();
+  outGain.gain.value = typeof volume === 'number' ? volume : 1;
+  outGain.connect(audioCtx.destination);
   const playPcm24 = (b64) => {
     try {
       const bin = atob(b64);
@@ -83,7 +86,7 @@ export async function startRecorder(opts) {
       }
       const node = audioCtx.createBufferSource();
       node.buffer = buf;
-      node.connect(audioCtx.destination);
+      node.connect(outGain);
       const now = audioCtx.currentTime;
       if (outCursor < now) outCursor = now + 0.08; // 약간의 버퍼로 초기 끊김 방지
       node.start(outCursor);
@@ -184,5 +187,9 @@ export async function startRecorder(opts) {
     }
   }
 
-  return { stop, setAudioOut };
+  function setVolume(v) {
+    try { outGain.gain.value = Math.max(0, v); } catch {}
+  }
+
+  return { stop, setAudioOut, setVolume };
 }

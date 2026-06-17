@@ -139,7 +139,7 @@ export default function AdminPage() {
 
   return (
     <>
-      <Box sx={{ px: 4, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'flex-end', gap: 2 }}>
+      <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
         <Box>
           <Typography variant="h6">관리자 · 사용자 관리</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
@@ -152,7 +152,7 @@ export default function AdminPage() {
         </Button>
       </Box>
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 4 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 920, mx: 'auto' }}>
           {/* 토큰 사용 비용 대시보드 */}
           <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 3 }}>
@@ -200,8 +200,8 @@ export default function AdminPage() {
             </Typography>
           </Paper>
 
-          <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
-            <Table>
+          <Paper variant="outlined" sx={{ borderRadius: 3, overflowX: 'auto' }}>
+            <Table sx={{ minWidth: 520 }}>
               <TableHead>
                 <TableRow sx={{ '& th': { fontWeight: 800, fontSize: 13 } }}>
                   <TableCell>사용자명</TableCell>
