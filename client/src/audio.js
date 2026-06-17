@@ -53,7 +53,7 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut } = opts;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -61,10 +61,35 @@ export async function startRecorder(opts) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const q = `session=${sessionId}&out=${encodeURIComponent(outLang)}&in=${encodeURIComponent(
     inLang
-  )}&pipeline=${pipeline}&refine=${refine ? '1' : '0'}`;
+  )}&pipeline=${pipeline}&refine=${refine ? '1' : '0'}&audioOut=${audioOut ? '1' : '0'}`;
 
   const pipes = [];
   const streams = [];
+
+  // 번역 음성 재생(translate): 서버가 보내는 24kHz PCM16 청크를 끊김 없이 스케줄링
+  let audioOutOn = !!audioOut;
+  let outCursor = 0;
+  const playPcm24 = (b64) => {
+    try {
+      const bin = atob(b64);
+      const n = bin.length >> 1;
+      const buf = audioCtx.createBuffer(1, n, 24000);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) {
+        const lo = bin.charCodeAt(i * 2), hi = bin.charCodeAt(i * 2 + 1);
+        let s = (hi << 8) | lo;
+        if (s >= 0x8000) s -= 0x10000;
+        ch[i] = s / 32768;
+      }
+      const node = audioCtx.createBufferSource();
+      node.buffer = buf;
+      node.connect(audioCtx.destination);
+      const now = audioCtx.currentTime;
+      if (outCursor < now) outCursor = now + 0.08; // 약간의 버퍼로 초기 끊김 방지
+      node.start(outCursor);
+      outCursor += buf.duration;
+    } catch {}
+  };
 
   for (const { src, stream } of sources) {
     streams.push(stream);
@@ -74,7 +99,14 @@ export async function startRecorder(opts) {
       ws.onopen = res;
       ws.onerror = rej;
     });
-    ws.onmessage = (ev) => onMessage(JSON.parse(ev.data));
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.type === 'audio') {
+        if (audioOutOn) playPcm24(m.b64);
+        return;
+      }
+      onMessage(m);
+    };
 
     const node = audioCtx.createMediaStreamSource(stream);
     const proc = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -142,5 +174,15 @@ export async function startRecorder(opts) {
     }), 1800);
   }
 
-  return { stop };
+  // 녹음 중에도 번역 음성 토글 가능: 로컬 재생 + 서버 전달 on/off
+  function setAudioOut(on) {
+    audioOutOn = !!on;
+    for (const p of pipes) {
+      try {
+        if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'audioOut', on: !!on }));
+      } catch {}
+    }
+  }
+
+  return { stop, setAudioOut };
 }

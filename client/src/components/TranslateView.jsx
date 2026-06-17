@@ -72,6 +72,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sourceMode, setSourceMode] = useState('mic');
   const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
   const [glossOn, setGlossOn] = useState(localStorage.getItem('kac-gloss') !== '0');
+  const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -149,6 +150,7 @@ export default function TranslateView({ session: initial, onBack }) {
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
         refine: true,
+        audioOut: cfg.pipeline === 'translate' && audioOutOn,
         onMessage,
         onMeter: (rms) => {
           const db = 20 * Math.log10(rms + 1e-8);
@@ -260,6 +262,21 @@ export default function TranslateView({ session: initial, onBack }) {
                   onChange={(e) => {
                     setGlossOn(e.target.checked);
                     localStorage.setItem('kac-gloss', e.target.checked ? '1' : '0');
+                  }}
+                />
+              </Box>
+            </Field>
+          )}
+          {cfg.pipeline === 'translate' && (
+            <Field label="음성 출력">
+              <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+                <Switch
+                  checked={audioOutOn}
+                  onChange={(e) => {
+                    const v = e.target.checked;
+                    setAudioOutOn(v);
+                    localStorage.setItem('kac-audioout', v ? '1' : '0');
+                    if (recRef.current && recRef.current.setAudioOut) recRef.current.setAudioOut(v);
                   }}
                 />
               </Box>

@@ -822,6 +822,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._in = searchParams.get('in'); // 입력 언어 코드 | 'auto' | null
       ws._refine = searchParams.get('refine'); // '0' | '1' | null
       ws._pipeline = searchParams.get('pipeline'); // 'whisper' | 'translate' | null
+      ws._audioOut = searchParams.get('audioOut') === '1'; // translate 번역 음성 재생 여부
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1083,6 +1084,7 @@ function handleHost(ws) {
     let buf = '';
     let curId = null;
     let idleTimer = null;
+    let audioOut = ws._audioOut; // 번역 음성 재생 여부(클라 토글로 변경 가능)
     const pending = [];
 
     // translate 출력은 이미 자연스러운 번역이라, 카드에 바로 스트리밍해서 보여준다.
@@ -1125,6 +1127,10 @@ function handleHost(ws) {
       } catch {
         return;
       }
+      if (ev.type === 'session.output_audio.delta') {
+        if (audioOut && ev.delta) toHost({ type: 'audio', b64: ev.delta }); // 24kHz PCM16
+        return;
+      }
       if (ev.type === 'session.output_transcript.delta') {
         buf += ev.delta || '';
         liveUpdate(); // 카드에 바로 스트리밍
@@ -1158,6 +1164,10 @@ function handleHost(ws) {
       try {
         m = JSON.parse(data.toString());
       } catch {
+        return;
+      }
+      if (m.type === 'audioOut') {
+        audioOut = !!m.on; // 토글 실시간 반영
         return;
       }
       if (m.type === 'stop' && !closing) {
