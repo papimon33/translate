@@ -20,6 +20,8 @@ import { keyframes } from '@mui/system';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import MicNoneIcon from '@mui/icons-material/MicNone';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import { api } from '../api.js';
@@ -75,6 +77,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [level, setLevel] = useState(0);
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const recRef = useRef(null);
   const scrollRef = useRef(null);
 
@@ -264,7 +267,7 @@ export default function TranslateView({ session: initial, onBack }) {
       {/* 채팅 */}
       <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <Box ref={scrollRef} sx={{ position: 'absolute', inset: 0, overflowY: 'auto', px: 3, py: 3, pb: 16 }}>
-          <Box sx={{ maxWidth: 880, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 1.75 }}>
+          <Box sx={{ maxWidth: 880, mx: 'auto', display: 'flex', flexDirection: 'column', gap: '30px' }}>
             {messages.length === 0 && !partials.left && !partials.right && (
               <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
                 <PlayArrowIcon sx={{ fontSize: 40, opacity: 0.4 }} />
@@ -312,6 +315,24 @@ export default function TranslateView({ session: initial, onBack }) {
             <>
               <Box component="img" src={qr.qr} alt="QR" sx={{ width: 230, bgcolor: '#fff', borderRadius: 3, p: 1 }} />
               <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1.5, wordBreak: 'break-all' }}>{qr.url}</Typography>
+              <Box sx={{ mt: 1.5 }}>
+                <Button
+                  size="small"
+                  variant="text"
+                  color={copied ? 'success' : 'inherit'}
+                  startIcon={copied ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(qr.url);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    } catch {}
+                  }}
+                  sx={{ fontSize: 12, color: copied ? 'success.main' : 'text.secondary' }}
+                >
+                  {copied ? '복사됨' : '주소 복사'}
+                </Button>
+              </Box>
             </>
           ) : (
             '생성 중...'
@@ -397,7 +418,7 @@ function Row({ side, text, source, showSource }) {
           sx={{
             fontSize: 18,
             lineHeight: 1.55,
-            fontWeight: 500,
+            fontWeight: 100,
             color: pending ? 'text.secondary' : right ? 'primary.main' : 'text.primary',
             fontStyle: pending ? 'italic' : 'normal',
           }}

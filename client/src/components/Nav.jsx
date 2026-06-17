@@ -4,8 +4,7 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import { alpha } from '@mui/material/styles';
-import MenuOpenIcon from '@mui/icons-material/MenuOpen';
-import MenuIcon from '@mui/icons-material/Menu';
+import ViewSidebarOutlinedIcon from '@mui/icons-material/ViewSidebarOutlined';
 import GraphicEqIcon from '@mui/icons-material/GraphicEq';
 import TranslateIcon from '@mui/icons-material/Translate';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -21,7 +20,7 @@ export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode,
       sx={{
         width,
         minWidth: width,
-        transition: 'width .2s ease',
+        transition: 'width .2s ease, min-width .2s ease',
         bgcolor: 'background.paper',
         borderRight: 1,
         borderColor: 'divider',
@@ -67,7 +66,7 @@ export default function Nav({ collapsed, onToggleCollapsed, onToggleTheme, mode,
         />
         <Tooltip title={collapsed ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
           <IconButton onClick={onToggleCollapsed} sx={{ alignSelf: collapsed ? 'center' : 'flex-start', ml: collapsed ? 0 : 0.5 }}>
-            {collapsed ? <MenuIcon fontSize="small" /> : <MenuOpenIcon fontSize="small" />}
+            <ViewSidebarOutlinedIcon fontSize="small" sx={{ transform: collapsed ? 'scaleX(-1)' : 'none' }} />
           </IconButton>
         </Tooltip>
       </Box>

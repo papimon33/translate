@@ -181,7 +181,7 @@ export default function SessionList({ onOpen }) {
         </MenuItem>
       </Menu>
 
-      <Dialog open={dlg} onClose={() => setDlg(false)} PaperProps={{ sx: { width: 440, maxWidth: '92vw' } }}>
+      <Dialog open={dlg} onClose={() => setDlg(false)} PaperProps={{ sx: { width: 440, maxWidth: 440 } }}>
         <DialogTitle sx={{ fontWeight: 800 }}>새 세션</DialogTitle>
         <DialogContent>
           <TextField
@@ -202,13 +202,17 @@ export default function SessionList({ onOpen }) {
             onChange={(e, v) => v && setPipeline(v)}
             color="primary"
           >
-            <ToggleButton value="whisper" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2 }}>
-              <b>Whisper</b>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>다국어 · 저비용</Typography>
+            <ToggleButton value="whisper" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+              <b>다국어 번역</b>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
+                참가자가 원하는 언어로 다국어 번역
+              </Typography>
             </ToggleButton>
-            <ToggleButton value="translate" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2 }}>
-              <b>Translate</b>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>단일 · 고품질</Typography>
+            <ToggleButton value="translate" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+              <b>실시간 번역</b>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
+                호스트가 설정한 언어로 고품질-실시간 번역
+              </Typography>
             </ToggleButton>
           </ToggleButtonGroup>
           <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 0.75 }}>
