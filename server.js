@@ -936,7 +936,7 @@ function handleHost(ws) {
     let srcAccum = ''; // 표시 단위가 될 때까지 누적되는 원문
     let batchStart = 0; // 현재 배치가 쌓이기 시작한 시각(ms)
     let tailTimer = null;
-    const N_MS = 4500; // 최소 표시 단위(이 시간 전엔 번역 보류하고 더 모음 → 도입부 조각이 주절과 붙을 시간)
+    const N_MS = 4000; // 최소 표시 단위(이 시간 전엔 번역 보류하고 더 모음 → 도입부 조각이 주절과 붙을 시간)
     const HARD_MS = 10000; // 이 시간 넘으면 미완성이라도 강제 확정(폭주 방지, 드물게 발동)
     const pending = [];
     const history = []; // 최근 원문->번역 쌍 (맥락용)
