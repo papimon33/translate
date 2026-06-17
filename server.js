@@ -55,7 +55,7 @@ const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(
 
 let sessions = [];  // 메모리 캐시(항상 진실의 원천)
 let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
-let usageDaily = {}; // { 'YYYY-MM-DD': { inTokens, outTokens } } — GPT 번역 토큰 일별 집계
+let usageDaily = {}; // { 'YYYY-MM-DD': { whisperMs, translateMs } } — 파이프라인별 사용시간 일별 집계
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
@@ -77,7 +77,7 @@ async function loadStore() {
       users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
       const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
       usageDaily = {};
-      rows.forEach((r) => (usageDaily[r.date] = { inTokens: r.inTokens || 0, outTokens: r.outTokens || 0 }));
+      rows.forEach((r) => (usageDaily[r.date] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
       console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
       return;
     } catch (e) {
@@ -169,25 +169,22 @@ async function deleteUserStore(id) {
   }
 }
 
-/* ---- 토큰 사용량(일별) 집계 + 비용 ---- */
-// 가격(USD per 1M tokens). 모델 가격에 맞춰 환경변수로 조정. 기본값은 gpt-5-mini 가정치.
-const PRICE_IN_PER_1M = Number(process.env.PRICE_IN_PER_1M || 0.25);
-const PRICE_OUT_PER_1M = Number(process.env.PRICE_OUT_PER_1M || 2);
-function costOf(inT, outT) {
-  return (inT / 1e6) * PRICE_IN_PER_1M + (outT / 1e6) * PRICE_OUT_PER_1M;
+/* ---- 사용량(일별) 집계 + 비용 ----
+   비용은 파이프라인별 '오디오 분당 요금' × 호스트 WS 연결 시간으로 계산. */
+const PRICE_WHISPER_PER_MIN = Number(process.env.PRICE_WHISPER_PER_MIN || 0.017);
+const PRICE_TRANSLATE_PER_MIN = Number(process.env.PRICE_TRANSLATE_PER_MIN || 0.034);
+function costOfDay(d) {
+  return ((d.whisperMs || 0) / 60000) * PRICE_WHISPER_PER_MIN + ((d.translateMs || 0) / 60000) * PRICE_TRANSLATE_PER_MIN;
 }
 function dateKey() {
   return new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
 }
-function recordTokens(usage) {
-  if (!usage) return;
-  const inT = usage.prompt_tokens || usage.input_tokens || 0;
-  const outT = usage.completion_tokens || usage.output_tokens || 0;
-  if (!inT && !outT) return;
+function recordUsage(pipeline, ms) {
+  if (!ms || ms < 0) return;
   const k = dateKey();
-  const d = usageDaily[k] || (usageDaily[k] = { inTokens: 0, outTokens: 0 });
-  d.inTokens += inT;
-  d.outTokens += outT;
+  const d = usageDaily[k] || (usageDaily[k] = { whisperMs: 0, translateMs: 0 });
+  if (pipeline === 'translate') d.translateMs += ms;
+  else d.whisperMs += ms;
   saveUsage();
 }
 let usageSaveTimer = null;
@@ -201,7 +198,7 @@ function saveUsage() {
 async function flushUsage() {
   if (usageCol) {
     const ops = Object.entries(usageDaily).map(([date, v]) => ({
-      replaceOne: { filter: { date }, replacement: { date, inTokens: v.inTokens, outTokens: v.outTokens }, upsert: true },
+      replaceOne: { filter: { date }, replacement: { date, whisperMs: v.whisperMs || 0, translateMs: v.translateMs || 0 }, upsert: true },
     }));
     if (ops.length) await usageCol.bulkWrite(ops, { ordered: false });
   } else {
@@ -392,25 +389,22 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// 토큰 사용량/비용 — 일별 + 합계 (관리자)
+// 사용량/비용 — 일별 + 합계 (관리자). 파이프라인별 분당 요금 기반.
 app.get('/api/admin/usage', requireAdmin, (req, res) => {
   const daily = Object.keys(usageDaily)
     .sort()
     .map((date) => {
       const d = usageDaily[date];
-      return {
-        date,
-        inTokens: d.inTokens, outTokens: d.outTokens, tokens: d.inTokens + d.outTokens,
-        cost: costOf(d.inTokens, d.outTokens),
-      };
+      const whisperMin = (d.whisperMs || 0) / 60000;
+      const translateMin = (d.translateMs || 0) / 60000;
+      return { date, whisperMin, translateMin, minutes: whisperMin + translateMin, cost: costOfDay(d) };
     });
-  const totalIn = daily.reduce((a, d) => a + d.inTokens, 0);
-  const totalOut = daily.reduce((a, d) => a + d.outTokens, 0);
   res.json({
     daily,
-    totalTokens: totalIn + totalOut,
-    totalCost: costOf(totalIn, totalOut),
-    priceIn: PRICE_IN_PER_1M, priceOut: PRICE_OUT_PER_1M,
+    totalMinutes: daily.reduce((a, d) => a + d.minutes, 0),
+    totalCost: daily.reduce((a, d) => a + d.cost, 0),
+    rateWhisper: PRICE_WHISPER_PER_MIN,
+    rateTranslate: PRICE_TRANSLATE_PER_MIN,
   });
 });
 
@@ -581,7 +575,6 @@ async function translateText(text, targetLang, polish, context) {
       return text;
     }
     const data = await r.json();
-    recordTokens(data && data.usage);
     return data?.choices?.[0]?.message?.content?.trim() || text;
   } catch (e) {
     console.error('[translate] error', e);
@@ -610,7 +603,6 @@ async function spacingPolish(text) {
     });
     if (!r.ok) return text;
     const data = await r.json();
-    recordTokens(data && data.usage);
     return data?.choices?.[0]?.message?.content?.trim() || text;
   } catch {
     return text;
@@ -664,7 +656,6 @@ async function segmentTranslate(text, context, force, targetLang, polish) {
       return { translation: await translateText(text, targetLang, polish, context), remainder: '' };
     }
     const data = await r.json();
-    recordTokens(data && data.usage);
     const obj = JSON.parse(data?.choices?.[0]?.message?.content || '{}');
     return { translation: (obj.translation || '').trim(), remainder: (obj.remainder || '').trim() };
   } catch (e) {
@@ -764,9 +755,13 @@ function handleHost(ws) {
   const sessionId = ws._session;
   const side = ws._src === 'system' ? 'left' : 'right'; // 시스템=좌, 마이크=우
   const session = getSession(sessionId);
-  // 사용량(이용 시간) 집계: 호스트 WS 연결 시간을 누적.
+  // 사용량 집계: 호스트 WS 연결 시간 → 사용자별 누적 + 파이프라인별 일별 비용.
   const usageStart = Date.now();
-  ws.on('close', () => addUsage(ws._userId, Date.now() - usageStart));
+  ws.on('close', () => {
+    const ms = Date.now() - usageStart;
+    addUsage(ws._userId, ms);
+    recordUsage(pipeline, ms); // pipeline 은 아래에서 정의됨(close 시점엔 초기화 완료)
+  });
   const polish = true; // 다듬기 필수
   const inRaw = ws._in != null ? ws._in : session ? session.inLang : null;
   const inLang = inRaw && inRaw !== 'auto' ? inRaw : null;

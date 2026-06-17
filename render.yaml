@@ -24,9 +24,9 @@ services:
         sync: false          # 로그인 쿠키 서명 키(임의 긴 문자열). 미설정 시 ADMIN_PASSWORD 에서 파생
       - key: TARGET_LANG
         value: ko
-      - key: PRICE_IN_PER_1M       # 토큰 비용 단가(입력, USD/1M). 모델 가격에 맞춰 조정.
-        value: "0.25"
-      - key: PRICE_OUT_PER_1M      # 토큰 비용 단가(출력, USD/1M)
-        value: "2"
+      - key: PRICE_TRANSLATE_PER_MIN   # 실시간(translate) 분당 비용 USD
+        value: "0.034"
+      - key: PRICE_WHISPER_PER_MIN     # 다국어(whisper) 분당 비용 USD
+        value: "0.017"
     # 모델(TRANSCRIBE/TRANSLATE/REFINE)은 server.js 에 코드 고정 → 환경변수 불필요.
     # PORT 는 Render 가 자동 주입 → server.js 가 process.env.PORT 사용(설정 불필요).

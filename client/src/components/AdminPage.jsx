@@ -31,10 +31,10 @@ function fmtDuration(ms) {
   return `${s}초`;
 }
 function fmtCost(usd) {
-  return '$' + (usd || 0).toFixed(usd >= 1 ? 2 : 4);
+  return '$' + (usd || 0).toFixed(usd >= 1 ? 2 : 3);
 }
-function fmtNum(n) {
-  return (n || 0).toLocaleString('en-US');
+function fmtMin(m) {
+  return (m || 0).toFixed(m >= 10 ? 0 : 1) + '분';
 }
 
 function DailyChart({ daily }) {
@@ -52,7 +52,7 @@ function DailyChart({ daily }) {
       {data.map((d) => (
         <Box key={d.date} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
           <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{fmtCost(d.cost)}</Typography>
-          <Tooltip title={`${d.date} · ${fmtNum(d.tokens)} 토큰 · ${fmtCost(d.cost)}`}>
+          <Tooltip title={`${d.date} · ${fmtMin(d.minutes)} (실시간 ${fmtMin(d.translateMin)} / 다국어 ${fmtMin(d.whisperMin)}) · ${fmtCost(d.cost)}`}>
             <Box
               sx={{
                 width: '70%',
@@ -134,12 +134,12 @@ export default function AdminPage() {
           <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
               <Box>
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>총 토큰 사용 비용</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>총 사용 비용</Typography>
                 <Typography sx={{ fontSize: 32, fontWeight: 800, color: 'primary.main', lineHeight: 1.2 }}>
                   {usage ? fmtCost(usage.totalCost) : '—'}
                 </Typography>
                 <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                  {usage ? `${fmtNum(usage.totalTokens)} 토큰` : ''}
+                  {usage ? `총 ${fmtMin(usage.totalMinutes)}` : ''}
                 </Typography>
               </Box>
               <Box sx={{ flex: 1, minWidth: 280 }}>
@@ -149,7 +149,7 @@ export default function AdminPage() {
             </Box>
             {usage && (
               <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 2 }}>
-                ※ GPT 번역 토큰 기준 추정치 (입력 ${usage.priceIn}/1M · 출력 ${usage.priceOut}/1M). 실시간 음성 비용은 별도이며 미포함.
+                ※ 호스트 사용 시간 기준 — 실시간 번역 ${usage.rateTranslate}/분 · 다국어 번역 ${usage.rateWhisper}/분.
               </Typography>
             )}
           </Paper>
