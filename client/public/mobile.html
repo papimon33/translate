@@ -26,6 +26,11 @@
   .msg .line.pending { color:var(--muted); font-style:italic; }
   .msg.latest .line { color:var(--accent); font-weight:700; }
   .msg.latest .line.pending { color:var(--muted); font-weight:400; }
+  .msg .line .term { font-weight:700; text-decoration:underline; text-underline-offset:2px; text-decoration-thickness:1.5px; cursor:pointer; }
+  .termpop { position:fixed; z-index:40; max-width:80vw; background:var(--panel); border:1px solid var(--line); color:var(--txt); border-radius:10px; padding:10px 12px; box-shadow:0 8px 24px rgba(0,0,0,.4); display:none; }
+  .termpop.show { display:block; }
+  .termpop .t { font-weight:800; font-size:14px; margin-bottom:4px; }
+  .termpop .d { font-size:13px; color:var(--muted); line-height:1.45; }
   .msg .src { font-size:calc(var(--fs) - 5px); color:var(--muted); line-height:1.4; margin-top:2px; }
   #partial { padding:4px 16px 28px; }
   #partial .line { font-size:var(--fs); color:var(--muted); font-style:italic; line-height:1.4; }
@@ -178,20 +183,52 @@ function upsert(item){
     el.classList.add('latest'); latestId = item.id;
   }
   card.texts = item.texts || (item.text ? { [curLang]: item.text } : {});
+  card.terms = item.terms || {};
   card.source = item.source || '';
   renderLine(card);
   card.src.textContent = card.source;
   card.src.style.display = (showSrc && card.source) ? 'block' : 'none';
   if(stick) scrollDown();
 }
-// 선택 언어 번역이 아직 없으면 원문을 흐리게(placeholder)
+function esc(s){ return String(s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+// 선택 언어 번역이 아직 없으면 원문을 흐리게(placeholder). 용어집 매칭은 굵게+밑줄.
 function renderLine(c){
   const txt = pick(c.texts);
-  c.line.textContent = txt || c.source || '';
   c.line.classList.toggle('pending', !txt && !!c.source);
+  if(!txt){ c.line.textContent = c.source || ''; return; }
+  const spans = (c.terms && c.terms[curLang]) || null;
+  if(!spans || !spans.length){ c.line.textContent = txt; return; }
+  let html='', pos=0;
+  for(const sp of spans){
+    if(sp.start>pos) html += esc(txt.slice(pos, sp.start));
+    html += '<b class="term" data-d="'+esc(sp.meaning||sp.term)+'" data-t="'+esc(sp.term)+'">'+esc(txt.slice(sp.start, sp.end))+'</b>';
+    pos = sp.end;
+  }
+  if(pos<txt.length) html += esc(txt.slice(pos));
+  c.line.innerHTML = html;
 }
 function rerender(){ cards.forEach(renderLine); }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
+
+/* ---- 용어 탭 → 해설 팝업 ---- */
+const termpop = document.createElement('div'); termpop.className='termpop'; document.body.appendChild(termpop);
+document.addEventListener('click', (e)=>{
+  const t = e.target.closest && e.target.closest('.term');
+  if(t){
+    termpop.innerHTML = '<div class="t">'+esc(t.getAttribute('data-t'))+'</div><div class="d">'+esc(t.getAttribute('data-d'))+'</div>';
+    termpop.classList.add('show');
+    const r = t.getBoundingClientRect();
+    termpop.style.visibility='hidden'; // 측정용
+    const pw = Math.min(termpop.offsetWidth || 240, window.innerWidth*0.8);
+    let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+    let top = r.bottom + 6;
+    if(top + termpop.offsetHeight > window.innerHeight - 8) top = r.top - termpop.offsetHeight - 6;
+    termpop.style.left = left+'px'; termpop.style.top = Math.max(8, top)+'px'; termpop.style.visibility='visible';
+    e.stopPropagation();
+  } else {
+    termpop.classList.remove('show');
+  }
+});
 
 /* ---- WS ---- */
 let ws;

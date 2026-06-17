@@ -8,6 +8,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { setGlossary, annotate, glossarySize } from './glossary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,7 +32,7 @@ if (!OPENAI_API_KEY) {
 }
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '16mb' })); // 용어집 CSV 업로드(수천 행) 대응
 // 빌드된 React 앱(dist) 서빙
 const STATIC_DIR = path.join(__dirname, 'dist');
 if (!fs.existsSync(STATIC_DIR)) {
@@ -50,15 +51,19 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
+const GLOSSARY_FILE = path.join(DATA_DIR, 'glossary.json'); // 로컬 폴백(공개 repo에 안 올림)
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
 let sessions = [];  // 메모리 캐시(항상 진실의 원천)
 let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
 let usageDaily = {}; // { 'YYYY-MM-DD': { whisperMs, translateMs } } — 파이프라인별 사용시간 일별 집계
+let glossaryRows = []; // [{ en, ko, meaning }] — 용어집(공개 repo 미커밋, Mongo/파일 저장)
+let glossaryUpdatedAt = 0;
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
+let glossaryCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
@@ -70,6 +75,7 @@ async function loadStore() {
       col = db.collection('sessions');
       usersCol = db.collection('users');
       usageCol = db.collection('usageDaily');
+      glossaryCol = db.collection('glossary');
       await col.createIndex({ id: 1 }, { unique: true });
       await usersCol.createIndex({ id: 1 }, { unique: true });
       await usageCol.createIndex({ date: 1 }, { unique: true });
@@ -78,13 +84,15 @@ async function loadStore() {
       const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
       usageDaily = {};
       rows.forEach((r) => (usageDaily[r.date] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
-      console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
+      glossaryRows = await glossaryCol.find({}, { projection: { _id: 0 } }).toArray();
+      console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length} / 용어 ${glossaryRows.length}`);
       return;
     } catch (e) {
       console.error('[store] MongoDB 연결 실패 — 로컬 파일 모드로 폴백', e);
       col = null;
       usersCol = null;
       usageCol = null;
+      glossaryCol = null;
     }
   }
   try {
@@ -100,6 +108,10 @@ async function loadStore() {
     if (fs.existsSync(USAGE_FILE)) {
       const u = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8'));
       if (u && typeof u === 'object') usageDaily = u;
+    }
+    if (fs.existsSync(GLOSSARY_FILE)) {
+      const g = JSON.parse(fs.readFileSync(GLOSSARY_FILE, 'utf8'));
+      if (Array.isArray(g)) glossaryRows = g;
     }
   } catch (e) {
     console.error('[store] 로드 실패', e);
@@ -207,6 +219,64 @@ async function flushUsage() {
 }
 
 await loadStore();
+setGlossary(glossaryRows); // 부팅 시 자동자 구성
+if (glossaryRows.length) console.log(`[glossary] 용어 ${glossaryRows.length}행 → 패턴 ${glossarySize()}개`);
+
+/* ---- 용어집 저장 + CSV 파싱 ---- */
+async function persistGlossary() {
+  if (glossaryCol) {
+    await glossaryCol.deleteMany({});
+    if (glossaryRows.length) await glossaryCol.insertMany(glossaryRows.map((r) => ({ ...r })));
+  } else {
+    fs.writeFileSync(GLOSSARY_FILE, JSON.stringify(glossaryRows, null, 2));
+  }
+}
+// CSV/TSV 파싱 (RFC4180 따옴표 처리, 구분자 자동 감지). 컬럼: 영문, 한글, 해설.
+function parseGlossaryCsv(text) {
+  let s = String(text || '').replace(/^﻿/, ''); // BOM 제거
+  // 구분자: 첫 줄에 탭이 있으면 TSV, 아니면 콤마
+  const firstLine = s.slice(0, s.indexOf('\n') < 0 ? s.length : s.indexOf('\n'));
+  const delim = firstLine.includes('\t') ? '\t' : ',';
+  const rows = [];
+  let field = '';
+  let record = [];
+  let inQuotes = false;
+  const pushField = () => {
+    record.push(field);
+    field = '';
+  };
+  const pushRecord = () => {
+    pushField();
+    if (record.some((c) => c.trim() !== '')) rows.push(record);
+    record = [];
+  };
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delim) {
+      pushField();
+    } else if (ch === '\n') {
+      pushRecord();
+    } else if (ch === '\r') {
+      // skip (CRLF)
+    } else field += ch;
+  }
+  if (field !== '' || record.length) pushRecord();
+  if (!rows.length) return [];
+  // 헤더 감지: 첫 행이 '영문'/'한글'/'해설' 류면 건너뜀
+  const head = rows[0].map((c) => c.trim());
+  const looksHeader = /영문|english|term/i.test(head[0] || '') || /한글|korean/i.test(head[1] || '');
+  const body = looksHeader ? rows.slice(1) : rows;
+  return body
+    .map((r) => ({ en: (r[0] || '').trim(), ko: (r[1] || '').trim(), meaning: (r[2] || '').trim() }))
+    .filter((r) => r.en || r.ko);
+}
 
 function getSession(id) {
   return sessions.find((s) => s.id === id);
@@ -406,6 +476,31 @@ app.get('/api/admin/usage', requireAdmin, (req, res) => {
     rateWhisper: PRICE_WHISPER_PER_MIN,
     rateTranslate: PRICE_TRANSLATE_PER_MIN,
   });
+});
+
+// 용어집: 현황 조회 + CSV 업로드(교체)
+app.get('/api/admin/glossary', requireAdmin, (req, res) => {
+  res.json({ count: glossaryRows.length, patterns: glossarySize(), updatedAt: glossaryUpdatedAt });
+});
+app.post('/api/admin/glossary', requireAdmin, async (req, res) => {
+  const csv = (req.body && req.body.csv) || '';
+  if (!csv) return res.status(400).json({ error: 'CSV 내용이 비어 있습니다.' });
+  let rows;
+  try {
+    rows = parseGlossaryCsv(csv);
+  } catch (e) {
+    return res.status(400).json({ error: 'CSV 파싱 실패: ' + e.message });
+  }
+  if (!rows.length) return res.status(400).json({ error: '유효한 용어 행이 없습니다. (컬럼: 영문, 한글, 해설)' });
+  glossaryRows = rows;
+  glossaryUpdatedAt = Date.now();
+  setGlossary(glossaryRows);
+  try {
+    await persistGlossary();
+  } catch (e) {
+    console.error('[glossary] 저장 실패', e);
+  }
+  res.json({ count: glossaryRows.length, patterns: glossarySize(), updatedAt: glossaryUpdatedAt });
 });
 
 /* ---- 세션 REST API ---- */
@@ -782,7 +877,16 @@ function handleHost(ws) {
     broadcast(sessionId, p);
   };
   // 문장 항목: texts = { 언어코드: 번역문 }. 같은 id 로 여러 번 호출하면 언어별로 병합됨.
-  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts });
+  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, terms: item.terms || {} });
+  // 완성 문장의 언어별 텍스트에서 용어집 매칭 구간 계산
+  const computeTerms = (item) => {
+    const terms = {};
+    for (const [lang, txt] of Object.entries(item.texts || {})) {
+      const spans = annotate(txt);
+      if (spans.length) terms[lang] = spans;
+    }
+    item.terms = terms;
+  };
   // 화면에만 보냄(저장 안 함) — translate 스트리밍/whisper 진행표시용
   const liveSend = (id, langTexts, source) => {
     toHost({ type: 'sentence', id, side, source: source || null, texts: langTexts });
@@ -804,10 +908,12 @@ function handleHost(ws) {
         const first = Object.values(item.texts)[0] || '';
         if (first) session.title = first.slice(0, 40);
       }
+      computeTerms(item);
       session.updatedAt = Date.now();
       saveSessions();
     } else {
       item = { id, side, source: source || null, texts: { ...langTexts } };
+      computeTerms(item);
     }
     toHost(buildMsg(id, item));
     broadcast(sessionId, buildMsg(id, item));

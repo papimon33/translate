@@ -89,6 +89,7 @@ export default function TranslateView({ session: initial, onBack }) {
           id: it.id,
           side: it.side,
           texts: it.texts || (it.text ? { [ls[0]]: it.text } : {}), // 옛 형식 호환
+          terms: it.terms || {},
           source: it.source,
         }))
       );
@@ -125,10 +126,15 @@ export default function TranslateView({ session: initial, onBack }) {
         const i = arr.findIndex((x) => x.id === m.id);
         if (i >= 0) {
           const copy = arr.slice();
-          copy[i] = { ...copy[i], texts: { ...copy[i].texts, ...(m.texts || {}) }, source: m.source ?? copy[i].source };
+          copy[i] = {
+            ...copy[i],
+            texts: { ...copy[i].texts, ...(m.texts || {}) },
+            terms: m.terms ? { ...copy[i].terms, ...m.terms } : copy[i].terms,
+            source: m.source ?? copy[i].source,
+          };
           return copy;
         }
-        return [...arr, { id: m.id, side, texts: m.texts || {}, source: m.source }];
+        return [...arr, { id: m.id, side, texts: m.texts || {}, terms: m.terms || {}, source: m.source }];
       });
     }
   };
@@ -277,7 +283,8 @@ export default function TranslateView({ session: initial, onBack }) {
             {messages.map((m) => {
               // 선택 언어만 표시(다른 언어로 대체하지 않음). 아직 없으면 원문을 placeholder 로.
               const t = m.texts ? m.texts[dispLang] || '' : '';
-              return <Row key={m.id} side={m.side} text={t} source={m.source} showSource={showSource} />;
+              const spans = m.terms ? m.terms[dispLang] : null;
+              return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
@@ -395,8 +402,31 @@ function PartialLine({ side, text }) {
   );
 }
 
+// 완성 문장에서 용어집 매칭 구간을 굵게+밑줄, hover 시 해설 툴팁
+function HighlightedText({ text, spans }) {
+  if (!spans || !spans.length) return text;
+  const out = [];
+  let pos = 0;
+  spans.forEach((sp, k) => {
+    if (sp.start > pos) out.push(text.slice(pos, sp.start));
+    out.push(
+      <Tooltip key={k} title={sp.meaning || sp.term} arrow placement="top">
+        <Box
+          component="span"
+          sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationThickness: '1.5px', cursor: 'help' }}
+        >
+          {text.slice(sp.start, sp.end)}
+        </Box>
+      </Tooltip>
+    );
+    pos = sp.end;
+  });
+  if (pos < text.length) out.push(text.slice(pos));
+  return out;
+}
+
 // 데스크톱: 선택된 단일 언어를 표시
-function Row({ side, text, source, showSource }) {
+function Row({ side, text, spans, source, showSource }) {
   const right = side === 'right';
   const pending = !text && !!source; // 선택 언어 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
@@ -423,7 +453,7 @@ function Row({ side, text, source, showSource }) {
             fontStyle: pending ? 'italic' : 'normal',
           }}
         >
-          {mainText}
+          {pending ? mainText : <HighlightedText text={mainText} spans={spans} />}
         </Typography>
         {pending && <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
         {subSource && !pending && (

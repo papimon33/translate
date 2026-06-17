@@ -41,6 +41,16 @@ export const api = {
 
   adminUsers: () => fetch('/api/admin/users').then(json),
   adminUsage: () => fetch('/api/admin/usage').then(json),
+  adminGlossary: () => fetch('/api/admin/glossary').then(json),
+  adminUploadGlossary: (csv) =>
+    fetch('/api/admin/glossary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '업로드 실패');
+      return r.json();
+    }),
   adminCreateUser: (body) =>
     fetch('/api/admin/users', {
       method: 'POST',

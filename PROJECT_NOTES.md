@@ -50,6 +50,12 @@
 - **사용 비용**: 호스트 WS 연결시간을 **파이프라인별 분당 요금**으로 환산. `usageDaily[date]={whisperMs,translateMs}`(Mongo `usageDaily`/파일 `data/usage.json`), `recordUsage(pipeline,ms)`는 host WS close 에서 호출. 단가 env `PRICE_TRANSLATE_PER_MIN`(0.034)·`PRICE_WHISPER_PER_MIN`(0.017). 관리자 페이지에 총비용 + 일별 막대차트(`AdminPage.jsx` `DailyChart`, 최근 14일). 코드: server.js `recordUsage`/`costOfDay`/`GET /api/admin/usage`.
 - 주의: 무료 티어는 15분 유휴 시 슬립 → 첫 접속 cold start ~30초. WS는 클라가 이미 `wss/ws` 자동 선택(`location.protocol/host`).
 
+## 용어집(항공 용어 하이라이트)
+- **매칭 엔진**: `glossary.js`(Aho-Corasick). 영문=단어경계+대소문자무시, 한글=부분일치, 겹치면 **최장 우선**("APRON 2"가 "APRON"보다 우선). `setGlossary(rows)`/`annotate(text)`/`glossarySize()`.
+- **저장**: 공개 repo라 CSV 미커밋. Mongo `glossary` 컬렉션(없으면 `data/glossary.json`, `data/` 전체 gitignore). 관리자 페이지에서 **CSV 업로드**(`POST /api/admin/glossary`, `parseGlossaryCsv`: 콤마/탭 자동·따옴표·헤더 인식, 컬럼 영문/한글/해설). express.json limit 16mb.
+- **매칭 시점**: 문장 확정(`upsertItem`)에서 `computeTerms`가 언어별 텍스트를 annotate → `item.terms={lang:[{start,end,term,meaning}]}`. WS `sentence`/`snapshot` 메시지 + 저장에 포함.
+- **렌더**: 데스크톱 `TranslateView` `HighlightedText`(굵게+밑줄, MUI Tooltip 해설). 모바일 `mobile.html` `renderLine`(굵게+밑줄, **탭하면 해설 팝업** `.termpop`). 검증: ko "계류장"+en "APRON 2" 하이라이트·툴팁 확인.
+
 ## 주의
 - OpenAI 실시간 모델은 **GA API** 사용(베타 헤더 X). `gpt-realtime-translate`는 `/v1/realtime/translations` 전용 엔드포인트.
 - OpenAI 비용은 호스팅과 별개로 항상 발생(음성 모델). whisch 다국어는 전사 1회 + 언어당 텍스트 번역.
