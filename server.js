@@ -547,6 +547,13 @@ app.post('/api/admin/glossary', requireAdmin, async (req, res) => {
   }
   res.json({ count: glossaryRows.length, patterns: glossarySize(), updatedAt: glossaryUpdatedAt });
 });
+// 용어집 열람(로그인 사용자 누구나). 한글 기준 정렬.
+app.get('/api/glossary', requireAuth, (req, res) => {
+  const list = glossaryRows
+    .map((r) => ({ ko: r.ko || '', en: r.en || '', meaning: r.meaning || '' }))
+    .sort((a, b) => a.ko.localeCompare(b.ko, 'ko'));
+  res.json(list);
+});
 
 /* ================================================================== */
 /*  AI 요약 (gpt-5-nano) — 세션 전문을 체계적으로 요약                   */

@@ -41,6 +41,8 @@ export const api = {
 
   adminUsers: () => fetch('/api/admin/users').then(json),
   adminUsage: () => fetch('/api/admin/usage').then(json),
+  glossaryList: () => fetch('/api/glossary').then(json),
+
   summaries: () => fetch('/api/summaries').then(json),
   summary: (id) => fetch('/api/summaries/' + id).then(json),
   createSummary: (sessionId) =>

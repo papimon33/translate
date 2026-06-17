@@ -17,6 +17,7 @@ import SessionList from './components/SessionList.jsx';
 import TranslateView from './components/TranslateView.jsx';
 import AdminPage from './components/AdminPage.jsx';
 import SummaryPage from './components/SummaryPage.jsx';
+import GlossaryPage from './components/GlossaryPage.jsx';
 import Login from './components/Login.jsx';
 import { api } from './api.js';
 
@@ -81,6 +82,8 @@ export default function App() {
       <TranslateView session={session} onBack={() => setSession(null)} />
     ) : view === 'summaries' ? (
       <SummaryPage />
+    ) : view === 'glossary' ? (
+      <GlossaryPage />
     ) : view === 'admin' && user.role === 'admin' ? (
       <AdminPage />
     ) : (
@@ -104,6 +107,11 @@ export default function App() {
       onSummaries={() => {
         setSession(null);
         setView('summaries');
+        setDrawer(false);
+      }}
+      onGlossary={() => {
+        setSession(null);
+        setView('glossary');
         setDrawer(false);
       }}
       onAdmin={() => {
