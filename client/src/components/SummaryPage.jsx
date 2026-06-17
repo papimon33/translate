@@ -19,6 +19,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import DownloadIcon from '@mui/icons-material/Download';
 import ReplayIcon from '@mui/icons-material/Replay';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import { api } from '../api.js';
 
@@ -34,6 +35,7 @@ export default function SummaryPage() {
   const [openId, setOpenId] = useState(null);
   const [bodies, setBodies] = useState({}); // id -> summary text
   const [copied, setCopied] = useState(null);
+  const [claudeHint, setClaudeHint] = useState(null);
   const timer = useRef(null);
 
   const load = () =>
@@ -91,6 +93,19 @@ export default function SummaryPage() {
       setCopied(s.id);
       setTimeout(() => setCopied(null), 1500);
     } catch {}
+  };
+  const sendToClaude = async (s, text) => {
+    // 팝업 차단 방지: 사용자 제스처 내에서 먼저 새 탭을 연 뒤 클립보드 복사
+    const w = window.open('https://claude.ai/new', '_blank', 'noopener');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {}
+    if (!w) {
+      // 팝업이 막힌 경우: 직접 이동 안내
+      window.open('https://claude.ai/new', '_blank');
+    }
+    setClaudeHint(s.id);
+    setTimeout(() => setClaudeHint((v) => (v === s.id ? null : v)), 6000);
   };
   const download = (s, text) => {
     const blob = new Blob([`${s.title}\n${fmtDate(s.createdAt)}\n\n${text}`], { type: 'text/plain;charset=utf-8' });
@@ -197,7 +212,15 @@ export default function SummaryPage() {
                           <Button size="small" startIcon={<DownloadIcon fontSize="small" />} onClick={() => download(s, body)} sx={{ fontSize: 12, color: 'text.secondary', minWidth: 0 }}>
                             다운로드
                           </Button>
+                          <Button size="small" startIcon={<OpenInNewIcon fontSize="small" />} onClick={() => sendToClaude(s, body)} sx={{ fontSize: 12, color: 'text.secondary', minWidth: 0 }}>
+                            Claude로 보내기
+                          </Button>
                         </Box>
+                        {claudeHint === s.id && (
+                          <Typography sx={{ fontSize: 11.5, color: 'primary.main', mt: 0.75 }}>
+                            클립보드에 복사했습니다 · 열린 Claude 입력창에 붙여넣기(Ctrl/⌘+V) 하세요.
+                          </Typography>
+                        )}
                       </>
                     )}
                   </Box>
