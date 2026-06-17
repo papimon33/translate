@@ -39,57 +39,6 @@ if (!fs.existsSync(STATIC_DIR)) {
 }
 app.use(express.static(STATIC_DIR));
 
-/* ================================================================== */
-/*  인증 (단일 공용 비밀번호) — 호스트(데스크톱)만 보호                  */
-/*  APP_PASSWORD 미설정 시 인증 비활성(로컬 개발용). 모바일 뷰어는 항상 */
-/*  공개(QR 접속): /ws/viewer, GET /api/sessions/:id, /api/qr 는 열림.   */
-/* ================================================================== */
-const APP_PASSWORD = process.env.APP_PASSWORD || '';
-const AUTH_ENABLED = !!APP_PASSWORD;
-const AUTH_COOKIE = 'kac_auth';
-// 비번에서 파생한 고정 토큰(서버 재시작에도 유효, 별도 세션 저장 불필요).
-const AUTH_TOKEN = AUTH_ENABLED
-  ? crypto.createHmac('sha256', APP_PASSWORD).update('kac-host-auth-v1').digest('hex')
-  : '';
-if (!AUTH_ENABLED) console.warn('[auth] APP_PASSWORD 미설정 — 인증 없이 공개로 동작합니다.');
-
-function getCookie(req, name) {
-  const h = req.headers.cookie || '';
-  for (const part of h.split(';')) {
-    const i = part.indexOf('=');
-    if (i < 0) continue;
-    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
-  }
-  return null;
-}
-function isAuthed(req) {
-  if (!AUTH_ENABLED) return true;
-  return getCookie(req, AUTH_COOKIE) === AUTH_TOKEN;
-}
-function requireAuth(req, res, next) {
-  if (isAuthed(req)) return next();
-  res.status(401).json({ error: 'unauthorized' });
-}
-function isHttps(req) {
-  return String(req.headers['x-forwarded-proto'] || req.protocol || '').split(',')[0].trim() === 'https';
-}
-
-app.get('/api/auth-status', (req, res) => res.json({ required: AUTH_ENABLED, authed: isAuthed(req) }));
-app.post('/api/login', (req, res) => {
-  if (!AUTH_ENABLED) return res.json({ ok: true });
-  const pw = Buffer.from(String((req.body && req.body.password) || ''));
-  const expect = Buffer.from(APP_PASSWORD);
-  const ok = pw.length === expect.length && crypto.timingSafeEqual(pw, expect);
-  if (!ok) return res.status(401).json({ error: 'wrong password' });
-  const secure = isHttps(req) ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${AUTH_TOKEN}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`);
-  res.json({ ok: true });
-});
-app.post('/api/logout', (req, res) => {
-  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-  res.json({ ok: true });
-});
-
 const server = http.createServer(app);
 
 /* ================================================================== */
@@ -99,26 +48,34 @@ const server = http.createServer(app);
 /* ================================================================== */
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
 let sessions = [];  // 메모리 캐시(항상 진실의 원천)
-let col = null;     // Mongo 컬렉션. null 이면 파일 모드.
+let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
+let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
+let usersCol = null;
 
-async function loadSessions() {
+async function loadStore() {
   if (MONGODB_URI) {
     try {
       const { MongoClient } = await import('mongodb');
       const client = new MongoClient(MONGODB_URI);
       await client.connect();
-      col = client.db(MONGODB_DB).collection('sessions');
+      const db = client.db(MONGODB_DB);
+      col = db.collection('sessions');
+      usersCol = db.collection('users');
       await col.createIndex({ id: 1 }, { unique: true });
+      await usersCol.createIndex({ id: 1 }, { unique: true });
       sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
-      console.log(`[sessions] MongoDB 연결됨 — ${sessions.length}개 세션 로드`);
+      users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
+      console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
       return;
     } catch (e) {
-      console.error('[sessions] MongoDB 연결 실패 — 로컬 파일 모드로 폴백', e);
+      console.error('[store] MongoDB 연결 실패 — 로컬 파일 모드로 폴백', e);
       col = null;
+      usersCol = null;
     }
   }
   try {
@@ -127,9 +84,12 @@ async function loadSessions() {
       sessions = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
       if (!Array.isArray(sessions)) sessions = [];
     }
+    if (fs.existsSync(USERS_FILE)) {
+      users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+      if (!Array.isArray(users)) users = [];
+    }
   } catch (e) {
-    console.error('[sessions] 로드 실패', e);
-    sessions = [];
+    console.error('[store] 로드 실패', e);
   }
 }
 
@@ -165,7 +125,38 @@ async function deleteSessionStore(id) {
   }
 }
 
-await loadSessions();
+let userSaveTimer = null;
+function saveUsers() {
+  if (userSaveTimer) return;
+  userSaveTimer = setTimeout(() => {
+    userSaveTimer = null;
+    flushUsers().catch((e) => console.error('[users] 저장 실패', e));
+  }, 400);
+}
+async function flushUsers() {
+  if (usersCol) {
+    if (!users.length) return;
+    const ops = users.map((u) => ({
+      replaceOne: { filter: { id: u.id }, replacement: u, upsert: true },
+    }));
+    await usersCol.bulkWrite(ops, { ordered: false });
+  } else {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  }
+}
+async function deleteUserStore(id) {
+  if (usersCol) {
+    try {
+      await usersCol.deleteOne({ id });
+    } catch (e) {
+      console.error('[users] 삭제 실패', e);
+    }
+  } else {
+    saveUsers();
+  }
+}
+
+await loadStore();
 
 function getSession(id) {
   return sessions.find((s) => s.id === id);
@@ -174,9 +165,169 @@ function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// 소유자 없는 (구) 세션 정리 — 멀티유저 전환 시 1회.
+{
+  const legacy = sessions.filter((s) => !s.owner);
+  if (legacy.length) {
+    sessions = sessions.filter((s) => s.owner);
+    legacy.forEach((s) => deleteSessionStore(s.id));
+    if (!col) saveSessions();
+    console.log(`[store] 소유자 없는 구 세션 ${legacy.length}개 삭제`);
+  }
+}
+
+/* ================================================================== */
+/*  인증 (사용자 계정 + 관리자) — 호스트(데스크톱)만 보호               */
+/*  관리자: 환경변수 ADMIN_ID/ADMIN_PASSWORD. 일반 사용자: 관리자가 생성.*/
+/*  모바일 뷰어는 항상 공개: /ws/viewer, GET /api/sessions/:id, /api/qr  */
+/* ================================================================== */
+const ADMIN_ID = process.env.ADMIN_ID || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
+const AUTH_SECRET =
+  process.env.AUTH_SECRET || crypto.createHash('sha256').update('kac::' + ADMIN_PASSWORD).digest('hex');
+const AUTH_COOKIE = 'kac_auth';
+if (!process.env.ADMIN_PASSWORD)
+  console.warn('[auth] ADMIN_PASSWORD 미설정 — 기본값 "admin" 사용 중. 운영 전 반드시 설정하세요.');
+
+function getCookie(req, name) {
+  const h = req.headers.cookie || '';
+  for (const part of h.split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
+function isHttps(req) {
+  return String(req.headers['x-forwarded-proto'] || req.protocol || '').split(',')[0].trim() === 'https';
+}
+function hashPassword(password, salt) {
+  return crypto.scryptSync(String(password), salt, 32).toString('hex');
+}
+function makeUser({ id, username, password, role }) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return {
+    id, username: username || id, salt, hash: hashPassword(password, salt),
+    role: role || 'user', createdAt: Date.now(), usageMs: 0,
+  };
+}
+function verifyPassword(user, password) {
+  if (!user || !user.salt) return false;
+  const h = Buffer.from(hashPassword(password, user.salt), 'hex');
+  const e = Buffer.from(user.hash, 'hex');
+  return h.length === e.length && crypto.timingSafeEqual(h, e);
+}
+// 관리자는 env 기반 가상 사용자(저장 안 함).
+function findUser(id) {
+  if (id === ADMIN_ID) return { id: ADMIN_ID, username: '관리자', role: 'admin' };
+  return users.find((u) => u.id === id) || null;
+}
+function authToken(id) {
+  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(id).digest('hex');
+  return `${encodeURIComponent(id)}.${sig}`;
+}
+function userFromToken(tok) {
+  if (!tok) return null;
+  const i = tok.lastIndexOf('.');
+  if (i < 0) return null;
+  const id = decodeURIComponent(tok.slice(0, i));
+  const sig = tok.slice(i + 1);
+  const expect = crypto.createHmac('sha256', AUTH_SECRET).update(id).digest('hex');
+  if (sig.length !== expect.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+  return findUser(id);
+}
+function currentUser(req) {
+  return userFromToken(getCookie(req, AUTH_COOKIE));
+}
+function requireAuth(req, res, next) {
+  const u = currentUser(req);
+  if (!u) return res.status(401).json({ error: 'unauthorized' });
+  req.user = u;
+  next();
+}
+function requireAdmin(req, res, next) {
+  const u = currentUser(req);
+  if (!u) return res.status(401).json({ error: 'unauthorized' });
+  if (u.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  req.user = u;
+  next();
+}
+function addUsage(userId, ms) {
+  if (!userId || !ms || ms < 0) return;
+  const u = users.find((x) => x.id === userId); // 관리자는 가상 사용자라 집계 대상 아님
+  if (!u) return;
+  u.usageMs = (u.usageMs || 0) + ms;
+  saveUsers();
+}
+
+app.get('/api/me', (req, res) => {
+  const u = currentUser(req);
+  res.json({ user: u ? { id: u.id, username: u.username, role: u.role } : null });
+});
+app.post('/api/login', (req, res) => {
+  const b = req.body || {};
+  const id = String(b.id || '').trim();
+  const password = String(b.password || '');
+  let user = null;
+  if (id === ADMIN_ID) {
+    const a = Buffer.from(password), e = Buffer.from(ADMIN_PASSWORD);
+    if (a.length === e.length && crypto.timingSafeEqual(a, e)) user = findUser(ADMIN_ID);
+  } else {
+    const u = users.find((x) => x.id === id);
+    if (verifyPassword(u, password)) user = u;
+  }
+  if (!user) return res.status(401).json({ error: 'ID 또는 비밀번호가 올바르지 않습니다.' });
+  const secure = isHttps(req) ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`);
+  res.json({ user: { id: user.id, username: user.username, role: user.role } });
+});
+app.post('/api/logout', (req, res) => {
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  res.json({ ok: true });
+});
+
+/* ---- 관리자: 사용자 관리 + 사용량 통계 ---- */
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  const list = users.map((u) => ({
+    id: u.id, username: u.username, role: u.role, createdAt: u.createdAt,
+    sessionCount: sessions.filter((s) => s.owner === u.id).length,
+    usageMs: u.usageMs || 0,
+  }));
+  res.json(list);
+});
+app.post('/api/admin/users', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const id = String(b.id || '').trim();
+  const username = String(b.username || '').trim();
+  const password = String(b.password || '');
+  if (!id || !password) return res.status(400).json({ error: 'ID 와 비밀번호는 필수입니다.' });
+  if (id === ADMIN_ID || users.some((u) => u.id === id))
+    return res.status(409).json({ error: '이미 존재하는 ID 입니다.' });
+  const u = makeUser({ id, username, password, role: 'user' });
+  users.push(u);
+  saveUsers();
+  res.json({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, sessionCount: 0, usageMs: 0 });
+});
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  const i = users.findIndex((u) => u.id === id);
+  if (i >= 0) {
+    users.splice(i, 1);
+    deleteUserStore(id);
+  }
+  const owned = sessions.filter((s) => s.owner === id).map((s) => s.id);
+  if (owned.length) {
+    sessions = sessions.filter((s) => s.owner !== id);
+    owned.forEach((sid) => deleteSessionStore(sid));
+    if (!col) saveSessions();
+  }
+  res.json({ ok: true });
+});
+
 /* ---- 세션 REST API ---- */
 app.get('/api/sessions', requireAuth, (req, res) => {
   const list = sessions
+    .filter((s) => s.owner === req.user.id) // 사용자마다 자기 세션만
     .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
@@ -191,6 +342,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   const langs = pipeline === 'whisper' ? ALL_LANGS.slice() : [outLang];
   const s = {
     id: newId(),
+    owner: req.user.id, // 소유자
     title: b.title || '새 세션',
     createdAt: now,
     updatedAt: now,
@@ -214,6 +366,7 @@ app.get('/api/sessions/:id', (req, res) => {
 app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
+  if (s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
   // pipeline 은 생성 시 고정. title·inLang 수정 허용. outLang 은 translate 의 타깃 변경용.
   const b = req.body || {};
   if (typeof b.title === 'string') s.title = b.title;
@@ -230,6 +383,7 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
 app.delete('/api/sessions/:id', requireAuth, (req, res) => {
   const i = sessions.findIndex((s) => s.id === req.params.id);
   if (i >= 0) {
+    if (sessions[i].owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
     sessions.splice(i, 1);
     deleteSessionStore(req.params.id);
   }
@@ -473,7 +627,8 @@ const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
-  if (pathname === '/ws/host' && !isAuthed(req)) {
+  const hostUser = pathname === '/ws/host' ? currentUser(req) : null;
+  if (pathname === '/ws/host' && !hostUser) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
     socket.destroy();
     return;
@@ -481,6 +636,7 @@ server.on('upgrade', (req, socket, head) => {
   if (pathname === '/ws/host' || pathname === '/ws/viewer') {
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws._kind = pathname === '/ws/host' ? 'host' : 'viewer';
+      ws._userId = hostUser ? hostUser.id : null;
       ws._session = searchParams.get('session') || 'default';
       ws._src = searchParams.get('src') || 'mic'; // mic | system
       ws._out = searchParams.get('out') || TARGET_LANG;
@@ -515,6 +671,9 @@ function handleHost(ws) {
   const sessionId = ws._session;
   const side = ws._src === 'system' ? 'left' : 'right'; // 시스템=좌, 마이크=우
   const session = getSession(sessionId);
+  // 사용량(이용 시간) 집계: 호스트 WS 연결 시간을 누적.
+  const usageStart = Date.now();
+  ws.on('close', () => addUsage(ws._userId, Date.now() - usageStart));
   const polish = true; // 다듬기 필수
   const inRaw = ws._in != null ? ws._in : session ? session.inLang : null;
   const inLang = inRaw && inRaw !== 'auto' ? inRaw : null;

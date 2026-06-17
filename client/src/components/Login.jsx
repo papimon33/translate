@@ -9,18 +9,19 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { api } from '../api.js';
 
 export default function Login({ onSuccess }) {
+  const [id, setId] = useState('');
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!pw || busy) return;
+    if (!id || !pw || busy) return;
     setBusy(true);
     setErr('');
     try {
-      await api.login(pw);
-      onSuccess();
+      const { user } = await api.login(id, pw);
+      onSuccess(user);
     } catch (e) {
       setErr(e.message || '로그인 실패');
       setPw('');
@@ -51,7 +52,7 @@ export default function Login({ onSuccess }) {
             KAC Translator
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            접속하려면 비밀번호를 입력하세요
+            ID와 비밀번호로 로그인하세요
           </Typography>
         </Box>
         {err && (
@@ -60,16 +61,24 @@ export default function Login({ onSuccess }) {
           </Alert>
         )}
         <TextField
-          type="password"
-          label="비밀번호"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
+          label="ID"
+          value={id}
+          onChange={(e) => setId(e.target.value)}
           fullWidth
           autoFocus
           disabled={busy}
           sx={{ mb: 2 }}
         />
-        <Button type="submit" variant="contained" fullWidth size="large" disabled={busy || !pw}>
+        <TextField
+          type="password"
+          label="비밀번호"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          fullWidth
+          disabled={busy}
+          sx={{ mb: 2 }}
+        />
+        <Button type="submit" variant="contained" fullWidth size="large" disabled={busy || !id || !pw}>
           {busy ? '확인 중…' : '입장'}
         </Button>
       </Paper>

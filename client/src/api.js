@@ -18,15 +18,27 @@ export const api = {
   remove: (id) => fetch('/api/sessions/' + id, { method: 'DELETE' }).then(json),
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
 
-  authStatus: () => fetch('/api/auth-status').then(json),
-  login: (password) =>
+  me: () => fetch('/api/me').then(json),
+  login: (id, password) =>
     fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    }).then((r) => {
-      if (!r.ok) throw new Error('비밀번호가 올바르지 않습니다.');
+      body: JSON.stringify({ id, password }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '로그인 실패');
       return r.json();
     }),
   logout: () => fetch('/api/logout', { method: 'POST' }).then(json),
+
+  adminUsers: () => fetch('/api/admin/users').then(json),
+  adminCreateUser: (body) =>
+    fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '생성 실패');
+      return r.json();
+    }),
+  adminDeleteUser: (id) => fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' }).then(json),
 };

@@ -16,8 +16,12 @@ services:
         sync: false          # 대시보드에서 입력
       - key: MONGODB_URI
         sync: false          # MongoDB Atlas 연결 문자열, 대시보드에서 입력
-      - key: APP_PASSWORD
-        sync: false          # 호스트(데스크톱) 접속 비밀번호, 대시보드에서 입력
+      - key: ADMIN_ID
+        sync: false          # 관리자 로그인 ID, 대시보드에서 입력 (미설정 시 코드 기본값 admin)
+      - key: ADMIN_PASSWORD
+        sync: false          # 관리자 비밀번호, 대시보드에서 입력 (미설정 시 기본값 admin — 반드시 설정)
+      - key: AUTH_SECRET
+        sync: false          # 로그인 쿠키 서명 키(임의 긴 문자열). 미설정 시 ADMIN_PASSWORD 에서 파생
       - key: TARGET_LANG
         value: ko
     # 모델(TRANSCRIBE/TRANSLATE/REFINE)은 server.js 에 코드 고정 → 환경변수 불필요.

@@ -6,6 +6,7 @@ import { buildTheme } from './theme.js';
 import Nav from './components/Nav.jsx';
 import SessionList from './components/SessionList.jsx';
 import TranslateView from './components/TranslateView.jsx';
+import AdminPage from './components/AdminPage.jsx';
 import Login from './components/Login.jsx';
 import { api } from './api.js';
 
@@ -13,14 +14,15 @@ export default function App() {
   const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'dark');
   const [collapsed, setCollapsed] = useState(localStorage.getItem('kac-nav') === '1');
   const [session, setSession] = useState(null); // 열린 세션(null=목록)
-  const [authed, setAuthed] = useState(null); // null=확인중, true/false
+  const [view, setView] = useState('sessions'); // 'sessions' | 'admin'
+  const [user, setUser] = useState(undefined); // undefined=확인중, null=로그아웃
   const theme = useMemo(() => buildTheme(mode), [mode]);
 
   useEffect(() => {
     api
-      .authStatus()
-      .then((s) => setAuthed(!s.required || s.authed))
-      .catch(() => setAuthed(true)); // 상태 확인 실패 시 막지 않음(서버가 처리)
+      .me()
+      .then((r) => setUser(r.user || null))
+      .catch(() => setUser(null));
   }, []);
 
   const toggleTheme = () => {
@@ -33,8 +35,16 @@ export default function App() {
     setCollapsed(next);
     localStorage.setItem('kac-nav', next ? '1' : '0');
   };
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch {}
+    setUser(null);
+    setSession(null);
+    setView('sessions');
+  };
 
-  if (authed === null) {
+  if (user === undefined) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
@@ -44,14 +54,23 @@ export default function App() {
       </ThemeProvider>
     );
   }
-  if (!authed) {
+  if (!user) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Login onSuccess={() => setAuthed(true)} />
+        <Login onSuccess={(u) => setUser(u)} />
       </ThemeProvider>
     );
   }
+
+  const main =
+    session ? (
+      <TranslateView session={session} onBack={() => setSession(null)} />
+    ) : view === 'admin' && user.role === 'admin' ? (
+      <AdminPage />
+    ) : (
+      <SessionList onOpen={setSession} />
+    );
 
   return (
     <ThemeProvider theme={theme}>
@@ -62,14 +81,20 @@ export default function App() {
           onToggleCollapsed={toggleCollapsed}
           onToggleTheme={toggleTheme}
           mode={mode}
-          onHome={() => setSession(null)}
+          user={user}
+          view={session ? 'sessions' : view}
+          onHome={() => {
+            setSession(null);
+            setView('sessions');
+          }}
+          onAdmin={() => {
+            setSession(null);
+            setView('admin');
+          }}
+          onLogout={logout}
         />
         <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          {session ? (
-            <TranslateView session={session} onBack={() => setSession(null)} />
-          ) : (
-            <SessionList onOpen={setSession} />
-          )}
+          {main}
         </Box>
       </Box>
     </ThemeProvider>
