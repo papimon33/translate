@@ -19,6 +19,7 @@ const TRANSCRIBE_MODEL = 'gpt-realtime-whisper';
 const TRANSLATE_MODEL = 'gpt-realtime-translate';
 const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || ''; // Nova-3 테스트 모드(선택)
 
 const LANG_NAMES = {
   ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어',
@@ -766,10 +767,10 @@ app.get('/api/sessions', requireAuth, (req, res) => {
 app.post('/api/sessions', requireAuth, (req, res) => {
   const now = Date.now();
   const b = req.body || {};
-  const pipeline = b.pipeline === 'translate' ? 'translate' : 'whisper';
+  const pipeline = ['translate', 'deepgram'].includes(b.pipeline) ? b.pipeline : 'whisper';
   // whisper 는 항상 한·영·일·중 전부 번역. translate 는 단일 출력 언어.
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
-  const langs = pipeline === 'whisper' ? ALL_LANGS.slice() : [outLang];
+  const langs = pipeline === 'translate' ? [outLang] : ALL_LANGS.slice(); // whisper·deepgram 은 다국어
   const s = {
     id: newId(),
     owner: req.user.id, // 소유자
@@ -1209,7 +1210,85 @@ function handleHost(ws) {
   };
 
   if (pipeline === 'translate') runTranslate();
+  else if (pipeline === 'deepgram') runDeepgram();
   else runWhisper();
+
+  /* ---------- Deepgram Nova-3 (전사+화자구분) -> gpt 번역 [테스트] ---------- */
+  function runDeepgram() {
+    if (!DEEPGRAM_API_KEY) {
+      toHost({ type: 'status', message: 'DEEPGRAM_API_KEY 미설정 — deepgram 모드 사용 불가' });
+      return;
+    }
+    const qp = new URLSearchParams({
+      model: 'nova-3',
+      encoding: 'linear16',
+      sample_rate: '24000',
+      channels: '1',
+      diarize: 'true',
+      smart_format: 'true',
+      punctuate: 'true',
+      interim_results: 'true',
+      language: inLang || 'multi', // Nova-3 다국어
+    });
+    const dg = new WebSocket('wss://api.deepgram.com/v1/listen?' + qp.toString(), {
+      headers: { Authorization: 'Token ' + DEEPGRAM_API_KEY },
+    });
+    idleClose = () => { try { dg.close(); } catch {} };
+    let dgReady = false;
+    const pending = [];
+    const langsOut = ALL_LANGS;
+
+    dg.on('open', () => {
+      dgReady = true;
+      while (pending.length) dg.send(pending.shift());
+      toHost({ type: 'status', message: '엔진 연결됨 (Deepgram Nova-3)' });
+      bumpIdle();
+    });
+    dg.on('message', async (raw) => {
+      let ev;
+      try { ev = JSON.parse(raw.toString()); } catch { return; }
+      if (ev.type !== 'Results') return;
+      const alt = ev.channel && ev.channel.alternatives && ev.channel.alternatives[0];
+      const text = (alt && alt.transcript || '').trim();
+      if (!text) return;
+      bumpIdle();
+      if (!ev.is_final) { sendPartial(text); return; } // 진행 중 원문
+      sendPartial('');
+      // 화자: 단어들의 최빈 speaker
+      let spk = null;
+      const words = (alt.words || []).filter((w) => w.speaker != null);
+      if (words.length) {
+        const cnt = {};
+        for (const w of words) cnt[w.speaker] = (cnt[w.speaker] || 0) + 1;
+        spk = Number(Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0]);
+      }
+      const id = newId();
+      const source = spk != null ? `화자 ${spk + 1}: ${text}` : text;
+      // 4개국어 병렬 번역(gpt-5-mini)
+      const texts = {};
+      await Promise.all(
+        langsOut.map(async (lang) => {
+          try { texts[lang] = await translateText(text, lang, true, []); } catch {}
+        })
+      );
+      upsertItem(id, texts, source);
+    });
+    dg.on('error', (e) => toHost({ type: 'status', message: 'Deepgram 오류: ' + (e && e.message || e) }));
+    dg.on('close', () => toHost({ type: 'status', message: '엔진 연결 종료 (Deepgram)' }));
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) {
+        if (dgReady) dg.send(data);
+        else pending.push(data);
+        return;
+      }
+      try {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'stop') { try { dg.send(JSON.stringify({ type: 'CloseStream' })); } catch {}; try { dg.close(); } catch {} }
+      } catch {}
+    });
+    ws.on('close', () => { try { dg.close(); } catch {} });
+  }
 
   /* ---------- whisper 전사 -> gpt 번역 ---------- */
   function runWhisper() {

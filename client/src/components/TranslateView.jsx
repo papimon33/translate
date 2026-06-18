@@ -52,6 +52,7 @@ const OUT4 = [
 const PIPES = [
   { v: 'whisper', label: '다국어 번역' },
   { v: 'translate', label: '실시간 통역' },
+  { v: 'deepgram', label: '화자구분 (Nova-3 테스트)' },
 ];
 
 const pulse = keyframes`
@@ -196,7 +197,7 @@ export default function TranslateView({ session: initial, onBack }) {
     localStorage.setItem('kac-src', v ? '1' : '0');
   };
   // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
-  const showSource = cfg.pipeline === 'whisper' && srcVisible;
+  const showSource = cfg.pipeline !== 'translate' && srcVisible;
   const showPartial = true;
   const pipeLabel = PIPES.find((p) => p.v === cfg.pipeline)?.label;
 
@@ -241,7 +242,7 @@ export default function TranslateView({ session: initial, onBack }) {
               ))}
             </Select>
           </Field>
-          {cfg.pipeline === 'whisper' && (
+          {cfg.pipeline !== 'translate' && (
             <Field label="입력 언어">
               <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 120 }}>
                 {LANGS.map((l) => (

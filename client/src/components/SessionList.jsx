@@ -236,6 +236,12 @@ export default function SessionList({ onOpen }) {
                 자막 및 음성으로 실시간 통역
               </Typography>
             </ToggleButton>
+            <ToggleButton value="deepgram" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+              <b>화자구분 (테스트)</b>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
+                Deepgram Nova-3 전사+화자구분
+              </Typography>
+            </ToggleButton>
           </ToggleButtonGroup>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
