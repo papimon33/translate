@@ -32,6 +32,30 @@ if (!OPENAI_API_KEY) {
 }
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1); // Render 등 프록시 뒤 — req.ip / x-forwarded-* 신뢰
+
+// 보안 헤더
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
+// CSRF 완화: /api 의 상태변경 요청은 동일 출처만 허용(쿠키 인증 보호)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH' || req.method === 'DELETE')) {
+    const origin = req.headers.origin;
+    if (origin) {
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+      let oh = '';
+      try { oh = new URL(origin).host; } catch {}
+      if (oh && oh !== host) return res.status(403).json({ error: 'cross-origin request blocked' });
+    }
+  }
+  next();
+});
 app.use(express.json({ limit: '16mb' })); // 용어집 CSV 업로드(수천 행) 대응
 // 빌드된 React 앱(dist) 서빙
 const STATIC_DIR = path.join(__dirname, 'dist');
@@ -70,37 +94,43 @@ let summariesCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
-    try {
-      const { MongoClient } = await import('mongodb');
-      const client = new MongoClient(MONGODB_URI);
-      await client.connect();
-      const db = client.db(MONGODB_DB);
-      col = db.collection('sessions');
-      usersCol = db.collection('users');
-      usageCol = db.collection('usageDaily');
-      glossaryCol = db.collection('glossary');
-      summariesCol = db.collection('summaries');
-      await col.createIndex({ id: 1 }, { unique: true });
-      await usersCol.createIndex({ id: 1 }, { unique: true });
-      await usageCol.createIndex({ date: 1 }, { unique: true });
-      await summariesCol.createIndex({ id: 1 }, { unique: true });
-      sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
-      users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
-      const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
-      usageDaily = {};
-      rows.forEach((r) => (usageDaily[r.date] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
-      glossaryRows = await glossaryCol.find({}, { projection: { _id: 0 } }).toArray();
-      summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
-      console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length} / 용어 ${glossaryRows.length}`);
-      return;
-    } catch (e) {
-      console.error('[store] MongoDB 연결 실패 — 로컬 파일 모드로 폴백', e);
-      col = null;
-      usersCol = null;
-      usageCol = null;
-      glossaryCol = null;
-      summariesCol = null;
+    const { MongoClient } = await import('mongodb');
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const client = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
+        await client.connect();
+        const db = client.db(MONGODB_DB);
+        col = db.collection('sessions');
+        usersCol = db.collection('users');
+        usageCol = db.collection('usageDaily');
+        glossaryCol = db.collection('glossary');
+        summariesCol = db.collection('summaries');
+        await col.createIndex({ id: 1 }, { unique: true });
+        await usersCol.createIndex({ id: 1 }, { unique: true });
+        await usageCol.createIndex({ date: 1 }, { unique: true });
+        await summariesCol.createIndex({ id: 1 }, { unique: true });
+        sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
+        users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
+        const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
+        usageDaily = {};
+        rows.forEach((r) => (usageDaily[r.date] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
+        glossaryRows = await glossaryCol.find({}, { projection: { _id: 0 } }).toArray();
+        summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
+        console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length} / 용어 ${glossaryRows.length}`);
+        return;
+      } catch (e) {
+        console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
+        col = usersCol = usageCol = glossaryCol = summariesCol = null;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
+      }
     }
+    // MONGODB_URI 가 설정됐는데도 연결 실패 → 운영에선 파일 모드로 조용히 폴백하면
+    // 데이터가 분리/유실되므로 기동을 중단한다(설정 점검 유도).
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[store] MONGODB_URI 설정됨에도 연결 실패 — 데이터 유실 방지를 위해 종료합니다. (Atlas Network Access/URI 확인)');
+      process.exit(1);
+    }
+    console.error('[store] (개발 모드) 로컬 파일 모드로 폴백');
   }
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -353,6 +383,8 @@ const AUTH_SECRET =
 const AUTH_COOKIE = 'kac_auth';
 if (!process.env.ADMIN_PASSWORD)
   console.warn('[auth] ADMIN_PASSWORD 미설정 — 기본값 "admin" 사용 중. 운영 전 반드시 설정하세요.');
+if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET)
+  console.warn('[auth] (운영) AUTH_SECRET 미설정 — ADMIN_PASSWORD 에서 파생됩니다. 비번 변경 시 전원 로그아웃되니 AUTH_SECRET 고정 권장.');
 
 function getCookie(req, name) {
   const h = req.headers.cookie || '';
@@ -444,7 +476,23 @@ app.patch('/api/me', requireAuth, (req, res) => {
   saveUsers();
   res.json({ user: { id: stored.id, username: stored.username, role: stored.role } });
 });
+// 로그인 무차별 대입 방어: IP당 15분 내 8회 실패 시 15분 잠금
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAIL = 8;
+const loginFails = new Map(); // ip -> { count, first, lockUntil }
+function loginKey(req) {
+  return String(req.ip || (req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || 'ip').trim();
+}
 app.post('/api/login', (req, res) => {
+  const key = loginKey(req);
+  const now = Date.now();
+  let rec = loginFails.get(key);
+  if (rec && rec.lockUntil && now < rec.lockUntil) {
+    const sec = Math.ceil((rec.lockUntil - now) / 1000);
+    return res.status(429).json({ error: `로그인 시도가 너무 많습니다. ${sec}초 후 다시 시도하세요.` });
+  }
+  if (rec && now - rec.first > LOGIN_WINDOW_MS) rec = null; // 윈도우 경과 → 초기화
+
   const b = req.body || {};
   const id = String(b.id || '').trim();
   const password = String(b.password || '');
@@ -456,7 +504,16 @@ app.post('/api/login', (req, res) => {
     const u = users.find((x) => x.id === id);
     if (verifyPassword(u, password)) user = u;
   }
-  if (!user) return res.status(401).json({ error: 'ID 또는 비밀번호가 올바르지 않습니다.' });
+  if (!user) {
+    rec = rec || { count: 0, first: now, lockUntil: 0 };
+    rec.count++;
+    if (rec.count >= LOGIN_MAX_FAIL) rec.lockUntil = now + LOGIN_WINDOW_MS;
+    loginFails.set(key, rec);
+    console.warn(`[auth] 로그인 실패 id=${id} ip=${key} (${rec.count}회)`);
+    return res.status(401).json({ error: 'ID 또는 비밀번호가 올바르지 않습니다.' });
+  }
+  loginFails.delete(key); // 성공 시 초기화
+  console.log(`[auth] 로그인 성공 id=${user.id} role=${user.role} ip=${key}`);
   const secure = isHttps(req) ? '; Secure' : '';
   res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`);
   res.json({ user: { id: user.id, username: user.username, role: user.role } });
@@ -1060,6 +1117,22 @@ function handleHost(ws) {
     addUsage(ws._userId, ms);
     recordUsage(pipeline, ms); // pipeline 은 아래에서 정의됨(close 시점엔 초기화 완료)
   });
+  // 유휴 자동 종료: 1분간 음성 활동(전사/번역 델타)이 없으면 OA 세션을 닫아 비용 절감.
+  const IDLE_LIMIT_MS = 60000;
+  let idleTimer = null;
+  let idleClose = null; // 파이프라인이 OA 종료 함수를 등록
+  let idleStopped = false;
+  function bumpIdle() {
+    if (idleStopped) return;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      idleStopped = true;
+      toHost({ type: 'idle-stop' });
+      toHost({ type: 'status', message: '1분간 입력이 없어 번역을 중지했습니다.' });
+      if (idleClose) try { idleClose(); } catch {}
+    }, IDLE_LIMIT_MS);
+  }
+  ws.on('close', () => clearTimeout(idleTimer));
   const polish = true; // 다듬기 필수
   const inRaw = ws._in != null ? ws._in : session ? session.inLang : null;
   const inLang = inRaw && inRaw !== 'auto' ? inRaw : null;
@@ -1132,6 +1205,7 @@ function handleHost(ws) {
     const oa = new WebSocket('wss://api.openai.com/v1/realtime?intent=transcription', {
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
     });
+    idleClose = () => { try { oa.close(); } catch {} };
     let oaReady = false;
     let appendedSinceCommit = 0;
     let srcBuf = ''; // 현재 커밋의 스트리밍 델타
@@ -1209,6 +1283,7 @@ function handleHost(ws) {
       oaReady = true;
       while (pending.length) oa.send(pending.shift());
       toHost({ type: 'status', message: '엔진 연결됨 (whisper)' });
+      bumpIdle(); // 무입력 카운트다운 시작
     });
 
     oa.on('message', (raw) => {
@@ -1219,6 +1294,7 @@ function handleHost(ws) {
         return;
       }
       if (ev.type === 'conversation.item.input_audio_transcription.delta') {
+        bumpIdle(); // 음성 활동 → 유휴 타이머 리셋
         srcBuf += ev.delta || '';
         sendPartial((srcAccum + ' ' + srcBuf).trim());
       } else if (ev.type === 'conversation.item.input_audio_transcription.completed') {
@@ -1281,6 +1357,7 @@ function handleHost(ws) {
       `wss://api.openai.com/v1/realtime/translations?model=${encodeURIComponent(TRANSLATE_MODEL)}`,
       { headers: { Authorization: `Bearer ${OPENAI_API_KEY}` } }
     );
+    idleClose = () => { try { oa.close(); } catch {} };
     let oaReady = false;
     let closing = false;
     let buf = '';
@@ -1320,6 +1397,7 @@ function handleHost(ws) {
       oaReady = true;
       while (pending.length) oa.send(pending.shift());
       toHost({ type: 'status', message: '엔진 연결됨 (translate)' });
+      bumpIdle(); // 무입력 카운트다운 시작
     });
 
     oa.on('message', (raw) => {
@@ -1337,6 +1415,7 @@ function handleHost(ws) {
         return;
       }
       if (ev.type === 'session.output_transcript.delta') {
+        bumpIdle(); // 번역 활동 → 유휴 타이머 리셋
         buf += ev.delta || '';
         liveUpdate(); // 카드에 바로 스트리밍
         if (buf.length >= MAX_BUF) {

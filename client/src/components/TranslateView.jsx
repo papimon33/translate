@@ -93,6 +93,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState('');
   const recRef = useRef(null);
   const scrollRef = useRef(null);
 
@@ -132,6 +133,12 @@ export default function TranslateView({ session: initial, onBack }) {
   };
 
   const onMessage = (m) => {
+    if (m.type === 'idle-stop') {
+      stop();
+      setNotice('1분간 입력이 없어 자동으로 중지했습니다. 다시 시작하려면 시작 버튼을 누르세요.');
+      setTimeout(() => setNotice(''), 6000);
+      return;
+    }
     if (m.type === 'partial') {
       setPartials((p) => ({ ...p, [m.side || 'right']: m.text || '' }));
     } else if (m.type === 'sentence') {
@@ -319,6 +326,12 @@ export default function TranslateView({ session: initial, onBack }) {
           </Field>
         </Paper>
       </Box>
+
+      {notice && (
+        <Box sx={{ mx: { xs: 1.5, sm: 3 }, mb: 1, px: 1.75, py: 1, borderRadius: 2, fontSize: 13, bgcolor: (t) => alpha(t.palette.warning.main, 0.14), color: 'warning.main', border: 1, borderColor: (t) => alpha(t.palette.warning.main, 0.4) }}>
+          {notice}
+        </Box>
+      )}
 
       <Divider />
 
