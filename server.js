@@ -1311,7 +1311,10 @@ function handleHost(ws) {
         return;
       }
       if (ev.type === 'session.output_audio.delta') {
-        if (audioOut && ev.delta) toHost({ type: 'audio', b64: ev.delta }); // 24kHz PCM16
+        if (ev.delta) {
+          if (audioOut) toHost({ type: 'audio', b64: ev.delta }); // 호스트: 자체 토글
+          broadcast(sessionId, { type: 'audio', b64: ev.delta }); // 모바일 뷰어: 각자 재생 토글로 제어
+        }
         return;
       }
       if (ev.type === 'session.output_transcript.delta') {

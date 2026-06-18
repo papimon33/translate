@@ -102,6 +102,10 @@
     <span class="lbl">원문 동시 보기</span>
     <label class="sw"><input type="checkbox" id="srcToggle" /><span class="sl"></span></label>
   </div>
+  <div class="srow click" id="rowAudio" style="display:none">
+    <span class="lbl">번역 음성 듣기</span>
+    <label class="sw"><input type="checkbox" id="audioToggle" /><span class="sl"></span></label>
+  </div>
   <div class="srow click" id="rowDark">
     <span class="lbl">다크 모드</span>
     <label class="sw"><input type="checkbox" id="darkToggle" /><span class="sl"></span></label>
@@ -131,6 +135,7 @@ let order = []; // 표시 순서 id 목록
 let latestId = null;
 let curLang = 'ko';
 let sessionPipeline = 'whisper';
+let sessionOutLang = 'ko';
 
 /* ---- 설정 저장값 ---- */
 function applyTheme(t){ document.documentElement.setAttribute('data-theme', t); localStorage.setItem('kac-theme', t); $('darkToggle').checked = (t==='dark'); }
@@ -144,18 +149,31 @@ function applySrc(){ $('srcToggle').checked = showSrc; cards.forEach(c => { c.sr
 applyTheme(localStorage.getItem('kac-theme') || 'dark');
 applyFs();
 
-/* ---- 언어 select (항상 한·영·일·중) ---- */
+/* ---- 언어 select ---- */
 async function loadSession(){
   let title = 'KAC Translator';
-  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; } } catch {}
+  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; } } catch {}
   titleEl.textContent = title;
-  rerender();
-  const saved = localStorage.getItem('kac-mlang-'+sessionId);
-  curLang = (saved && ALL4.includes(saved)) ? saved : 'ko';
   langSel.innerHTML='';
-  ALL4.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=LABEL[c]||c; langSel.appendChild(o); });
-  langSel.value = curLang;
-  langSel.onchange = () => { curLang = langSel.value; localStorage.setItem('kac-mlang-'+sessionId, curLang); rerender(); };
+  if (sessionPipeline === 'translate') {
+    // 실시간 통역: 단일 출력 언어 → select 고정(변경 불가)
+    curLang = sessionOutLang;
+    const o=document.createElement('option'); o.value=curLang; o.textContent=LABEL[curLang]||curLang; langSel.appendChild(o);
+    langSel.value = curLang;
+    langSel.disabled = true;
+    langSel.style.opacity = '0.6';
+    langSel.onchange = null;
+    $('rowAudio').style.display = 'flex'; // 번역 음성 듣기 토글 노출
+  } else {
+    // 다국어 번역: 한·영·일·중 선택
+    const saved = localStorage.getItem('kac-mlang-'+sessionId);
+    curLang = (saved && ALL4.includes(saved)) ? saved : 'ko';
+    ALL4.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=LABEL[c]||c; langSel.appendChild(o); });
+    langSel.value = curLang;
+    langSel.disabled = false;
+    langSel.onchange = () => { curLang = langSel.value; localStorage.setItem('kac-mlang-'+sessionId, curLang); rerender(); };
+  }
+  rerender();
 }
 
 /* ---- QR ---- */
@@ -237,6 +255,27 @@ document.addEventListener('click', (e)=>{
   }
 });
 
+/* ---- 번역 음성 재생 (translate, 24kHz PCM16) ---- */
+let audioOn = false;
+let actx = null;
+let outCursor = 0;
+function enableAudio(){
+  // 모바일 자동재생 정책: 사용자 탭(제스처) 안에서 컨텍스트 생성/재개해야 소리가 남
+  if(!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch {} }
+  if(actx && actx.state==='suspended') actx.resume();
+}
+function playPcm24(b64){
+  if(!actx) return;
+  try {
+    const bin = atob(b64); const n = bin.length>>1;
+    const buf = actx.createBuffer(1, n, 24000); const ch = buf.getChannelData(0);
+    for(let i=0;i<n;i++){ let s=(bin.charCodeAt(i*2+1)<<8)|bin.charCodeAt(i*2); if(s>=0x8000) s-=0x10000; ch[i]=s/32768; }
+    const node = actx.createBufferSource(); node.buffer=buf; node.connect(actx.destination);
+    const now = actx.currentTime; if(outCursor<now) outCursor=now+0.08;
+    node.start(outCursor); outCursor += buf.duration;
+  } catch {}
+}
+
 /* ---- WS ---- */
 let ws;
 function connect(){
@@ -248,6 +287,7 @@ function connect(){
     if(m.type==='snapshot'){ m.items.forEach(it => upsert(it)); }
     else if(m.type==='partial'){ setPartial(m.text); }
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
+    else if(m.type==='audio'){ if(audioOn) playPcm24(m.b64); }
   };
 }
 
@@ -261,6 +301,7 @@ $('fsDown').onclick = (e) => { e.stopPropagation(); fsPct = Math.max(50, fsPct-1
 // QR / 원문 / 다크모드: 행 전체 클릭으로 동작
 $('rowQr').onclick = () => { closeSheet(); $('qrModal').classList.add('show'); };
 $('rowSrc').onclick = () => { showSrc = !showSrc; $('srcToggle').checked = showSrc; localStorage.setItem('kac-msrc', showSrc?'1':'0'); applySrc(); };
+$('rowAudio').onclick = () => { audioOn = !audioOn; $('audioToggle').checked = audioOn; if(audioOn) enableAudio(); };
 $('rowDark').onclick = () => { applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); };
 $('qrClose').onclick = () => $('qrModal').classList.remove('show');
 $('qrModal').onclick = (e) => { if(e.target.id==='qrModal') $('qrModal').classList.remove('show'); };
