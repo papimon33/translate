@@ -264,6 +264,7 @@ function enableAudio(){
   if(!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch {} }
   if(actx && actx.state==='suspended') actx.resume();
 }
+function sendAudioSub(on){ try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'audioSub', on:!!on})); } catch {} }
 function playPcm24(b64){
   if(!actx) return;
   try {
@@ -281,6 +282,7 @@ let ws;
 function connect(){
   const proto = location.protocol==='https:'?'wss':'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}`);
+  ws.onopen = () => { if(audioOn) sendAudioSub(true); }; // 재접속 시 구독 복원
   ws.onclose = () => setTimeout(connect, 1500);
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
@@ -301,7 +303,7 @@ $('fsDown').onclick = (e) => { e.stopPropagation(); fsPct = Math.max(50, fsPct-1
 // QR / 원문 / 다크모드: 행 전체 클릭으로 동작
 $('rowQr').onclick = () => { closeSheet(); $('qrModal').classList.add('show'); };
 $('rowSrc').onclick = () => { showSrc = !showSrc; $('srcToggle').checked = showSrc; localStorage.setItem('kac-msrc', showSrc?'1':'0'); applySrc(); };
-$('rowAudio').onclick = () => { audioOn = !audioOn; $('audioToggle').checked = audioOn; if(audioOn) enableAudio(); };
+$('rowAudio').onclick = () => { audioOn = !audioOn; $('audioToggle').checked = audioOn; if(audioOn) enableAudio(); sendAudioSub(audioOn); };
 $('rowDark').onclick = () => { applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); };
 $('qrClose').onclick = () => $('qrModal').classList.remove('show');
 $('qrModal').onclick = (e) => { if(e.target.id==='qrModal') $('qrModal').classList.remove('show'); };

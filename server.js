@@ -769,6 +769,18 @@ function broadcast(sessionId, payload) {
     if (v.readyState === WebSocket.OPEN) v.send(msg);
   }
 }
+// 번역 음성은 '음성 듣기'를 켠(구독한) 뷰어에게만 전송 → 무료 티어 대역폭 절약
+function broadcastAudio(sessionId, b64) {
+  const room = rooms.get(sessionId);
+  if (!room) return;
+  let msg = null;
+  for (const v of room.viewers) {
+    if (v._audioWanted && v.readyState === WebSocket.OPEN) {
+      if (!msg) msg = JSON.stringify({ type: 'audio', b64 });
+      v.send(msg);
+    }
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  로컬 네트워크 IP (모바일 접속용)                                    */
@@ -1022,8 +1034,15 @@ wss.on('connection', (ws) => {
 function handleViewer(ws) {
   const room = getRoom(ws._session);
   room.viewers.add(ws);
+  ws._audioWanted = false; // '음성 듣기' 구독 여부
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
+  ws.on('message', (data) => {
+    try {
+      const m = JSON.parse(data.toString());
+      if (m.type === 'audioSub') ws._audioWanted = !!m.on;
+    } catch {}
+  });
   ws.on('close', () => room.viewers.delete(ws));
 }
 
@@ -1313,7 +1332,7 @@ function handleHost(ws) {
       if (ev.type === 'session.output_audio.delta') {
         if (ev.delta) {
           if (audioOut) toHost({ type: 'audio', b64: ev.delta }); // 호스트: 자체 토글
-          broadcast(sessionId, { type: 'audio', b64: ev.delta }); // 모바일 뷰어: 각자 재생 토글로 제어
+          broadcastAudio(sessionId, ev.delta); // 모바일 뷰어: '음성 듣기' 켠 사람에게만 전송
         }
         return;
       }
