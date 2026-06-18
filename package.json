@@ -9,7 +9,8 @@
     "serve": "node server.js",
     "build": "vite build",
     "dev:server": "node --watch server.js",
-    "dev:client": "vite"
+    "dev:client": "vite",
+    "test": "node --test"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

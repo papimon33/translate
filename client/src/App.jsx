@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -14,12 +14,14 @@ import { alpha } from '@mui/material/styles';
 import { buildTheme } from './theme.js';
 import Nav from './components/Nav.jsx';
 import SessionList from './components/SessionList.jsx';
-import TranslateView from './components/TranslateView.jsx';
-import AdminPage from './components/AdminPage.jsx';
-import SummaryPage from './components/SummaryPage.jsx';
-import GlossaryPage from './components/GlossaryPage.jsx';
 import Login from './components/Login.jsx';
 import { api } from './api.js';
+
+// 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
+const TranslateView = lazy(() => import('./components/TranslateView.jsx'));
+const AdminPage = lazy(() => import('./components/AdminPage.jsx'));
+const SummaryPage = lazy(() => import('./components/SummaryPage.jsx'));
+const GlossaryPage = lazy(() => import('./components/GlossaryPage.jsx'));
 
 export default function App() {
   const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'dark');
@@ -89,6 +91,17 @@ export default function App() {
     ) : (
       <SessionList onOpen={setSession} />
     );
+  const mainEl = (
+    <Suspense
+      fallback={
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <CircularProgress />
+        </Box>
+      }
+    >
+      {main}
+    </Suspense>
+  );
 
   const nav = (
     <Nav
@@ -150,7 +163,7 @@ export default function App() {
             {nav}
           </Drawer>
           <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {main}
+            {mainEl}
           </Box>
         </Box>
       </ThemeProvider>
@@ -164,7 +177,7 @@ export default function App() {
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         {nav}
         <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          {main}
+          {mainEl}
         </Box>
       </Box>
     </ThemeProvider>

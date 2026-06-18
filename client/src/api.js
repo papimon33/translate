@@ -76,4 +76,13 @@ export const api = {
       return r.json();
     }),
   adminDeleteUser: (id) => fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' }).then(json),
+  adminResetPassword: (id, password) =>
+    fetch('/api/admin/users/' + encodeURIComponent(id) + '/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '재설정 실패');
+      return r.json();
+    }),
 };

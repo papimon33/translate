@@ -20,6 +20,7 @@ import Tooltip from '@mui/material/Tooltip';
 import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
+import LockResetIcon from '@mui/icons-material/LockReset';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { api } from '../api.js';
 
@@ -81,6 +82,9 @@ export default function AdminPage() {
   const [form, setForm] = useState({ id: '', username: '', password: '' });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pwDlg, setPwDlg] = useState(null); // { id, name }
+  const [pwVal, setPwVal] = useState('');
+  const [pwErr, setPwErr] = useState('');
 
   const reload = () => {
     api.adminUsers().then(setList).catch(() => setList([]));
@@ -120,6 +124,23 @@ export default function AdminPage() {
     setForm({ id: '', username: '', password: '' });
     setErr('');
     setDlg(true);
+  };
+  const openPwDlg = (target) => {
+    setPwVal('');
+    setPwErr('');
+    setPwDlg(target);
+  };
+  const resetPw = async () => {
+    if (!pwVal) {
+      setPwErr('새 비밀번호를 입력하세요.');
+      return;
+    }
+    try {
+      await api.adminResetPassword(pwDlg.id, pwVal);
+      setPwDlg(null);
+    } catch (e) {
+      setPwErr(e.message || '재설정 실패');
+    }
   };
   const create = async () => {
     if (!form.id.trim() || !form.password) {
@@ -236,6 +257,13 @@ export default function AdminPage() {
                     <TableCell align="right">{u.sessionCount}</TableCell>
                     <TableCell align="right">{fmtDuration(u.usageMs)}</TableCell>
                     <TableCell align="right">
+                      {u.role !== 'admin' && (
+                        <Tooltip title="비밀번호 재설정">
+                          <IconButton size="small" onClick={() => openPwDlg({ id: u.id, name: u.username || u.id })}>
+                            <LockResetIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <IconButton size="small" onClick={() => remove(u)} sx={{ color: 'error.main' }}>
                         <DeleteOutlineIcon fontSize="small" />
                       </IconButton>
@@ -273,6 +301,25 @@ export default function AdminPage() {
           <Button variant="contained" onClick={create} disabled={busy}>
             만들기
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!pwDlg} onClose={() => setPwDlg(null)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>비밀번호 재설정</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
+            <b>{pwDlg?.name}</b> 사용자의 새 비밀번호를 입력하세요.
+          </Typography>
+          {pwErr && <Alert severity="error" sx={{ mb: 2 }}>{pwErr}</Alert>}
+          <TextField
+            autoFocus fullWidth type="password" label="새 비밀번호" value={pwVal}
+            onChange={(e) => setPwVal(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && resetPw()}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setPwDlg(null)}>취소</Button>
+          <Button variant="contained" onClick={resetPw}>재설정</Button>
         </DialogActions>
       </Dialog>
     </>

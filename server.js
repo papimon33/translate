@@ -545,6 +545,17 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
   saveUsers();
   res.json({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, sessionCount: 0, usageMs: 0 });
 });
+app.post('/api/admin/users/:id/password', requireAdmin, (req, res) => {
+  const u = users.find((x) => x.id === req.params.id);
+  if (!u) return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+  const pw = String((req.body && req.body.password) || '');
+  if (!pw) return res.status(400).json({ error: '비밀번호는 필수입니다.' });
+  u.salt = crypto.randomBytes(16).toString('hex');
+  u.hash = hashPassword(pw, u.salt);
+  saveUsers();
+  console.log(`[admin] 비밀번호 재설정 user=${u.id}`);
+  res.json({ ok: true });
+});
 app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   const id = req.params.id;
   const i = users.findIndex((u) => u.id === id);

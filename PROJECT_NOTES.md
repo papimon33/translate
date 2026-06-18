@@ -77,6 +77,9 @@
 - **CSRF 완화**: `/api` 의 POST/PUT/PATCH/DELETE 는 동일 출처(Origin host==host)만 허용, 교차출처 403.
 - **Mongo 견고화**: 연결 3회 재시도(serverSelectionTimeoutMS 8s). `MONGODB_URI` 설정됐는데 실패 시 — 운영(NODE_ENV=production)에선 파일모드 폴백 대신 **기동 중단**(데이터 분리/유실 방지), 개발에선 파일 폴백.
 - `NODE_ENV=production` + `AUTH_SECRET` 미설정 시 경고.
+- **관리자 비밀번호 재설정**: `POST /api/admin/users/:id/password`(requireAdmin) + AdminPage 행별 🔑 버튼/다이얼로그.
+- **코드 스플리팅**: App.jsx 에서 TranslateView/AdminPage/SummaryPage/GlossaryPage 를 React.lazy + Suspense(메인 번들 585→338KB).
+- **CI/테스트**: `npm test`(node:test, `test/glossary.test.mjs` 4케이스) + `.github/workflows/ci.yml`(ci: npm ci→test→build).
 
 ## 주의
 - OpenAI 실시간 모델은 **GA API** 사용(베타 헤더 X). `gpt-realtime-translate`는 `/v1/realtime/translations` 전용 엔드포인트.
