@@ -41,4 +41,11 @@ cd desktop
 npm install
 npm run dist
 ```
-`dist/` 에 portable `.exe` 가 생성됩니다. 받는 사람은 그 파일만 실행하면 됩니다.
+`dist/KAC-Translator-Overlay-win32-x64/` 폴더가 생성되고, 그 안의
+`KAC-Translator-Overlay.exe` 를 실행하면 됩니다.
+
+> **폴더째로 보관/전달하세요.** exe 단독이 아니라 같은 폴더의 dll·리소스가
+> 함께 있어야 실행됩니다. 다른 PC에 줄 땐 폴더 전체를 zip 으로 압축해 전달.
+
+(electron-packager 사용 — Windows 개발자 모드 없이도 빌드됩니다. 단일 설치파일/
+포터블 1개 파일이 필요하면 Windows 개발자 모드를 켠 뒤 electron-builder 로 빌드.)
