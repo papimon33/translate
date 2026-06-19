@@ -1364,11 +1364,16 @@ function handleHost(ws) {
           },
         })
       );
+      // 세션 준비 전 오디오는 OpenAI 가 버리므로, 준비 이벤트(또는 1.5s 폴백) 후 전송.
+      setTimeout(markReady, 1500);
+    });
+    function markReady() {
+      if (oaReady) return;
       oaReady = true;
       while (pending.length) oa.send(pending.shift());
       toHost({ type: 'status', message: '엔진 연결됨 (whisper)' });
       bumpIdle(); // 무입력 카운트다운 시작
-    });
+    }
 
     oa.on('message', (raw) => {
       let ev;
@@ -1377,6 +1382,7 @@ function handleHost(ws) {
       } catch {
         return;
       }
+      if (!oaReady && /session\.(created|updated)/.test(ev.type || '')) markReady(); // 준비됨 → 버퍼 오디오 전송
       if (ev.type === 'conversation.item.input_audio_transcription.delta') {
         bumpIdle(); // 음성 활동 → 유휴 타이머 리셋
         srcBuf += ev.delta || '';
@@ -1478,11 +1484,16 @@ function handleHost(ws) {
           session: { audio: { output: { language: targetLang } } },
         })
       );
+      // 세션 준비 전 오디오는 버려지므로, 준비 이벤트(또는 1.5s 폴백) 후 전송.
+      setTimeout(markReady, 1500);
+    });
+    function markReady() {
+      if (oaReady) return;
       oaReady = true;
       while (pending.length) oa.send(pending.shift());
       toHost({ type: 'status', message: '엔진 연결됨 (translate)' });
       bumpIdle(); // 무입력 카운트다운 시작
-    });
+    }
 
     oa.on('message', (raw) => {
       let ev;
@@ -1491,6 +1502,7 @@ function handleHost(ws) {
       } catch {
         return;
       }
+      if (!oaReady && /session\.(created|updated)/.test(ev.type || '')) markReady(); // 준비됨 → 버퍼 오디오 전송
       if (ev.type === 'session.output_audio.delta') {
         if (ev.delta) {
           if (audioOut) toHost({ type: 'audio', b64: ev.delta }); // 호스트: 자체 토글
