@@ -1266,12 +1266,12 @@ function handleHost(ws) {
       const detected = (alt.languages && alt.languages[0]) || inLang || '';
       const srcLang = String(detected).split('-')[0].toLowerCase();
       const id = newId();
-      // 1) 들린 대로 '즉시' 확정 → 카드가 순서대로 바로 떠서 깜빡임 방지.
-      //    원문 언어가 표시 대상이면 바로 채우고, 아니면 source 로 '번역 중…' 표시되며 위치 고정.
+      // 1) 들린 대로 '즉시' 확정: 모든 표시 언어에 원문을 넣어 바로 '검은 글씨'로 뜸
+      //    (회색 '번역 중…' 단계 없이 순서 고정 → 깜빡임 방지)
       const base = {};
-      if (langsOut.includes(srcLang)) base[srcLang] = text;
+      for (const lang of langsOut) base[lang] = text;
       upsertItem(id, base, text);
-      // 2) 나머지 언어는 비동기 번역 후 같은 id 로 병합(완료되는 대로 그 카드만 갱신). 같은 언어는 생략.
+      // 2) 입력≠출력 언어만 비동기로 번역해 같은 카드의 해당 언어를 교체(GPT 수정)
       for (const lang of langsOut) {
         if (lang === srcLang) continue;
         translateText(text, lang, true, [])
