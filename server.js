@@ -1227,6 +1227,9 @@ function handleHost(ws) {
       toHost({ type: 'status', message: 'DEEPGRAM_API_KEY 미설정 — deepgram 모드 사용 불가' });
       return;
     }
+    // 문장 길이 조절: endpointing = 문장 끝으로 보는 무음 길이(ms). 크게 할수록 더 긴 문장.
+    const DG_ENDPOINTING_MS = 1200;
+    const DG_MAX_CHARS = 280; // 무음 없이 계속 말하면 이 길이에서 강제 확정(폭주 방지)
     const qp = new URLSearchParams({
       model: 'nova-3',
       encoding: 'linear16',
@@ -1235,7 +1238,8 @@ function handleHost(ws) {
       smart_format: 'true',
       punctuate: 'true',
       interim_results: 'true',
-      utterance_end_ms: '1000', // 발화 종료 감지 보조
+      endpointing: String(DG_ENDPOINTING_MS),
+      utterance_end_ms: String(DG_ENDPOINTING_MS),
       language: inLang || 'multi', // 입력 언어 select 반영. 자동이면 Nova-3 다국어(multi)
     });
     const dg = new WebSocket('wss://api.deepgram.com/v1/listen?' + qp.toString(), {
@@ -1245,7 +1249,9 @@ function handleHost(ws) {
     let dgReady = false;
     const pending = [];
     const langsOut = ALL_LANGS;
-    let curId = null; // 진행 중 발화 카드 id(끝나면 확정)
+    let curId = null;    // 진행 중 발화 카드 id(끝나면 확정)
+    let finalBuf = '';   // 이번 발화에서 확정(is_final)된 조각 누적
+    let curSrc = '';     // 감지된 입력 언어
 
     dg.on('open', () => {
       dgReady = true;
@@ -1261,28 +1267,30 @@ function handleHost(ws) {
       const text = (alt && alt.transcript || '').trim();
       if (!text) return;
       bumpIdle();
-      // interim: 별도 회색 줄 대신 '카드에 직접 스트리밍'(translate 와 동일 → 제자리 갱신, 깜빡임 없음)
-      if (!ev.is_final) {
-        if (!curId) curId = newId();
-        const live = {};
-        for (const lang of langsOut) live[lang] = text;
-        liveSend(curId, live, null);
-        return;
-      }
-      // is_final: 그 카드를 '들린 대로' 즉시 확정 저장(모든 표시 언어에 원문 → 검은 글씨)
-      const id = curId || newId();
-      curId = null;
-      const detected = (alt.languages && alt.languages[0]) || inLang || '';
-      const srcLang = String(detected).split('-')[0].toLowerCase();
-      const base = {};
-      for (const lang of langsOut) base[lang] = text;
-      upsertItem(id, base, text);
-      // 입력≠출력 언어만 비동기 번역 → 같은 카드의 해당 언어 교체(GPT 수정)
-      for (const lang of langsOut) {
-        if (lang === srcLang) continue;
-        translateText(text, lang, true, [])
-          .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
-          .catch(() => {});
+      const det = (alt.languages && alt.languages[0]) || inLang || '';
+      const sl = String(det).split('-')[0].toLowerCase();
+      if (sl) curSrc = sl;
+      if (!curId) curId = newId();
+      // 지금까지 확정된 조각 + 현재(진행/방금확정) 텍스트를 합쳐 카드에 제자리 스트리밍(검은 글씨)
+      const shown = ((finalBuf ? finalBuf + ' ' : '') + text).trim();
+      const live = {};
+      for (const lang of langsOut) live[lang] = shown;
+      liveSend(curId, live, null);
+      if (!ev.is_final) return; // interim → 표시만(아직 확정/번역 안 함)
+      finalBuf = shown; // is_final 조각 누적
+      // 말이 멈췄거나(speech_final) 너무 길면 → 한 문장으로 확정 + 번역
+      if (ev.speech_final || finalBuf.length >= DG_MAX_CHARS) {
+        const id = curId, txt = finalBuf, src = curSrc;
+        curId = null; finalBuf = ''; curSrc = '';
+        const base = {};
+        for (const lang of langsOut) base[lang] = txt; // 들린 대로 즉시 확정(검은 글씨)
+        upsertItem(id, base, txt);
+        for (const lang of langsOut) {
+          if (lang === src) continue; // 입력=출력은 그대로
+          translateText(txt, lang, true, [])
+            .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
+            .catch(() => {});
+        }
       }
     });
     dg.on('error', (e) => toHost({ type: 'status', message: 'Deepgram 오류: ' + (e && e.message || e) }));
