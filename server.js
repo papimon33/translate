@@ -1145,6 +1145,14 @@ function handleHost(ws) {
     }, IDLE_LIMIT_MS);
   }
   ws.on('close', () => clearTimeout(idleTimer));
+  // 클라이언트가 보내는 소리 감지(VAD) 신호로도 유휴 타이머 리셋 →
+  // 시스템 오디오 등 '말(전사)'이 아닌 소리가 들어와도 중지되지 않음.
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) return;
+    try {
+      if (JSON.parse(data.toString()).type === 'activity') bumpIdle();
+    } catch {}
+  });
   const polish = true; // 다듬기 필수
   const inRaw = ws._in != null ? ws._in : session ? session.inLang : null;
   const inLang = inRaw && inRaw !== 'auto' ? inRaw : null;
@@ -1254,18 +1262,22 @@ function handleHost(ws) {
       bumpIdle();
       if (!ev.is_final) { sendPartial(text); return; } // 진행 중 원문
       sendPartial('');
-      // 입력 언어 감지(다국어 모드). 같은 언어면 GPT 재번역 생략 → 원문 그대로(중복 해석/엉뚱 응답 방지)
+      // 입력 언어 감지(다국어 모드)
       const detected = (alt.languages && alt.languages[0]) || inLang || '';
       const srcLang = String(detected).split('-')[0].toLowerCase();
       const id = newId();
-      const texts = {};
-      await Promise.all(
-        langsOut.map(async (lang) => {
-          if (lang === srcLang) { texts[lang] = text; return; } // 입력=출력 → 추가 해석 안 함
-          try { texts[lang] = await translateText(text, lang, true, []); } catch {}
-        })
-      );
-      upsertItem(id, texts, text); // 화자구분 제거 → 원문만
+      // 1) 들린 대로 '즉시' 확정 → 카드가 순서대로 바로 떠서 깜빡임 방지.
+      //    원문 언어가 표시 대상이면 바로 채우고, 아니면 source 로 '번역 중…' 표시되며 위치 고정.
+      const base = {};
+      if (langsOut.includes(srcLang)) base[srcLang] = text;
+      upsertItem(id, base, text);
+      // 2) 나머지 언어는 비동기 번역 후 같은 id 로 병합(완료되는 대로 그 카드만 갱신). 같은 언어는 생략.
+      for (const lang of langsOut) {
+        if (lang === srcLang) continue;
+        translateText(text, lang, true, [])
+          .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
+          .catch(() => {});
+      }
     });
     dg.on('error', (e) => toHost({ type: 'status', message: 'Deepgram 오류: ' + (e && e.message || e) }));
     dg.on('close', () => toHost({ type: 'status', message: '엔진 연결 종료 (Deepgram)' }));

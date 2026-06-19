@@ -125,6 +125,7 @@ export async function startRecorder(opts) {
     const MAXF = Math.ceil(2500 / frameMs); // 연속 발화도 2.5초마다 커밋(서버가 모아서 N초 단위로 표시)
     const TH = 0.015;
     const vad = { speaking: false, silence: 0, since: 0 };
+    let lastActivitySent = 0;
 
     proc.onaudioprocess = (e) => {
       const input = e.inputBuffer.getChannelData(0);
@@ -138,6 +139,15 @@ export async function startRecorder(opts) {
       if (src === 'mic' && onMeter) onMeter(Math.sqrt(sum / input.length), peak);
 
       if (ws.readyState === WebSocket.OPEN) ws.send(floatTo16BitPCM(downsampleTo24k(input, inRate)));
+
+      // 소리(시스템 오디오 포함)가 들리면 유휴 자동종료 방지 신호(2초마다 1회)
+      if (peak > TH && ws.readyState === WebSocket.OPEN) {
+        const t = Date.now();
+        if (t - lastActivitySent > 2000) {
+          lastActivitySent = t;
+          try { ws.send(JSON.stringify({ type: 'activity' })); } catch {}
+        }
+      }
 
       vad.since++;
       if (peak > TH) {
