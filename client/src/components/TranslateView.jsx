@@ -11,6 +11,7 @@ import Slider from '@mui/material/Slider';
 import Fab from '@mui/material/Fab';
 import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
+import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
@@ -95,6 +96,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [qrOpen, setQrOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [notice, setNotice] = useState('');
+  const [connecting, setConnecting] = useState(false);
   const recRef = useRef(null);
   const scrollRef = useRef(null);
 
@@ -140,6 +142,7 @@ export default function TranslateView({ session: initial, onBack }) {
       setTimeout(() => setNotice(''), 6000);
       return;
     }
+    if (m.type === 'partial' || m.type === 'sentence') setConnecting(false); // 첫 결과 도착 → 연결중 해제
     if (m.type === 'partial') {
       setPartials((p) => ({ ...p, [m.side || 'right']: m.text || '' }));
     } else if (m.type === 'sentence') {
@@ -180,6 +183,7 @@ export default function TranslateView({ session: initial, onBack }) {
         },
       });
       setRecording(true);
+      setConnecting(true); // 엔진 연결~첫 결과까지 표시
     } catch (e) {
       alert(e.message);
     }
@@ -188,6 +192,7 @@ export default function TranslateView({ session: initial, onBack }) {
     recRef.current?.stop();
     recRef.current = null;
     setRecording(false);
+    setConnecting(false);
     setLevel(0);
     setPartials({ left: '', right: '' });
   };
@@ -331,6 +336,11 @@ export default function TranslateView({ session: initial, onBack }) {
       {notice && (
         <Box sx={{ mx: { xs: 1.5, sm: 3 }, mb: 1, px: 1.75, py: 1, borderRadius: 2, fontSize: 13, bgcolor: (t) => alpha(t.palette.warning.main, 0.14), color: 'warning.main', border: 1, borderColor: (t) => alpha(t.palette.warning.main, 0.4) }}>
           {notice}
+        </Box>
+      )}
+      {recording && connecting && (
+        <Box sx={{ mx: { xs: 1.5, sm: 3 }, mb: 1, px: 1.75, py: 1, borderRadius: 2, fontSize: 13, display: 'flex', alignItems: 'center', gap: 1, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main', border: 1, borderColor: (t) => alpha(t.palette.primary.main, 0.35) }}>
+          <CircularProgress size={14} color="inherit" /> 엔진 연결 중… 첫 인식까지 몇 초 걸릴 수 있어요.
         </Box>
       )}
 

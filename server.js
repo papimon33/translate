@@ -1224,7 +1224,6 @@ function handleHost(ws) {
       encoding: 'linear16',
       sample_rate: '24000',
       channels: '1',
-      diarize_model: 'latest', // diarize=true 는 deprecated → diarize_model 사용(스트리밍: v1/latest)
       smart_format: 'true',
       punctuate: 'true',
       interim_results: 'true',
@@ -1255,24 +1254,18 @@ function handleHost(ws) {
       bumpIdle();
       if (!ev.is_final) { sendPartial(text); return; } // 진행 중 원문
       sendPartial('');
-      // 화자: 단어들의 최빈 speaker
-      let spk = null;
-      const words = (alt.words || []).filter((w) => w.speaker != null);
-      if (words.length) {
-        const cnt = {};
-        for (const w of words) cnt[w.speaker] = (cnt[w.speaker] || 0) + 1;
-        spk = Number(Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0]);
-      }
+      // 입력 언어 감지(다국어 모드). 같은 언어면 GPT 재번역 생략 → 원문 그대로(중복 해석/엉뚱 응답 방지)
+      const detected = (alt.languages && alt.languages[0]) || inLang || '';
+      const srcLang = String(detected).split('-')[0].toLowerCase();
       const id = newId();
-      const source = spk != null ? `화자 ${spk + 1}: ${text}` : text;
-      // 4개국어 병렬 번역(gpt-5-mini)
       const texts = {};
       await Promise.all(
         langsOut.map(async (lang) => {
+          if (lang === srcLang) { texts[lang] = text; return; } // 입력=출력 → 추가 해석 안 함
           try { texts[lang] = await translateText(text, lang, true, []); } catch {}
         })
       );
-      upsertItem(id, texts, source);
+      upsertItem(id, texts, text); // 화자구분 제거 → 원문만
     });
     dg.on('error', (e) => toHost({ type: 'status', message: 'Deepgram 오류: ' + (e && e.message || e) }));
     dg.on('close', () => toHost({ type: 'status', message: '엔진 연결 종료 (Deepgram)' }));
