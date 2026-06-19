@@ -517,7 +517,8 @@ app.post('/api/login', (req, res) => {
   loginFails.delete(key); // 성공 시 초기화
   console.log(`[auth] 로그인 성공 id=${user.id} role=${user.role} ip=${key}`);
   const secure = isHttps(req) ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`);
+  // Max-Age/Expires 없음 → 세션 쿠키(브라우저 종료 시 로그인 해제)
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/${secure}`);
   res.json({ user: { id: user.id, username: user.username, role: user.role } });
 });
 app.post('/api/logout', (req, res) => {
@@ -1285,9 +1286,10 @@ function handleHost(ws) {
       num_channels: 1,
       enable_language_identification: true,
       enable_endpoint_detection: true,
-      endpoint_sensitivity: Number.isFinite(sens) ? sens : 0,
-      max_endpoint_delay_ms: Number.isFinite(maxDelay) ? maxDelay : 2000,
-      endpoint_latency_adjustment_level: Number.isFinite(latency) ? latency : 0,
+      // API 허용범위로 클램프: sensitivity -1~1, maxDelay 500~3000, latency 0~3
+      endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
+      max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
+      endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
       // 입력 언어 지정 시 힌트, 자동이면 4개국어 힌트로 정확도 향상
       language_hints: inLang ? [inLang] : ['ko', 'en', 'ja', 'zh'],
     };

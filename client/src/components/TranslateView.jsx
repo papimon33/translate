@@ -53,8 +53,8 @@ const OUT4 = [
 const PIPES = [
   { v: 'whisper', label: '다국어 번역 (구)' },
   { v: 'translate', label: '실시간 통역' },
-  { v: 'deepgram', label: '다국어 번역' },
-  { v: 'soniox', label: '다국어 번역 (Soniox)' },
+  { v: 'deepgram', label: '다국어 번역 (Deepgram)' },
+  { v: 'soniox', label: '다국어 번역' },
 ];
 // Soniox 엔드포인트 튜닝 테스트용 프리셋
 const SX_SENS = [
@@ -64,7 +64,8 @@ const SX_SENS = [
   { v: 0.5, label: '0.5 (빨리 끊김)' },
 ];
 const SX_MAXDELAY = [
-  { v: 500, label: '500ms' },
+  { v: 500, label: '500ms (API 최소)' },
+  { v: 700, label: '700ms' },
   { v: 1000, label: '1000ms' },
   { v: 1500, label: '1500ms' },
   { v: 2000, label: '2000ms (기본값)' },
