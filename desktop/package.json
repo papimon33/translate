@@ -1,0 +1,21 @@
+{
+  "name": "kac-translator-overlay",
+  "version": "1.0.0",
+  "description": "KAC Translator 줌 오버레이 (투명·항상위 자막 창)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.kac.translator.overlay",
+    "productName": "KAC Translator Overlay",
+    "win": {
+      "target": "portable"
+    }
+  }
+}

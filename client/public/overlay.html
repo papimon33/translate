@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KAC Translator Overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root { --fs:26px; --cap:0.5; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:transparent !important; overflow:hidden;
+    font-family:'Noto Sans KR',system-ui,'Segoe UI',sans-serif; color:#fff;
+    -webkit-user-select:none; user-select:none; }
+  #app { display:flex; flex-direction:column; height:100vh; }
+
+  /* 상단 컨트롤 바 (Electron 창 드래그 영역) */
+  #bar { -webkit-app-region:drag; display:flex; align-items:center; gap:8px;
+    margin:6px; padding:6px 10px; border-radius:11px; font-size:13px;
+    background:rgba(18,20,26,0.62); backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,0.08); }
+  #bar .grab { color:rgba(255,255,255,0.45); font-size:14px; letter-spacing:2px; }
+  #bar .ttl { font-weight:700; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.9; }
+  #bar .ctl { -webkit-app-region:no-drag; }
+  #bar select, #bar button {
+    font-family:inherit; color:#fff; background:rgba(255,255,255,0.1);
+    border:1px solid rgba(255,255,255,0.14); border-radius:8px; cursor:pointer; }
+  #bar select { padding:4px 6px; font-size:13px; }
+  #bar button { width:28px; height:28px; font-size:15px; line-height:1; }
+  #lockDot { width:9px; height:9px; border-radius:50%; background:#36d399; flex:none; }
+  #lockDot.locked { background:#f43f5e; }
+
+  /* 자막 영역 */
+  #feed { flex:1; display:flex; flex-direction:column; justify-content:flex-end;
+    gap:6px; padding:6px 12px 4px; overflow:hidden; }
+  .cap { align-self:flex-start; max-width:97%;
+    background:rgba(0,0,0,var(--cap)); border-radius:13px; padding:7px 15px;
+    font-size:var(--fs); line-height:1.45; font-weight:500;
+    text-shadow:0 1px 3px rgba(0,0,0,0.55); word-break:break-word; }
+  .cap.latest { background:rgba(0,0,0,calc(var(--cap) + 0.18)); }
+  .cap .src { display:block; font-size:0.66em; opacity:0.72; margin-top:2px; font-weight:400; }
+  #partial { padding:0 12px 8px; }
+  #partial .line { display:inline-block; background:rgba(0,0,0,var(--cap));
+    border-radius:11px; padding:4px 13px; font-size:var(--fs); line-height:1.4;
+    font-style:italic; opacity:0.82; text-shadow:0 1px 3px rgba(0,0,0,0.55); }
+
+  /* 세션 입력 화면 (세션 미지정 시) */
+  #setup { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    -webkit-app-region:drag; background:rgba(12,14,18,0.82); backdrop-filter:blur(6px); }
+  #setup.show { display:flex; }
+  #setup .box { -webkit-app-region:no-drag; width:340px; max-width:88vw; text-align:center;
+    background:rgba(24,27,34,0.96); border:1px solid rgba(255,255,255,0.12);
+    border-radius:16px; padding:22px; }
+  #setup h3 { margin:0 0 6px; font-size:16px; }
+  #setup p { margin:0 0 14px; font-size:12.5px; color:#9aa3b2; line-height:1.5; }
+  #setup input { width:100%; padding:11px 12px; border-radius:10px; font-size:13px;
+    background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); color:#fff; }
+  #setup button { margin-top:12px; width:100%; padding:11px; border-radius:10px; border:none;
+    background:#4f8cff; color:#fff; font-weight:700; font-size:14px; cursor:pointer; }
+  .hint { position:fixed; bottom:6px; right:10px; font-size:11px; color:rgba(255,255,255,0.5);
+    text-shadow:0 1px 2px rgba(0,0,0,0.6); pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <span class="grab">⋮⋮</span>
+    <span class="ttl" id="title">KAC Translator</span>
+    <span id="lockDot" title="잠금 상태"></span>
+    <select id="langSel" class="ctl" title="표시 언어"></select>
+    <button class="ctl" id="srcBtn" title="원문 동시 표시">原</button>
+    <button class="ctl" id="fsDown" title="글자 작게">−</button>
+    <button class="ctl" id="fsUp" title="글자 크게">＋</button>
+    <button class="ctl" id="opDown" title="배경 옅게">▽</button>
+    <button class="ctl" id="opUp" title="배경 진하게">△</button>
+    <button class="ctl" id="closeBtn" title="닫기">×</button>
+  </div>
+  <div id="feed"></div>
+  <div id="partial"></div>
+</div>
+
+<div id="setup">
+  <div class="box">
+    <h3>세션 연결</h3>
+    <p>웹앱에서 세션을 연 뒤 QR/주소 복사로 받은 링크나 세션 코드를 붙여넣으세요.</p>
+    <input id="setupInput" placeholder="세션 링크 또는 코드" />
+    <button id="setupGo">연결</button>
+  </div>
+</div>
+
+<div class="hint" id="hint"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+let sessionId = params.get('session') || '';
+const ALL4 = ['ko','en','ja','zh'];
+const LABEL = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', vi:'Tiếng Việt', th:'ไทย', id:'Indonesia' };
+const MAX_CARDS = 4; // 화면엔 최근 N개만 유지
+
+const $ = (id) => document.getElementById(id);
+const feed=$('feed'), partialEl=$('partial'), langSel=$('langSel'), titleEl=$('title');
+const cards = new Map();   // id -> {el, line, src, texts, source}
+let order = [];
+let latestId = null;
+let curLang = 'ko';
+let pipeline = 'soniox';
+let outLang = 'ko';
+let showSrc = false;
+let ws = null;
+
+/* ---- 표시 설정(글자크기/배경 농도) ---- */
+let fsPct = parseInt(localStorage.getItem('kac-ov-fs')||'100',10); if(!(fsPct>=60&&fsPct<=240)) fsPct=100;
+let cap = parseFloat(localStorage.getItem('kac-ov-cap')||'0.5'); if(!(cap>=0&&cap<=0.85)) cap=0.5;
+function applyFs(){ document.documentElement.style.setProperty('--fs', Math.round(26*fsPct/100)+'px'); localStorage.setItem('kac-ov-fs', fsPct); }
+function applyCap(){ document.documentElement.style.setProperty('--cap', cap.toFixed(2)); localStorage.setItem('kac-ov-cap', cap); }
+applyFs(); applyCap();
+
+/* ---- Electron 잠금(클릭통과) 상태 표시 ---- */
+window.__setLock = function(locked){
+  $('lockDot').classList.toggle('locked', !!locked);
+  $('hint').textContent = locked ? '잠김 · 클릭 통과 (Ctrl+Shift+O 해제)' : '이동·설정 가능 (Ctrl+Shift+O 잠금)';
+};
+
+/* ---- 세션 메타 ---- */
+async function loadSession(){
+  try {
+    const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json());
+    if(s){ if(s.title) titleEl.textContent=s.title; if(s.pipeline) pipeline=s.pipeline; if(s.outLang) outLang=s.outLang; }
+  } catch {}
+  langSel.innerHTML='';
+  if(pipeline==='translate'){
+    curLang = outLang;
+    const o=document.createElement('option'); o.value=curLang; o.textContent=LABEL[curLang]||curLang; langSel.appendChild(o);
+    langSel.value=curLang; langSel.disabled=true; langSel.style.opacity='0.6';
+  } else {
+    const saved = localStorage.getItem('kac-ov-lang-'+sessionId);
+    curLang = (saved && ALL4.includes(saved)) ? saved : 'ko';
+    ALL4.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=LABEL[c]||c; langSel.appendChild(o); });
+    langSel.value=curLang; langSel.disabled=false;
+    langSel.onchange = ()=>{ curLang=langSel.value; localStorage.setItem('kac-ov-lang-'+sessionId, curLang); rerender(); };
+  }
+  rerender();
+}
+
+function pick(texts){
+  if(!texts) return '';
+  if(texts[curLang]) return texts[curLang];
+  if(pipeline==='translate'){ const k=Object.keys(texts); if(k.length) return texts[k[0]]; }
+  return '';
+}
+function esc(s){ return String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+
+function trim(){
+  while(order.length > MAX_CARDS){
+    const id = order.shift();
+    const c = cards.get(id);
+    if(c){ c.el.remove(); cards.delete(id); }
+  }
+}
+function upsert(item){
+  let card = cards.get(item.id);
+  if(!card){
+    const el=document.createElement('div'); el.className='msg cap';
+    const line=document.createElement('span'); line.className='line'; el.appendChild(line);
+    const src=document.createElement('span'); src.className='src'; el.appendChild(src);
+    feed.appendChild(el);
+    card={el,line,src}; cards.set(item.id,card); order.push(item.id);
+    if(latestId && cards.get(latestId)) cards.get(latestId).el.classList.remove('latest');
+    el.classList.add('latest'); latestId=item.id;
+    trim();
+  }
+  card.texts = item.texts || (item.text ? { [curLang]: item.text } : {});
+  card.source = item.source || '';
+  renderLine(card);
+}
+function renderLine(c){
+  const txt = pick(c.texts);
+  c.line.textContent = txt || c.source || '';
+  c.line.style.opacity = (!txt && c.source) ? '0.65' : '1';
+  c.src.textContent = (showSrc && c.source) ? c.source : '';
+}
+function rerender(){ cards.forEach(renderLine); }
+function setPartial(text){ partialEl.innerHTML = text ? '<div class="line">'+esc(text)+'</div>' : ''; }
+
+/* ---- WS 뷰어 ---- */
+function connect(){
+  const proto = location.protocol==='https:'?'wss':'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${encodeURIComponent(sessionId)}`);
+  ws.onclose = ()=> setTimeout(connect, 1500);
+  ws.onmessage = (ev)=>{
+    const m = JSON.parse(ev.data);
+    if(m.type==='snapshot'){ (m.items||[]).slice(-MAX_CARDS).forEach(upsert); }
+    else if(m.type==='partial'){ setPartial(m.text); }
+    else if(m.type==='sentence'){ setPartial(''); upsert(m); }
+  };
+}
+
+/* ---- 컨트롤 ---- */
+$('fsUp').onclick   = ()=>{ fsPct=Math.min(240, fsPct+10); applyFs(); };
+$('fsDown').onclick = ()=>{ fsPct=Math.max(60, fsPct-10); applyFs(); };
+$('opUp').onclick   = ()=>{ cap=Math.min(0.85, +(cap+0.1).toFixed(2)); applyCap(); };
+$('opDown').onclick = ()=>{ cap=Math.max(0, +(cap-0.1).toFixed(2)); applyCap(); };
+$('srcBtn').onclick = ()=>{ showSrc=!showSrc; $('srcBtn').style.background = showSrc?'#4f8cff':'rgba(255,255,255,0.1)'; rerender(); };
+$('closeBtn').onclick = ()=>{ if(window.overlay&&window.overlay.quit) window.overlay.quit(); else window.close(); };
+
+/* ---- 세션 입력 ---- */
+function startWith(id){
+  sessionId = id;
+  const u = new URL(location.href); u.searchParams.set('session', id);
+  history.replaceState(null,'',u);
+  $('setup').classList.remove('show');
+  loadSession(); connect();
+}
+$('setupGo').onclick = ()=>{
+  let v = $('setupInput').value.trim();
+  if(!v) return;
+  const m = v.match(/[?&]session=([^&\s]+)/); // 링크 붙여넣기 지원
+  if(m) v = decodeURIComponent(m[1]);
+  startWith(v);
+};
+$('setupInput').addEventListener('keydown', e=>{ if(e.key==='Enter') $('setupGo').click(); });
+
+/* ---- 시작 ---- */
+if(sessionId){ loadSession(); connect(); }
+else { $('setup').classList.add('show'); }
+</script>
+</body>
+</html>
