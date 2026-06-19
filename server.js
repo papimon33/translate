@@ -1245,6 +1245,7 @@ function handleHost(ws) {
     let dgReady = false;
     const pending = [];
     const langsOut = ALL_LANGS;
+    let curId = null; // 진행 중 발화 카드 id(끝나면 확정)
 
     dg.on('open', () => {
       dgReady = true;
@@ -1260,18 +1261,23 @@ function handleHost(ws) {
       const text = (alt && alt.transcript || '').trim();
       if (!text) return;
       bumpIdle();
-      if (!ev.is_final) { sendPartial(text); return; } // 진행 중 원문
-      sendPartial('');
-      // 입력 언어 감지(다국어 모드)
+      // interim: 별도 회색 줄 대신 '카드에 직접 스트리밍'(translate 와 동일 → 제자리 갱신, 깜빡임 없음)
+      if (!ev.is_final) {
+        if (!curId) curId = newId();
+        const live = {};
+        for (const lang of langsOut) live[lang] = text;
+        liveSend(curId, live, null);
+        return;
+      }
+      // is_final: 그 카드를 '들린 대로' 즉시 확정 저장(모든 표시 언어에 원문 → 검은 글씨)
+      const id = curId || newId();
+      curId = null;
       const detected = (alt.languages && alt.languages[0]) || inLang || '';
       const srcLang = String(detected).split('-')[0].toLowerCase();
-      const id = newId();
-      // 1) 들린 대로 '즉시' 확정: 모든 표시 언어에 원문을 넣어 바로 '검은 글씨'로 뜸
-      //    (회색 '번역 중…' 단계 없이 순서 고정 → 깜빡임 방지)
       const base = {};
       for (const lang of langsOut) base[lang] = text;
       upsertItem(id, base, text);
-      // 2) 입력≠출력 언어만 비동기로 번역해 같은 카드의 해당 언어를 교체(GPT 수정)
+      // 입력≠출력 언어만 비동기 번역 → 같은 카드의 해당 언어 교체(GPT 수정)
       for (const lang of langsOut) {
         if (lang === srcLang) continue;
         translateText(text, lang, true, [])

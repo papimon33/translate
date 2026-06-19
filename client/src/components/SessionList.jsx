@@ -45,7 +45,7 @@ export default function SessionList({ onOpen }) {
   const [list, setList] = useState(null);
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
-  const [pipeline, setPipeline] = useState('whisper');
+  const [pipeline, setPipeline] = useState('deepgram');
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
 
@@ -56,7 +56,7 @@ export default function SessionList({ onOpen }) {
 
   const openDlg = () => {
     setName('');
-    setPipeline('whisper');
+    setPipeline('deepgram');
     setDlg(true);
   };
 
@@ -224,7 +224,7 @@ export default function SessionList({ onOpen }) {
             onChange={(e, v) => v && setPipeline(v)}
             color="primary"
           >
-            <ToggleButton value="whisper" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+            <ToggleButton value="deepgram" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
               <b>다국어 번역</b>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
                 참가자가 원하는 언어로 다국어 번역
@@ -234,12 +234,6 @@ export default function SessionList({ onOpen }) {
               <b>실시간 통역</b>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
                 자막 및 음성으로 실시간 통역
-              </Typography>
-            </ToggleButton>
-            <ToggleButton value="deepgram" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-              <b>화자구분 (테스트)</b>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                Deepgram Nova-3 전사+화자구분
               </Typography>
             </ToggleButton>
           </ToggleButtonGroup>

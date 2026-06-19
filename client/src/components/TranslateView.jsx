@@ -51,9 +51,9 @@ const OUT4 = [
   { code: 'zh', label: '中文' },
 ];
 const PIPES = [
-  { v: 'whisper', label: '다국어 번역' },
+  { v: 'whisper', label: '다국어 번역 (구)' },
   { v: 'translate', label: '실시간 통역' },
-  { v: 'deepgram', label: '화자구분 (Nova-3 테스트)' },
+  { v: 'deepgram', label: '다국어 번역' },
 ];
 
 const pulse = keyframes`
