@@ -164,7 +164,7 @@ export default function SessionList({ onOpen }) {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
                     <Chip
                       size="small"
-                      label={s.pipeline === 'translate' ? '실시간 통역' : '다국어 번역'}
+                      label={s.pipeline === 'translate' ? '실시간 통역' : s.pipeline === 'soniox' ? '다국어 (Soniox)' : '다국어 번역'}
                       color="primary"
                       variant="outlined"
                       sx={{ height: 20, fontSize: 11 }}
@@ -234,6 +234,12 @@ export default function SessionList({ onOpen }) {
               <b>실시간 통역</b>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
                 자막 및 음성으로 실시간 통역
+              </Typography>
+            </ToggleButton>
+            <ToggleButton value="soniox" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+              <b>다국어 (Soniox)</b>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
+                Soniox stt-rt-v5 테스트
               </Typography>
             </ToggleButton>
           </ToggleButtonGroup>

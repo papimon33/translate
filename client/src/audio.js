@@ -53,7 +53,7 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, sxSens, sxMaxDelay, sxLatency } = opts;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -63,6 +63,10 @@ export async function startRecorder(opts) {
     inLang
   )}&pipeline=${pipeline}&refine=${refine ? '1' : '0'}&audioOut=${audioOut ? '1' : '0'}${
     pipeline === 'deepgram' && endpointing != null ? `&endpointing=${encodeURIComponent(endpointing)}` : ''
+  }${
+    pipeline === 'soniox'
+      ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}`
+      : ''
   }`;
 
   const pipes = [];

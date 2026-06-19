@@ -54,6 +54,27 @@ const PIPES = [
   { v: 'whisper', label: '다국어 번역 (구)' },
   { v: 'translate', label: '실시간 통역' },
   { v: 'deepgram', label: '다국어 번역' },
+  { v: 'soniox', label: '다국어 번역 (Soniox)' },
+];
+// Soniox 엔드포인트 튜닝 테스트용 프리셋
+const SX_SENS = [
+  { v: -0.3, label: '-0.3 (늦게 끊김)' },
+  { v: 0, label: '0 (기본값)' },
+  { v: 0.3, label: '0.3' },
+  { v: 0.5, label: '0.5 (빨리 끊김)' },
+];
+const SX_MAXDELAY = [
+  { v: 500, label: '500ms' },
+  { v: 1000, label: '1000ms' },
+  { v: 1500, label: '1500ms' },
+  { v: 2000, label: '2000ms (기본값)' },
+  { v: 3000, label: '3000ms' },
+];
+const SX_LATENCY = [
+  { v: 0, label: '0 (기본값)' },
+  { v: 1, label: '1' },
+  { v: 2, label: '2' },
+  { v: 3, label: '3 (저지연)' },
 ];
 // Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
 const ENDPOINTS = [
@@ -103,6 +124,18 @@ export default function TranslateView({ session: initial, onBack }) {
   const [endpointing, setEndpointing] = useState(() => {
     const v = Number(localStorage.getItem('kac-dg-endpointing'));
     return Number.isFinite(v) && v > 0 ? v : 1200;
+  });
+  const [sxSens, setSxSens] = useState(() => {
+    const v = Number(localStorage.getItem('kac-sx-sens'));
+    return Number.isFinite(v) ? v : 0;
+  });
+  const [sxMaxDelay, setSxMaxDelay] = useState(() => {
+    const v = Number(localStorage.getItem('kac-sx-maxdelay'));
+    return Number.isFinite(v) && v > 0 ? v : 2000;
+  });
+  const [sxLatency, setSxLatency] = useState(() => {
+    const v = Number(localStorage.getItem('kac-sx-latency'));
+    return Number.isFinite(v) ? v : 0;
   });
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
@@ -193,6 +226,9 @@ export default function TranslateView({ session: initial, onBack }) {
         audioOut: cfg.pipeline === 'translate' && audioOutOn,
         volume,
         endpointing,
+        sxSens,
+        sxMaxDelay,
+        sxLatency,
         onMessage,
         onMeter: (rms) => {
           const db = 20 * Math.log10(rms + 1e-8);
@@ -291,6 +327,61 @@ export default function TranslateView({ session: initial, onBack }) {
                 ))}
               </Select>
             </Field>
+          )}
+          {cfg.pipeline === 'soniox' && (
+            <>
+              <Field label="종료 민감도(테스트)">
+                <Select
+                  size="small"
+                  value={sxSens}
+                  disabled={recording}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setSxSens(v);
+                    localStorage.setItem('kac-sx-sens', String(v));
+                  }}
+                  sx={{ ...selSx, minWidth: 130 }}
+                >
+                  {SX_SENS.map((o) => (
+                    <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="최대 지연(테스트)">
+                <Select
+                  size="small"
+                  value={sxMaxDelay}
+                  disabled={recording}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setSxMaxDelay(v);
+                    localStorage.setItem('kac-sx-maxdelay', String(v));
+                  }}
+                  sx={{ ...selSx, minWidth: 130 }}
+                >
+                  {SX_MAXDELAY.map((o) => (
+                    <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="지연 레벨(테스트)">
+                <Select
+                  size="small"
+                  value={sxLatency}
+                  disabled={recording}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setSxLatency(v);
+                    localStorage.setItem('kac-sx-latency', String(v));
+                  }}
+                  sx={{ ...selSx, minWidth: 110 }}
+                >
+                  {SX_LATENCY.map((o) => (
+                    <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
+                  ))}
+                </Select>
+              </Field>
+            </>
           )}
           <Field label="출력 언어">
             <Select

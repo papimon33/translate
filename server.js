@@ -20,6 +20,7 @@ const TRANSLATE_MODEL = 'gpt-realtime-translate';
 const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || ''; // Nova-3 테스트 모드(선택)
+const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
 
 const LANG_NAMES = {
   ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어',
@@ -767,7 +768,7 @@ app.get('/api/sessions', requireAuth, (req, res) => {
 app.post('/api/sessions', requireAuth, (req, res) => {
   const now = Date.now();
   const b = req.body || {};
-  const pipeline = ['translate', 'deepgram'].includes(b.pipeline) ? b.pipeline : 'whisper';
+  const pipeline = ['translate', 'deepgram', 'soniox'].includes(b.pipeline) ? b.pipeline : 'whisper';
   // whisper 는 항상 한·영·일·중 전부 번역. translate 는 단일 출력 언어.
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
   const langs = pipeline === 'translate' ? [outLang] : ALL_LANGS.slice(); // whisper·deepgram 은 다국어
@@ -1127,6 +1128,9 @@ server.on('upgrade', (req, socket, head) => {
       ws._pipeline = searchParams.get('pipeline'); // 'whisper' | 'translate' | null
       ws._audioOut = searchParams.get('audioOut') === '1'; // translate 번역 음성 재생 여부
       ws._endpointing = searchParams.get('endpointing'); // deepgram 문장종료 무음(ms) — 테스트용
+      ws._sxSens = searchParams.get('sxSens');       // soniox endpoint_sensitivity (-1~1)
+      ws._sxMaxDelay = searchParams.get('sxMaxDelay'); // soniox max_endpoint_delay_ms (500~3000)
+      ws._sxLatency = searchParams.get('sxLatency');   // soniox endpoint_latency_adjustment_level (0~3)
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1259,7 +1263,111 @@ function handleHost(ws) {
 
   if (pipeline === 'translate') runTranslate();
   else if (pipeline === 'deepgram') runDeepgram();
+  else if (pipeline === 'soniox') runSoniox();
   else runWhisper();
+
+  /* ---------- Soniox stt-rt-v5 (전사) -> gpt 번역 [테스트] ---------- */
+  function runSoniox() {
+    if (!SONIOX_API_KEY) {
+      toHost({ type: 'status', message: 'SONIOX_API_KEY 미설정 — soniox 모드 사용 불가' });
+      return;
+    }
+    const SX_MAX_CHARS = 200; // endpoint 안 잡혀도 이 길이에서 강제 확정(폭주 방지)
+    // 엔드포인트 튜닝(테스트용, UI에서 선택). 문서 기본값: sensitivity 0, maxDelay 2000, latency 0.
+    const sens = Number(ws._sxSens);
+    const maxDelay = Number(ws._sxMaxDelay);
+    const latency = Number(ws._sxLatency);
+    const config = {
+      api_key: SONIOX_API_KEY,
+      model: 'stt-rt-v5',
+      audio_format: 'pcm_s16le',
+      sample_rate: 24000,
+      num_channels: 1,
+      enable_language_identification: true,
+      enable_endpoint_detection: true,
+      endpoint_sensitivity: Number.isFinite(sens) ? sens : 0,
+      max_endpoint_delay_ms: Number.isFinite(maxDelay) ? maxDelay : 2000,
+      endpoint_latency_adjustment_level: Number.isFinite(latency) ? latency : 0,
+      // 입력 언어 지정 시 힌트, 자동이면 4개국어 힌트로 정확도 향상
+      language_hints: inLang ? [inLang] : ['ko', 'en', 'ja', 'zh'],
+    };
+
+    const sx = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
+    idleClose = () => { try { sx.close(); } catch {} };
+    let sxReady = false;
+    const pending = [];
+    const langsOut = ALL_LANGS;
+    let curId = null;     // 진행 중 발화 카드 id
+    let finalText = '';   // 이번 발화에서 확정(is_final)된 텍스트 누적
+    let curSrc = '';      // 감지된 입력 언어
+
+    // 현재 누적분을 한 문장으로 확정 + 번역
+    const commit = () => {
+      const id = curId, txt = finalText.trim(), src = curSrc;
+      curId = null; finalText = ''; curSrc = '';
+      if (!id || !txt) return;
+      const base = {};
+      for (const lang of langsOut) base[lang] = txt; // 들린 대로 즉시 확정(검은 글씨)
+      upsertItem(id, base, txt);
+      for (const lang of langsOut) {
+        if (lang === src) continue; // 입력=출력은 그대로
+        translateText(txt, lang, true, [])
+          .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
+          .catch(() => {});
+      }
+    };
+
+    sx.on('open', () => {
+      try { sx.send(JSON.stringify(config)); } catch {} // config 먼저
+      sxReady = true;
+      while (pending.length) sx.send(pending.shift());
+      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
+      bumpIdle();
+    });
+    sx.on('message', (raw) => {
+      let ev;
+      try { ev = JSON.parse(raw.toString()); } catch { return; }
+      if (ev.error_code) { toHost({ type: 'status', message: `Soniox 오류 ${ev.error_code}: ${ev.error_message || ''}`.slice(0, 160) }); return; }
+      const toks = ev.tokens || [];
+      if (!toks.length) return;
+      bumpIdle();
+      let endHit = false;
+      let nonFinal = ''; // 비확정 토큰은 매 응답마다 새로 구성
+      for (const t of toks) {
+        if (t.text === '<end>') { endHit = true; continue; }
+        if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase();
+        if (t.is_final) finalText += t.text;
+        else nonFinal += t.text;
+      }
+      const shown = (finalText + nonFinal).trim();
+      if (!curId && shown) curId = newId();
+      if (curId && shown) {
+        const live = {};
+        for (const lang of langsOut) live[lang] = shown; // 카드에 제자리 스트리밍(검은 글씨)
+        liveSend(curId, live, null);
+      }
+      // 발화 종료(<end>) 또는 과도하게 길면 확정
+      if (endHit || finalText.length >= SX_MAX_CHARS) commit();
+    });
+    sx.on('error', (e) => toHost({ type: 'status', message: 'Soniox 오류: ' + (e && e.message || e) }));
+    sx.on('close', () => toHost({ type: 'status', message: '엔진 연결 종료 (Soniox)' }));
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) {
+        if (sxReady) sx.send(data);
+        else pending.push(data);
+        return;
+      }
+      try {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'stop') {
+          try { sx.send(''); } catch {} // 빈 프레임 = graceful end
+          try { sx.close(); } catch {}
+        }
+      } catch {}
+    });
+    ws.on('close', () => { try { sx.close(); } catch {} });
+  }
 
   /* ---------- Deepgram Nova-3 (전사+화자구분) -> gpt 번역 [테스트] ---------- */
   function runDeepgram() {
