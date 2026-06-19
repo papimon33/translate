@@ -55,6 +55,17 @@ const PIPES = [
   { v: 'translate', label: '실시간 통역' },
   { v: 'deepgram', label: '다국어 번역' },
 ];
+// Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
+const ENDPOINTS = [
+  { v: 10, label: '10ms (기본값)' },
+  { v: 300, label: '300ms' },
+  { v: 500, label: '500ms' },
+  { v: 800, label: '800ms' },
+  { v: 1200, label: '1200ms' },
+  { v: 1600, label: '1600ms' },
+  { v: 2000, label: '2000ms' },
+  { v: 3000, label: '3000ms' },
+];
 
 const pulse = keyframes`
   0% { box-shadow: 0 0 0 0 rgba(244,63,94,.5); }
@@ -87,6 +98,10 @@ export default function TranslateView({ session: initial, onBack }) {
   const [volume, setVolume] = useState(() => {
     const v = Number(localStorage.getItem('kac-vol'));
     return Number.isFinite(v) && v > 0 ? v : 1;
+  });
+  const [endpointing, setEndpointing] = useState(() => {
+    const v = Number(localStorage.getItem('kac-dg-endpointing'));
+    return Number.isFinite(v) && v > 0 ? v : 1200;
   });
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
@@ -176,6 +191,7 @@ export default function TranslateView({ session: initial, onBack }) {
         refine: true,
         audioOut: cfg.pipeline === 'translate' && audioOutOn,
         volume,
+        endpointing,
         onMessage,
         onMeter: (rms) => {
           const db = 20 * Math.log10(rms + 1e-8);
@@ -252,6 +268,25 @@ export default function TranslateView({ session: initial, onBack }) {
               <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 120 }}>
                 {LANGS.map((l) => (
                   <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>
+                ))}
+              </Select>
+            </Field>
+          )}
+          {cfg.pipeline === 'deepgram' && (
+            <Field label="문장종료 무음(테스트)">
+              <Select
+                size="small"
+                value={endpointing}
+                disabled={recording}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setEndpointing(v);
+                  localStorage.setItem('kac-dg-endpointing', String(v));
+                }}
+                sx={{ ...selSx, minWidth: 140 }}
+              >
+                {ENDPOINTS.map((o) => (
+                  <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
                 ))}
               </Select>
             </Field>

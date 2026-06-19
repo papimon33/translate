@@ -53,7 +53,7 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing } = opts;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -61,7 +61,9 @@ export async function startRecorder(opts) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const q = `session=${sessionId}&out=${encodeURIComponent(outLang)}&in=${encodeURIComponent(
     inLang
-  )}&pipeline=${pipeline}&refine=${refine ? '1' : '0'}&audioOut=${audioOut ? '1' : '0'}`;
+  )}&pipeline=${pipeline}&refine=${refine ? '1' : '0'}&audioOut=${audioOut ? '1' : '0'}${
+    pipeline === 'deepgram' && endpointing != null ? `&endpointing=${encodeURIComponent(endpointing)}` : ''
+  }`;
 
   const pipes = [];
   const streams = [];

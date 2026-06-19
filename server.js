@@ -1087,6 +1087,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._refine = searchParams.get('refine'); // '0' | '1' | null
       ws._pipeline = searchParams.get('pipeline'); // 'whisper' | 'translate' | null
       ws._audioOut = searchParams.get('audioOut') === '1'; // translate 번역 음성 재생 여부
+      ws._endpointing = searchParams.get('endpointing'); // deepgram 문장종료 무음(ms) — 테스트용
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1228,7 +1229,10 @@ function handleHost(ws) {
       return;
     }
     // 문장 길이 조절: endpointing = 문장 끝으로 보는 무음 길이(ms). 크게 할수록 더 긴 문장.
-    const DG_ENDPOINTING_MS = 1200;
+    // UI(테스트용)에서 선택한 값이 있으면 사용, 없으면 기본 1200ms.
+    const epRaw = Number(ws._endpointing);
+    const DG_ENDPOINTING_MS = Number.isFinite(epRaw) && epRaw >= 0 ? epRaw : 1200;
+    const DG_UTTERANCE_END_MS = Math.max(1000, DG_ENDPOINTING_MS); // utterance_end_ms 는 최소 1000
     const DG_MAX_CHARS = 280; // 무음 없이 계속 말하면 이 길이에서 강제 확정(폭주 방지)
     const qp = new URLSearchParams({
       model: 'nova-3',
@@ -1239,7 +1243,7 @@ function handleHost(ws) {
       punctuate: 'true',
       interim_results: 'true',
       endpointing: String(DG_ENDPOINTING_MS),
-      utterance_end_ms: String(DG_ENDPOINTING_MS),
+      utterance_end_ms: String(DG_UTTERANCE_END_MS),
       language: inLang || 'multi', // 입력 언어 select 반영. 자동이면 Nova-3 다국어(multi)
     });
     const dg = new WebSocket('wss://api.deepgram.com/v1/listen?' + qp.toString(), {
@@ -1256,7 +1260,7 @@ function handleHost(ws) {
     dg.on('open', () => {
       dgReady = true;
       while (pending.length) dg.send(pending.shift());
-      toHost({ type: 'status', message: '엔진 연결됨 (Deepgram Nova-3)' });
+      toHost({ type: 'status', message: `엔진 연결됨 (Deepgram Nova-3, endpointing=${DG_ENDPOINTING_MS}ms)` });
       bumpIdle();
     });
     dg.on('message', async (raw) => {
