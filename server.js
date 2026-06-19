@@ -1224,11 +1224,12 @@ function handleHost(ws) {
       encoding: 'linear16',
       sample_rate: '24000',
       channels: '1',
-      diarize: 'true',
+      diarize_model: 'latest', // diarize=true 는 deprecated → diarize_model 사용(스트리밍: v1/latest)
       smart_format: 'true',
       punctuate: 'true',
       interim_results: 'true',
-      language: inLang || 'multi', // Nova-3 다국어
+      utterance_end_ms: '1000', // 발화 종료 감지 보조
+      language: inLang || 'multi', // 입력 언어 select 반영. 자동이면 Nova-3 다국어(multi)
     });
     const dg = new WebSocket('wss://api.deepgram.com/v1/listen?' + qp.toString(), {
       headers: { Authorization: 'Token ' + DEEPGRAM_API_KEY },
