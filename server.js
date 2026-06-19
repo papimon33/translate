@@ -897,6 +897,41 @@ app.get('*', (req, res, next) => {
 });
 
 /* ------------------------------------------------------------------ */
+/*  번역 출력 정화: 소형 모델이 끼워넣는 군더더기 제거                    */
+/*   - 머리말("…다음과 같습니다"), 불릿(-), 화살표(원문 → 번역),         */
+/*     "참고:/제안:/주의:/Note:" 줄, 끝의 메타 괄호주석 등.              */
+/* ------------------------------------------------------------------ */
+function sanitizeTranslation(out) {
+  let s = String(out || '').trim();
+  if (!s) return '';
+  // 코드블록 제거
+  s = s.replace(/^```[a-zA-Z]*\s*/, '').replace(/```$/, '').trim();
+  // 문두 머리말 제거: "…(옮기면/번역하면) 다음과 같습니다:" 류 접두를 통째로 잘라냄
+  s = s.replace(/^[^\n]*?다음과\s*같습니다\s*[:：.]?\s*/, '');
+  // 화살표(원문 → 번역) 형식이면 화살표 뒤(번역)만 취함
+  if (/→|->/.test(s)) {
+    s = s
+      .split(/\n+/)
+      .map((ln) => {
+        const parts = ln.split(/\s*(?:→|->)\s*/);
+        return parts.length > 1 ? parts[parts.length - 1] : ln;
+      })
+      .join('\n');
+  }
+  const DROP = /^\s*(?:참고|제안|주의|노트|note)\s*[:：]/i; // 줄 전체가 메타면 버림
+  const META_TAIL = /\s*[\(（]?\s*(?:참고|제안|주의|노트|note)\s*[:：].*$/i; // 줄 중간부터 시작하는 메타(괄호 포함) 꼬리 제거
+  const lines = s
+    .split(/\n+/)
+    .map((ln) => ln.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').trim()) // 불릿/번호 제거
+    .map((ln) => (DROP.test(ln) ? '' : ln.replace(META_TAIL, '').trim()))
+    .filter(Boolean);
+  s = lines.join('\n').trim();
+  // 끝에 붙는 메타 괄호주석(번역/의역/정중체 등 키워드 포함)만 제거
+  s = s.replace(/\s*[\(（][^)）]*(번역|의역|정중체|매끄럽|자연스럽|문장\s*단위|note|참고)[^)）]*[\)）]\s*$/i, '').trim();
+  return s;
+}
+
+/* ------------------------------------------------------------------ */
 /*  전사된 원문 -> 목표 언어로 번역(+다듬기) : gpt-5-mini                */
 /* ------------------------------------------------------------------ */
 async function translateText(text, targetLang, polish, context) {
@@ -910,8 +945,10 @@ async function translateText(text, targetLang, polish, context) {
 - 고유명사·지명·상품명·음식명은 발음을 살려 표기하고 억지로 의역하지 않는다 (예: 初島→하츠시마, ところてん/所天→도코로텐, 天草→텐구사).
 - "(혹은 …)", "(서쪽?)" 같은 추측성 괄호나 부연을 절대 넣지 않는다. 불확실해도 가장 자연스러운 하나로만 옮긴다.
 - 앞 맥락(이전 대화)이 주어지면 그 흐름에 자연스럽게 이어 옮긴다.
-- 설명 없이 ${langName} 번역문만 출력한다. 이미 ${langName}면 자연스럽게 교정만 한다.`
-      : `너는 번역기다. 입력을 ${langName}로 정확히 옮긴다. 고유명사는 발음을 살리고, 추측성 괄호·부연 없이 ${langName} 번역문만 출력한다. 이미 ${langName}면 그대로 출력한다.`;
+- 출력은 오직 ${langName} 번역문 한 덩어리뿐이다. 입력이 짧거나 애매해도 절대 해설/분석/제안을 하지 마라.
+- 금지: "…다음과 같습니다", "번역하면", "참고:", "제안:", "Note:" 같은 머리말·맺음말; 불릿(-)·번호·화살표(→); 원문 다시 쓰기(원문 병기); 괄호 안 설명. 번역문만 그대로 출력한다.
+- 이미 ${langName}면 자연스럽게 교정만 한다.`
+      : `너는 번역기다. 입력을 ${langName}로 정확히 옮긴다. 고유명사는 발음을 살린다. 출력은 ${langName} 번역문만. 머리말·해설·불릿·화살표·괄호설명·원문 병기 금지. 이미 ${langName}면 그대로 출력한다.`;
     const messages = [{ role: 'system', content: sys }];
     // 이전 맥락을 few-shot 으로 제공해 연속성/용어 일관성 확보
     if (context && context.length) {
@@ -921,7 +958,7 @@ async function translateText(text, targetLang, polish, context) {
       }
     }
     messages.push({ role: 'user', content: text });
-    const body = { model: REFINE_MODEL, messages, max_completion_tokens: 300 };
+    const body = { model: REFINE_MODEL, messages, max_completion_tokens: 500 };
     if (/^gpt-5/.test(REFINE_MODEL)) body.reasoning_effort = 'minimal';
 
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -934,7 +971,9 @@ async function translateText(text, targetLang, polish, context) {
       return text;
     }
     const data = await r.json();
-    return data?.choices?.[0]?.message?.content?.trim() || text;
+    const raw = data?.choices?.[0]?.message?.content?.trim() || '';
+    const clean = sanitizeTranslation(raw);
+    return clean || text; // 정화 후 비면 원문으로 폴백(빈 카드 방지)
   } catch (e) {
     console.error('[translate] error', e);
     return text;
@@ -1233,7 +1272,7 @@ function handleHost(ws) {
     const epRaw = Number(ws._endpointing);
     const DG_ENDPOINTING_MS = Number.isFinite(epRaw) && epRaw >= 0 ? epRaw : 1200;
     const DG_UTTERANCE_END_MS = Math.max(1000, DG_ENDPOINTING_MS); // utterance_end_ms 는 최소 1000
-    const DG_MAX_CHARS = 280; // 무음 없이 계속 말하면 이 길이에서 강제 확정(폭주 방지)
+    const DG_MAX_CHARS = 200; // 무음 없이 계속 말하면 이 길이에서 강제 확정(폭주·번역깨짐 방지)
     const qp = new URLSearchParams({
       model: 'nova-3',
       encoding: 'linear16',

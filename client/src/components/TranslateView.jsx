@@ -57,14 +57,15 @@ const PIPES = [
 ];
 // Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
 const ENDPOINTS = [
-  { v: 10, label: '10ms (기본값)' },
+  { v: 10, label: '10ms (Deepgram 기본값)' },
+  { v: 50, label: '50ms' },
+  { v: 100, label: '100ms' },
+  { v: 150, label: '150ms' },
+  { v: 200, label: '200ms' },
   { v: 300, label: '300ms' },
   { v: 500, label: '500ms' },
   { v: 800, label: '800ms' },
   { v: 1200, label: '1200ms' },
-  { v: 1600, label: '1600ms' },
-  { v: 2000, label: '2000ms' },
-  { v: 3000, label: '3000ms' },
 ];
 
 const pulse = keyframes`
