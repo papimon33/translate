@@ -21,8 +21,16 @@ const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || ''; // Nova-3 테스트 모드(선택)
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''; // Google Gemini TTS 테스트(선택)
-const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+const CARTESIA_API_KEY = process.env.CARTESIA_API_KEY || ''; // Cartesia Sonic 실시간 TTS(선택)
+const CARTESIA_VERSION = '2025-04-16';
+const CARTESIA_MODEL = 'sonic-3.5';
+// 타깃 언어별 기본 보이스(한국어는 UI에서 선택, 나머지는 다국어 기본값)
+const CARTESIA_VOICES = {
+  ko: '4dd4630e-19e0-4243-bca0-676ff85119b7', // Haeun
+  en: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4', // Skylar
+  ja: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4',
+  zh: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4',
+};
 
 const LANG_NAMES = {
   ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어',
@@ -974,36 +982,48 @@ function sanitizeTranslation(out) {
 /*  전사된 원문 -> 목표 언어로 번역(+다듬기) : gpt-5-mini                */
 /* ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ */
-/*  Google Gemini TTS (텍스트 → 24kHz PCM16 음성) — 실시간 음성 출력 테스트 */
+/*  Cartesia Sonic 실시간 TTS (텍스트 → 24kHz PCM16 스트리밍)            */
+/*   bytes 엔드포인트의 스트리밍 본문을 청크 단위로 받아 즉시 흘려보냄.   */
 /* ------------------------------------------------------------------ */
-async function geminiTTS(text, voice) {
-  if (!GEMINI_API_KEY || !text || !text.trim()) return null;
+async function cartesiaTTSStream(text, voiceId, language, onAudio) {
+  if (!CARTESIA_API_KEY || !text || !text.trim()) return;
   const body = {
-    contents: [{ parts: [{ text }] }],
-    generationConfig: {
-      responseModalities: ['AUDIO'],
-      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice || 'Kore' } } },
-    },
+    model_id: CARTESIA_MODEL,
+    transcript: text,
+    voice: { mode: 'id', id: voiceId },
+    language,
+    output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: 24000 },
   };
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-  // 가끔 finishReason OTHER 로 빈 응답/429 → 짧게 1회 재시도
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!r.ok) {
-        if (r.status === 429 && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
-        console.error('[gtts] HTTP', r.status, (await r.text()).slice(0, 160));
-        return null;
+  let res;
+  try {
+    res = await fetch('https://api.cartesia.ai/tts/bytes', {
+      method: 'POST',
+      headers: {
+        'X-API-Key': CARTESIA_API_KEY,
+        'Cartesia-Version': CARTESIA_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { console.error('[cartesia] error', e.message); return; }
+  if (!res.ok || !res.body) { console.error('[cartesia] HTTP', res.status, (await res.text().catch(() => '')).slice(0, 160)); return; }
+  // 스트리밍 raw PCM16 → ~0.2초 단위로 짝수바이트 정렬해 전송(끊김 없는 순차 재생)
+  const MIN = 9600; // 24k * 2byte * 0.2s
+  let carry = Buffer.alloc(0);
+  try {
+    for await (const chunk of res.body) {
+      carry = Buffer.concat([carry, Buffer.from(chunk)]);
+      if (carry.length >= MIN) {
+        const even = carry.length - (carry.length % 2);
+        onAudio(carry.subarray(0, even).toString('base64'));
+        carry = carry.subarray(even);
       }
-      const data = await r.json();
-      const b64 = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (b64) return b64; // audio/L16;rate=24000 → 클라 playPcm24 와 동일 포맷
-    } catch (e) {
-      console.error('[gtts] error', e.message);
-      return null;
     }
-  }
-  return null;
+    if (carry.length >= 2) {
+      const even = carry.length - (carry.length % 2);
+      onAudio(carry.subarray(0, even).toString('base64'));
+    }
+  } catch (e) { console.error('[cartesia] stream', e.message); }
 }
 
 // 모델별 reasoning_effort: gpt-5.4+ 는 'minimal' 미지원(none/low/…) → 'none',
@@ -1221,7 +1241,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._sxA = searchParams.get('sxA');           // 양방향 언어 A
       ws._sxB = searchParams.get('sxB');           // 양방향 언어 B
       ws._tts = searchParams.get('tts');           // soniox 실시간 TTS on('1')
-      ws._ttsVoice = searchParams.get('ttsVoice'); // Gemini 보이스명
+      ws._ttsVoice = searchParams.get('ttsVoice'); // Cartesia 한국어 보이스 id
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1378,8 +1398,8 @@ function handleHost(ws) {
     const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
     const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
     const sxB = okL(ws._sxB) ? ws._sxB : 'en';
-    const ttsOn = ws._tts === '1' && !!GEMINI_API_KEY; // 확정 문장마다 Gemini TTS 음성 출력
-    const ttsVoice = ws._ttsVoice || 'Kore';
+    const ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY; // 확정 문장마다 Cartesia TTS 음성 출력
+    const ttsVoice = ws._ttsVoice || ''; // 한국어 보이스 id(UI 선택), 비면 기본값
     const config = {
       api_key: SONIOX_API_KEY,
       model: 'stt-rt-v5',
@@ -1418,11 +1438,12 @@ function handleHost(ws) {
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
       if (!id || !txt) return;
       const out = tgt || txt;
-      upsertItem(id, { [targetKeyFor(src)]: out }, txt);
-      // 실시간 TTS: 확정된 번역문을 Gemini 음성으로 합성 → 호스트 재생 + 뷰어 브로드캐스트
+      const target = targetKeyFor(src);
+      upsertItem(id, { [target]: out }, txt);
+      // 실시간 TTS: 확정된 번역문을 타깃 언어 보이스로 합성해 스트리밍(호스트 재생 + 뷰어 브로드캐스트)
       if (ttsOn) {
-        geminiTTS(out, ttsVoice)
-          .then((b64) => { if (b64) { toHost({ type: 'audio', b64 }); broadcastAudio(sessionId, b64); } })
+        const voiceId = target === 'ko' ? (ttsVoice || CARTESIA_VOICES.ko) : (CARTESIA_VOICES[target] || CARTESIA_VOICES.en);
+        cartesiaTTSStream(out, voiceId, target, (b64) => { toHost({ type: 'audio', b64 }); broadcastAudio(sessionId, b64); })
           .catch(() => {});
       }
     };

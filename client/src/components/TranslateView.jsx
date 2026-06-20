@@ -81,8 +81,17 @@ const MODELS = [
   { v: 'gpt-5-nano', label: 'gpt-5-nano (기본)' },
   { v: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
 ];
-// Gemini TTS 프리빌트 보이스
-const VOICES = ['Kore', 'Puck', 'Charon', 'Aoede', 'Leda', 'Fenrir'];
+// Cartesia 한국어 보이스(타깃이 한국어일 때 사용; 타깃이 영/일/중이면 서버 기본 보이스)
+const VOICES = [
+  { id: '4dd4630e-19e0-4243-bca0-676ff85119b7', name: 'Haeun (여, 차분)' },
+  { id: 'e1717dc3-b87b-4720-aa7f-b6db290e0609', name: 'Taehyun (남, 친근)' },
+  { id: '89f4372f-1f73-4b85-8e1e-5d24ed8bc826', name: 'Jaewon (남, 안정)' },
+  { id: '304fdbd8-65e6-40d6-ab78-f9d18b9efdf9', name: 'Jihyun (여, 앵커)' },
+  { id: 'ce9ca2b6-2bed-4452-99bb-052e1ec0b534', name: 'Seoyun (여, 따뜻)' },
+  { id: 'a0fc16d3-01af-482b-910f-ed063c3d79d3', name: 'Subin (여, 단정)' },
+  { id: '7706804e-ea85-443a-968a-b9bf363bdde8', name: 'Minji (여, 모던)' },
+  { id: '69c18e1d-fab0-4747-b9da-58617cd8b9e4', name: 'Soyeon (여, 밝음)' },
+];
 // Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
 const ENDPOINTS = [
   { v: 10, label: '10ms (Deepgram 기본값)' },
@@ -148,8 +157,11 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
-  const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Gemini TTS 음성 출력
-  const [ttsVoice, setTtsVoice] = useState(() => localStorage.getItem('kac-sx-voice') || 'Kore');
+  const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Cartesia TTS 음성 출력
+  const [ttsVoice, setTtsVoice] = useState(() => {
+    const v = localStorage.getItem('kac-sx-voice');
+    return VOICES.some((x) => x.id === v) ? v : VOICES[0].id;
+  });
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -492,15 +504,15 @@ export default function TranslateView({ session: initial, onBack }) {
                 </Box>
               </Field>
               {ttsOn && (
-                <Field label="보이스">
+                <Field label="보이스(한국어)">
                   <Select
                     size="small"
                     value={ttsVoice}
                     disabled={recording}
                     onChange={(e) => { setTtsVoice(e.target.value); localStorage.setItem('kac-sx-voice', e.target.value); }}
-                    sx={{ ...selSx, minWidth: 110 }}
+                    sx={{ ...selSx, minWidth: 150 }}
                   >
-                    {VOICES.map((v) => (<MenuItem key={v} value={v}>{v}</MenuItem>))}
+                    {VOICES.map((v) => (<MenuItem key={v.id} value={v.id}>{v.name}</MenuItem>))}
                   </Select>
                 </Field>
               )}
