@@ -144,6 +144,7 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = Number(localStorage.getItem('kac-sx-latency'));
     return Number.isFinite(v) ? v : 0;
   });
+  const [sxTranslate, setSxTranslate] = useState(localStorage.getItem('kac-sx-translate') === '1');
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -258,6 +259,8 @@ export default function TranslateView({ session: initial, onBack }) {
         sxSens,
         sxMaxDelay,
         sxLatency,
+        sxTranslate,
+        sxTarget: dispLang,
         model,
         onMessage,
         onMeter: (rms) => {
@@ -419,6 +422,18 @@ export default function TranslateView({ session: initial, onBack }) {
                     <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
                   ))}
                 </Select>
+              </Field>
+              <Field label="Soniox 실시간 번역">
+                <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+                  <Switch
+                    checked={sxTranslate}
+                    disabled={recording}
+                    onChange={(e) => {
+                      setSxTranslate(e.target.checked);
+                      localStorage.setItem('kac-sx-translate', e.target.checked ? '1' : '0');
+                    }}
+                  />
+                </Box>
               </Field>
             </>
           )}

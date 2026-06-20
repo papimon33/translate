@@ -1180,6 +1180,8 @@ server.on('upgrade', (req, socket, head) => {
       ws._sxMaxDelay = searchParams.get('sxMaxDelay'); // soniox max_endpoint_delay_ms (500~3000)
       ws._sxLatency = searchParams.get('sxLatency');   // soniox endpoint_latency_adjustment_level (0~3)
       ws._model = searchParams.get('model');           // 번역 GPT 모델 오버라이드(테스트용)
+      ws._sxTranslate = searchParams.get('sxTranslate'); // soniox 자체 실시간 번역 on('1')
+      ws._sxTarget = searchParams.get('sxTarget');       // soniox 자체 번역 타깃 언어
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1328,6 +1330,9 @@ function handleHost(ws) {
     const sens = Number(ws._sxSens);
     const maxDelay = Number(ws._sxMaxDelay);
     const latency = Number(ws._sxLatency);
+    // Soniox 자체 실시간 번역(테스트). 켜면 GPT 경유 없이 전사+번역 토큰을 한 스트림으로 받음(타깃 1개 언어).
+    const sxTranslate = ws._sxTranslate === '1';
+    const sxTarget = ws._sxTarget && LANG_NAMES[ws._sxTarget] ? ws._sxTarget : 'en';
     const config = {
       api_key: SONIOX_API_KEY,
       model: 'stt-rt-v5',
@@ -1343,21 +1348,30 @@ function handleHost(ws) {
       // 입력 언어 지정 시 힌트, 자동이면 4개국어 힌트로 정확도 향상
       language_hints: inLang ? [inLang] : ['ko', 'en', 'ja', 'zh'],
     };
+    if (sxTranslate) config.translation = { type: 'one_way', target_language: sxTarget };
 
     const sx = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
     idleClose = () => { try { sx.close(); } catch {} };
     let sxReady = false;
     const pending = [];
-    const langsOut = ALL_LANGS;
+    const langsOut = sxTranslate ? [sxTarget] : ALL_LANGS;
     let curId = null;     // 진행 중 발화 카드 id
-    let finalText = '';   // 이번 발화에서 확정(is_final)된 텍스트 누적
+    let finalText = '';   // 전사(원문) 확정 누적
+    let finalTrans = '';  // Soniox 번역(타깃) 확정 누적 — sxTranslate 모드
+    let lastTrans = '';   // 마지막으로 표시한 번역(폴백용)
     let curSrc = '';      // 감지된 입력 언어
 
-    // 현재 누적분을 한 문장으로 확정 + 번역
+    // 현재 누적분을 한 문장으로 확정
     const commit = () => {
       const id = curId, txt = finalText.trim(), src = curSrc;
-      curId = null; finalText = ''; curSrc = '';
+      const tgt = (finalTrans.trim() || lastTrans).trim();
+      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
       if (!id || !txt) return;
+      if (sxTranslate) {
+        // Soniox 자체 번역: 타깃 언어 = 번역, 원문은 source 로(GPT 호출 없음)
+        upsertItem(id, { [sxTarget]: tgt || txt }, txt);
+        return;
+      }
       const base = {};
       for (const lang of langsOut) base[lang] = txt; // 들린 대로 즉시 확정(검은 글씨)
       upsertItem(id, base, txt);
@@ -1373,7 +1387,7 @@ function handleHost(ws) {
       try { sx.send(JSON.stringify(config)); } catch {} // config 먼저
       sxReady = true;
       while (pending.length) sx.send(pending.shift());
-      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
+      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5${sxTranslate ? ` · 자체번역→${sxTarget}` : ''}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
       bumpIdle();
     });
     sx.on('message', (raw) => {
@@ -1384,19 +1398,34 @@ function handleHost(ws) {
       if (!toks.length) return;
       bumpIdle();
       let endHit = false;
-      let nonFinal = ''; // 비확정 토큰은 매 응답마다 새로 구성
+      let nonFinal = '';      // 비확정 전사(원문) — 매 응답마다 새로 구성
+      let nonFinalTrans = ''; // 비확정 번역(타깃)
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
-        if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase();
-        if (t.is_final) finalText += t.text;
-        else nonFinal += t.text;
+        if (sxTranslate && t.translation_status === 'translation') {
+          // Soniox 번역 토큰
+          if (t.is_final) finalTrans += t.text;
+          else nonFinalTrans += t.text;
+        } else {
+          // 전사(원문) 토큰 (translation_status: none | original | undefined)
+          if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase();
+          if (t.is_final) finalText += t.text;
+          else nonFinal += t.text;
+        }
       }
-      const shown = (finalText + nonFinal).trim();
-      if (!curId && shown) curId = newId();
-      if (curId && shown) {
-        const live = {};
-        for (const lang of langsOut) live[lang] = shown; // 카드에 제자리 스트리밍(검은 글씨)
-        liveSend(curId, live, null);
+      const shownSrc = (finalText + nonFinal).trim();
+      if (!curId && (shownSrc || finalTrans || nonFinalTrans)) curId = newId();
+      if (curId) {
+        if (sxTranslate) {
+          const shownTgt = (finalTrans + nonFinalTrans).trim();
+          if (shownTgt) lastTrans = shownTgt;
+          // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시
+          liveSend(curId, { [sxTarget]: shownTgt }, shownSrc || null);
+        } else if (shownSrc) {
+          const live = {};
+          for (const lang of langsOut) live[lang] = shownSrc; // 카드에 제자리 스트리밍(검은 글씨)
+          liveSend(curId, live, null);
+        }
       }
       // 발화 종료(<end>) 또는 과도하게 길면 확정
       if (endHit || finalText.length >= SX_MAX_CHARS) commit();

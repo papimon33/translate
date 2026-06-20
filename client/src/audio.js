@@ -53,7 +53,7 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, sxSens, sxMaxDelay, sxLatency, model } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, sxSens, sxMaxDelay, sxLatency, model, sxTranslate, sxTarget } = opts;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -65,7 +65,9 @@ export async function startRecorder(opts) {
     pipeline === 'deepgram' && endpointing != null ? `&endpointing=${encodeURIComponent(endpointing)}` : ''
   }${
     pipeline === 'soniox'
-      ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}`
+      ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}${
+          sxTranslate ? `&sxTranslate=1&sxTarget=${encodeURIComponent(sxTarget || 'en')}` : ''
+        }`
       : ''
   }${model ? `&model=${encodeURIComponent(model)}` : ''}`;
 
