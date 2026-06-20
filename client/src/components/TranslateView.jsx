@@ -78,6 +78,11 @@ const SX_LATENCY = [
   { v: 2, label: '2' },
   { v: 3, label: '3 (저지연)' },
 ];
+// 번역 GPT 모델(테스트용)
+const MODELS = [
+  { v: 'gpt-5-nano', label: 'gpt-5-nano (기본)' },
+  { v: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
+];
 // Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
 const ENDPOINTS = [
   { v: 10, label: '10ms (Deepgram 기본값)' },
@@ -151,15 +156,13 @@ export default function TranslateView({ session: initial, onBack }) {
   const recRef = useRef(null);
   const scrollRef = useRef(null);
 
-  // Electron(통합 데스크톱 앱)에서만 노출되는 오버레이 컨트롤
+  const startingRef = useRef(false); // 시작 버튼 연타로 중복 세션 생성 방지
+  // 번역 GPT 모델(테스트용). 기본 gpt-5-nano.
+  const [model, setModel] = useState(() => localStorage.getItem('kac-model') || 'gpt-5-nano');
+  // Electron(통합 데스크톱 앱)에서만 노출되는 오버레이 버튼
   const isElectron = typeof window !== 'undefined' && !!(window.kac && window.kac.isElectron);
-  const [ovCap, setOvCap] = useState(() => {
-    const v = Number(localStorage.getItem('kac-ov-cap'));
-    return Number.isFinite(v) && v >= 0 && v <= 0.85 ? v : 0.5;
-  });
-  const [ovThrough, setOvThrough] = useState(false);
   const openOverlay = () => {
-    if (window.kac) window.kac.openOverlay({ session: initial.id, cap: ovCap, lang: dispLang });
+    if (window.kac) window.kac.openOverlay({ session: initial.id, lang: dispLang });
   };
 
   useEffect(() => {
@@ -239,6 +242,8 @@ export default function TranslateView({ session: initial, onBack }) {
   };
 
   const start = async () => {
+    if (recording || recRef.current || startingRef.current) return; // 연타 중복 방지
+    startingRef.current = true;
     try {
       recRef.current = await startRecorder({
         sessionId: initial.id,
@@ -253,6 +258,7 @@ export default function TranslateView({ session: initial, onBack }) {
         sxSens,
         sxMaxDelay,
         sxLatency,
+        model,
         onMessage,
         onMeter: (rms) => {
           const db = 20 * Math.log10(rms + 1e-8);
@@ -263,6 +269,8 @@ export default function TranslateView({ session: initial, onBack }) {
       setConnecting(true); // 엔진 연결~첫 결과까지 표시
     } catch (e) {
       alert(e.message);
+    } finally {
+      startingRef.current = false;
     }
   };
   const stop = () => {
@@ -475,39 +483,22 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
 
-          {isElectron && (
-            <>
-              <Field label="오버레이 투명도">
-                <Box sx={{ height: 37, display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
-                  <Slider
-                    size="small"
-                    value={ovCap}
-                    min={0}
-                    max={0.85}
-                    step={0.05}
-                    onChange={(e, v) => {
-                      setOvCap(v);
-                      localStorage.setItem('kac-ov-cap', String(v));
-                      if (window.kac) window.kac.setOverlayOpacity(v);
-                    }}
-                    sx={{ width: 100 }}
-                  />
-                </Box>
-              </Field>
-              <Field label="클릭 통과">
-                <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
-                  <Switch
-                    checked={ovThrough}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      setOvThrough(on);
-                      if (window.kac) window.kac.setOverlayClickThrough(on);
-                    }}
-                  />
-                </Box>
-              </Field>
-            </>
-          )}
+          <Field label="번역 모델(테스트)">
+            <Select
+              size="small"
+              value={model}
+              disabled={recording}
+              onChange={(e) => {
+                setModel(e.target.value);
+                localStorage.setItem('kac-model', e.target.value);
+              }}
+              sx={{ ...selSx, minWidth: 150 }}
+            >
+              {MODELS.map((m) => (
+                <MenuItem key={m.v} value={m.v}>{m.label}</MenuItem>
+              ))}
+            </Select>
+          </Field>
 
           <Box sx={{ flex: 1 }} />
 

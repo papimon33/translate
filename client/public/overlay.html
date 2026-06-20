@@ -28,8 +28,9 @@
     border:1px solid rgba(255,255,255,0.14); border-radius:8px; cursor:pointer; }
   #bar select { padding:4px 6px; font-size:13px; }
   #bar button { width:28px; height:28px; font-size:15px; line-height:1; }
-  #lockDot { width:9px; height:9px; border-radius:50%; background:#36d399; flex:none; }
-  #lockDot.locked { background:#f43f5e; }
+  #bar .opwrap { display:flex; align-items:center; gap:5px; padding:0 4px; }
+  #bar .opwrap .oplbl { font-size:11px; color:rgba(255,255,255,0.7); }
+  #bar #opSlider { width:74px; cursor:pointer; accent-color:#4f8cff; }
 
   /* 자막 영역 */
   #feed { flex:1; display:flex; flex-direction:column; justify-content:flex-end;
@@ -67,13 +68,11 @@
   <div id="bar">
     <span class="grab">⋮⋮</span>
     <span class="ttl" id="title">KAC Translator</span>
-    <span id="lockDot" title="잠금 상태"></span>
     <select id="langSel" class="ctl" title="표시 언어"></select>
     <button class="ctl" id="srcBtn" title="원문 동시 표시">原</button>
     <button class="ctl" id="fsDown" title="글자 작게">−</button>
     <button class="ctl" id="fsUp" title="글자 크게">＋</button>
-    <button class="ctl" id="opDown" title="배경 옅게">▽</button>
-    <button class="ctl" id="opUp" title="배경 진하게">△</button>
+    <span class="ctl opwrap" title="배경 투명도"><span class="oplbl">투명도</span><input type="range" id="opSlider" min="0" max="0.85" step="0.05" /></span>
     <button class="ctl" id="closeBtn" title="닫기">×</button>
   </div>
   <div id="feed"></div>
@@ -88,8 +87,6 @@
     <button id="setupGo">연결</button>
   </div>
 </div>
-
-<div class="hint" id="hint"></div>
 
 <script>
 const params = new URLSearchParams(location.search);
@@ -116,14 +113,6 @@ const qCap = parseFloat(params.get('cap')); if(Number.isFinite(qCap)) cap = Math
 function applyFs(){ document.documentElement.style.setProperty('--fs', Math.round(26*fsPct/100)+'px'); localStorage.setItem('kac-ov-fs', fsPct); }
 function applyCap(){ document.documentElement.style.setProperty('--cap', cap.toFixed(2)); localStorage.setItem('kac-ov-cap', cap); }
 applyFs(); applyCap();
-// 통합 앱(메인창 설정)에서 투명도 실시간 변경
-window.__setCap = function(v){ if(Number.isFinite(v)){ cap = Math.min(0.95, Math.max(0, v)); applyCap(); } };
-
-/* ---- Electron 잠금(클릭통과) 상태 표시 ---- */
-window.__setLock = function(locked){
-  $('lockDot').classList.toggle('locked', !!locked);
-  $('hint').textContent = locked ? '잠김 · 클릭 통과 (Ctrl+Shift+O 해제)' : '이동·설정 가능 (Ctrl+Shift+O 잠금)';
-};
 
 /* ---- 세션 메타 ---- */
 async function loadSession(){
@@ -203,8 +192,9 @@ function connect(){
 /* ---- 컨트롤 ---- */
 $('fsUp').onclick   = ()=>{ fsPct=Math.min(240, fsPct+10); applyFs(); };
 $('fsDown').onclick = ()=>{ fsPct=Math.max(60, fsPct-10); applyFs(); };
-$('opUp').onclick   = ()=>{ cap=Math.min(0.85, +(cap+0.1).toFixed(2)); applyCap(); };
-$('opDown').onclick = ()=>{ cap=Math.max(0, +(cap-0.1).toFixed(2)); applyCap(); };
+// 배경 투명도 슬라이더
+const opSlider = $('opSlider'); opSlider.value = cap;
+opSlider.oninput = ()=>{ cap = parseFloat(opSlider.value); applyCap(); };
 $('srcBtn').onclick = ()=>{ showSrc=!showSrc; $('srcBtn').style.background = showSrc?'#4f8cff':'rgba(255,255,255,0.1)'; rerender(); };
 $('closeBtn').onclick = ()=>{ window.close(); }; // 오버레이 창만 닫음(통합앱 메인창은 유지)
 

@@ -6,6 +6,7 @@ import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import IconButton from '@mui/material/IconButton';
 import Avatar from '@mui/material/Avatar';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -49,8 +50,13 @@ export default function SessionList({ onOpen, user }) {
   const [pipeline, setPipeline] = useState('soniox');
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
 
   const reload = () => api.list().then(setList);
+  const toggleSel = (id) =>
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const exitSelect = () => { setSelectMode(false); setSelected(new Set()); };
   useEffect(() => {
     reload();
   }, []);
@@ -101,6 +107,17 @@ export default function SessionList({ onOpen, user }) {
     }
   };
 
+  const allIds = (list || []).map((s) => s.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allIds));
+  const deleteSelected = async () => {
+    if (!selected.size) return;
+    if (!confirm(`선택한 ${selected.size}개 세션을 삭제할까요?`)) return;
+    for (const id of selected) { try { await api.remove(id); } catch {} }
+    exitSelect();
+    reload();
+  };
+
   const empty = list && list.length === 0;
 
   return (
@@ -108,14 +125,41 @@ export default function SessionList({ onOpen, user }) {
       {/* 헤더 */}
       <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
         <Typography variant="h6">실시간 번역</Typography>
-        <Box sx={{ flex: 1 }} />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>
-          새 세션
-        </Button>
       </Box>
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
+          {/* 목록 영역 우상단 툴바: 새 세션 / 선택·삭제 */}
+          {!empty && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
+              <Box sx={{ flex: 1 }} />
+              {selectMode ? (
+                <>
+                  <Button size="small" onClick={toggleAll}>{allSelected ? '전체 해제' : '전체 선택'}</Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="outlined"
+                    startIcon={<DeleteOutlineIcon />}
+                    disabled={!selected.size}
+                    onClick={deleteSelected}
+                  >
+                    삭제 ({selected.size})
+                  </Button>
+                  <Button size="small" onClick={exitSelect}>취소</Button>
+                </>
+              ) : (
+                <>
+                  <Button size="small" color="inherit" onClick={() => setSelectMode(true)} sx={{ color: 'text.secondary' }}>
+                    선택
+                  </Button>
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>
+                    새 세션
+                  </Button>
+                </>
+              )}
+            </Box>
+          )}
           {empty && (
             <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
               <Avatar
@@ -147,7 +191,10 @@ export default function SessionList({ onOpen, user }) {
                 '&:hover': { transform: 'translateY(-2px)', boxShadow: 6, borderColor: 'primary.main' },
               }}
             >
-              <CardActionArea onClick={() => onOpen(s)} sx={{ px: 2, py: 1.75, display: 'flex', justifyContent: 'flex-start', gap: 1.75 }}>
+              <CardActionArea onClick={() => (selectMode ? toggleSel(s.id) : onOpen(s))} sx={{ px: 2, py: 1.75, display: 'flex', justifyContent: 'flex-start', gap: 1.75 }}>
+                {selectMode && (
+                  <Checkbox checked={selected.has(s.id)} tabIndex={-1} disableRipple sx={{ p: 0, ml: -0.5 }} />
+                )}
                 <Avatar
                   variant="rounded"
                   sx={{
@@ -175,9 +222,11 @@ export default function SessionList({ onOpen, user }) {
                   </Box>
                 </Box>
               </CardActionArea>
-              <IconButton sx={{ mr: 1 }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
-                <MoreVertIcon />
-              </IconButton>
+              {!selectMode && (
+                <IconButton sx={{ mr: 1 }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
+                  <MoreVertIcon />
+                </IconButton>
+              )}
             </Card>
           ))}
         </Box>

@@ -77,6 +77,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
+const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
 const GLOSSARY_FILE = path.join(DATA_DIR, 'glossary.json'); // 로컬 폴백(공개 repo에 안 올림)
 const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
@@ -85,12 +86,14 @@ const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(
 let sessions = [];  // 메모리 캐시(항상 진실의 원천)
 let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
 let usageDaily = {}; // { 'YYYY-MM-DD': { whisperMs, translateMs } } — 파이프라인별 사용시간 일별 집계
+let usageHourly = {}; // { 'YYYY-MM-DDTHH': { whisperMs, translateMs } } — 시간대별 집계(UTC)
 let glossaryRows = []; // [{ en, ko, meaning }] — 용어집(공개 repo 미커밋, Mongo/파일 저장)
 let glossaryUpdatedAt = 0;
 let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
+let usageHourlyCol = null;
 let glossaryCol = null;
 let summariesCol = null;
 
@@ -105,24 +108,29 @@ async function loadStore() {
         col = db.collection('sessions');
         usersCol = db.collection('users');
         usageCol = db.collection('usageDaily');
+        usageHourlyCol = db.collection('usageHourly');
         glossaryCol = db.collection('glossary');
         summariesCol = db.collection('summaries');
         await col.createIndex({ id: 1 }, { unique: true });
         await usersCol.createIndex({ id: 1 }, { unique: true });
         await usageCol.createIndex({ date: 1 }, { unique: true });
+        await usageHourlyCol.createIndex({ hour: 1 }, { unique: true });
         await summariesCol.createIndex({ id: 1 }, { unique: true });
         sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
         users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
         const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
         usageDaily = {};
         rows.forEach((r) => (usageDaily[r.date] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
+        const hrows = await usageHourlyCol.find({}, { projection: { _id: 0 } }).toArray();
+        usageHourly = {};
+        hrows.forEach((r) => (usageHourly[r.hour] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
         glossaryRows = await glossaryCol.find({}, { projection: { _id: 0 } }).toArray();
         summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
         console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length} / 용어 ${glossaryRows.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = glossaryCol = summariesCol = null;
+        col = usersCol = usageCol = usageHourlyCol = glossaryCol = summariesCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -147,6 +155,10 @@ async function loadStore() {
     if (fs.existsSync(USAGE_FILE)) {
       const u = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8'));
       if (u && typeof u === 'object') usageDaily = u;
+    }
+    if (fs.existsSync(USAGE_HOURLY_FILE)) {
+      const h = JSON.parse(fs.readFileSync(USAGE_HOURLY_FILE, 'utf8'));
+      if (h && typeof h === 'object') usageHourly = h;
     }
     if (fs.existsSync(GLOSSARY_FILE)) {
       const g = JSON.parse(fs.readFileSync(GLOSSARY_FILE, 'utf8'));
@@ -234,12 +246,17 @@ function costOfDay(d) {
 function dateKey() {
   return new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
 }
+function hourKey() {
+  return new Date().toISOString().slice(0, 13); // UTC YYYY-MM-DDTHH
+}
 function recordUsage(pipeline, ms) {
   if (!ms || ms < 0) return;
   const k = dateKey();
   const d = usageDaily[k] || (usageDaily[k] = { whisperMs: 0, translateMs: 0 });
-  if (pipeline === 'translate') d.translateMs += ms;
-  else d.whisperMs += ms;
+  const hk = hourKey();
+  const h = usageHourly[hk] || (usageHourly[hk] = { whisperMs: 0, translateMs: 0 });
+  if (pipeline === 'translate') { d.translateMs += ms; h.translateMs += ms; }
+  else { d.whisperMs += ms; h.whisperMs += ms; }
   saveUsage();
 }
 let usageSaveTimer = null;
@@ -256,8 +273,15 @@ async function flushUsage() {
       replaceOne: { filter: { date }, replacement: { date, whisperMs: v.whisperMs || 0, translateMs: v.translateMs || 0 }, upsert: true },
     }));
     if (ops.length) await usageCol.bulkWrite(ops, { ordered: false });
+    if (usageHourlyCol) {
+      const hops = Object.entries(usageHourly).map(([hour, v]) => ({
+        replaceOne: { filter: { hour }, replacement: { hour, whisperMs: v.whisperMs || 0, translateMs: v.translateMs || 0 }, upsert: true },
+      }));
+      if (hops.length) await usageHourlyCol.bulkWrite(hops, { ordered: false });
+    }
   } else {
     fs.writeFileSync(USAGE_FILE, JSON.stringify(usageDaily, null, 2));
+    fs.writeFileSync(USAGE_HOURLY_FILE, JSON.stringify(usageHourly, null, 2));
   }
 }
 
@@ -585,8 +609,18 @@ app.get('/api/admin/usage', requireAdmin, (req, res) => {
       const translateMin = (d.translateMs || 0) / 60000;
       return { date, whisperMin, translateMin, minutes: whisperMin + translateMin, cost: costOfDay(d) };
     });
+  const hourly = Object.keys(usageHourly)
+    .sort()
+    .slice(-72) // 최근 72시간
+    .map((hour) => {
+      const d = usageHourly[hour];
+      const whisperMin = (d.whisperMs || 0) / 60000;
+      const translateMin = (d.translateMs || 0) / 60000;
+      return { hour, whisperMin, translateMin, minutes: whisperMin + translateMin, cost: costOfDay(d) };
+    });
   res.json({
     daily,
+    hourly,
     totalMinutes: daily.reduce((a, d) => a + d.minutes, 0),
     totalCost: daily.reduce((a, d) => a + d.cost, 0),
     rateWhisper: PRICE_WHISPER_PER_MIN,
@@ -936,14 +970,15 @@ function sanitizeTranslation(out) {
 /* ------------------------------------------------------------------ */
 /*  전사된 원문 -> 목표 언어로 번역(+다듬기) : gpt-5-mini                */
 /* ------------------------------------------------------------------ */
-async function translateText(text, targetLang, polish, context) {
+async function translateText(text, targetLang, polish, context, model) {
+  const useModel = model && /^gpt-/.test(model) ? model : REFINE_MODEL;
   const langName = LANG_NAMES[targetLang] || targetLang;
   try {
     const sys = polish
-      ? `너는 전문 동시통역사다. 실시간 음성에서 받아쓴 텍스트(말하는 도중 끊긴 단편일 수 있음)를 ${langName}로 옮긴다. 딱딱한 직역투를 피하고, 의미가 매끄럽게 전달되도록 적당히 의역하여 부드럽고 자연스러운 구어체로 다듬는다.
+      ? `너는 전문 동시통역사다. 실시간 음성에서 받아쓴 텍스트(말하는 도중 끊긴 단편일 수 있음)를 ${langName}로 옮긴다. 딱딱한 직역투·문어체를 피하고, 실제 사람이 말하듯 자연스러운 '구어체'로 옮긴다. 의미가 매끄럽게 전달되도록 적당히 의역한다.
 규칙:
 - 여러 문장이 함께 들어오면 각 문장을 그대로 문장 단위로 옮기고, 서로 억지로 합치지 않는다.
-- 문체는 부드럽고 자연스러운 정중체로 통일한다(딱딱하지 않은 정중한 어투, 반말은 섞지 않는다). 직역해서 어색한 표현은 한국어다운 표현으로 바꾼다(자연스러움 우선, 의미는 정확히 유지).
+- 문체는 입으로 말하는 자연스러운 구어체로 한다. 글로 쓴 듯한 딱딱한 문어체("~하였다", "~이다", 번역체)를 피하고, 말할 때 쓰는 표현("~예요/~해요/~거든요/~네요" 등)으로 옮긴다. 정중함은 유지하되 반말은 섞지 않는다. 직역해서 어색한 표현은 한국어다운 표현으로 바꾼다(자연스러움 우선, 의미는 정확히 유지).
 - 고유명사·지명·상품명·음식명은 발음을 살려 표기하고 억지로 의역하지 않는다 (예: 初島→하츠시마, ところてん/所天→도코로텐, 天草→텐구사).
 - "(혹은 …)", "(서쪽?)" 같은 추측성 괄호나 부연을 절대 넣지 않는다. 불확실해도 가장 자연스러운 하나로만 옮긴다.
 - 앞 맥락(이전 대화)이 주어지면 그 흐름에 자연스럽게 이어 옮긴다.
@@ -960,8 +995,8 @@ async function translateText(text, targetLang, polish, context) {
       }
     }
     messages.push({ role: 'user', content: text });
-    const body = { model: REFINE_MODEL, messages, max_completion_tokens: 500 };
-    if (/^gpt-5/.test(REFINE_MODEL)) body.reasoning_effort = 'minimal';
+    const body = { model: useModel, messages, max_completion_tokens: 500 };
+    if (/^gpt-5/.test(useModel)) body.reasoning_effort = 'minimal';
 
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -1011,7 +1046,8 @@ async function spacingPolish(text) {
 
 /* 누적된 원문에서 "완결된 문장만" 번역하고, 끝의 미완성 부분은 remainder 로 돌려준다.
    whisper 가 마침표를 안 찍어도 GPT 가 문법으로 경계를 판단한다. */
-async function segmentTranslate(text, context, force, targetLang, polish) {
+async function segmentTranslate(text, context, force, targetLang, polish, model) {
+  const useModel = model && /^gpt-/.test(model) ? model : REFINE_MODEL;
   const langName = LANG_NAMES[targetLang] || targetLang;
   const ctxLine =
     context && context.length
@@ -1030,14 +1066,14 @@ async function segmentTranslate(text, context, force, targetLang, polish) {
     `- 입력의 어떤 내용도 버리지 마라(번역에 넣거나 remainder 에 넣거나 둘 중 하나).\n` +
     `- 음성 인식 특성상 같은 단어/구가 연달아 중복될 수 있다(예: "we We", "they They", "between In my best"). 중복은 한 번만 반영한다.\n` +
     `- 여러 문장이면 각 문장을 그대로 유지하고 서로 합치지 않는다.\n` +
-    `- 문체는 부드럽고 자연스러운 정중체로 통일한다(기본 '~합니다/~예요'처럼 딱딱하지 않은 정중한 어투, 반말은 섞지 않는다).\n` +
+    `- 문체는 글이 아니라 '말'이다. 실제 말하듯 자연스러운 구어체로 옮긴다(딱딱한 문어체·번역체 금지, '~예요/~해요/~거든요/~네요' 같은 말투). 정중함은 유지하되 반말은 섞지 않는다.\n` +
     `- 직역해서 어색한 표현은 한국어다운 자연스러운 표현으로 바꾼다(자연스러움 우선, 단 의미는 정확히 유지).\n` +
     `- 학년은 한국식으로 자연스럽게 옮긴다(예: seventh grade → 7학년).\n` +
     `- 고유명사·지명은 발음을 살리고, 추측성 괄호·부연은 넣지 않는다.${ctxLine}\n` +
     `출력은 JSON 한 개: {"translation": "...", "remainder": "..."}`;
   try {
     const body = {
-      model: REFINE_MODEL,
+      model: useModel,
       messages: [
         { role: 'system', content: sys },
         { role: 'user', content: text },
@@ -1045,7 +1081,7 @@ async function segmentTranslate(text, context, force, targetLang, polish) {
       max_completion_tokens: 600,
       response_format: { type: 'json_object' },
     };
-    if (/^gpt-5/.test(REFINE_MODEL)) body.reasoning_effort = 'minimal';
+    if (/^gpt-5/.test(useModel)) body.reasoning_effort = 'minimal';
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
@@ -1053,14 +1089,14 @@ async function segmentTranslate(text, context, force, targetLang, polish) {
     });
     if (!r.ok) {
       console.error('[segment] HTTP', r.status, await r.text());
-      return { translation: await translateText(text, targetLang, polish, context), remainder: '' };
+      return { translation: await translateText(text, targetLang, polish, context, useModel), remainder: '' };
     }
     const data = await r.json();
     const obj = JSON.parse(data?.choices?.[0]?.message?.content || '{}');
     return { translation: (obj.translation || '').trim(), remainder: (obj.remainder || '').trim() };
   } catch (e) {
     console.error('[segment] error', e);
-    return { translation: await translateText(text, targetLang, polish, context), remainder: '' };
+    return { translation: await translateText(text, targetLang, polish, context, useModel), remainder: '' };
   }
 }
 
@@ -1132,6 +1168,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._sxSens = searchParams.get('sxSens');       // soniox endpoint_sensitivity (-1~1)
       ws._sxMaxDelay = searchParams.get('sxMaxDelay'); // soniox max_endpoint_delay_ms (500~3000)
       ws._sxLatency = searchParams.get('sxLatency');   // soniox endpoint_latency_adjustment_level (0~3)
+      ws._model = searchParams.get('model');           // 번역 GPT 모델 오버라이드(테스트용)
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1202,6 +1239,8 @@ function handleHost(ws) {
   const inRaw = ws._in != null ? ws._in : session ? session.inLang : null;
   const inLang = inRaw && inRaw !== 'auto' ? inRaw : null;
   const pipeline = ws._pipeline || (session && session.pipeline) || 'whisper';
+  // 번역 GPT 모델(테스트용 오버라이드). 미지정/이상값이면 기본 REFINE_MODEL.
+  const refineModel = ws._model && /^gpt-/.test(ws._model) ? ws._model : REFINE_MODEL;
   // 출력 언어 목록: whisper 는 다국어, translate 는 1개
   const sessionLangs =
     session && Array.isArray(session.langs) && session.langs.length
@@ -1313,7 +1352,7 @@ function handleHost(ws) {
       upsertItem(id, base, txt);
       for (const lang of langsOut) {
         if (lang === src) continue; // 입력=출력은 그대로
-        translateText(txt, lang, true, [])
+        translateText(txt, lang, true, [], refineModel)
           .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
           .catch(() => {});
       }
@@ -1440,7 +1479,7 @@ function handleHost(ws) {
         upsertItem(id, base, txt);
         for (const lang of langsOut) {
           if (lang === src) continue; // 입력=출력은 그대로
-          translateText(txt, lang, true, [])
+          translateText(txt, lang, true, [], refineModel)
             .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
             .catch(() => {});
         }
@@ -1493,7 +1532,7 @@ function handleHost(ws) {
       let tail = ''; // 다음으로 넘길 원문
       try {
         const ctx = history.slice(-2);
-        const { translation, remainder } = await segmentTranslate(input, ctx, force, targetLang, polish);
+        const { translation, remainder } = await segmentTranslate(input, ctx, force, targetLang, polish, refineModel);
         const rem = (remainder || '').trim();
         const cleanSuffix = rem && rem.length < input.length && input.endsWith(rem);
 
@@ -1512,7 +1551,7 @@ function handleHost(ws) {
             if (history.length > 24) history.shift();
             // 나머지 언어는 같은 원문(consumed)을 직접 번역해 병렬로 채움
             for (const lang of sessionLangs.slice(1)) {
-              translateText(consumed, lang, polish).then((t) => {
+              translateText(consumed, lang, polish, undefined, refineModel).then((t) => {
                 if (t && t.trim()) upsertItem(id, { [lang]: t.trim() });
               });
             }

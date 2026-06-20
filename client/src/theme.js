@@ -18,7 +18,7 @@ export function buildTheme(mode) {
       background: { default: bgDefault, paper: bgPaper },
       text: dark
         ? { primary: '#e8eaf0', secondary: '#9aa3b2' }
-        : { primary: '#0f172a', secondary: '#64748b' },
+        : { primary: '#0a0e17', secondary: '#475569' },
     },
     shape: { borderRadius: 14 },
     typography: {

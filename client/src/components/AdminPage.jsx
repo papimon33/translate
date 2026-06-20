@@ -17,6 +17,8 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Alert from '@mui/material/Alert';
 import Tooltip from '@mui/material/Tooltip';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
@@ -39,22 +41,34 @@ function fmtMin(m) {
   return (m || 0).toFixed(m >= 10 ? 0 : 1) + '분';
 }
 
-function DailyChart({ daily }) {
-  const data = (daily || []).slice(-14);
-  if (!data.length) {
+function UsageChart({ data, kind }) {
+  const rows = (data || []).slice(kind === 'hourly' ? -24 : -14);
+  if (!rows.length) {
     return (
       <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 4, textAlign: 'center' }}>
         아직 사용량 데이터가 없습니다. 번역을 실행하면 집계됩니다.
       </Typography>
     );
   }
-  const max = Math.max(...data.map((d) => d.cost), 1e-9);
+  const max = Math.max(...rows.map((d) => d.cost), 1e-9);
+  const keyOf = (d) => (kind === 'hourly' ? d.hour : d.date);
+  const labelOf = (d) => {
+    if (kind === 'hourly') return new Date(d.hour + ':00:00Z').getHours() + '시';
+    return d.date.slice(5);
+  };
+  const tipOf = (d) => {
+    if (kind === 'hourly') {
+      const dt = new Date(d.hour + ':00:00Z');
+      return `${dt.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit' })} · ${fmtMin(d.minutes)} · ${fmtCost(d.cost)}`;
+    }
+    return `${d.date} · ${fmtMin(d.minutes)} (실시간 ${fmtMin(d.translateMin)} / 다국어 ${fmtMin(d.whisperMin)}) · ${fmtCost(d.cost)}`;
+  };
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 160, mt: 1 }}>
-      {data.map((d) => (
-        <Box key={d.date} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-          <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{fmtCost(d.cost)}</Typography>
-          <Tooltip title={`${d.date} · ${fmtMin(d.minutes)} (실시간 ${fmtMin(d.translateMin)} / 다국어 ${fmtMin(d.whisperMin)}) · ${fmtCost(d.cost)}`}>
+    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: kind === 'hourly' ? 0.4 : 1, height: 160, mt: 1 }}>
+      {rows.map((d) => (
+        <Box key={keyOf(d)} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+          {kind !== 'hourly' && <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{fmtCost(d.cost)}</Typography>}
+          <Tooltip title={tipOf(d)}>
             <Box
               sx={{
                 width: '70%',
@@ -64,7 +78,7 @@ function DailyChart({ daily }) {
               }}
             />
           </Tooltip>
-          <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{d.date.slice(5)}</Typography>
+          <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{labelOf(d)}</Typography>
         </Box>
       ))}
     </Box>
@@ -85,6 +99,7 @@ export default function AdminPage() {
   const [pwDlg, setPwDlg] = useState(null); // { id, name }
   const [pwVal, setPwVal] = useState('');
   const [pwErr, setPwErr] = useState('');
+  const [usageView, setUsageView] = useState('daily'); // 'daily' | 'hourly'
 
   const reload = () => {
     api.adminUsers().then(setList).catch(() => setList([]));
@@ -195,8 +210,22 @@ export default function AdminPage() {
                 </Typography>
               </Box>
               <Box sx={{ flex: 1, minWidth: 280 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>일별 사용 비용 (최근 14일)</Typography>
-                <DailyChart daily={usage?.daily} />
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
+                    {usageView === 'hourly' ? '시간대별 사용 비용 (최근 24시간)' : '일별 사용 비용 (최근 14일)'}
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={usageView}
+                    onChange={(e, v) => v && setUsageView(v)}
+                  >
+                    <ToggleButton value="daily" sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>일별</ToggleButton>
+                    <ToggleButton value="hourly" sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>시간별</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+                <UsageChart data={usageView === 'hourly' ? usage?.hourly : usage?.daily} kind={usageView} />
               </Box>
             </Box>
             {usage && (

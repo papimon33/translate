@@ -6,8 +6,6 @@ contextBridge.exposeInMainWorld('kac', {
   isElectron: true,
   openOverlay: (opts) => ipcRenderer.send('kac-open-overlay', opts || {}),
   closeOverlay: () => ipcRenderer.send('kac-close-overlay'),
-  setOverlayOpacity: (v) => ipcRenderer.send('kac-overlay-opacity', v),
-  setOverlayClickThrough: (on) => ipcRenderer.send('kac-overlay-clickthrough', on),
 });
 
 // 오버레이 창에서 앱 종료(필요 시)

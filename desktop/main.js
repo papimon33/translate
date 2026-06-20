@@ -8,7 +8,6 @@
      KAC_URL / OVERLAY_URL  로드할 사이트 베이스 URL (기본: 배포 사이트)
 
    단축키:
-     Ctrl+Shift+O  오버레이 잠금(클릭 통과) 토글
      Ctrl+Shift+Q  종료
 */
 const { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer } = require('electron');
@@ -18,7 +17,6 @@ const SITE = (process.env.KAC_URL || process.env.OVERLAY_URL || 'https://transla
 
 let mainWin = null;
 let overlayWin = null;
-let overlayLocked = false;
 
 function createMain() {
   mainWin = new BrowserWindow({
@@ -52,12 +50,6 @@ function overlayUrl(opts) {
   return u.toString();
 }
 
-function applyOverlayLock() {
-  if (!overlayWin) return;
-  overlayWin.setIgnoreMouseEvents(overlayLocked, { forward: true });
-  overlayWin.webContents.executeJavaScript(`window.__setLock && window.__setLock(${overlayLocked})`).catch(() => {});
-}
-
 function openOverlay(opts) {
   if (overlayWin) {
     overlayWin.loadURL(overlayUrl(opts));
@@ -77,24 +69,15 @@ function openOverlay(opts) {
   overlayWin.setAlwaysOnTop(true, 'screen-saver');
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlayWin.loadURL(overlayUrl(opts));
-  overlayLocked = false;
-  overlayWin.webContents.on('did-finish-load', applyOverlayLock);
   overlayWin.on('closed', () => { overlayWin = null; });
 }
 
 ipcMain.on('kac-open-overlay', (e, opts) => openOverlay(opts || {}));
 ipcMain.on('kac-close-overlay', () => { if (overlayWin) overlayWin.close(); });
-ipcMain.on('kac-overlay-opacity', (e, v) => {
-  if (overlayWin) overlayWin.webContents.executeJavaScript(`window.__setCap && window.__setCap(${Number(v)})`).catch(() => {});
-});
-ipcMain.on('kac-overlay-clickthrough', (e, on) => { overlayLocked = !!on; applyOverlayLock(); });
 ipcMain.on('overlay-quit', () => app.quit());
 
 app.whenReady().then(() => {
   createMain();
-  globalShortcut.register('CommandOrControl+Shift+O', () => {
-    if (overlayWin) { overlayLocked = !overlayLocked; applyOverlayLock(); }
-  });
   globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
 });
 app.on('window-all-closed', () => app.quit());
