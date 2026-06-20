@@ -970,6 +970,14 @@ function sanitizeTranslation(out) {
 /* ------------------------------------------------------------------ */
 /*  전사된 원문 -> 목표 언어로 번역(+다듬기) : gpt-5-mini                */
 /* ------------------------------------------------------------------ */
+// 모델별 reasoning_effort: gpt-5.4+ 는 'minimal' 미지원(none/low/…) → 'none',
+// 구형 gpt-5(nano/mini)는 'minimal'. 그 외 모델은 미설정.
+function reasoningEffort(model) {
+  if (/^gpt-5\.\d/.test(model)) return 'none';
+  if (/^gpt-5/.test(model)) return 'minimal';
+  return null;
+}
+
 async function translateText(text, targetLang, polish, context, model) {
   const useModel = model && /^gpt-/.test(model) ? model : REFINE_MODEL;
   const langName = LANG_NAMES[targetLang] || targetLang;
@@ -996,7 +1004,8 @@ async function translateText(text, targetLang, polish, context, model) {
     }
     messages.push({ role: 'user', content: text });
     const body = { model: useModel, messages, max_completion_tokens: 500 };
-    if (/^gpt-5/.test(useModel)) body.reasoning_effort = 'minimal';
+    const re = reasoningEffort(useModel);
+    if (re) body.reasoning_effort = re;
 
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -1030,7 +1039,8 @@ async function spacingPolish(text) {
       ],
       max_completion_tokens: 400,
     };
-    if (/^gpt-5/.test(REFINE_MODEL)) body.reasoning_effort = 'minimal';
+    const re = reasoningEffort(REFINE_MODEL);
+    if (re) body.reasoning_effort = re;
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
@@ -1081,7 +1091,8 @@ async function segmentTranslate(text, context, force, targetLang, polish, model)
       max_completion_tokens: 600,
       response_format: { type: 'json_object' },
     };
-    if (/^gpt-5/.test(useModel)) body.reasoning_effort = 'minimal';
+    const re = reasoningEffort(useModel);
+    if (re) body.reasoning_effort = re;
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
