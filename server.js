@@ -1400,6 +1400,9 @@ function handleHost(ws) {
     const sxB = okL(ws._sxB) ? ws._sxB : 'en';
     const ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY; // 확정 문장마다 Cartesia TTS 음성 출력
     const ttsVoice = ws._ttsVoice || ''; // 한국어 보이스 id(UI 선택), 비면 기본값
+    if (ws._tts === '1' && !CARTESIA_API_KEY) {
+      toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 출력(TTS) 비활성. 서버 환경변수를 확인하세요.' });
+    }
     const config = {
       api_key: SONIOX_API_KEY,
       model: 'stt-rt-v5',
@@ -1452,7 +1455,7 @@ function handleHost(ws) {
       try { sx.send(JSON.stringify(config)); } catch {} // config 먼저
       sxReady = true;
       while (pending.length) sx.send(pending.shift());
-      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5 · ${sxMode === 'two' ? `양방향 ${sxA}↔${sxB}` : `단방향→${sxTarget}`}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
+      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5 · ${sxMode === 'two' ? `양방향 ${sxA}↔${sxB}` : `단방향→${sxTarget}`}${ttsOn ? ' · TTS on' : ''}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
       bumpIdle();
     });
     sx.on('message', (raw) => {
