@@ -112,9 +112,12 @@ let ws = null;
 /* ---- 표시 설정(글자크기/배경 농도) ---- */
 let fsPct = parseInt(localStorage.getItem('kac-ov-fs')||'100',10); if(!(fsPct>=60&&fsPct<=240)) fsPct=100;
 let cap = parseFloat(localStorage.getItem('kac-ov-cap')||'0.5'); if(!(cap>=0&&cap<=0.85)) cap=0.5;
+const qCap = parseFloat(params.get('cap')); if(Number.isFinite(qCap)) cap = Math.min(0.95, Math.max(0, qCap)); // Electron에서 전달
 function applyFs(){ document.documentElement.style.setProperty('--fs', Math.round(26*fsPct/100)+'px'); localStorage.setItem('kac-ov-fs', fsPct); }
 function applyCap(){ document.documentElement.style.setProperty('--cap', cap.toFixed(2)); localStorage.setItem('kac-ov-cap', cap); }
 applyFs(); applyCap();
+// 통합 앱(메인창 설정)에서 투명도 실시간 변경
+window.__setCap = function(v){ if(Number.isFinite(v)){ cap = Math.min(0.95, Math.max(0, v)); applyCap(); } };
 
 /* ---- Electron 잠금(클릭통과) 상태 표시 ---- */
 window.__setLock = function(locked){
@@ -134,7 +137,8 @@ async function loadSession(){
     const o=document.createElement('option'); o.value=curLang; o.textContent=LABEL[curLang]||curLang; langSel.appendChild(o);
     langSel.value=curLang; langSel.disabled=true; langSel.style.opacity='0.6';
   } else {
-    const saved = localStorage.getItem('kac-ov-lang-'+sessionId);
+    const qLang = params.get('lang');
+    const saved = qLang || localStorage.getItem('kac-ov-lang-'+sessionId);
     curLang = (saved && ALL4.includes(saved)) ? saved : 'ko';
     ALL4.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=LABEL[c]||c; langSel.appendChild(o); });
     langSel.value=curLang; langSel.disabled=false;
@@ -202,7 +206,7 @@ $('fsDown').onclick = ()=>{ fsPct=Math.max(60, fsPct-10); applyFs(); };
 $('opUp').onclick   = ()=>{ cap=Math.min(0.85, +(cap+0.1).toFixed(2)); applyCap(); };
 $('opDown').onclick = ()=>{ cap=Math.max(0, +(cap-0.1).toFixed(2)); applyCap(); };
 $('srcBtn').onclick = ()=>{ showSrc=!showSrc; $('srcBtn').style.background = showSrc?'#4f8cff':'rgba(255,255,255,0.1)'; rerender(); };
-$('closeBtn').onclick = ()=>{ if(window.overlay&&window.overlay.quit) window.overlay.quit(); else window.close(); };
+$('closeBtn').onclick = ()=>{ window.close(); }; // 오버레이 창만 닫음(통합앱 메인창은 유지)
 
 /* ---- 세션 입력 ---- */
 function startWith(id){

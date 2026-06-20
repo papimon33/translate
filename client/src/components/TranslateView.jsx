@@ -22,6 +22,7 @@ import { keyframes } from '@mui/system';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import MicNoneIcon from '@mui/icons-material/MicNone';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
+import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -149,6 +150,17 @@ export default function TranslateView({ session: initial, onBack }) {
   const [connecting, setConnecting] = useState(false);
   const recRef = useRef(null);
   const scrollRef = useRef(null);
+
+  // Electron(통합 데스크톱 앱)에서만 노출되는 오버레이 컨트롤
+  const isElectron = typeof window !== 'undefined' && !!(window.kac && window.kac.isElectron);
+  const [ovCap, setOvCap] = useState(() => {
+    const v = Number(localStorage.getItem('kac-ov-cap'));
+    return Number.isFinite(v) && v >= 0 && v <= 0.85 ? v : 0.5;
+  });
+  const [ovThrough, setOvThrough] = useState(false);
+  const openOverlay = () => {
+    if (window.kac) window.kac.openOverlay({ session: initial.id, cap: ovCap, lang: dispLang });
+  };
 
   useEffect(() => {
     api.get(initial.id).then((s) => {
@@ -281,6 +293,13 @@ export default function TranslateView({ session: initial, onBack }) {
           label={recording ? '● 녹음 중' : '대기'}
           sx={{ fontWeight: 700 }}
         />
+        {isElectron && (
+          <Tooltip title="줌 위에 오버레이 창 열기">
+            <IconButton onClick={openOverlay} sx={{ border: 1, borderColor: 'divider' }}>
+              <PictureInPictureAltIcon />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title="모바일로 보기">
           <IconButton onClick={() => setQrOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
             <QrCode2Icon />
@@ -443,6 +462,40 @@ export default function TranslateView({ session: initial, onBack }) {
                 />
               </Box>
             </Field>
+          )}
+
+          {isElectron && (
+            <>
+              <Field label="오버레이 투명도">
+                <Box sx={{ height: 37, display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
+                  <Slider
+                    size="small"
+                    value={ovCap}
+                    min={0}
+                    max={0.85}
+                    step={0.05}
+                    onChange={(e, v) => {
+                      setOvCap(v);
+                      localStorage.setItem('kac-ov-cap', String(v));
+                      if (window.kac) window.kac.setOverlayOpacity(v);
+                    }}
+                    sx={{ width: 100 }}
+                  />
+                </Box>
+              </Field>
+              <Field label="클릭 통과">
+                <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+                  <Switch
+                    checked={ovThrough}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setOvThrough(on);
+                      if (window.kac) window.kac.setOverlayClickThrough(on);
+                    }}
+                  />
+                </Box>
+              </Field>
+            </>
           )}
 
           <Box sx={{ flex: 1 }} />
