@@ -20,14 +20,22 @@
   .iconbtn svg { width:20px; height:20px; }
   .iconbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   #audioBtn:not(.on) #audioWave { opacity:0.25; }
-  /* 폰 PTT(누르고 말하기) 버튼 */
-  body { padding-bottom:96px; }
-  #pttBtn { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:25; display:none;
-    padding:16px 30px; border-radius:40px; border:none; font-family:inherit; font-size:16px; font-weight:800;
-    background:var(--accent); color:#fff; box-shadow:0 8px 24px rgba(0,0,0,.35); cursor:pointer;
-    touch-action:none; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; }
-  #pttBtn.rec { background:#ef4444; transform:translateX(-50%) scale(1.06);
-    box-shadow:0 0 0 8px rgba(239,68,68,.25), 0 8px 24px rgba(0,0,0,.35); }
+  /* 언어 방향 라벨(선택 대신 표시) */
+  #langLabel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line);
+    background:var(--panel); color:var(--txt); font-size:14px; font-weight:700; text-align:center; }
+  /* 호스트 중지 배너 */
+  #hostBanner { position:sticky; top:0; z-index:7; margin:0; padding:9px 14px; text-align:center;
+    font-size:13px; font-weight:700; color:#fff; background:#ef4444; }
+  /* 폰 PTT(누르고 말하기) — 녹음 아이콘 버튼 */
+  body { padding-bottom:100px; }
+  #pttBtn { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:25; display:none;
+    width:68px; height:68px; border-radius:50%; border:none; background:var(--accent); color:#fff;
+    box-shadow:0 8px 24px rgba(0,0,0,.35); cursor:pointer; touch-action:none; user-select:none;
+    -webkit-user-select:none; -webkit-tap-highlight-color:transparent; align-items:center; justify-content:center; }
+  #pttBtn svg { width:30px; height:30px; }
+  #pttBtn.rec { background:#ef4444; transform:translateX(-50%) scale(1.08);
+    box-shadow:0 0 0 10px rgba(239,68,68,.25), 0 8px 24px rgba(0,0,0,.35); }
+  #pttBtn.disabled { opacity:0.35; pointer-events:none; }
   select#langSel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--txt); font-size:15px; font-family:inherit; }
 
   #feed { display:flex; flex-direction:column; gap:8px; padding:14px 14px 4px; }
@@ -92,11 +100,15 @@
   </div>
   <div class="stitle" id="title">세션</div>
   <select id="langSel"></select>
+  <div id="langLabel" style="display:none"></div>
 </header>
 
+<div id="hostBanner" style="display:none">번역이 중지되었습니다</div>
 <div id="feed"><div class="empty" id="empty">번역을 기다리는 중입니다...</div></div>
 <div id="partial"></div>
-<button id="pttBtn">🎤 꾹 눌러 말하기</button>
+<button id="pttBtn" aria-label="누르고 말하기">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+</button>
 
 <!-- 설정 시트 -->
 <div class="backdrop" id="backdrop"></div>
@@ -160,30 +172,38 @@ applyTheme(localStorage.getItem('kac-theme') || 'dark');
 applyFs();
 
 /* ---- 언어 select ---- */
+// 번역 방향 라벨(언어 선택은 안 되므로 표시만): 단방향=→타깃, 양방향=A↔B
+function applySxInfo(info){
+  const el = $('langLabel');
+  if (!info) { el.textContent = '연결 대기 중…'; el.style.display='block'; return; }
+  if (info.mode === 'two') { curLang = info.a; el.textContent = (LABEL[info.a]||info.a) + ' ↔ ' + (LABEL[info.b]||info.b); }
+  else { curLang = info.target; el.textContent = '→ ' + (LABEL[info.target]||info.target); }
+  el.style.display = 'block';
+  rerender();
+}
 async function loadSession(){
-  let title = 'KAC Translator';
-  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; } } catch {}
+  let title = 'KAC Translator', sxInfo = null;
+  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; } } catch {}
   titleEl.textContent = title;
-  langSel.innerHTML='';
+  langSel.style.display='none'; $('langLabel').style.display='none';
   if (sessionPipeline === 'translate') {
-    // 실시간 통역: 단일 출력 언어 → select 고정(변경 불가)
+    // 실시간 통역: 단일 출력 언어 → 라벨만 표시
     curLang = sessionOutLang;
-    const o=document.createElement('option'); o.value=curLang; o.textContent=LABEL[curLang]||curLang; langSel.appendChild(o);
-    langSel.value = curLang;
-    langSel.disabled = true;
-    langSel.style.opacity = '0.6';
-    langSel.onchange = null;
-    $('audioBtn').style.display = 'flex'; // 헤더 음성 듣기 버튼 노출(translate)
+    $('langLabel').textContent = LABEL[curLang]||curLang; $('langLabel').style.display='block';
+    $('audioBtn').style.display = 'flex';
+  } else if (sessionPipeline === 'soniox') {
+    // 다국어 번역: 방향 라벨 표시(선택 불가) + 음성 듣기 + 누르고 말하기
+    applySxInfo(sxInfo);
+    $('audioBtn').style.display = 'flex'; $('pttBtn').style.display = 'flex';
   } else {
-    // 다국어 번역: 한·영·일·중 선택
+    // whisper(구): 다국어 select 유지
+    langSel.innerHTML=''; langSel.style.display='';
     const saved = localStorage.getItem('kac-mlang-'+sessionId);
     curLang = (saved && ALL4.includes(saved)) ? saved : 'ko';
     ALL4.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=LABEL[c]||c; langSel.appendChild(o); });
     langSel.value = curLang;
-    langSel.disabled = false;
     langSel.onchange = () => { curLang = langSel.value; localStorage.setItem('kac-mlang-'+sessionId, curLang); rerender(); };
   }
-  if (sessionPipeline === 'soniox') { $('audioBtn').style.display = 'flex'; $('pttBtn').style.display = 'block'; } // 음성 듣기 + 누르고 말하기
   rerender();
 }
 
@@ -301,7 +321,16 @@ function connect(){
     else if(m.type==='partial'){ setPartial(m.text); }
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
     else if(m.type==='audio'){ if(audioOn) playPcm24(m.b64); }
+    else if(m.type==='meta'){ if(sessionPipeline==='soniox') applySxInfo(m.sxInfo); }
+    else if(m.type==='host'){ setHostActive(m.active); }
   };
+}
+// 호스트(번역) 활성/중지 → 배너 + 누르고말하기 버튼 활성/비활성
+function setHostActive(active){
+  $('hostBanner').style.display = active ? 'none' : 'block';
+  const pb = $('pttBtn');
+  if(active){ pb.classList.remove('disabled'); }
+  else { if(pttActive) pttStop(); pb.classList.add('disabled'); }
 }
 
 /* ---- 설정 UI ---- */
@@ -333,7 +362,7 @@ async function pttStart(){
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
   catch(e){ alert('마이크 권한이 필요합니다. (HTTPS에서만 동작해요)'); return; }
-  pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec'); $('pttBtn').textContent='● 말하는 중…';
+  pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec');
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
   pttCtx = new (window.AudioContext||window.webkitAudioContext)();
   const rate = pttCtx.sampleRate;
@@ -344,7 +373,7 @@ async function pttStart(){
 }
 function pttStop(){
   if(!pttActive) return; pttActive=false;
-  $('pttBtn').classList.remove('rec'); $('pttBtn').textContent='🎤 꾹 눌러 말하기';
+  $('pttBtn').classList.remove('rec');
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:false})); } catch {}
   try { pttProc.onaudioprocess=null; } catch {}
   try { pttStream.getTracks().forEach(t=>t.stop()); } catch {}

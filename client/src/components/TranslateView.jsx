@@ -23,6 +23,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import MicNoneIcon from '@mui/icons-material/MicNone';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
+import TuneIcon from '@mui/icons-material/Tune';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -122,6 +123,19 @@ function Field({ label, children }) {
 
 const selSx = { '& .MuiSelect-select': { py: 0.85 }, bgcolor: 'background.paper' };
 
+function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange }) {
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.25 }}>
+        <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>{label}</Typography>
+        <Typography sx={{ fontSize: 13, color: 'primary.main', fontWeight: 700 }}>{fmt(value)}</Typography>
+      </Box>
+      <Slider size="small" value={value} min={min} max={max} step={step} disabled={disabled} onChange={(e, v) => onChange(v)} />
+      <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>{hint}</Typography>
+    </Box>
+  );
+}
+
 export default function TranslateView({ session: initial, onBack }) {
   const [cfg, setCfg] = useState({
     pipeline: initial.pipeline || 'whisper',
@@ -168,6 +182,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [level, setLevel] = useState(0);
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
+  const [sxSettingsOpen, setSxSettingsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [notice, setNotice] = useState('');
   const [connecting, setConnecting] = useState(false);
@@ -348,6 +363,13 @@ export default function TranslateView({ session: initial, onBack }) {
             <QrCode2Icon />
           </IconButton>
         </Tooltip>
+        {cfg.pipeline === 'soniox' && (
+          <Tooltip title="고급 설정">
+            <IconButton onClick={() => setSxSettingsOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
+              <TuneIcon />
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
 
       {/* 컨트롤 바 */}
@@ -393,57 +415,6 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
           {cfg.pipeline === 'soniox' && (
             <>
-              <Field label="종료 민감도(테스트)">
-                <Select
-                  size="small"
-                  value={sxSens}
-                  disabled={recording}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setSxSens(v);
-                    localStorage.setItem('kac-sx-sens', String(v));
-                  }}
-                  sx={{ ...selSx, minWidth: 130 }}
-                >
-                  {SX_SENS.map((o) => (
-                    <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="최대 지연(테스트)">
-                <Select
-                  size="small"
-                  value={sxMaxDelay}
-                  disabled={recording}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setSxMaxDelay(v);
-                    localStorage.setItem('kac-sx-maxdelay', String(v));
-                  }}
-                  sx={{ ...selSx, minWidth: 130 }}
-                >
-                  {SX_MAXDELAY.map((o) => (
-                    <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="지연 레벨(테스트)">
-                <Select
-                  size="small"
-                  value={sxLatency}
-                  disabled={recording}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setSxLatency(v);
-                    localStorage.setItem('kac-sx-latency', String(v));
-                  }}
-                  sx={{ ...selSx, minWidth: 110 }}
-                >
-                  {SX_LATENCY.map((o) => (
-                    <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
-                  ))}
-                </Select>
-              </Field>
               <Field label="번역 방향">
                 <Select
                   size="small"
@@ -692,6 +663,25 @@ export default function TranslateView({ session: initial, onBack }) {
           </Button>
         </Box>
       </Box>
+
+      <Dialog open={sxSettingsOpen} onClose={() => setSxSettingsOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>고급 설정 (Soniox)</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>녹음 전에 설정하세요. 문장 끊김 타이밍을 조절합니다.</Typography>
+          <SxSlider label="종료 민감도" hint="높을수록 더 자주/빨리 끊김" value={sxSens} min={-1} max={1} step={0.1} disabled={recording}
+            fmt={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
+            onChange={(v) => { setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }} />
+          <SxSlider label="최대 지연" hint="무음 후 이 시간 안에 강제 종료(ms)" value={sxMaxDelay} min={500} max={3000} step={100} disabled={recording}
+            fmt={(v) => v + 'ms'}
+            onChange={(v) => { setSxMaxDelay(v); localStorage.setItem('kac-sx-maxdelay', String(v)); }} />
+          <SxSlider label="지연 레벨" hint="높을수록 저지연(끊김↑, 정확도↓)" value={sxLatency} min={0} max={3} step={1} disabled={recording}
+            fmt={(v) => String(v)}
+            onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); }} />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button variant="contained" onClick={() => setSxSettingsOpen(false)}>닫기</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={qrOpen} onClose={() => setQrOpen(false)}>
         <DialogTitle sx={{ fontWeight: 800 }}>모바일로 보기</DialogTitle>

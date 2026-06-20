@@ -1363,6 +1363,7 @@ function handleViewer(ws) {
   let talk = null; // 폰 PTT 파이프라인
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
+  ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
   ws.on('message', (data, isBinary) => {
     if (isBinary) { if (talk) talk.feed(data); return; }
     try {
@@ -1386,9 +1387,10 @@ function handleHost(ws) {
   const sessionId = ws._session;
   const side = ws._src === 'system' ? 'left' : 'right'; // 시스템=좌, 마이크=우
   const session = getSession(sessionId);
-  // 폰 PTT 결과를 이 호스트 화면에도 보내기 위해 room.hosts 에 등록
+  // 폰 PTT 결과를 이 호스트 화면에도 보내기 위해 room.hosts 에 등록 + 활성 신호
   getRoom(sessionId).hosts.add(ws);
-  ws.on('close', () => { const r = rooms.get(sessionId); if (r) r.hosts.delete(ws); });
+  broadcast(sessionId, { type: 'host', active: true });
+  ws.on('close', () => { const r = rooms.get(sessionId); if (r) { r.hosts.delete(ws); if (r.hosts.size === 0) broadcast(sessionId, { type: 'host', active: false }); } });
   // 사용량 집계: 호스트 WS 연결 시간 → 사용자별 누적 + 파이프라인별 일별 비용.
   const usageStart = Date.now();
   ws.on('close', () => {
@@ -1540,6 +1542,10 @@ function handleHost(ws) {
     const langsOut = sxMode === 'two' ? [sxA, sxB] : [sxTarget];
     // 폰 PTT 가 재사용할 호스트 설정 저장
     roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: config.endpoint_sensitivity, maxDelay: config.max_endpoint_delay_ms, latency: config.endpoint_latency_adjustment_level, ttsOn, ttsVoice });
+    // 번역 방향 정보 — 뷰어(모바일)가 언어 표시에 사용
+    const sxInfo = { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
+    if (session) { session.sxInfo = sxInfo; saveSessions(); }
+    broadcast(sessionId, { type: 'meta', sxInfo });
     let curId = null;     // 진행 중 발화 카드 id
     let finalText = '';   // 전사(원문) 확정 누적
     let finalTrans = '';  // Soniox 번역(타깃) 확정 누적
