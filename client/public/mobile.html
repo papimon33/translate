@@ -18,6 +18,8 @@
   .stitle { font-size:14px; font-weight:700; color:var(--muted); margin-top:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .iconbtn { width:38px; height:38px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .iconbtn svg { width:20px; height:20px; }
+  .iconbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #audioBtn:not(.on) #audioWave { opacity:0.25; }
   select#langSel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--txt); font-size:15px; font-family:inherit; }
 
   #feed { display:flex; flex-direction:column; gap:8px; padding:14px 14px 4px; }
@@ -73,6 +75,9 @@
 <header>
   <div class="htop">
     <div class="brand">KAC Translator</div>
+    <button class="iconbtn" id="audioBtn" aria-label="음성 듣기" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path id="audioWave" d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+    </button>
     <button class="iconbtn" id="settingsBtn" aria-label="설정">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -101,10 +106,6 @@
   <div class="srow click" id="rowSrc">
     <span class="lbl">원문 동시 보기</span>
     <label class="sw"><input type="checkbox" id="srcToggle" /><span class="sl"></span></label>
-  </div>
-  <div class="srow click" id="rowAudio" style="display:none">
-    <span class="lbl">번역 음성 듣기</span>
-    <label class="sw"><input type="checkbox" id="audioToggle" /><span class="sl"></span></label>
   </div>
   <div class="srow click" id="rowDark">
     <span class="lbl">다크 모드</span>
@@ -163,7 +164,7 @@ async function loadSession(){
     langSel.disabled = true;
     langSel.style.opacity = '0.6';
     langSel.onchange = null;
-    $('rowAudio').style.display = 'flex'; // 번역 음성 듣기 토글 노출
+    $('audioBtn').style.display = 'flex'; // 헤더 음성 듣기 버튼 노출(translate)
   } else {
     // 다국어 번역: 한·영·일·중 선택
     const saved = localStorage.getItem('kac-mlang-'+sessionId);
@@ -173,7 +174,7 @@ async function loadSession(){
     langSel.disabled = false;
     langSel.onchange = () => { curLang = langSel.value; localStorage.setItem('kac-mlang-'+sessionId, curLang); rerender(); };
   }
-  if (sessionPipeline === 'soniox') $('rowAudio').style.display = 'flex'; // Soniox TTS 음성 듣기
+  if (sessionPipeline === 'soniox') $('audioBtn').style.display = 'flex'; // 헤더 음성 듣기 버튼 노출(Soniox TTS)
   rerender();
 }
 
@@ -304,7 +305,7 @@ $('fsDown').onclick = (e) => { e.stopPropagation(); fsPct = Math.max(50, fsPct-1
 // QR / 원문 / 다크모드: 행 전체 클릭으로 동작
 $('rowQr').onclick = () => { closeSheet(); $('qrModal').classList.add('show'); };
 $('rowSrc').onclick = () => { showSrc = !showSrc; $('srcToggle').checked = showSrc; localStorage.setItem('kac-msrc', showSrc?'1':'0'); applySrc(); };
-$('rowAudio').onclick = () => { audioOn = !audioOn; $('audioToggle').checked = audioOn; if(audioOn) enableAudio(); sendAudioSub(audioOn); };
+$('audioBtn').onclick = () => { audioOn = !audioOn; $('audioBtn').classList.toggle('on', audioOn); if(audioOn) enableAudio(); sendAudioSub(audioOn); };
 $('rowDark').onclick = () => { applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); };
 $('qrClose').onclick = () => $('qrModal').classList.remove('show');
 $('qrModal').onclick = (e) => { if(e.target.id==='qrModal') $('qrModal').classList.remove('show'); };

@@ -270,7 +270,7 @@ export default function TranslateView({ session: initial, onBack }) {
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
         refine: true,
-        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn),
+        audioOut: cfg.pipeline === 'translate' && audioOutOn, // 호스트 재생은 translate만(soniox TTS는 폰으로만)
         tts: cfg.pipeline === 'soniox' && ttsOn,
         ttsVoice,
         volume,
@@ -494,7 +494,7 @@ export default function TranslateView({ session: initial, onBack }) {
                   </Field>
                 </>
               )}
-              <Field label="음성 출력(TTS)">
+              <Field label="폰 음성(TTS)">
                 <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
                   <Switch
                     checked={ttsOn}
@@ -560,7 +560,7 @@ export default function TranslateView({ session: initial, onBack }) {
               </Box>
             </Field>
           )}
-          {((cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn)) && (
+          {cfg.pipeline === 'translate' && audioOutOn && (
             <Field label="볼륨">
               <Box sx={{ height: 37, display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
                 <VolumeIcon level={volume} />

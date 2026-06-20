@@ -1464,10 +1464,11 @@ function handleHost(ws) {
       lastCommitText = out;
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt);
-      // 실시간 TTS: 확정된 번역문을 타깃 언어 보이스로 합성해 스트리밍(호스트 재생 + 뷰어 브로드캐스트)
+      // 실시간 TTS: 확정된 번역문을 타깃 언어 보이스로 합성해 모바일 뷰어(폰)에게만 전송.
+      //  호스트(시스템 오디오 캡처) 스피커로는 재생하지 않음 → TTS 재캡처 피드백 루프 원천 차단.
       if (ttsOn) {
         const voiceId = target === 'ko' ? (ttsVoice || CARTESIA_VOICES.ko) : (CARTESIA_VOICES[target] || CARTESIA_VOICES.en);
-        cartesiaTTSStream(out, voiceId, target, (b64) => { toHost({ type: 'audio', b64 }); broadcastAudio(sessionId, b64); })
+        cartesiaTTSStream(out, voiceId, target, (b64) => { broadcastAudio(sessionId, b64); })
           .catch(() => {});
       }
     };
