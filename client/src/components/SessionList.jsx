@@ -41,7 +41,8 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
-export default function SessionList({ onOpen }) {
+export default function SessionList({ onOpen, user }) {
+  const isAdmin = user?.role === 'admin';
   const [list, setList] = useState(null);
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
@@ -230,16 +231,10 @@ export default function SessionList({ onOpen }) {
                 참가자가 원하는 언어로 다국어 번역
               </Typography>
             </ToggleButton>
-            <ToggleButton value="translate" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+            <ToggleButton value="translate" disabled={!isAdmin} sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
               <b>실시간 통역</b>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                자막 및 음성으로 실시간 통역
-              </Typography>
-            </ToggleButton>
-            <ToggleButton value="deepgram" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-              <b>다국어 (Deepgram)</b>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                Deepgram Nova-3 테스트
+                {isAdmin ? '자막 및 음성으로 실시간 통역' : '관리자 전용'}
               </Typography>
             </ToggleButton>
           </ToggleButtonGroup>

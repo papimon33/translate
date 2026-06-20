@@ -192,6 +192,17 @@ export default function TranslateView({ session: initial, onBack }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, partials]);
 
+  // 연결/인식이 지나치게 지연되면 무한 스피너 대신 안내로 전환(특히 시스템 오디오)
+  useEffect(() => {
+    if (!connecting) return;
+    const t = setTimeout(() => {
+      setConnecting(false);
+      setNotice('연결/인식이 지연되고 있어요. 시스템 오디오를 쓰는 경우 실제로 소리가 재생 중인지, 입력 소스가 맞는지 확인해 주세요.');
+      setTimeout(() => setNotice(''), 9000);
+    }, 12000);
+    return () => clearTimeout(t);
+  }, [connecting]);
+
   const patch = (next) => {
     setCfg((c) => ({ ...c, ...next }));
     api.patch(initial.id, next);

@@ -5,10 +5,13 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-packager . KAC-Translator-Overlay --platform=win32 --arch=x64 --out=dist --overwrite"
+    "icon": "node build-icon.mjs",
+    "dist": "electron-packager . KAC-Translator-Overlay --platform=win32 --arch=x64 --icon=icon.ico --overwrite --out=dist"
   },
   "devDependencies": {
     "@electron/packager": "^18.3.6",
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.35.2"
   }
 }

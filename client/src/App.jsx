@@ -89,7 +89,7 @@ export default function App() {
     ) : view === 'admin' && user.role === 'admin' ? (
       <AdminPage />
     ) : (
-      <SessionList onOpen={setSession} />
+      <SessionList onOpen={setSession} user={user} />
     );
   const mainEl = (
     <Suspense
