@@ -21,6 +21,8 @@ const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || ''; // Nova-3 테스트 모드(선택)
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''; // Google Gemini TTS 테스트(선택)
+const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 
 const LANG_NAMES = {
   ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어',
@@ -971,6 +973,39 @@ function sanitizeTranslation(out) {
 /* ------------------------------------------------------------------ */
 /*  전사된 원문 -> 목표 언어로 번역(+다듬기) : gpt-5-mini                */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/*  Google Gemini TTS (텍스트 → 24kHz PCM16 음성) — 실시간 음성 출력 테스트 */
+/* ------------------------------------------------------------------ */
+async function geminiTTS(text, voice) {
+  if (!GEMINI_API_KEY || !text || !text.trim()) return null;
+  const body = {
+    contents: [{ parts: [{ text }] }],
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice || 'Kore' } } },
+    },
+  };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  // 가끔 finishReason OTHER 로 빈 응답/429 → 짧게 1회 재시도
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) {
+        if (r.status === 429 && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
+        console.error('[gtts] HTTP', r.status, (await r.text()).slice(0, 160));
+        return null;
+      }
+      const data = await r.json();
+      const b64 = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (b64) return b64; // audio/L16;rate=24000 → 클라 playPcm24 와 동일 포맷
+    } catch (e) {
+      console.error('[gtts] error', e.message);
+      return null;
+    }
+  }
+  return null;
+}
+
 // 모델별 reasoning_effort: gpt-5.4+ 는 'minimal' 미지원(none/low/…) → 'none',
 // 구형 gpt-5(nano/mini)는 'minimal'. 그 외 모델은 미설정.
 function reasoningEffort(model) {
@@ -1185,6 +1220,8 @@ server.on('upgrade', (req, socket, head) => {
       ws._sxTarget = searchParams.get('sxTarget'); // 단방향 타깃 언어
       ws._sxA = searchParams.get('sxA');           // 양방향 언어 A
       ws._sxB = searchParams.get('sxB');           // 양방향 언어 B
+      ws._tts = searchParams.get('tts');           // soniox 실시간 TTS on('1')
+      ws._ttsVoice = searchParams.get('ttsVoice'); // Gemini 보이스명
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1341,6 +1378,8 @@ function handleHost(ws) {
     const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
     const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
     const sxB = okL(ws._sxB) ? ws._sxB : 'en';
+    const ttsOn = ws._tts === '1' && !!GEMINI_API_KEY; // 확정 문장마다 Gemini TTS 음성 출력
+    const ttsVoice = ws._ttsVoice || 'Kore';
     const config = {
       api_key: SONIOX_API_KEY,
       model: 'stt-rt-v5',
@@ -1378,7 +1417,14 @@ function handleHost(ws) {
       const tgt = (finalTrans.trim() || lastTrans).trim();
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
       if (!id || !txt) return;
-      upsertItem(id, { [targetKeyFor(src)]: tgt || txt }, txt);
+      const out = tgt || txt;
+      upsertItem(id, { [targetKeyFor(src)]: out }, txt);
+      // 실시간 TTS: 확정된 번역문을 Gemini 음성으로 합성 → 호스트 재생 + 뷰어 브로드캐스트
+      if (ttsOn) {
+        geminiTTS(out, ttsVoice)
+          .then((b64) => { if (b64) { toHost({ type: 'audio', b64 }); broadcastAudio(sessionId, b64); } })
+          .catch(() => {});
+      }
     };
 
     sx.on('open', () => {

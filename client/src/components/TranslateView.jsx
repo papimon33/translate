@@ -81,6 +81,8 @@ const MODELS = [
   { v: 'gpt-5-nano', label: 'gpt-5-nano (기본)' },
   { v: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
 ];
+// Gemini TTS 프리빌트 보이스
+const VOICES = ['Kore', 'Puck', 'Charon', 'Aoede', 'Leda', 'Fenrir'];
 // Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
 const ENDPOINTS = [
   { v: 10, label: '10ms (Deepgram 기본값)' },
@@ -146,6 +148,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
+  const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Gemini TTS 음성 출력
+  const [ttsVoice, setTtsVoice] = useState(() => localStorage.getItem('kac-sx-voice') || 'Kore');
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -254,7 +258,9 @@ export default function TranslateView({ session: initial, onBack }) {
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
         refine: true,
-        audioOut: cfg.pipeline === 'translate' && audioOutOn,
+        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn),
+        tts: cfg.pipeline === 'soniox' && ttsOn,
+        ttsVoice,
         volume,
         endpointing,
         sxSens,
@@ -476,6 +482,28 @@ export default function TranslateView({ session: initial, onBack }) {
                   </Field>
                 </>
               )}
+              <Field label="음성 출력(TTS)">
+                <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+                  <Switch
+                    checked={ttsOn}
+                    disabled={recording}
+                    onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
+                  />
+                </Box>
+              </Field>
+              {ttsOn && (
+                <Field label="보이스">
+                  <Select
+                    size="small"
+                    value={ttsVoice}
+                    disabled={recording}
+                    onChange={(e) => { setTtsVoice(e.target.value); localStorage.setItem('kac-sx-voice', e.target.value); }}
+                    sx={{ ...selSx, minWidth: 110 }}
+                  >
+                    {VOICES.map((v) => (<MenuItem key={v} value={v}>{v}</MenuItem>))}
+                  </Select>
+                </Field>
+              )}
             </>
           )}
           {cfg.pipeline !== 'soniox' && (
@@ -520,7 +548,7 @@ export default function TranslateView({ session: initial, onBack }) {
               </Box>
             </Field>
           )}
-          {cfg.pipeline === 'translate' && audioOutOn && (
+          {((cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn)) && (
             <Field label="볼륨">
               <Box sx={{ height: 37, display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
                 <VolumeIcon level={volume} />

@@ -173,6 +173,7 @@ async function loadSession(){
     langSel.disabled = false;
     langSel.onchange = () => { curLang = langSel.value; localStorage.setItem('kac-mlang-'+sessionId, curLang); rerender(); };
   }
+  if (sessionPipeline === 'soniox') $('rowAudio').style.display = 'flex'; // Soniox TTS 음성 듣기
   rerender();
 }
 
