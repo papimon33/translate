@@ -872,9 +872,10 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
 /* ================================================================== */
 /*  실시간 방(room) : 세션ID 기준. 호스트(여러 소스) + 뷰어 N           */
 /* ================================================================== */
-const rooms = new Map(); // sessionId -> { viewers:Set<ws> }
+const rooms = new Map(); // sessionId -> { viewers:Set<ws>, hosts:Set<ws> }
+const roomCfg = new Map(); // sessionId -> 호스트가 시작한 soniox 설정(폰 PTT가 재사용)
 function getRoom(sessionId) {
-  if (!rooms.has(sessionId)) rooms.set(sessionId, { viewers: new Set() });
+  if (!rooms.has(sessionId)) rooms.set(sessionId, { viewers: new Set(), hosts: new Set() });
   return rooms.get(sessionId);
 }
 function broadcast(sessionId, payload) {
@@ -884,6 +885,31 @@ function broadcast(sessionId, payload) {
   for (const v of room.viewers) {
     if (v.readyState === WebSocket.OPEN) v.send(msg);
   }
+}
+// 폰 PTT 결과를 호스트(데스크톱) 화면에도 실시간 반영
+function sendToHosts(sessionId, payload) {
+  const room = rooms.get(sessionId);
+  if (!room) return;
+  const msg = JSON.stringify(payload);
+  for (const h of room.hosts) {
+    if (h.readyState === WebSocket.OPEN) h.send(msg);
+  }
+}
+// 세션 항목 저장 + 표시 메시지 생성(폰 PTT용 — handleHost 클로저 밖에서 사용)
+function applyItem(sessionId, id, side, langTexts, source) {
+  const session = getSession(sessionId);
+  let item;
+  if (session) {
+    item = session.items.find((x) => x.id === id);
+    if (item) { item.texts = { ...(item.texts || {}), ...langTexts }; if (source) item.source = source; }
+    else { item = { id, side, source: source || null, texts: { ...langTexts } }; session.items.push(item); }
+    if (session.title === '새 세션' && session.items.length === 1) { const f = Object.values(item.texts)[0] || ''; if (f) session.title = f.slice(0, 40); }
+    session.updatedAt = Date.now();
+    saveSessions();
+  } else {
+    item = { id, side, source: source || null, texts: { ...langTexts } };
+  }
+  return { type: 'sentence', id, side, source: item.source || null, texts: item.texts, terms: {} };
 }
 // 번역 음성은 '음성 듣기'를 켠(구독한) 뷰어에게만 전송 → 무료 티어 대역폭 절약
 function broadcastAudio(sessionId, b64) {
@@ -1271,20 +1297,86 @@ wss.on('connection', (ws) => {
   return handleHost(ws);
 });
 
+/* 폰 PTT(누르고 말하기) 파이프라인: 폰 마이크 오디오 → Soniox 양방향 번역 →
+   호스트·뷰어에 브로드캐스트(+TTS). 호스트 설정(roomCfg)을 재사용. */
+function startTalkPipeline(sessionId, side) {
+  if (!SONIOX_API_KEY) return null;
+  const cfg = roomCfg.get(sessionId) || {};
+  const L4 = ['ko', 'en', 'ja', 'zh'];
+  const a = L4.includes(cfg.sxA) ? cfg.sxA : 'ko';
+  const b = L4.includes(cfg.sxB) ? cfg.sxB : (cfg.sxMode === 'one' && L4.includes(cfg.sxTarget) ? cfg.sxTarget : 'en');
+  const config = {
+    api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+    enable_language_identification: true, enable_endpoint_detection: true,
+    endpoint_sensitivity: cfg.sens || 0, max_endpoint_delay_ms: cfg.maxDelay || 2000, endpoint_latency_adjustment_level: cfg.latency || 0,
+    language_hints: [a, b], translation: { type: 'two_way', language_a: a, language_b: b },
+  };
+  const sx = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
+  let ready = false; const pending = [];
+  let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommit = '';
+  const targetKeyFor = (src) => (src === a ? b : a);
+  const SX_MAX = 200;
+  const commit = () => {
+    const id = curId, txt = finalText.trim(), src = curSrc, tgt = (finalTrans.trim() || lastTrans).trim();
+    curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
+    if (!id || !txt) return;
+    const out = tgt || txt;
+    if (out === lastCommit) return;
+    lastCommit = out;
+    const target = targetKeyFor(src || a);
+    const msg = applyItem(sessionId, id, side, { [target]: out }, txt);
+    broadcast(sessionId, msg); sendToHosts(sessionId, msg);
+    if (cfg.ttsOn) {
+      const voiceId = target === 'ko' ? (cfg.ttsVoice || CARTESIA_VOICES.ko) : (CARTESIA_VOICES[target] || CARTESIA_VOICES.en);
+      cartesiaTTSStream(out, voiceId, target, (b64) => broadcastAudio(sessionId, b64)).catch(() => {});
+    }
+  };
+  sx.on('open', () => { try { sx.send(JSON.stringify(config)); } catch {} ready = true; while (pending.length) sx.send(pending.shift()); });
+  sx.on('message', (raw) => {
+    let ev; try { ev = JSON.parse(raw.toString()); } catch { return; }
+    if (ev.error_code) return;
+    const toks = ev.tokens || []; if (!toks.length) return;
+    let endHit = false, nonFinal = '', nonFinalTrans = '';
+    for (const t of toks) {
+      if (t.text === '<end>') { endHit = true; continue; }
+      if (t.translation_status === 'translation') { if (t.is_final) finalTrans += t.text; else nonFinalTrans += t.text; }
+      else { if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase(); if (t.is_final) finalText += t.text; else nonFinal += t.text; }
+    }
+    const shownSrc = (finalText + nonFinal).trim(), shownTgt = (finalTrans + nonFinalTrans).trim();
+    if (shownTgt) lastTrans = shownTgt;
+    if (!curId && (shownSrc || shownTgt)) curId = newId();
+    if (curId) { const msg = { type: 'sentence', id: curId, side, source: shownSrc || null, texts: { [targetKeyFor(curSrc || a)]: shownTgt } }; broadcast(sessionId, msg); sendToHosts(sessionId, msg); }
+    if (endHit || finalText.length >= SX_MAX) commit();
+  });
+  sx.on('error', () => {});
+  return {
+    feed: (data) => { if (ready) { try { sx.send(data); } catch {} } else pending.push(data); },
+    stop: () => { try { sx.send(''); } catch {} try { sx.close(); } catch {} },
+  };
+}
+
 /* ----------------------------- 뷰어 ------------------------------- */
 function handleViewer(ws) {
   const room = getRoom(ws._session);
   room.viewers.add(ws);
   ws._audioWanted = false; // '음성 듣기' 구독 여부
+  let talk = null; // 폰 PTT 파이프라인
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
-  ws.on('message', (data) => {
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) { if (talk) talk.feed(data); return; }
     try {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
+      else if (m.type === 'ptt') {
+        if (m.on) {
+          if (!talk) talk = startTalkPipeline(ws._session, 'right');
+          if (!talk) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
+        } else if (talk) { talk.stop(); talk = null; }
+      }
     } catch {}
   });
-  ws.on('close', () => room.viewers.delete(ws));
+  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } });
 }
 
 /* ----------------------------- 호스트 ----------------------------- */
@@ -1294,6 +1386,9 @@ function handleHost(ws) {
   const sessionId = ws._session;
   const side = ws._src === 'system' ? 'left' : 'right'; // 시스템=좌, 마이크=우
   const session = getSession(sessionId);
+  // 폰 PTT 결과를 이 호스트 화면에도 보내기 위해 room.hosts 에 등록
+  getRoom(sessionId).hosts.add(ws);
+  ws.on('close', () => { const r = rooms.get(sessionId); if (r) r.hosts.delete(ws); });
   // 사용량 집계: 호스트 WS 연결 시간 → 사용자별 누적 + 파이프라인별 일별 비용.
   const usageStart = Date.now();
   ws.on('close', () => {
@@ -1443,6 +1538,8 @@ function handleHost(ws) {
     let sxReady = false;
     const pending = [];
     const langsOut = sxMode === 'two' ? [sxA, sxB] : [sxTarget];
+    // 폰 PTT 가 재사용할 호스트 설정 저장
+    roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: config.endpoint_sensitivity, maxDelay: config.max_endpoint_delay_ms, latency: config.endpoint_latency_adjustment_level, ttsOn, ttsVoice });
     let curId = null;     // 진행 중 발화 카드 id
     let finalText = '';   // 전사(원문) 확정 누적
     let finalTrans = '';  // Soniox 번역(타깃) 확정 누적

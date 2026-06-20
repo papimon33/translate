@@ -20,6 +20,14 @@
   .iconbtn svg { width:20px; height:20px; }
   .iconbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   #audioBtn:not(.on) #audioWave { opacity:0.25; }
+  /* 폰 PTT(누르고 말하기) 버튼 */
+  body { padding-bottom:96px; }
+  #pttBtn { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:25; display:none;
+    padding:16px 30px; border-radius:40px; border:none; font-family:inherit; font-size:16px; font-weight:800;
+    background:var(--accent); color:#fff; box-shadow:0 8px 24px rgba(0,0,0,.35); cursor:pointer;
+    touch-action:none; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; }
+  #pttBtn.rec { background:#ef4444; transform:translateX(-50%) scale(1.06);
+    box-shadow:0 0 0 8px rgba(239,68,68,.25), 0 8px 24px rgba(0,0,0,.35); }
   select#langSel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--txt); font-size:15px; font-family:inherit; }
 
   #feed { display:flex; flex-direction:column; gap:8px; padding:14px 14px 4px; }
@@ -88,6 +96,7 @@
 
 <div id="feed"><div class="empty" id="empty">번역을 기다리는 중입니다...</div></div>
 <div id="partial"></div>
+<button id="pttBtn">🎤 꾹 눌러 말하기</button>
 
 <!-- 설정 시트 -->
 <div class="backdrop" id="backdrop"></div>
@@ -174,7 +183,7 @@ async function loadSession(){
     langSel.disabled = false;
     langSel.onchange = () => { curLang = langSel.value; localStorage.setItem('kac-mlang-'+sessionId, curLang); rerender(); };
   }
-  if (sessionPipeline === 'soniox') $('audioBtn').style.display = 'flex'; // 헤더 음성 듣기 버튼 노출(Soniox TTS)
+  if (sessionPipeline === 'soniox') { $('audioBtn').style.display = 'flex'; $('pttBtn').style.display = 'block'; } // 음성 듣기 + 누르고 말하기
   rerender();
 }
 
@@ -314,6 +323,40 @@ $('qrCopy').onclick = async () => {
   try { await navigator.clipboard.writeText(link); } catch { const i=$('qrLink'); i.select(); document.execCommand('copy'); }
   const b=$('qrCopy'); const t=b.textContent; b.textContent='복사됨!'; setTimeout(()=>b.textContent=t, 1200);
 };
+
+/* ---- 폰 PTT: 누르고 말하기 → 마이크 오디오를 24kHz PCM16 으로 서버에 전송 ---- */
+let pttActive=false, pttStream=null, pttCtx=null, pttProc=null;
+function f32to16(f32){ const b=new ArrayBuffer(f32.length*2), v=new DataView(b); for(let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); s=s<0?s*0x8000:s*0x7fff; v.setInt16(i*2,s,true);} return b; }
+function ds24(f32,rate){ if(rate===24000) return f32; const r=rate/24000, n=Math.round(f32.length/r), o=new Float32Array(n); for(let i=0;i<n;i++){ const idx=i*r, i0=Math.floor(idx), i1=Math.min(i0+1,f32.length-1); o[i]=f32[i0]*(1-(idx-i0))+f32[i1]*(idx-i0);} return o; }
+async function pttStart(){
+  if(pttActive) return;
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
+  catch(e){ alert('마이크 권한이 필요합니다. (HTTPS에서만 동작해요)'); return; }
+  pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec'); $('pttBtn').textContent='● 말하는 중…';
+  try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
+  pttCtx = new (window.AudioContext||window.webkitAudioContext)();
+  const rate = pttCtx.sampleRate;
+  const node = pttCtx.createMediaStreamSource(stream);
+  pttProc = pttCtx.createScriptProcessor(4096,1,1);
+  node.connect(pttProc); const g=pttCtx.createGain(); g.gain.value=0; pttProc.connect(g); g.connect(pttCtx.destination);
+  pttProc.onaudioprocess = (e)=>{ if(!pttActive || !ws || ws.readyState!==1) return; ws.send(f32to16(ds24(e.inputBuffer.getChannelData(0), rate))); };
+}
+function pttStop(){
+  if(!pttActive) return; pttActive=false;
+  $('pttBtn').classList.remove('rec'); $('pttBtn').textContent='🎤 꾹 눌러 말하기';
+  try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:false})); } catch {}
+  try { pttProc.onaudioprocess=null; } catch {}
+  try { pttStream.getTracks().forEach(t=>t.stop()); } catch {}
+  try { pttCtx.close(); } catch {}
+  pttStream=pttCtx=pttProc=null;
+}
+(function(){ const b=$('pttBtn');
+  b.addEventListener('pointerdown',(e)=>{ e.preventDefault(); pttStart(); });
+  b.addEventListener('pointerup',(e)=>{ e.preventDefault(); pttStop(); });
+  b.addEventListener('pointercancel',()=>pttStop());
+  b.addEventListener('pointerleave',()=>{ if(pttActive) pttStop(); });
+})();
 
 applySrc();
 loadSession();
