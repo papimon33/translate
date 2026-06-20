@@ -1026,6 +1026,23 @@ async function cartesiaTTSStream(text, voiceId, language, onAudio) {
   } catch (e) { console.error('[cartesia] stream', e.message); }
 }
 
+// 시작 시 연결 워밍업 + 키/보이스 검증(첫 음성 지연 단축, TLS keep-alive 확보)
+async function cartesiaWarmup(voiceId, language) {
+  if (!CARTESIA_API_KEY) return { ok: false, error: 'CARTESIA_API_KEY 미설정' };
+  // 구두점만 있는 transcript 는 거부됨 → 언어별 짧은 단어 사용
+  const tx = { ko: '네.', en: 'Hi.', ja: 'はい。', zh: '你好。' }[language] || 'Hi.';
+  try {
+    const res = await fetch('https://api.cartesia.ai/tts/bytes', {
+      method: 'POST',
+      headers: { 'X-API-Key': CARTESIA_API_KEY, 'Cartesia-Version': CARTESIA_VERSION, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id: CARTESIA_MODEL, transcript: tx, voice: { mode: 'id', id: voiceId }, language, output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: 24000 } }),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 80)}` };
+    try { for await (const _ of res.body) { /* drain to keep socket warm */ } } catch {}
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 // 모델별 reasoning_effort: gpt-5.4+ 는 'minimal' 미지원(none/low/…) → 'none',
 // 구형 gpt-5(nano/mini)는 'minimal'. 그 외 모델은 미설정.
 function reasoningEffort(model) {
@@ -1431,6 +1448,7 @@ function handleHost(ws) {
     let finalTrans = '';  // Soniox 번역(타깃) 확정 누적
     let lastTrans = '';   // 마지막으로 표시한 번역(폴백용)
     let curSrc = '';      // 감지된 입력 언어
+    let lastCommitText = ''; // 직전 확정 텍스트(연속 중복 카드 방지)
 
     const targetKeyFor = (src) => (sxMode === 'two' ? (src === sxA ? sxB : sxA) : sxTarget);
 
@@ -1441,6 +1459,9 @@ function handleHost(ws) {
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
       if (!id || !txt) return;
       const out = tgt || txt;
+      // 직전 카드와 완전히 동일한 내용이면 중복으로 보고 스킵(반복/에코 방지)
+      if (out && out === lastCommitText) return;
+      lastCommitText = out;
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt);
       // 실시간 TTS: 확정된 번역문을 타깃 언어 보이스로 합성해 스트리밍(호스트 재생 + 뷰어 브로드캐스트)
@@ -1456,6 +1477,12 @@ function handleHost(ws) {
       sxReady = true;
       while (pending.length) sx.send(pending.shift());
       toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5 · ${sxMode === 'two' ? `양방향 ${sxA}↔${sxB}` : `단방향→${sxTarget}`}${ttsOn ? ' · TTS on' : ''}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
+      // TTS 연결 워밍업 + 키/보이스 검증(첫 음성 지연 단축)
+      if (ttsOn) {
+        const wLang = sxMode === 'two' ? 'ko' : sxTarget;
+        const wVoice = wLang === 'ko' ? (ttsVoice || CARTESIA_VOICES.ko) : (CARTESIA_VOICES[wLang] || CARTESIA_VOICES.en);
+        cartesiaWarmup(wVoice, wLang).then((r) => toHost({ type: 'status', message: r.ok ? '음성(Cartesia) 준비됨' : ('음성 준비 실패: ' + r.error) }));
+      }
       bumpIdle();
     });
     sx.on('message', (raw) => {
