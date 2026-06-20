@@ -5,12 +5,16 @@ import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Checkbox from '@mui/material/Checkbox';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { api } from '../api.js';
 
 export default function Login({ onSuccess }) {
-  const [id, setId] = useState('');
+  const [id, setId] = useState(() => localStorage.getItem('kac-saved-id') || '');
   const [pw, setPw] = useState('');
+  const [saveId, setSaveId] = useState(() => !!localStorage.getItem('kac-saved-id'));
+  const [remember, setRemember] = useState(() => localStorage.getItem('kac-remember') === '1');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -20,7 +24,11 @@ export default function Login({ onSuccess }) {
     setBusy(true);
     setErr('');
     try {
-      const { user } = await api.login(id, pw);
+      const { user } = await api.login(id, pw, remember);
+      // ID 저장 / 자동 로그인 설정 기억
+      if (saveId) localStorage.setItem('kac-saved-id', id);
+      else localStorage.removeItem('kac-saved-id');
+      localStorage.setItem('kac-remember', remember ? '1' : '0');
       onSuccess(user);
     } catch (e) {
       setErr(e.message || '로그인 실패');
@@ -76,8 +84,18 @@ export default function Login({ onSuccess }) {
           onChange={(e) => setPw(e.target.value)}
           fullWidth
           disabled={busy}
-          sx={{ mb: 2 }}
+          sx={{ mb: 1 }}
         />
+        <Box sx={{ display: 'flex', flexDirection: 'column', mb: 1.5 }}>
+          <FormControlLabel
+            control={<Checkbox size="small" checked={saveId} onChange={(e) => setSaveId(e.target.checked)} />}
+            label={<Typography sx={{ fontSize: 13.5 }}>아이디 저장</Typography>}
+          />
+          <FormControlLabel
+            control={<Checkbox size="small" checked={remember} onChange={(e) => setRemember(e.target.checked)} />}
+            label={<Typography sx={{ fontSize: 13.5 }}>자동 로그인 (브라우저를 닫아도 유지)</Typography>}
+          />
+        </Box>
         <Button type="submit" variant="contained" fullWidth size="large" disabled={busy || !id || !pw}>
           {busy ? '확인 중…' : '입장'}
         </Button>

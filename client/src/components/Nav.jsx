@@ -17,7 +17,6 @@ import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
 import { alpha } from '@mui/material/styles';
 import ViewSidebarOutlinedIcon from '@mui/icons-material/ViewSidebarOutlined';
-import GraphicEqIcon from '@mui/icons-material/GraphicEq';
 import TranslateIcon from '@mui/icons-material/Translate';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
@@ -63,15 +62,11 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         {!collapsed && (
           <>
             <Box
-              sx={{
-                width: 38, height: 38, borderRadius: 2.5, flex: 'none',
-                display: 'grid', placeItems: 'center', color: '#fff',
-                background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b87ff' : '#6366f1'})`,
-                boxShadow: (t) => `0 6px 16px ${alpha(t.palette.primary.main, 0.4)}`,
-              }}
-            >
-              <GraphicEqIcon fontSize="small" />
-            </Box>
+              component="img"
+              src="/favicon.svg"
+              alt="KAC"
+              sx={{ width: 38, height: 38, borderRadius: 2.5, flex: 'none', display: 'block' }}
+            />
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography sx={{ fontWeight: 800, fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap' }}>KAC Translator</Typography>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'nowrap' }}>실시간 음성 번역</Typography>
@@ -100,14 +95,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
       )}
 
       <Box sx={{ mt: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        <NavItem
-          collapsed={collapsed}
-          icon={mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
-          label={mode === 'dark' ? '라이트 모드' : '다크 모드'}
-          onClick={onToggleTheme}
-          muted
-        />
-        {/* 프로필 (좌측 최하단) */}
+        {/* 프로필 (좌측 최하단) — 클릭 메뉴에 테마 토글 포함 */}
         <Box
           onClick={(e) => setMenu(e.currentTarget)}
           sx={{
@@ -144,6 +132,10 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{user?.id}{isAdmin ? ' · 관리자' : ''}</Typography>
         </Box>
         <Divider />
+        <MenuItem onClick={() => { setMenu(null); onToggleTheme(); }}>
+          <ListItemIcon>{mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}</ListItemIcon>
+          {mode === 'dark' ? '라이트 모드' : '다크 모드'}
+        </MenuItem>
         {!isAdmin && (
           <MenuItem onClick={() => { setMenu(null); setEdit(true); }}>
             <ListItemIcon><ManageAccountsOutlinedIcon fontSize="small" /></ListItemIcon>

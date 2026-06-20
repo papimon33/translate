@@ -57,13 +57,11 @@ const PIPES = [
   { v: 'deepgram', label: '다국어 번역 (Deepgram)' },
   { v: 'soniox', label: '다국어 번역' },
 ];
-// Soniox 엔드포인트 튜닝 테스트용 프리셋
-const SX_SENS = [
-  { v: -0.3, label: '-0.3 (늦게 끊김)' },
-  { v: 0, label: '0 (기본값)' },
-  { v: 0.3, label: '0.3' },
-  { v: 0.5, label: '0.5 (빨리 끊김)' },
-];
+// Soniox 엔드포인트 튜닝 테스트용 프리셋 — 민감도 -1.0~1.0 (0.1 단위)
+const SX_SENS = Array.from({ length: 21 }, (_, i) => {
+  const v = +((i * 0.1) - 1).toFixed(1);
+  return { v, label: v === 0 ? '0 (기본값)' : (v > 0 ? '+' : '') + v.toFixed(1) };
+});
 const SX_MAXDELAY = [
   { v: 500, label: '500ms (API 최소)' },
   { v: 700, label: '700ms' },
@@ -144,7 +142,10 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = Number(localStorage.getItem('kac-sx-latency'));
     return Number.isFinite(v) ? v : 0;
   });
-  const [sxTranslate, setSxTranslate] = useState(localStorage.getItem('kac-sx-translate') === '1');
+  const [sxMode, setSxMode] = useState(() => localStorage.getItem('kac-sx-mode') || 'one'); // 'one' | 'two'
+  const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
+  const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
+  const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -259,8 +260,10 @@ export default function TranslateView({ session: initial, onBack }) {
         sxSens,
         sxMaxDelay,
         sxLatency,
-        sxTranslate,
-        sxTarget: dispLang,
+        sxMode,
+        sxTarget,
+        sxA,
+        sxB,
         model,
         onMessage,
         onMeter: (rms) => {
@@ -342,7 +345,7 @@ export default function TranslateView({ session: initial, onBack }) {
               ))}
             </Select>
           </Field>
-          {cfg.pipeline !== 'translate' && (
+          {cfg.pipeline !== 'translate' && cfg.pipeline !== 'soniox' && (
             <Field label="입력 언어">
               <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 120 }}>
                 {LANGS.map((l) => (
@@ -423,40 +426,80 @@ export default function TranslateView({ session: initial, onBack }) {
                   ))}
                 </Select>
               </Field>
-              <Field label="Soniox 실시간 번역">
-                <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
-                  <Switch
-                    checked={sxTranslate}
-                    disabled={recording}
-                    onChange={(e) => {
-                      setSxTranslate(e.target.checked);
-                      localStorage.setItem('kac-sx-translate', e.target.checked ? '1' : '0');
-                    }}
-                  />
-                </Box>
+              <Field label="번역 방향">
+                <Select
+                  size="small"
+                  value={sxMode}
+                  disabled={recording}
+                  onChange={(e) => { setSxMode(e.target.value); localStorage.setItem('kac-sx-mode', e.target.value); }}
+                  sx={{ ...selSx, minWidth: 110 }}
+                >
+                  <MenuItem value="one">단방향</MenuItem>
+                  <MenuItem value="two">양방향</MenuItem>
+                </Select>
               </Field>
+              {sxMode === 'one' ? (
+                <Field label="출력 언어">
+                  <Select
+                    size="small"
+                    value={sxTarget}
+                    disabled={recording}
+                    onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }}
+                    sx={{ ...selSx, minWidth: 120 }}
+                  >
+                    {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                  </Select>
+                </Field>
+              ) : (
+                <>
+                  <Field label="언어 A">
+                    <Select
+                      size="small"
+                      value={sxA}
+                      disabled={recording}
+                      onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }}
+                      sx={{ ...selSx, minWidth: 110 }}
+                    >
+                      {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                    </Select>
+                  </Field>
+                  <Field label="언어 B">
+                    <Select
+                      size="small"
+                      value={sxB}
+                      disabled={recording}
+                      onChange={(e) => { setSxB(e.target.value); localStorage.setItem('kac-sx-b', e.target.value); }}
+                      sx={{ ...selSx, minWidth: 110 }}
+                    >
+                      {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                    </Select>
+                  </Field>
+                </>
+              )}
             </>
           )}
-          <Field label="출력 언어">
-            <Select
-              size="small"
-              value={dispLang}
-              disabled={cfg.pipeline === 'translate' && recording}
-              onChange={(e) => {
-                const v = e.target.value;
-                setDispLang(v);
-                if (cfg.pipeline === 'translate') {
-                  setCfg((c) => ({ ...c, outLang: v }));
-                  api.patch(initial.id, { outLang: v }); // translate 타깃 변경
-                }
-              }}
-              sx={{ ...selSx, minWidth: 120 }}
-            >
-              {OUT4.map((l) => (
-                <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>
-              ))}
-            </Select>
-          </Field>
+          {cfg.pipeline !== 'soniox' && (
+            <Field label="출력 언어">
+              <Select
+                size="small"
+                value={dispLang}
+                disabled={cfg.pipeline === 'translate' && recording}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setDispLang(v);
+                  if (cfg.pipeline === 'translate') {
+                    setCfg((c) => ({ ...c, outLang: v }));
+                    api.patch(initial.id, { outLang: v }); // translate 타깃 변경
+                  }
+                }}
+                sx={{ ...selSx, minWidth: 120 }}
+              >
+                {OUT4.map((l) => (
+                  <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Field label="원어 표시">
             <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
               <Switch checked={srcVisible} onChange={(e) => toggleSrc(e.target.checked)} />
@@ -498,22 +541,24 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
 
-          <Field label="번역 모델(테스트)">
-            <Select
-              size="small"
-              value={model}
-              disabled={recording}
-              onChange={(e) => {
-                setModel(e.target.value);
-                localStorage.setItem('kac-model', e.target.value);
-              }}
-              sx={{ ...selSx, minWidth: 150 }}
-            >
-              {MODELS.map((m) => (
-                <MenuItem key={m.v} value={m.v}>{m.label}</MenuItem>
-              ))}
-            </Select>
-          </Field>
+          {cfg.pipeline !== 'soniox' && (
+            <Field label="번역 모델(테스트)">
+              <Select
+                size="small"
+                value={model}
+                disabled={recording}
+                onChange={(e) => {
+                  setModel(e.target.value);
+                  localStorage.setItem('kac-model', e.target.value);
+                }}
+                sx={{ ...selSx, minWidth: 150 }}
+              >
+                {MODELS.map((m) => (
+                  <MenuItem key={m.v} value={m.v}>{m.label}</MenuItem>
+                ))}
+              </Select>
+            </Field>
+          )}
 
           <Box sx={{ flex: 1 }} />
 
@@ -559,7 +604,7 @@ export default function TranslateView({ session: initial, onBack }) {
               // 않도록 보유 텍스트로 폴백. whisper 는 선택 언어만(대체 X).
               let t = m.texts ? m.texts[dispLang] || '' : '';
               let usedLang = dispLang;
-              if (!t && cfg.pipeline === 'translate' && m.texts) {
+              if (!t && (cfg.pipeline === 'translate' || cfg.pipeline === 'soniox') && m.texts) {
                 const keys = Object.keys(m.texts);
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
@@ -586,7 +631,8 @@ export default function TranslateView({ session: initial, onBack }) {
               recording ? (
                 <Box sx={{ width: 9, height: 9, borderRadius: '2px', bgcolor: '#ff5a5f', animation: `${pulse} 1.6s infinite` }} />
               ) : (
-                <Box sx={{ width: 0, height: 0, borderStyle: 'solid', borderWidth: '5px 0 5px 8px', borderColor: 'transparent transparent transparent #fff' }} />
+                // 다크모드: 흰 버튼 위 검은 삼각형 / 라이트모드: 검은 버튼 위 흰 삼각형
+                <Box sx={{ width: 0, height: 0, borderStyle: 'solid', borderWidth: '5px 0 5px 8px', borderColor: (t) => `transparent transparent transparent ${t.palette.mode === 'dark' ? '#111' : '#fff'}` }} />
               )
             }
             sx={{
@@ -596,10 +642,10 @@ export default function TranslateView({ session: initial, onBack }) {
               borderRadius: 2.5,
               fontSize: 15,
               fontWeight: 700,
-              color: '#fff',
-              bgcolor: '#111',
+              color: (t) => (t.palette.mode === 'dark' ? '#111' : '#fff'),
+              bgcolor: (t) => (t.palette.mode === 'dark' ? '#fff' : '#111'),
               boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
-              '&:hover': { bgcolor: '#000' },
+              '&:hover': { bgcolor: (t) => (t.palette.mode === 'dark' ? '#e8e8e8' : '#000') },
             }}
           >
             {recording ? '중지' : '시작'}
@@ -669,21 +715,19 @@ function oneLineReset(text) {
 // 진행 중 원어/번역: 항상 한 줄, 넘치면 비우고 처음부터
 function PartialLine({ side, text }) {
   if (!text) return null;
-  const right = side === 'right';
+  const isMic = side === 'right';
   return (
-    <Box sx={{ display: 'flex', justifyContent: right ? 'flex-end' : 'flex-start' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
       <Box
         sx={{
-          maxWidth: '76%',
+          width: '100%',
           minWidth: 0,
-          textAlign: right ? 'right' : 'left',
-          pl: right ? 0 : 1.75,
-          pr: right ? 1.75 : 0,
+          textAlign: 'left',
+          pl: 1.75,
           opacity: 0.6,
           overflow: 'hidden',
-          ...(right
-            ? { borderRight: '3px solid', borderColor: 'primary.main' }
-            : { borderLeft: '3px solid', borderColor: 'divider' }),
+          borderLeft: '3px solid',
+          borderColor: isMic ? 'primary.main' : 'divider',
         }}
       >
         <Typography
@@ -741,23 +785,21 @@ function HighlightedText({ text, spans }) {
   return out;
 }
 
-// 데스크톱: 선택된 단일 언어를 표시
+// 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
 function Row({ side, text, spans, source, showSource }) {
-  const right = side === 'right';
-  const pending = !text && !!source; // 선택 언어 번역 대기 중 → 원문을 흐리게
+  const isMic = side === 'right'; // 마이크 입력
+  const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
   const subSource = showSource ? source : null;
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: right ? 'flex-end' : 'flex-start' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
       <Box
         sx={{
-          maxWidth: '78%',
-          textAlign: right ? 'right' : 'left',
-          pl: right ? 0 : 1.75,
-          pr: right ? 1.75 : 0,
-          ...(right
-            ? { borderRight: '3px solid', borderColor: 'primary.main' }
-            : { borderLeft: '3px solid', borderColor: 'divider' }),
+          width: '100%',
+          textAlign: 'left',
+          pl: 1.75,
+          borderLeft: '3px solid',
+          borderColor: isMic ? 'primary.main' : 'divider',
         }}
       >
         <Typography
@@ -765,7 +807,13 @@ function Row({ side, text, spans, source, showSource }) {
             fontSize: 18,
             lineHeight: 1.55,
             fontWeight: 300,
-            color: pending ? 'text.secondary' : right ? 'primary.main' : 'text.primary',
+            wordBreak: 'keep-all', // 띄어쓰기 없는 단어 중간에서 줄바꿈 금지
+            overflowWrap: 'anywhere',
+            color: pending
+              ? 'text.secondary'
+              : isMic
+              ? 'primary.main'
+              : (t) => (t.palette.mode === 'dark' ? t.palette.text.primary : '#000'),
             fontStyle: pending ? 'italic' : 'normal',
           }}
         >
@@ -773,7 +821,7 @@ function Row({ side, text, spans, source, showSource }) {
         </Typography>
         {pending && <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
         {subSource && !pending && (
-          <Typography sx={{ fontSize: 13, color: 'text.disabled', lineHeight: 1.45, mt: 0.5 }}>{source}</Typography>
+          <Typography sx={{ fontSize: 13, color: 'text.disabled', lineHeight: 1.45, mt: 0.5, wordBreak: 'keep-all' }}>{source}</Typography>
         )}
       </Box>
     </Box>

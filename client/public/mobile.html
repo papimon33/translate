@@ -187,7 +187,7 @@ async function loadQr(){
 function pick(texts){
   if(!texts) return '';
   if(texts[curLang]) return texts[curLang];
-  if(sessionPipeline === 'translate'){ const k=Object.keys(texts); if(k.length) return texts[k[0]]; }
+  if(sessionPipeline === 'translate' || sessionPipeline === 'soniox'){ const k=Object.keys(texts); if(k.length) return texts[k[0]]; }
   return '';
 }
 function atBottom(){ return document.body.scrollHeight - window.scrollY - window.innerHeight < 160; }

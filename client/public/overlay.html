@@ -13,7 +13,8 @@
   html, body { margin:0; height:100%; background:transparent !important; overflow:hidden;
     font-family:'Noto Sans KR',system-ui,'Segoe UI',sans-serif; color:#fff;
     -webkit-user-select:none; user-select:none; }
-  #app { display:flex; flex-direction:column; height:100vh; }
+  /* 전체 창 배경(투명도 슬라이더로 조절) — 자막별 배경 대신 창 전체에 적용 */
+  #app { display:flex; flex-direction:column; height:100vh; background:rgba(0,0,0,var(--cap)); }
 
   /* 상단 컨트롤 바 (Electron 창 드래그 영역) */
   #bar { -webkit-app-region:drag; display:flex; align-items:center; gap:8px;
@@ -27,6 +28,7 @@
     font-family:inherit; color:#fff; background:rgba(255,255,255,0.1);
     border:1px solid rgba(255,255,255,0.14); border-radius:8px; cursor:pointer; }
   #bar select { padding:4px 6px; font-size:13px; }
+  #bar select option { color:#111; background:#fff; } /* 드롭다운 목록 가독성(흰바탕 검은글씨) */
   #bar button { width:28px; height:28px; font-size:15px; line-height:1; }
   #bar .opwrap { display:flex; align-items:center; gap:5px; padding:0 4px; }
   #bar .opwrap .oplbl { font-size:11px; color:rgba(255,255,255,0.7); }
@@ -35,16 +37,14 @@
   /* 자막 영역 */
   #feed { flex:1; display:flex; flex-direction:column; justify-content:flex-end;
     gap:6px; padding:6px 12px 4px; overflow:hidden; }
-  .cap { align-self:flex-start; max-width:97%;
-    background:rgba(0,0,0,var(--cap)); border-radius:13px; padding:7px 15px;
-    font-size:var(--fs); line-height:1.45; font-weight:500;
-    text-shadow:0 1px 3px rgba(0,0,0,0.55); word-break:break-word; }
-  .cap.latest { background:rgba(0,0,0,calc(var(--cap) + 0.18)); }
+  .cap { align-self:flex-start; max-width:100%;
+    padding:3px 3px; font-size:var(--fs); line-height:1.45; font-weight:500;
+    text-shadow:0 1px 3px rgba(0,0,0,0.7); word-break:keep-all; overflow-wrap:anywhere; }
+  .cap.latest { font-weight:700; }
   .cap .src { display:block; font-size:0.66em; opacity:0.72; margin-top:2px; font-weight:400; }
-  #partial { padding:0 12px 8px; }
-  #partial .line { display:inline-block; background:rgba(0,0,0,var(--cap));
-    border-radius:11px; padding:4px 13px; font-size:var(--fs); line-height:1.4;
-    font-style:italic; opacity:0.82; text-shadow:0 1px 3px rgba(0,0,0,0.55); }
+  #partial { padding:0 15px 8px; }
+  #partial .line { display:inline-block; padding:2px 0; font-size:var(--fs); line-height:1.4;
+    font-style:italic; opacity:0.82; text-shadow:0 1px 3px rgba(0,0,0,0.7); }
 
   /* 세션 입력 화면 (세션 미지정 시) */
   #setup { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
@@ -139,7 +139,7 @@ async function loadSession(){
 function pick(texts){
   if(!texts) return '';
   if(texts[curLang]) return texts[curLang];
-  if(pipeline==='translate'){ const k=Object.keys(texts); if(k.length) return texts[k[0]]; }
+  if(pipeline==='translate' || pipeline==='soniox'){ const k=Object.keys(texts); if(k.length) return texts[k[0]]; }
   return '';
 }
 function esc(s){ return String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }

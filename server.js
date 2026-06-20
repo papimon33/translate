@@ -541,8 +541,9 @@ app.post('/api/login', (req, res) => {
   loginFails.delete(key); // 성공 시 초기화
   console.log(`[auth] 로그인 성공 id=${user.id} role=${user.role} ip=${key}`);
   const secure = isHttps(req) ? '; Secure' : '';
-  // Max-Age/Expires 없음 → 세션 쿠키(브라우저 종료 시 로그인 해제)
-  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/${secure}`);
+  // remember(자동 로그인) 시 30일 영속 쿠키, 아니면 세션 쿠키(브라우저 종료 시 해제)
+  const persist = b.remember ? '; Max-Age=2592000' : '';
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/${persist}${secure}`);
   res.json({ user: { id: user.id, username: user.username, role: user.role } });
 });
 app.post('/api/logout', (req, res) => {
@@ -1180,8 +1181,10 @@ server.on('upgrade', (req, socket, head) => {
       ws._sxMaxDelay = searchParams.get('sxMaxDelay'); // soniox max_endpoint_delay_ms (500~3000)
       ws._sxLatency = searchParams.get('sxLatency');   // soniox endpoint_latency_adjustment_level (0~3)
       ws._model = searchParams.get('model');           // 번역 GPT 모델 오버라이드(테스트용)
-      ws._sxTranslate = searchParams.get('sxTranslate'); // soniox 자체 실시간 번역 on('1')
-      ws._sxTarget = searchParams.get('sxTarget');       // soniox 자체 번역 타깃 언어
+      ws._sxMode = searchParams.get('sxMode');     // soniox 번역 방향 'one'|'two'
+      ws._sxTarget = searchParams.get('sxTarget'); // 단방향 타깃 언어
+      ws._sxA = searchParams.get('sxA');           // 양방향 언어 A
+      ws._sxB = searchParams.get('sxB');           // 양방향 언어 B
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1330,9 +1333,14 @@ function handleHost(ws) {
     const sens = Number(ws._sxSens);
     const maxDelay = Number(ws._sxMaxDelay);
     const latency = Number(ws._sxLatency);
-    // Soniox 자체 실시간 번역(테스트). 켜면 GPT 경유 없이 전사+번역 토큰을 한 스트림으로 받음(타깃 1개 언어).
-    const sxTranslate = ws._sxTranslate === '1';
-    const sxTarget = ws._sxTarget && LANG_NAMES[ws._sxTarget] ? ws._sxTarget : 'en';
+    // Soniox 자체 실시간 번역(기본). GPT 경유 없이 전사+번역 토큰을 한 스트림으로 받음.
+    //  단방향(one): 타깃 1개 / 양방향(two): A↔B. 지원 언어 ko/en/ja/zh 로 한정.
+    const L4 = ['ko', 'en', 'ja', 'zh'];
+    const okL = (c) => L4.includes(c);
+    const sxMode = ws._sxMode === 'two' ? 'two' : 'one';
+    const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
+    const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
+    const sxB = okL(ws._sxB) ? ws._sxB : 'en';
     const config = {
       api_key: SONIOX_API_KEY,
       model: 'stt-rt-v5',
@@ -1345,49 +1353,39 @@ function handleHost(ws) {
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
       endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
-      // 입력 언어 지정 시 힌트, 자동이면 4개국어 힌트로 정확도 향상
-      language_hints: inLang ? [inLang] : ['ko', 'en', 'ja', 'zh'],
+      language_hints: sxMode === 'two' ? [sxA, sxB] : (inLang ? [inLang] : L4),
+      translation: sxMode === 'two'
+        ? { type: 'two_way', language_a: sxA, language_b: sxB }
+        : { type: 'one_way', target_language: sxTarget },
     };
-    if (sxTranslate) config.translation = { type: 'one_way', target_language: sxTarget };
 
     const sx = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
     idleClose = () => { try { sx.close(); } catch {} };
     let sxReady = false;
     const pending = [];
-    const langsOut = sxTranslate ? [sxTarget] : ALL_LANGS;
+    const langsOut = sxMode === 'two' ? [sxA, sxB] : [sxTarget];
     let curId = null;     // 진행 중 발화 카드 id
     let finalText = '';   // 전사(원문) 확정 누적
-    let finalTrans = '';  // Soniox 번역(타깃) 확정 누적 — sxTranslate 모드
+    let finalTrans = '';  // Soniox 번역(타깃) 확정 누적
     let lastTrans = '';   // 마지막으로 표시한 번역(폴백용)
     let curSrc = '';      // 감지된 입력 언어
 
-    // 현재 누적분을 한 문장으로 확정
+    const targetKeyFor = (src) => (sxMode === 'two' ? (src === sxA ? sxB : sxA) : sxTarget);
+
+    // 현재 누적분을 한 문장으로 확정 (GPT 호출 없음)
     const commit = () => {
       const id = curId, txt = finalText.trim(), src = curSrc;
       const tgt = (finalTrans.trim() || lastTrans).trim();
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
       if (!id || !txt) return;
-      if (sxTranslate) {
-        // Soniox 자체 번역: 타깃 언어 = 번역, 원문은 source 로(GPT 호출 없음)
-        upsertItem(id, { [sxTarget]: tgt || txt }, txt);
-        return;
-      }
-      const base = {};
-      for (const lang of langsOut) base[lang] = txt; // 들린 대로 즉시 확정(검은 글씨)
-      upsertItem(id, base, txt);
-      for (const lang of langsOut) {
-        if (lang === src) continue; // 입력=출력은 그대로
-        translateText(txt, lang, true, [], refineModel)
-          .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
-          .catch(() => {});
-      }
+      upsertItem(id, { [targetKeyFor(src)]: tgt || txt }, txt);
     };
 
     sx.on('open', () => {
       try { sx.send(JSON.stringify(config)); } catch {} // config 먼저
       sxReady = true;
       while (pending.length) sx.send(pending.shift());
-      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5${sxTranslate ? ` · 자체번역→${sxTarget}` : ''}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
+      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5 · ${sxMode === 'two' ? `양방향 ${sxA}↔${sxB}` : `단방향→${sxTarget}`}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
       bumpIdle();
     });
     sx.on('message', (raw) => {
@@ -1402,8 +1400,7 @@ function handleHost(ws) {
       let nonFinalTrans = ''; // 비확정 번역(타깃)
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
-        if (sxTranslate && t.translation_status === 'translation') {
-          // Soniox 번역 토큰
+        if (t.translation_status === 'translation') {
           if (t.is_final) finalTrans += t.text;
           else nonFinalTrans += t.text;
         } else {
@@ -1414,18 +1411,12 @@ function handleHost(ws) {
         }
       }
       const shownSrc = (finalText + nonFinal).trim();
-      if (!curId && (shownSrc || finalTrans || nonFinalTrans)) curId = newId();
+      const shownTgt = (finalTrans + nonFinalTrans).trim();
+      if (shownTgt) lastTrans = shownTgt;
+      if (!curId && (shownSrc || shownTgt)) curId = newId();
       if (curId) {
-        if (sxTranslate) {
-          const shownTgt = (finalTrans + nonFinalTrans).trim();
-          if (shownTgt) lastTrans = shownTgt;
-          // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시
-          liveSend(curId, { [sxTarget]: shownTgt }, shownSrc || null);
-        } else if (shownSrc) {
-          const live = {};
-          for (const lang of langsOut) live[lang] = shownSrc; // 카드에 제자리 스트리밍(검은 글씨)
-          liveSend(curId, live, null);
-        }
+        // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시
+        liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null);
       }
       // 발화 종료(<end>) 또는 과도하게 길면 확정
       if (endHit || finalText.length >= SX_MAX_CHARS) commit();

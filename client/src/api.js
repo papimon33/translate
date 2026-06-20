@@ -19,11 +19,11 @@ export const api = {
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
 
   me: () => fetch('/api/me').then(json),
-  login: (id, password) =>
+  login: (id, password, remember) =>
     fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, password }),
+      body: JSON.stringify({ id, password, remember: !!remember }),
     }).then(async (r) => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '로그인 실패');
       return r.json();
