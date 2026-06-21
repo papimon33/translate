@@ -1585,15 +1585,63 @@ function handleHost(ws) {
     let curSrc = '';      // 감지된 입력 언어
     let curSpeaker = '';  // 현재 발화 화자(diarization)
     let lastCommitText = ''; // 직전 확정 텍스트(연속 중복 카드 방지)
+    let sawSpeaker = false;  // 엔진이 화자 정보를 한 번이라도 반환했는지(진단용)
+    let spkNotified = false; // 화자 감지 1회 알림
+    let noSpkWarned = false; // 화자 미반환 1회 경고
 
     const targetKeyFor = (src) => (sxMode === 'two' ? (src === sxA ? sxB : sxA) : sxTarget);
-    const spkLabel = (s) => (s ? String(s) : null); // 화자 번호만 전송(표시는 클라가 아이콘+번호)
+    const spkLabel = (s) => (s != null && s !== '' ? String(s) : null); // 화자 번호만 전송(표시는 클라가 아이콘+번호)
+
+    // ---- 실시간 TTS: 확정된 번역을 문장 단위로 잘라 즉시 합성(발화가 끝나기 전에도 흘려보냄) ----
+    let ttsPending = '';      // 확정됐지만 아직 합성하지 않은 번역 텍스트
+    let ttsLang = sxTarget;   // 현재 합성 언어(타깃)
+    const SENT_END = /[.!?。！？…]/;
+    // 마침표가 문장 끝이 아닌 약어들(영어 타깃에서 오탐 방지)
+    const ABBR = new Set(['mr','mrs','ms','dr','prof','sr','jr','st','vs','etc','inc','ltd','co','corp','no','vol','fig','dept','univ','gov','gen','col','sgt','lt','capt','cmdr','rev','hon','pres','approx','mt','ave','rd','blvd','ph','messrs']);
+    const speakTts = (text) => {
+      const tx = (text || '').trim();
+      if (!ttsOn || !tx) return;
+      if (!/[\p{L}\p{N}]/u.test(tx)) return; // 문장부호만 있으면 스킵(Cartesia 400 방지)
+      const voiceId = cartesiaVoiceId(ttsLang, gender);
+      cartesiaTTSStream(tx, voiceId, ttsLang, (b64) => { broadcastAudio(sessionId, b64); }).catch(() => {});
+    };
+    const flushTtsSentences = () => {
+      if (!ttsOn) return;
+      const buf = ttsPending;
+      const out = [];
+      let start = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const ch = buf[i];
+        if (!SENT_END.test(ch)) continue;
+        if (ch === '.') {
+          const next = buf[i + 1];
+          if (next === undefined) break;        // 버퍼 끝의 마침표 → 약어/문장끝 모호, 더 기다림(commit이 처리)
+          if (next === '.') continue;           // 줄임표(...) 일부
+          if (/[0-9]/.test(next)) continue;     // 소수점 3.14
+          let j = i - 1; while (j >= 0 && /[A-Za-z]/.test(buf[j])) j--;
+          const word = buf.slice(j + 1, i);     // 마침표 앞 알파벳 덩어리
+          if (word.length === 1) continue;      // 이니셜(J.) / e.g.·i.e. 조각
+          if (ABBR.has(word.toLowerCase())) continue; // Dr. Mr. etc.
+        }
+        let end = i + 1;
+        while (end < buf.length && /["'”’)\]]/.test(buf[end])) end++; // 닫는 따옴표/괄호 포함
+        out.push(buf.slice(start, end));
+        start = end;
+        i = end - 1;
+      }
+      ttsPending = buf.slice(start);
+      for (const s of out) speakTts(s);
+    };
 
     // 현재 누적분을 한 문장으로 확정 (GPT 호출 없음)
     const commit = () => {
       const id = curId, txt = finalText.trim(), src = curSrc, spk = curSpeaker;
       const tgt = (finalTrans.trim() || lastTrans).trim();
-      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = '';
+      const tail = ttsPending;            // 종결부호 없이 남은 마지막 조각
+      const hadFinal = !!finalTrans.trim(); // 발화 중 확정 번역이 흘러갔는지
+      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = '';
+      // 화자 구분 켰는데 엔진이 화자 정보를 한 번도 안 줬으면 1회 안내(진단)
+      if (diar && !sawSpeaker && !noSpkWarned) { noSpkWarned = true; toHost({ type: 'status', message: '화자 구분: 엔진이 화자 정보를 반환하지 않음(번역/엔드포인트와 동시 사용 시 발생 가능)' }); }
       if (!id || !txt) return;
       const out = tgt || txt;
       // 직전 카드와 완전히 동일한 내용이면 중복으로 보고 스킵(반복/에코 방지)
@@ -1601,12 +1649,13 @@ function handleHost(ws) {
       lastCommitText = out;
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt, spkLabel(spk));
-      // 실시간 TTS: 확정된 번역문을 타깃 언어 보이스로 합성해 모바일 뷰어(폰)에게만 전송.
+      // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
       //  호스트(시스템 오디오 캡처) 스피커로는 재생하지 않음 → TTS 재캡처 피드백 루프 원천 차단.
       if (ttsOn) {
-        const voiceId = cartesiaVoiceId(target, gender);
-        cartesiaTTSStream(out, voiceId, target, (b64) => { broadcastAudio(sessionId, b64); })
-          .catch(() => {});
+        ttsLang = target;
+        const tl = tail.trim();
+        if (tl) speakTts(tl);                       // 종결부호 없이 남은 번역 꼬리
+        else if (!hadFinal) speakTts(out);          // 발화 중 합성된 게 없으면(번역 미확정) 전체 합성
       }
     };
 
@@ -1634,19 +1683,28 @@ function handleHost(ws) {
       let nonFinalTrans = ''; // 비확정 번역(타깃)
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
+        // 화자 정보는 원문/번역 토큰 어디서 와도 캡처(진단 + 표시용)
+        if (diar && t.speaker != null && t.speaker !== '') {
+          sawSpeaker = true;
+          if (!spkNotified) { spkNotified = true; toHost({ type: 'status', message: '화자 구분 활성 — 화자 ' + t.speaker + ' 감지됨' }); }
+        }
         if (t.translation_status === 'translation') {
-          if (t.is_final) finalTrans += t.text;
-          else nonFinalTrans += t.text;
+          if (t.is_final) {
+            finalTrans += t.text;
+            ttsLang = targetKeyFor(curSrc); // 현재 타깃 언어로 합성
+            ttsPending += t.text;           // 문장 단위 실시간 TTS 큐
+          } else nonFinalTrans += t.text;
         } else {
           // 전사(원문) 토큰 (translation_status: none | original | undefined)
           if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase();
           // 화자 변경 시: 누적된 발화가 있으면 먼저 확정하고 새 화자로 시작
-          if (diar && t.speaker && t.is_final && curSpeaker && t.speaker !== curSpeaker && finalText.trim()) commit();
-          if (diar && t.speaker) curSpeaker = t.speaker;
+          if (diar && t.speaker != null && t.speaker !== '' && t.is_final && curSpeaker && String(t.speaker) !== String(curSpeaker) && finalText.trim()) commit();
+          if (diar && t.speaker != null && t.speaker !== '') curSpeaker = t.speaker;
           if (t.is_final) finalText += t.text;
           else nonFinal += t.text;
         }
       }
+      flushTtsSentences(); // 완성된 문장은 즉시 합성(발화 종료 기다리지 않음)
       const shownSrc = (finalText + nonFinal).trim();
       const shownTgt = (finalTrans + nonFinalTrans).trim();
       if (shownTgt) lastTrans = shownTgt;
