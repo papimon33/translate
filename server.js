@@ -687,6 +687,7 @@ const SUMMARY_SYS =
   `규칙:\n` +
   `- 요약 본문만 출력한다. "다음은 요약입니다" 같은 머리말·맺음말·메타발언을 절대 넣지 않는다.\n` +
   `- 소제목(## )과 불릿(- )으로 체계적으로 정리한다. 핵심 주제, 주요 논의·결정사항, 수치·일정·담당자 등 구체 정보, (있다면) 후속 조치를 빠짐없이 담는다.\n` +
+  `- 전문이 "* [화자] : 발언" 형식이면 각 발언이 누구 것인지 구분해, 발언자별 입장·주장·담당 사항을 명확히 반영한다.\n` +
   `- 전문에 없는 내용을 지어내지 않는다. 불확실한 건 추정하지 않는다.\n` +
   `- 자세하되 군더더기 없이 정보 밀도 높게 작성한다.`;
 const SUMMARY_MAX_INPUT = 16000; // 단일 호출 입력 문자 한도
@@ -712,10 +713,15 @@ async function chatComplete(system, user, maxTokens) {
 }
 function sessionTranscript(session) {
   const lines = [];
+  const names = session.speakers || {};
   for (const it of session.items || []) {
     let t = it.texts ? it.texts.ko || Object.values(it.texts)[0] || '' : it.text || '';
     t = (t || '').trim();
-    if (t) lines.push(t);
+    if (!t) continue;
+    if (it.speaker) {
+      const nm = names[it.speaker] || ('화자 ' + it.speaker);
+      lines.push(`* [${nm}] : ${t}`);
+    } else lines.push(t);
   }
   return lines.join('\n');
 }
@@ -859,6 +865,15 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   if (typeof b.outLang === 'string' && LANG_NAMES[b.outLang]) {
     s.outLang = b.outLang;
     if (s.pipeline === 'translate') s.langs = [b.outLang]; // translate 출력 언어 변경
+  }
+  // 화자 이름 매핑(diarization): { "1": "지정이름", ... } — 다운로드/요약/뷰어 공용
+  if (b.speakers && typeof b.speakers === 'object' && !Array.isArray(b.speakers)) {
+    const clean = {};
+    for (const [k, v] of Object.entries(b.speakers)) {
+      if (typeof v === 'string') { const nv = v.trim().slice(0, 40); if (nv) clean[String(k)] = nv; }
+    }
+    s.speakers = clean;
+    broadcast(req.params.id, { type: 'speakers', speakers: clean }); // 뷰어(모바일) 실시간 반영
   }
   s.updatedAt = Date.now();
   saveSessions();

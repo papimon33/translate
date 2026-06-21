@@ -17,6 +17,7 @@ import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogActions from '@mui/material/DialogActions';
+import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import { alpha } from '@mui/material/styles';
 import { keyframes } from '@mui/system';
@@ -26,6 +27,7 @@ import QrCode2Icon from '@mui/icons-material/QrCode2';
 import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
 import TuneIcon from '@mui/icons-material/Tune';
 import PersonIcon from '@mui/icons-material/Person';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -190,6 +192,9 @@ export default function TranslateView({ session: initial, onBack }) {
   const [qrOpen, setQrOpen] = useState(false);
   const [sxSettingsOpen, setSxSettingsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [speakers, setSpeakers] = useState(initial.speakers || {}); // 화자번호 -> 지정이름
+  const [speakerEdit, setSpeakerEdit] = useState(null); // 편집 중인 화자 번호
+  const [speakerInput, setSpeakerInput] = useState('');
   const [notice, setNotice] = useState('');
   const [connecting, setConnecting] = useState(false);
   const recRef = useRef(null);
@@ -217,6 +222,7 @@ export default function TranslateView({ session: initial, onBack }) {
           speaker: it.speaker || null,
         }))
       );
+      setSpeakers(s.speakers || {});
       setCfg({
         pipeline: s.pipeline || 'whisper',
         inLang: s.inLang || 'auto',
@@ -249,6 +255,39 @@ export default function TranslateView({ session: initial, onBack }) {
   const patch = (next) => {
     setCfg((c) => ({ ...c, ...next }));
     api.patch(initial.id, next);
+  };
+
+  // 화자 이름: 지정값 있으면 이름, 없으면 번호 그대로
+  const speakerName = (id) => (id ? (speakers[id] || id) : null);
+  const openSpeakerEdit = (id) => { setSpeakerInput(speakers[id] || ''); setSpeakerEdit(id); };
+  const saveSpeaker = () => {
+    const id = speakerEdit;
+    if (!id) return;
+    const name = speakerInput.trim().slice(0, 40);
+    const next = { ...speakers };
+    if (name) next[id] = name; else delete next[id];
+    setSpeakers(next);
+    setSpeakerEdit(null);
+    api.patch(initial.id, { speakers: next }).catch(() => {});
+  };
+
+  // 전문 다운로드: "* [화자] : 발언" 형식 (.txt)
+  const downloadTranscript = () => {
+    const lines = [];
+    for (const m of messages) {
+      let t = m.texts ? (m.texts[dispLang] || Object.values(m.texts)[0] || '') : '';
+      t = (t || m.source || '').trim();
+      if (!t) continue;
+      if (m.speaker) lines.push(`* [${speakers[m.speaker] || ('화자 ' + m.speaker)}] : ${t}`);
+      else lines.push(`* ${t}`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(initial.title || 'transcript').replace(/[\\/:*?"<>|]/g, '_')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const onMessage = (m) => {
@@ -367,6 +406,13 @@ export default function TranslateView({ session: initial, onBack }) {
             </IconButton>
           </Tooltip>
         )}
+        <Tooltip title="전문 다운로드(.txt)">
+          <span>
+            <IconButton onClick={downloadTranscript} disabled={messages.length === 0} sx={{ border: 1, borderColor: 'divider' }}>
+              <FileDownloadOutlinedIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="모바일로 보기">
           <IconButton onClick={() => setQrOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
             <QrCode2Icon />
@@ -639,7 +685,7 @@ export default function TranslateView({ session: initial, onBack }) {
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
               const spans = m.terms ? m.terms[usedLang] : null;
-              return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} speaker={m.speaker} />;
+              return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} speaker={m.speaker} speakerName={speakerName(m.speaker)} onSpeakerClick={openSpeakerEdit} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
@@ -710,6 +756,29 @@ export default function TranslateView({ session: initial, onBack }) {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button variant="contained" onClick={() => setSxSettingsOpen(false)}>닫기</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!speakerEdit} onClose={() => setSpeakerEdit(null)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 800 }}>화자 이름 지정</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mb: 2 }}>
+            화자 {speakerEdit}의 이름을 입력하세요. 이후 모든 발언과 다운로드·요약에 이 이름으로 표시됩니다. (비우면 번호로 되돌아갑니다.)
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="이름"
+            value={speakerInput}
+            onChange={(e) => setSpeakerInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveSpeaker(); }}
+            inputProps={{ maxLength: 40 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setSpeakerEdit(null)}>취소</Button>
+          <Button variant="contained" onClick={saveSpeaker}>저장</Button>
         </DialogActions>
       </Dialog>
 
@@ -846,7 +915,7 @@ function HighlightedText({ text, spans }) {
 }
 
 // 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
-function Row({ side, text, spans, source, showSource, speaker }) {
+function Row({ side, text, spans, source, showSource, speaker, speakerName, onSpeakerClick }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
@@ -863,10 +932,15 @@ function Row({ side, text, spans, source, showSource, speaker }) {
         }}
       >
         {speaker && (
-          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, mb: 0.4, px: 0.75, py: 0.1, borderRadius: 5, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>
-            <PersonIcon sx={{ fontSize: 14 }} />
-            <Typography component="span" sx={{ fontSize: 11, fontWeight: 800, lineHeight: 1.6 }}>{speaker}</Typography>
-          </Box>
+          <Tooltip title="클릭해 화자 이름 지정">
+            <Box
+              onClick={() => onSpeakerClick && onSpeakerClick(speaker)}
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, mb: 0.4, px: 0.75, py: 0.1, borderRadius: 5, cursor: 'pointer', bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main', '&:hover': { bgcolor: (t) => alpha(t.palette.primary.main, 0.22) } }}
+            >
+              <PersonIcon sx={{ fontSize: 14 }} />
+              <Typography component="span" sx={{ fontSize: 11, fontWeight: 800, lineHeight: 1.6 }}>{speakerName || speaker}</Typography>
+            </Box>
+          </Tooltip>
         )}
         <Typography
           sx={{
