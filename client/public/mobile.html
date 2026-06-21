@@ -40,6 +40,7 @@
 
   #feed { display:flex; flex-direction:column; gap:8px; padding:14px 14px 4px; }
   .msg { max-width:92%; }
+  .msg .spk { font-size:calc(var(--fs) - 7px); font-weight:800; color:var(--accent); margin-bottom:1px; }
   .msg .line { font-size:var(--fs); line-height:1.5; color:var(--txt); }
   .msg .line.pending { color:var(--muted); font-style:italic; }
   .msg.latest .line { color:var(--accent); font-weight:700; }
@@ -230,10 +231,11 @@ function upsert(item){
   let card = cards.get(item.id);
   if(!card){
     const el=document.createElement('div'); el.className='msg';
+    const spk=document.createElement('div'); spk.className='spk'; el.appendChild(spk);
     const line=document.createElement('div'); line.className='line'; el.appendChild(line);
     const src=document.createElement('div'); src.className='src'; el.appendChild(src);
     feed.appendChild(el);
-    card={el, line, src}; cards.set(item.id, card); order.push(item.id);
+    card={el, line, src, spk}; cards.set(item.id, card); order.push(item.id);
     // 최신 강조 이동
     if(latestId && cards.get(latestId)) cards.get(latestId).el.classList.remove('latest');
     el.classList.add('latest'); latestId = item.id;
@@ -241,6 +243,7 @@ function upsert(item){
   card.texts = item.texts || (item.text ? { [curLang]: item.text } : {});
   card.terms = item.terms || {};
   card.source = item.source || '';
+  if(card.spk){ card.spk.textContent = item.speaker || ''; card.spk.style.display = item.speaker ? 'block' : 'none'; }
   renderLine(card);
   card.src.textContent = card.source;
   card.src.style.display = (showSrc && card.source) ? 'block' : 'none';

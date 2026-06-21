@@ -1285,6 +1285,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._sxB = searchParams.get('sxB');           // 양방향 언어 B
       ws._tts = searchParams.get('tts');           // soniox 실시간 TTS on('1')
       ws._ttsVoice = searchParams.get('ttsVoice'); // Cartesia 한국어 보이스 id
+      ws._diar = searchParams.get('diar');         // 화자 구분 on('1')
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1444,7 +1445,7 @@ function handleHost(ws) {
     broadcast(sessionId, p);
   };
   // 문장 항목: texts = { 언어코드: 번역문 }. 같은 id 로 여러 번 호출하면 언어별로 병합됨.
-  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, terms: item.terms || {} });
+  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, terms: item.terms || {}, speaker: item.speaker || null });
   // 완성 문장의 텍스트에서 용어집 매칭 구간 계산 (translate 파이프라인 + 한글만)
   const computeTerms = (item) => {
     const terms = {};
@@ -1457,20 +1458,22 @@ function handleHost(ws) {
     item.terms = terms;
   };
   // 화면에만 보냄(저장 안 함) — translate 스트리밍/whisper 진행표시용
-  const liveSend = (id, langTexts, source) => {
-    toHost({ type: 'sentence', id, side, source: source || null, texts: langTexts });
-    broadcast(sessionId, { type: 'sentence', id, side, source: source || null, texts: langTexts });
+  const liveSend = (id, langTexts, source, speaker) => {
+    const m = { type: 'sentence', id, side, source: source || null, texts: langTexts, speaker: speaker || null };
+    toHost(m);
+    broadcast(sessionId, m);
   };
   // 확정: 세션 저장 + 전송. 언어별로 병합.
-  const upsertItem = (id, langTexts, source) => {
+  const upsertItem = (id, langTexts, source, speaker) => {
     let item;
     if (session) {
       item = session.items.find((x) => x.id === id);
       if (item) {
         item.texts = { ...(item.texts || {}), ...langTexts };
         if (source) item.source = source;
+        if (speaker) item.speaker = speaker;
       } else {
-        item = { id, side, source: source || null, texts: { ...langTexts } };
+        item = { id, side, source: source || null, texts: { ...langTexts }, speaker: speaker || null };
         session.items.push(item);
       }
       if (session.title === '새 세션' && session.items.length === 1) {
@@ -1514,6 +1517,7 @@ function handleHost(ws) {
     const sxB = okL(ws._sxB) ? ws._sxB : 'en';
     const ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY; // 확정 문장마다 Cartesia TTS 음성 출력
     const ttsVoice = ws._ttsVoice || ''; // 한국어 보이스 id(UI 선택), 비면 기본값
+    const diar = ws._diar === '1'; // 화자 구분(speaker diarization)
     if (ws._tts === '1' && !CARTESIA_API_KEY) {
       toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 출력(TTS) 비활성. 서버 환경변수를 확인하세요.' });
     }
@@ -1525,6 +1529,7 @@ function handleHost(ws) {
       num_channels: 1,
       enable_language_identification: true,
       enable_endpoint_detection: true,
+      enable_speaker_diarization: diar, // 화자 구분(토글)
       // API 허용범위로 클램프: sensitivity -1~1, maxDelay 500~3000, latency 0~3
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
@@ -1551,22 +1556,24 @@ function handleHost(ws) {
     let finalTrans = '';  // Soniox 번역(타깃) 확정 누적
     let lastTrans = '';   // 마지막으로 표시한 번역(폴백용)
     let curSrc = '';      // 감지된 입력 언어
+    let curSpeaker = '';  // 현재 발화 화자(diarization)
     let lastCommitText = ''; // 직전 확정 텍스트(연속 중복 카드 방지)
 
     const targetKeyFor = (src) => (sxMode === 'two' ? (src === sxA ? sxB : sxA) : sxTarget);
+    const spkLabel = (s) => (s ? '화자 ' + s : null);
 
     // 현재 누적분을 한 문장으로 확정 (GPT 호출 없음)
     const commit = () => {
-      const id = curId, txt = finalText.trim(), src = curSrc;
+      const id = curId, txt = finalText.trim(), src = curSrc, spk = curSpeaker;
       const tgt = (finalTrans.trim() || lastTrans).trim();
-      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
+      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = '';
       if (!id || !txt) return;
       const out = tgt || txt;
       // 직전 카드와 완전히 동일한 내용이면 중복으로 보고 스킵(반복/에코 방지)
       if (out && out === lastCommitText) return;
       lastCommitText = out;
       const target = targetKeyFor(src);
-      upsertItem(id, { [target]: out }, txt);
+      upsertItem(id, { [target]: out }, txt, spkLabel(spk));
       // 실시간 TTS: 확정된 번역문을 타깃 언어 보이스로 합성해 모바일 뷰어(폰)에게만 전송.
       //  호스트(시스템 오디오 캡처) 스피커로는 재생하지 않음 → TTS 재캡처 피드백 루프 원천 차단.
       if (ttsOn) {
@@ -1607,6 +1614,9 @@ function handleHost(ws) {
         } else {
           // 전사(원문) 토큰 (translation_status: none | original | undefined)
           if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase();
+          // 화자 변경 시: 누적된 발화가 있으면 먼저 확정하고 새 화자로 시작
+          if (diar && t.speaker && t.is_final && curSpeaker && t.speaker !== curSpeaker && finalText.trim()) commit();
+          if (diar && t.speaker) curSpeaker = t.speaker;
           if (t.is_final) finalText += t.text;
           else nonFinal += t.text;
         }
@@ -1617,7 +1627,7 @@ function handleHost(ws) {
       if (!curId && (shownSrc || shownTgt)) curId = newId();
       if (curId) {
         // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시
-        liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null);
+        liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, spkLabel(curSpeaker));
       }
       // 발화 종료(<end>) 또는 과도하게 길면 확정
       if (endHit || finalText.length >= SX_MAX_CHARS) commit();

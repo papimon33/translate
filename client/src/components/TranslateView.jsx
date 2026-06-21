@@ -173,6 +173,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Cartesia TTS 음성 출력
+  const [diar, setDiar] = useState(localStorage.getItem('kac-sx-diar') === '1'); // 화자 구분
   const [ttsVoice, setTtsVoice] = useState(() => {
     const v = localStorage.getItem('kac-sx-voice');
     return VOICES.some((x) => x.id === v) ? v : VOICES[0].id;
@@ -209,6 +210,7 @@ export default function TranslateView({ session: initial, onBack }) {
           texts: it.texts || (it.text ? { [ls[0]]: it.text } : {}), // 옛 형식 호환
           terms: it.terms || {},
           source: it.source,
+          speaker: it.speaker || null,
         }))
       );
       setCfg({
@@ -267,10 +269,11 @@ export default function TranslateView({ session: initial, onBack }) {
             texts: { ...copy[i].texts, ...(m.texts || {}) },
             terms: m.terms ? { ...copy[i].terms, ...m.terms } : copy[i].terms,
             source: m.source ?? copy[i].source,
+            speaker: m.speaker ?? copy[i].speaker,
           };
           return copy;
         }
-        return [...arr, { id: m.id, side, texts: m.texts || {}, terms: m.terms || {}, source: m.source }];
+        return [...arr, { id: m.id, side, texts: m.texts || {}, terms: m.terms || {}, source: m.source, speaker: m.speaker || null }];
       });
     }
   };
@@ -289,6 +292,7 @@ export default function TranslateView({ session: initial, onBack }) {
         audioOut: cfg.pipeline === 'translate' && audioOutOn, // 호스트 재생은 translate만(soniox TTS는 폰으로만)
         tts: cfg.pipeline === 'soniox' && ttsOn,
         ttsVoice,
+        diar: cfg.pipeline === 'soniox' && diar,
         volume,
         endpointing,
         sxSens,
@@ -621,7 +625,7 @@ export default function TranslateView({ session: initial, onBack }) {
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
               const spans = m.terms ? m.terms[usedLang] : null;
-              return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} />;
+              return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} speaker={m.speaker} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
@@ -678,6 +682,17 @@ export default function TranslateView({ session: initial, onBack }) {
           <SxSlider label="지연 레벨" hint="높을수록 저지연(끊김↑, 정확도↓)" value={sxLatency} min={0} max={3} step={1} disabled={recording}
             fmt={(v) => String(v)}
             onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+            <Box>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>화자 구분</Typography>
+              <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>발화자별로 '화자 N' 표시 (정확도는 다소↓)</Typography>
+            </Box>
+            <Switch
+              checked={diar}
+              disabled={recording}
+              onChange={(e) => { setDiar(e.target.checked); localStorage.setItem('kac-sx-diar', e.target.checked ? '1' : '0'); }}
+            />
+          </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button variant="contained" onClick={() => setSxSettingsOpen(false)}>닫기</Button>
@@ -817,7 +832,7 @@ function HighlightedText({ text, spans }) {
 }
 
 // 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
-function Row({ side, text, spans, source, showSource }) {
+function Row({ side, text, spans, source, showSource, speaker }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
@@ -833,6 +848,9 @@ function Row({ side, text, spans, source, showSource }) {
           borderColor: isMic ? 'primary.main' : 'divider',
         }}
       >
+        {speaker && (
+          <Typography sx={{ fontSize: 11, fontWeight: 800, color: 'primary.main', mb: 0.25, letterSpacing: '0.02em' }}>{speaker}</Typography>
+        )}
         <Typography
           sx={{
             fontSize: 18,
