@@ -8,7 +8,6 @@ import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { setGlossary, annotate, glossarySize } from './glossary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -95,7 +94,7 @@ const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
-const GLOSSARY_FILE = path.join(DATA_DIR, 'glossary.json'); // 로컬 폴백(공개 repo에 안 올림)
+const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
 const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
@@ -104,14 +103,14 @@ let sessions = [];  // 메모리 캐시(항상 진실의 원천)
 let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
 let usageDaily = {}; // { 'YYYY-MM-DD': { whisperMs, translateMs } } — 파이프라인별 사용시간 일별 집계
 let usageHourly = {}; // { 'YYYY-MM-DDTHH': { whisperMs, translateMs } } — 시간대별 집계(UTC)
-let glossaryRows = []; // [{ en, ko, meaning }] — 용어집(공개 repo 미커밋, Mongo/파일 저장)
-let glossaryUpdatedAt = 0;
+// 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
+let termsConfig = { terms: [], translationTerms: [], updatedAt: 0 };
 let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
 let usageHourlyCol = null;
-let glossaryCol = null;
+let termsConfigCol = null;
 let summariesCol = null;
 
 async function loadStore() {
@@ -126,8 +125,9 @@ async function loadStore() {
         usersCol = db.collection('users');
         usageCol = db.collection('usageDaily');
         usageHourlyCol = db.collection('usageHourly');
-        glossaryCol = db.collection('glossary');
+        termsConfigCol = db.collection('termsConfig');
         summariesCol = db.collection('summaries');
+        try { await db.collection('glossary').drop(); console.log('[store] 구 glossary 컬렉션 삭제'); } catch {} // 용어집 폐기
         await col.createIndex({ id: 1 }, { unique: true });
         await usersCol.createIndex({ id: 1 }, { unique: true });
         await usageCol.createIndex({ date: 1 }, { unique: true });
@@ -141,13 +141,14 @@ async function loadStore() {
         const hrows = await usageHourlyCol.find({}, { projection: { _id: 0 } }).toArray();
         usageHourly = {};
         hrows.forEach((r) => (usageHourly[r.hour] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
-        glossaryRows = await glossaryCol.find({}, { projection: { _id: 0 } }).toArray();
+        const tc = await termsConfigCol.findOne({ _id: 'singleton' });
+        if (tc) termsConfig = { terms: tc.terms || [], translationTerms: tc.translationTerms || [], updatedAt: tc.updatedAt || 0 };
         summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
-        console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length} / 용어 ${glossaryRows.length}`);
+        console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = glossaryCol = summariesCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -177,9 +178,9 @@ async function loadStore() {
       const h = JSON.parse(fs.readFileSync(USAGE_HOURLY_FILE, 'utf8'));
       if (h && typeof h === 'object') usageHourly = h;
     }
-    if (fs.existsSync(GLOSSARY_FILE)) {
-      const g = JSON.parse(fs.readFileSync(GLOSSARY_FILE, 'utf8'));
-      if (Array.isArray(g)) glossaryRows = g;
+    if (fs.existsSync(TERMS_FILE)) {
+      const t = JSON.parse(fs.readFileSync(TERMS_FILE, 'utf8'));
+      if (t && typeof t === 'object') termsConfig = { terms: t.terms || [], translationTerms: t.translationTerms || [], updatedAt: t.updatedAt || 0 };
     }
     if (fs.existsSync(SUMMARIES_FILE)) {
       const s = JSON.parse(fs.readFileSync(SUMMARIES_FILE, 'utf8'));
@@ -302,9 +303,27 @@ async function flushUsage() {
   }
 }
 
+// 고유명사/번역설정 기본 시드(KAC 항공 도메인) — 저장된 설정이 없을 때만 1회 주입
+const DEFAULT_TERMS = ['ICAO','IATA','FAA','KAC','IIAC','FIDS','CIQ','BHS','NOTAM','PBB','VDGS','FOD','A-CDM','MRO','ILS','AWOS','SCADA','AODB','EIRP','FIS','ASDE','BMS','AVSM'];
+const DEFAULT_TRANSLATION_TERMS = [
+  { source: 'apron', target: '주기장' }, { source: 'ramp', target: '램프' }, { source: 'slot', target: '슬롯' },
+  { source: 'terminal', target: '터미널' }, { source: 'gate', target: '탑승구' }, { source: 'marshalling', target: '항공기 유도' },
+  { source: 'towing', target: '토잉' }, { source: 'towing car', target: '토잉카' }, { source: 'pushback', target: '푸시백' },
+  { source: 'hub', target: '허브 공항' }, { source: 'curbside', target: '커브사이드' }, { source: 'landside', target: '랜드사이드' },
+  { source: 'airside', target: '에어사이드' }, { source: 'carousel', target: '수하물 수취대' }, { source: 'holdover time', target: '방빙유지시간' },
+  { source: 'de-icing', target: '제빙 작업' }, { source: 'taxing', target: '지상 활주' }, { source: 'taxiway', target: '유도로' },
+  { source: 'runway', target: '활주로' }, { source: 'stand', target: '주기장 번호' }, { source: 'screening', target: '보안검색' },
+  { source: 'pat-down', target: '촉수검색' }, { source: 'diversion', target: '회항' }, { source: 'check-in', target: '체크인' },
+  { source: 'concourse', target: '탑승동' }, { source: 'turnaround', target: '턴어라운드' }, { source: 'turnaround time', target: '지상조업 시간' },
+  { source: 'baggage claim', target: '수하물 수취대' }, { source: 'customs', target: '세관' }, { source: 'immigration', target: '출입국심사' },
+  { source: 'quarantine', target: '검역' },
+];
+
 await loadStore();
-setGlossary(glossaryRows); // 부팅 시 자동자 구성
-if (glossaryRows.length) console.log(`[glossary] 용어 ${glossaryRows.length}행 → 패턴 ${glossarySize()}개`);
+if (!termsConfig.updatedAt) {
+  termsConfig = { terms: DEFAULT_TERMS.slice(), translationTerms: DEFAULT_TRANSLATION_TERMS.slice(), updatedAt: Date.now() };
+  try { await persistTermsConfig(); console.log('[terms] 기본 고유명사/번역 설정 시드 저장'); } catch (e) { console.error('[terms] 시드 저장 실패', e); }
+}
 
 /* ---- AI 요약 저장 ---- */
 let summarySaveTimer = null;
@@ -340,60 +359,27 @@ async function deleteSummaryStore(id) {
   if (changed) saveSummaries();
 }
 
-/* ---- 용어집 저장 + CSV 파싱 ---- */
-async function persistGlossary() {
-  if (glossaryCol) {
-    await glossaryCol.deleteMany({});
-    if (glossaryRows.length) await glossaryCol.insertMany(glossaryRows.map((r) => ({ ...r })));
+/* ---- 고유명사/번역 설정 저장 + Soniox context 구성 ---- */
+async function persistTermsConfig() {
+  if (termsConfigCol) {
+    await termsConfigCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...termsConfig }, { upsert: true });
   } else {
-    fs.writeFileSync(GLOSSARY_FILE, JSON.stringify(glossaryRows, null, 2));
+    fs.writeFileSync(TERMS_FILE, JSON.stringify(termsConfig, null, 2));
   }
 }
-// CSV/TSV 파싱 (RFC4180 따옴표 처리, 구분자 자동 감지). 컬럼: 영문, 한글, 해설.
-function parseGlossaryCsv(text) {
-  let s = String(text || '').replace(/^﻿/, ''); // BOM 제거
-  // 구분자: 첫 줄에 탭이 있으면 TSV, 아니면 콤마
-  const firstLine = s.slice(0, s.indexOf('\n') < 0 ? s.length : s.indexOf('\n'));
-  const delim = firstLine.includes('\t') ? '\t' : ',';
-  const rows = [];
-  let field = '';
-  let record = [];
-  let inQuotes = false;
-  const pushField = () => {
-    record.push(field);
-    field = '';
-  };
-  const pushRecord = () => {
-    pushField();
-    if (record.some((c) => c.trim() !== '')) rows.push(record);
-    record = [];
-  };
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (s[i + 1] === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else field += ch;
-    } else if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === delim) {
-      pushField();
-    } else if (ch === '\n') {
-      pushRecord();
-    } else if (ch === '\r') {
-      // skip (CRLF)
-    } else field += ch;
-  }
-  if (field !== '' || record.length) pushRecord();
-  if (!rows.length) return [];
-  // 헤더 감지: 첫 행이 '영문'/'한글'/'해설' 류면 건너뜀
-  const head = rows[0].map((c) => c.trim());
-  const looksHeader = /영문|english|term/i.test(head[0] || '') || /한글|korean/i.test(head[1] || '');
-  const body = looksHeader ? rows.slice(1) : rows;
-  return body
-    .map((r) => ({ en: (r[0] || '').trim(), ko: (r[1] || '').trim(), meaning: (r[2] || '').trim() }))
-    .filter((r) => r.en || r.ko);
+// Soniox 세션 context: terms(고유명사) + translation_terms(번역 쌍). 비어 있으면 null.
+function buildSonioxContext() {
+  const terms = (termsConfig.terms || []).map((t) => String(t || '').trim()).filter(Boolean);
+  const tt = (termsConfig.translationTerms || [])
+    .filter((p) => p && p.source && p.target)
+    .map((p) => ({ source: String(p.source).trim(), target: String(p.target).trim() }))
+    .filter((p) => p.source && p.target);
+  // 번역쌍의 source 단어도 전사 인식 향상 위해 terms에 합침(중복 제거)
+  const allTerms = [...new Set([...terms, ...tt.map((p) => p.source)])];
+  const ctx = {};
+  if (allTerms.length) ctx.terms = allTerms;
+  if (tt.length) ctx.translation_terms = tt;
+  return Object.keys(ctx).length ? ctx : null;
 }
 
 function getSession(id) {
@@ -646,36 +632,24 @@ app.get('/api/admin/usage', requireAdmin, (req, res) => {
   });
 });
 
-// 용어집: 현황 조회 + CSV 업로드(교체)
-app.get('/api/admin/glossary', requireAdmin, (req, res) => {
-  res.json({ count: glossaryRows.length, patterns: glossarySize(), updatedAt: glossaryUpdatedAt });
+// 고유명사/번역 설정: 열람(로그인 누구나) + 수정(관리자만). Soniox context로 주입됨.
+app.get('/api/terms-config', requireAuth, (req, res) => {
+  res.json({ terms: termsConfig.terms || [], translationTerms: termsConfig.translationTerms || [], updatedAt: termsConfig.updatedAt || 0 });
 });
-app.post('/api/admin/glossary', requireAdmin, async (req, res) => {
-  const csv = (req.body && req.body.csv) || '';
-  if (!csv) return res.status(400).json({ error: 'CSV 내용이 비어 있습니다.' });
-  let rows;
-  try {
-    rows = parseGlossaryCsv(csv);
-  } catch (e) {
-    return res.status(400).json({ error: 'CSV 파싱 실패: ' + e.message });
-  }
-  if (!rows.length) return res.status(400).json({ error: '유효한 용어 행이 없습니다. (컬럼: 영문, 한글, 해설)' });
-  glossaryRows = rows;
-  glossaryUpdatedAt = Date.now();
-  setGlossary(glossaryRows);
-  try {
-    await persistGlossary();
-  } catch (e) {
-    console.error('[glossary] 저장 실패', e);
-  }
-  res.json({ count: glossaryRows.length, patterns: glossarySize(), updatedAt: glossaryUpdatedAt });
-});
-// 용어집 열람(로그인 사용자 누구나). 한글 기준 정렬.
-app.get('/api/glossary', requireAuth, (req, res) => {
-  const list = glossaryRows
-    .map((r) => ({ ko: r.ko || '', en: r.en || '', meaning: r.meaning || '' }))
-    .sort((a, b) => a.ko.localeCompare(b.ko, 'ko'));
-  res.json(list);
+app.put('/api/terms-config', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const terms = Array.isArray(b.terms)
+    ? [...new Set(b.terms.map((t) => String(t || '').trim()).filter(Boolean))].slice(0, 1000)
+    : [];
+  const translationTerms = Array.isArray(b.translationTerms)
+    ? b.translationTerms
+        .map((p) => ({ source: String((p && p.source) || '').trim(), target: String((p && p.target) || '').trim() }))
+        .filter((p) => p.source && p.target)
+        .slice(0, 1000)
+    : [];
+  termsConfig = { terms, translationTerms, updatedAt: Date.now() };
+  try { await persistTermsConfig(); } catch (e) { console.error('[terms] 저장 실패', e); }
+  res.json(termsConfig);
 });
 
 /* ================================================================== */
@@ -1488,18 +1462,7 @@ function handleHost(ws) {
     broadcast(sessionId, p);
   };
   // 문장 항목: texts = { 언어코드: 번역문 }. 같은 id 로 여러 번 호출하면 언어별로 병합됨.
-  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, terms: item.terms || {}, speaker: item.speaker || null });
-  // 완성 문장의 텍스트에서 용어집 매칭 구간 계산 (translate 파이프라인 + 한글만)
-  const computeTerms = (item) => {
-    const terms = {};
-    if (pipeline === 'translate') {
-      for (const [lang, txt] of Object.entries(item.texts || {})) {
-        const spans = annotate(txt);
-        if (spans.length) terms[lang] = spans;
-      }
-    }
-    item.terms = terms;
-  };
+  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, speaker: item.speaker || null });
   // 화면에만 보냄(저장 안 함) — translate 스트리밍/whisper 진행표시용
   const liveSend = (id, langTexts, source, speaker) => {
     const m = { type: 'sentence', id, side, source: source || null, texts: langTexts, speaker: speaker || null };
@@ -1523,12 +1486,10 @@ function handleHost(ws) {
         const first = Object.values(item.texts)[0] || '';
         if (first) session.title = first.slice(0, 40);
       }
-      computeTerms(item);
       session.updatedAt = Date.now();
       saveSessions();
     } else {
       item = { id, side, source: source || null, texts: { ...langTexts } };
-      computeTerms(item);
     }
     toHost(buildMsg(id, item));
     broadcast(sessionId, buildMsg(id, item));
@@ -1581,6 +1542,7 @@ function handleHost(ws) {
       translation: sxMode === 'two'
         ? { type: 'two_way', language_a: sxA, language_b: sxB }
         : { type: 'one_way', target_language: sxTarget },
+      ...(buildSonioxContext() ? { context: buildSonioxContext() } : {}), // 고유명사/번역 설정 주입
     };
 
     const sx = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');

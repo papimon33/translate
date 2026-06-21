@@ -21,7 +21,7 @@ import { api } from './api.js';
 const TranslateView = lazy(() => import('./components/TranslateView.jsx'));
 const AdminPage = lazy(() => import('./components/AdminPage.jsx'));
 const SummaryPage = lazy(() => import('./components/SummaryPage.jsx'));
-const GlossaryPage = lazy(() => import('./components/GlossaryPage.jsx'));
+const TermsConfigPage = lazy(() => import('./components/TermsConfigPage.jsx'));
 
 export default function App() {
   const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'dark');
@@ -84,8 +84,8 @@ export default function App() {
       <TranslateView session={session} onBack={() => setSession(null)} />
     ) : view === 'summaries' ? (
       <SummaryPage />
-    ) : view === 'glossary' ? (
-      <GlossaryPage />
+    ) : view === 'terms' ? (
+      <TermsConfigPage user={user} />
     ) : view === 'admin' && user.role === 'admin' ? (
       <AdminPage />
     ) : (
@@ -122,9 +122,9 @@ export default function App() {
         setView('summaries');
         setDrawer(false);
       }}
-      onGlossary={() => {
+      onTerms={() => {
         setSession(null);
-        setView('glossary');
+        setView('terms');
         setDrawer(false);
       }}
       onAdmin={() => {

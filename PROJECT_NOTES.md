@@ -57,15 +57,16 @@
 - **사용 비용**: 호스트 WS 연결시간을 **파이프라인별 분당 요금**으로 환산. `usageDaily[date]={whisperMs,translateMs}`(Mongo `usageDaily`/파일 `data/usage.json`), `recordUsage(pipeline,ms)`는 host WS close 에서 호출. 단가 env `PRICE_TRANSLATE_PER_MIN`(0.034)·`PRICE_WHISPER_PER_MIN`(0.017). 관리자 페이지에 총비용 + 일별 막대차트(`AdminPage.jsx` `DailyChart`, 최근 14일). 코드: server.js `recordUsage`/`costOfDay`/`GET /api/admin/usage`.
 - 주의: 무료 티어는 15분 유휴 시 슬립 → 첫 접속 cold start ~30초. WS는 클라가 이미 `wss/ws` 자동 선택(`location.protocol/host`).
 
-## 용어집(항공 용어 하이라이트)
-- **매칭 엔진**: `glossary.js`(Aho-Corasick). 영문=단어경계+대소문자무시, 한글=부분일치, 겹치면 **최장 우선**("APRON 2"가 "APRON"보다 우선). `setGlossary(rows)`/`annotate(text)`/`glossarySize()`.
-- **저장**: 공개 repo라 CSV 미커밋. Mongo `glossary` 컬렉션(없으면 `data/glossary.json`, `data/` 전체 gitignore). 관리자 페이지에서 **CSV 업로드**(`POST /api/admin/glossary`, `parseGlossaryCsv`: 콤마/탭 자동·따옴표·헤더 인식, 컬럼 영문/한글/해설). express.json limit 16mb.
-- **매칭 시점**: 문장 확정(`upsertItem`)에서 `computeTerms`가 언어별 텍스트를 annotate → `item.terms={lang:[{start,end,term,meaning}]}`. WS `sentence`/`snapshot` 메시지 + 저장에 포함.
-- **렌더**: 데스크톱 `TranslateView` `HighlightedText`(굵게+밑줄, MUI Tooltip 해설). 모바일 `mobile.html` `renderLine`(굵게+밑줄, **탭하면 해설 팝업** `.termpop`). 검증: ko "계류장"+en "APRON 2" 하이라이트·툴팁 확인.
+## 용어 설정(고유명사 + 번역, Soniox context)
+- **용어집(하이라이트) 기능은 폐기됨**(glossary.js·GlossaryPage·computeTerms·terms 스팬·Mongo `glossary` 컬렉션 모두 삭제. 부팅 시 Mongo면 `glossary.drop()`).
+- **전역 설정 1개**: `termsConfig = { terms:[고유명사], translationTerms:[{source,target}], updatedAt }`. 저장 Mongo `termsConfig`(단일 `_id:'singleton'`) / 파일 `data/terms_config.json`. 저장된 값 없으면(=updatedAt 0) 부팅 시 KAC 항공 기본값 시드(`DEFAULT_TERMS`/`DEFAULT_TRANSLATION_TERMS`).
+- **라우트**: `GET /api/terms-config`(로그인 누구나 열람), `PUT /api/terms-config`(관리자만, `persistTermsConfig`).
+- **Soniox 주입**: runSoniox config 에 `buildSonioxContext()` → `{ terms:[고유명사+번역source], translation_terms:[{source,target}] }`. 세션 시작 시점에 반영(녹음 중 변경은 다음 세션부터).
+- **프론트**: Nav '용어 설정' → `TermsConfigPage`(고유명사=칩 입력 Enter추가/✕삭제, 번역=source→target 행 추가/편집/삭제). 관리자만 수정 가능(`user.role`), 일반 사용자는 읽기 전용. api: `termsConfig()`/`saveTermsConfig(body)`.
 
 ## AI 요약 (gpt-5-nano)
 - 세션 케밥 'AI 요약' → `POST /api/summaries {sessionId}` → 서버가 **비동기 백그라운드**로 요약(화면 이탈해도 진행). 세션당 1개(재요청 시 덮어쓰기/재시도).
-- 요약 로직(server.js): `sessionTranscript`(ko 우선) → `summarizeTranscript`. 16000자 초과면 **map-reduce**(청크별 노트→통합). 프롬프트 `SUMMARY_SYS`(머리말 없이 본문만, ##/불릿, 지어내기 금지). 전문<10자면 즉시 `error`.
+- 요약 로직(server.js): `sessionTranscript`(ko 우선, **화자 있으면 `* [화자] : 발언` 형식**) → `summarizeTranscript`. 16000자 초과면 **map-reduce**(청크별 노트→통합). 프롬프트 `SUMMARY_SYS`(머리말 없이 본문만, ##/불릿, 지어내기 금지, **화자별 입장 구분**). 전문<10자면 즉시 `error`.
 - 상태 `pending|done|error`. 서버 재시작 시 `pending`→`error`(무한 스피너 방지). 저장: Mongo `summaries`/파일 `data/summaries.json`, 사용자별.
 - 라우트: `GET /api/summaries`(목록·본문 제외), `GET /:id`(본문 포함), `POST`(생성/재생성), `DELETE`.
 - 프론트: Nav 'AI 요약' → `SummaryPage`(목록 최신순, 상태뱃지 요약중/완료/실패, 폴링 3s, 검색, 빈상태, 펼치면 본문+복사·다운로드, 실패 시 재시도, 삭제).
@@ -78,8 +79,8 @@
 - **Mongo 견고화**: 연결 3회 재시도(serverSelectionTimeoutMS 8s). `MONGODB_URI` 설정됐는데 실패 시 — 운영(NODE_ENV=production)에선 파일모드 폴백 대신 **기동 중단**(데이터 분리/유실 방지), 개발에선 파일 폴백.
 - `NODE_ENV=production` + `AUTH_SECRET` 미설정 시 경고.
 - **관리자 비밀번호 재설정**: `POST /api/admin/users/:id/password`(requireAdmin) + AdminPage 행별 🔑 버튼/다이얼로그.
-- **코드 스플리팅**: App.jsx 에서 TranslateView/AdminPage/SummaryPage/GlossaryPage 를 React.lazy + Suspense(메인 번들 585→338KB).
-- **CI/테스트**: `npm test`(node:test, `test/glossary.test.mjs` 4케이스) + `.github/workflows/ci.yml`(ci: npm ci→test→build).
+- **코드 스플리팅**: App.jsx 에서 TranslateView/AdminPage/SummaryPage/TermsConfigPage 를 React.lazy + Suspense.
+- **CI/테스트**: `npm test`(node:test, `test/smoke.test.mjs`) + `.github/workflows/ci.yml`(ci: npm ci→test→build).
 
 ## 주의
 - OpenAI 실시간 모델은 **GA API** 사용(베타 헤더 X). `gpt-realtime-translate`는 `/v1/realtime/translations` 전용 엔드포인트.

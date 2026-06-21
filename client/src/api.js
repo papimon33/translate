@@ -50,7 +50,16 @@ export const api = {
 
   adminUsers: () => fetch('/api/admin/users').then(json),
   adminUsage: () => fetch('/api/admin/usage').then(json),
-  glossaryList: () => fetch('/api/glossary').then(json),
+  termsConfig: () => fetch('/api/terms-config').then(json),
+  saveTermsConfig: (body) =>
+    fetch('/api/terms-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '저장 실패');
+      return r.json();
+    }),
 
   summaries: () => fetch('/api/summaries').then(json),
   summary: (id) => fetch('/api/summaries/' + id).then(json),
@@ -65,16 +74,6 @@ export const api = {
     }),
   deleteSummary: (id) => fetch('/api/summaries/' + id, { method: 'DELETE' }).then(json),
 
-  adminGlossary: () => fetch('/api/admin/glossary').then(json),
-  adminUploadGlossary: (csv) =>
-    fetch('/api/admin/glossary', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csv }),
-    }).then(async (r) => {
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '업로드 실패');
-      return r.json();
-    }),
   adminCreateUser: (body) =>
     fetch('/api/admin/users', {
       method: 'POST',

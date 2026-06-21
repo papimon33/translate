@@ -217,7 +217,6 @@ export default function TranslateView({ session: initial, onBack }) {
           id: it.id,
           side: it.side,
           texts: it.texts || (it.text ? { [ls[0]]: it.text } : {}), // 옛 형식 호환
-          terms: it.terms || {},
           source: it.source,
           speaker: it.speaker || null,
         }))
@@ -310,13 +309,12 @@ export default function TranslateView({ session: initial, onBack }) {
           copy[i] = {
             ...copy[i],
             texts: { ...copy[i].texts, ...(m.texts || {}) },
-            terms: m.terms ? { ...copy[i].terms, ...m.terms } : copy[i].terms,
             source: m.source ?? copy[i].source,
             speaker: m.speaker ?? copy[i].speaker,
           };
           return copy;
         }
-        return [...arr, { id: m.id, side, texts: m.texts || {}, terms: m.terms || {}, source: m.source, speaker: m.speaker || null }];
+        return [...arr, { id: m.id, side, texts: m.texts || {}, source: m.source, speaker: m.speaker || null }];
       });
     }
   };
@@ -684,8 +682,7 @@ export default function TranslateView({ session: initial, onBack }) {
                 const keys = Object.keys(m.texts);
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
-              const spans = m.terms ? m.terms[usedLang] : null;
-              return <Row key={m.id} side={m.side} text={t} spans={spans} source={m.source} showSource={showSource} speaker={m.speaker} speakerName={speakerName(m.speaker)} onSpeakerClick={openSpeakerEdit} />;
+              return <Row key={m.id} side={m.side} text={t} source={m.source} showSource={showSource} speaker={m.speaker} speakerName={speakerName(m.speaker)} onSpeakerClick={openSpeakerEdit} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
@@ -870,52 +867,8 @@ function PartialLine({ side, text }) {
   );
 }
 
-// 완성 문장에서 용어집 매칭 구간을 굵게+밑줄, hover 시 해설 툴팁
-function HighlightedText({ text, spans }) {
-  if (!spans || !spans.length) return text;
-  const out = [];
-  let pos = 0;
-  spans.forEach((sp, k) => {
-    if (sp.start > pos) out.push(text.slice(pos, sp.start));
-    out.push(
-      <Tooltip
-        key={k}
-        arrow
-        placement="top"
-        title={
-          <Box sx={{ py: 0.25 }}>
-            <Box sx={{ fontWeight: 800, fontSize: 13, mb: 0.5 }}>{sp.term}</Box>
-            <Box sx={{ fontSize: 12.5, lineHeight: 1.6, fontWeight: 400 }}>{sp.meaning}</Box>
-          </Box>
-        }
-        slotProps={{
-          tooltip: {
-            sx: {
-              maxWidth: 320,
-              wordBreak: 'keep-all', // 한글 단어 단위 줄바꿈
-              bgcolor: 'rgba(33,37,48,0.97)',
-              px: 1.5,
-              py: 1,
-            },
-          },
-        }}
-      >
-        <Box
-          component="span"
-          sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationThickness: '1.5px', cursor: 'help' }}
-        >
-          {text.slice(sp.start, sp.end)}
-        </Box>
-      </Tooltip>
-    );
-    pos = sp.end;
-  });
-  if (pos < text.length) out.push(text.slice(pos));
-  return out;
-}
-
 // 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
-function Row({ side, text, spans, source, showSource, speaker, speakerName, onSpeakerClick }) {
+function Row({ side, text, source, showSource, speaker, speakerName, onSpeakerClick }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
@@ -957,7 +910,7 @@ function Row({ side, text, spans, source, showSource, speaker, speakerName, onSp
             fontStyle: pending ? 'italic' : 'normal',
           }}
         >
-          {pending ? mainText : <HighlightedText text={mainText} spans={spans} />}
+          {mainText}
         </Typography>
         {pending && <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
         {subSource && !pending && (

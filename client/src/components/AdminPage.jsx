@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
@@ -23,7 +23,6 @@ import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import LockResetIcon from '@mui/icons-material/LockReset';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { api } from '../api.js';
 
 function fmtDuration(ms) {
@@ -88,10 +87,6 @@ function UsageChart({ data, kind }) {
 export default function AdminPage() {
   const [list, setList] = useState(null);
   const [usage, setUsage] = useState(null);
-  const [gloss, setGloss] = useState(null);
-  const [glossMsg, setGlossMsg] = useState('');
-  const [glossBusy, setGlossBusy] = useState(false);
-  const fileRef = useRef(null);
   const [dlg, setDlg] = useState(false);
   const [form, setForm] = useState({ id: '', username: '', password: '' });
   const [err, setErr] = useState('');
@@ -104,36 +99,10 @@ export default function AdminPage() {
   const reload = () => {
     api.adminUsers().then(setList).catch(() => setList([]));
     api.adminUsage().then(setUsage).catch(() => setUsage(null));
-    api.adminGlossary().then(setGloss).catch(() => setGloss(null));
   };
   useEffect(() => {
     reload();
   }, []);
-
-  const onPickFile = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = ''; // 같은 파일 재선택 허용
-    if (!file) return;
-    setGlossBusy(true);
-    setGlossMsg('');
-    try {
-      // 인코딩 자동 감지: UTF-8 우선, 실패하면 EUC-KR/CP949(엑셀 한국어판 CSV)로 디코드
-      const buf = await file.arrayBuffer();
-      let text;
-      try {
-        text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
-      } catch {
-        text = new TextDecoder('euc-kr').decode(buf);
-      }
-      const r = await api.adminUploadGlossary(text);
-      setGloss(r);
-      setGlossMsg(`✓ ${r.count.toLocaleString('en-US')}개 용어 등록 완료`);
-    } catch (e) {
-      setGlossMsg('✗ ' + (e.message || '업로드 실패'));
-    } finally {
-      setGlossBusy(false);
-    }
-  };
 
   const openDlg = () => {
     setForm({ id: '', username: '', password: '' });
@@ -233,28 +202,6 @@ export default function AdminPage() {
                 ※ 호스트 사용 시간 기준 — 실시간 번역 ${usage.rateTranslate}/분 · 다국어 번역 ${usage.rateWhisper}/분.
               </Typography>
             )}
-          </Paper>
-
-          {/* 용어집 (항공 용어 CSV) */}
-          <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              <Box sx={{ flex: 1, minWidth: 220 }}>
-                <Typography sx={{ fontWeight: 800, fontSize: 15 }}>항공 용어집</Typography>
-                <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
-                  {gloss ? `등록된 용어 ${gloss.count.toLocaleString('en-US')}개` : '불러오는 중…'} · 번역문에서 자동으로 굵게+밑줄 표시됩니다.
-                </Typography>
-              </Box>
-              <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,text/csv" hidden onChange={onPickFile} />
-              <Button variant="outlined" startIcon={<UploadFileIcon />} disabled={glossBusy} onClick={() => fileRef.current && fileRef.current.click()}>
-                {glossBusy ? '업로드 중…' : 'CSV 업로드'}
-              </Button>
-            </Box>
-            {glossMsg && (
-              <Typography sx={{ fontSize: 13, mt: 1.5, color: glossMsg.startsWith('✓') ? 'success.main' : 'error.main' }}>{glossMsg}</Typography>
-            )}
-            <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 1.5 }}>
-              ※ CSV/TSV 3개 컬럼: 영문 · 한글용어 · 해설 (첫 줄 헤더 자동 인식). 업로드하면 기존 용어집을 교체합니다.
-            </Typography>
           </Paper>
 
           <Paper variant="outlined" sx={{ borderRadius: 3, overflowX: 'auto' }}>

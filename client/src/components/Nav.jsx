@@ -30,7 +30,7 @@ import { api } from '../api.js';
 const W = 248;
 const WC = 72;
 
-export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, onHome, onSummaries, onGlossary, onAdmin, onLogout, onUserUpdate }) {
+export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, onHome, onSummaries, onTerms, onAdmin, onLogout, onUserUpdate }) {
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
   const [edit, setEdit] = useState(false);
@@ -89,7 +89,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
       )}
       <NavItem collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="실시간 번역" active={view === 'sessions'} onClick={onHome} />
       <NavItem collapsed={collapsed} icon={<AutoAwesomeOutlinedIcon fontSize="small" />} label="AI 요약" active={view === 'summaries'} onClick={onSummaries} />
-      <NavItem collapsed={collapsed} icon={<MenuBookOutlinedIcon fontSize="small" />} label="용어집" active={view === 'glossary'} onClick={onGlossary} />
+      <NavItem collapsed={collapsed} icon={<MenuBookOutlinedIcon fontSize="small" />} label="용어 설정" active={view === 'terms'} onClick={onTerms} />
       {isAdmin && (
         <NavItem collapsed={collapsed} icon={<AdminPanelSettingsOutlinedIcon fontSize="small" />} label="관리자" active={view === 'admin'} onClick={onAdmin} />
       )}
