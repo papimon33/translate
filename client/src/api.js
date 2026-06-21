@@ -29,6 +29,15 @@ export const api = {
       return r.json();
     }),
   logout: () => fetch('/api/logout', { method: 'POST' }).then(json),
+  ttsPreview: (lang, gender) =>
+    fetch('/api/tts/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang, gender }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error('preview failed');
+      return r.blob();
+    }),
   updateMe: (body) =>
     fetch('/api/me', {
       method: 'PATCH',

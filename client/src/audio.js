@@ -53,7 +53,7 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, ttsVoice, diar } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar } = opts;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -66,7 +66,7 @@ export async function startRecorder(opts) {
   }${
     pipeline === 'soniox'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}&sxMode=${encodeURIComponent(sxMode || 'one')}&sxTarget=${encodeURIComponent(sxTarget || 'en')}&sxA=${encodeURIComponent(sxA || 'ko')}&sxB=${encodeURIComponent(sxB || 'en')}${
-          tts ? `&tts=1&ttsVoice=${encodeURIComponent(ttsVoice || 'Kore')}` : ''
+          tts ? `&tts=1&gender=${encodeURIComponent(gender || 'f')}` : ''
         }${diar ? '&diar=1' : ''}`
       : ''
   }${model ? `&model=${encodeURIComponent(model)}` : ''}`;

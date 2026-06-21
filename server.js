@@ -24,13 +24,20 @@ const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테
 const CARTESIA_API_KEY = process.env.CARTESIA_API_KEY || ''; // Cartesia Sonic 실시간 TTS(선택)
 const CARTESIA_VERSION = '2025-04-16';
 const CARTESIA_MODEL = 'sonic-3.5';
-// 타깃 언어별 기본 보이스(한국어는 UI에서 선택, 나머지는 다국어 기본값)
+// 출력 언어 × 성별 고정 보이스 매핑 (Cartesia voice id)
+const _RONALD = '5ee9feff-1265-424a-9d7f-8e4d431a12c7';
 const CARTESIA_VOICES = {
-  ko: '4dd4630e-19e0-4243-bca0-676ff85119b7', // Haeun
-  en: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4', // Skylar
-  ja: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4',
-  zh: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4',
+  ko: { male: '89f4372f-1f73-4b85-8e1e-5d24ed8bc826' /*jaewon*/, female: '4dd4630e-19e0-4243-bca0-676ff85119b7' /*Haeun*/ },
+  en: { male: _RONALD, female: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4' /*skylar*/ },
+  ja: { male: _RONALD, female: 'd0ff6870-dd30-420d-8568-d756d806ea62' /*hinata*/ },
+  zh: { male: _RONALD, female: '6eb8965c-e295-47bd-a9e4-3eeebb3abcff' /*Jing*/ },
 };
+function cartesiaVoiceId(lang, gender) {
+  const m = CARTESIA_VOICES[lang] || CARTESIA_VOICES.en;
+  return gender === 'm' ? m.male : m.female;
+}
+// 미리듣기용 짧은 테스트 문장(언어별)
+const TTS_TEST_PHRASE = { ko: '안녕하세요, 음성 테스트입니다.', en: 'Hello, this is a voice test.', ja: 'こんにちは、音声テストです。', zh: '你好，这是语音测试。' };
 
 const LANG_NAMES = {
   ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어',
@@ -958,6 +965,26 @@ app.get('/api/qr', async (req, res) => {
   }
 });
 
+/* 보이스 미리듣기: 출력언어+성별로 짧은 테스트 음성(wav) 생성 */
+app.post('/api/tts/preview', requireAuth, async (req, res) => {
+  if (!CARTESIA_API_KEY) return res.status(400).json({ error: 'CARTESIA_API_KEY 미설정' });
+  const b = req.body || {};
+  const lang = ['ko', 'en', 'ja', 'zh'].includes(b.lang) ? b.lang : 'ko';
+  const gender = b.gender === 'm' ? 'm' : 'f';
+  try {
+    const r = await fetch('https://api.cartesia.ai/tts/bytes', {
+      method: 'POST',
+      headers: { 'X-API-Key': CARTESIA_API_KEY, 'Cartesia-Version': CARTESIA_VERSION, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id: CARTESIA_MODEL, transcript: TTS_TEST_PHRASE[lang], voice: { mode: 'id', id: cartesiaVoiceId(lang, gender) }, language: lang, output_format: { container: 'wav', encoding: 'pcm_s16le', sample_rate: 24000 } }),
+    });
+    if (!r.ok) return res.status(502).json({ error: 'tts ' + r.status });
+    res.setHeader('Content-Type', 'audio/wav');
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 /* 헬스체크 (Render healthCheck / UptimeRobot 슬립 방지용 핑) */
 app.get('/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
@@ -1284,7 +1311,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._sxA = searchParams.get('sxA');           // 양방향 언어 A
       ws._sxB = searchParams.get('sxB');           // 양방향 언어 B
       ws._tts = searchParams.get('tts');           // soniox 실시간 TTS on('1')
-      ws._ttsVoice = searchParams.get('ttsVoice'); // Cartesia 한국어 보이스 id
+      ws._gender = searchParams.get('gender');     // 음성 성별 'm' | 'f'
       ws._diar = searchParams.get('diar');         // 화자 구분 on('1')
       wss.emit('connection', ws, req);
     });
@@ -1328,7 +1355,7 @@ function startTalkPipeline(sessionId, side) {
     const msg = applyItem(sessionId, id, side, { [target]: out }, txt);
     broadcast(sessionId, msg); sendToHosts(sessionId, msg);
     if (cfg.ttsOn) {
-      const voiceId = target === 'ko' ? (cfg.ttsVoice || CARTESIA_VOICES.ko) : (CARTESIA_VOICES[target] || CARTESIA_VOICES.en);
+      const voiceId = cartesiaVoiceId(target, cfg.gender || 'f');
       cartesiaTTSStream(out, voiceId, target, (b64) => broadcastAudio(sessionId, b64)).catch(() => {});
     }
   };
@@ -1516,7 +1543,7 @@ function handleHost(ws) {
     const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
     const sxB = okL(ws._sxB) ? ws._sxB : 'en';
     const ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY; // 확정 문장마다 Cartesia TTS 음성 출력
-    const ttsVoice = ws._ttsVoice || ''; // 한국어 보이스 id(UI 선택), 비면 기본값
+    const gender = ws._gender === 'm' ? 'm' : 'f'; // 음성 성별(출력언어별 보이스 자동 선택)
     const diar = ws._diar === '1'; // 화자 구분(speaker diarization)
     if (ws._tts === '1' && !CARTESIA_API_KEY) {
       toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 출력(TTS) 비활성. 서버 환경변수를 확인하세요.' });
@@ -1546,7 +1573,7 @@ function handleHost(ws) {
     const pending = [];
     const langsOut = sxMode === 'two' ? [sxA, sxB] : [sxTarget];
     // 폰 PTT 가 재사용할 호스트 설정 저장
-    roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: config.endpoint_sensitivity, maxDelay: config.max_endpoint_delay_ms, latency: config.endpoint_latency_adjustment_level, ttsOn, ttsVoice });
+    roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: config.endpoint_sensitivity, maxDelay: config.max_endpoint_delay_ms, latency: config.endpoint_latency_adjustment_level, ttsOn, gender });
     // 번역 방향 정보 — 뷰어(모바일)가 언어 표시에 사용
     const sxInfo = { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
     if (session) { session.sxInfo = sxInfo; saveSessions(); }
@@ -1560,7 +1587,7 @@ function handleHost(ws) {
     let lastCommitText = ''; // 직전 확정 텍스트(연속 중복 카드 방지)
 
     const targetKeyFor = (src) => (sxMode === 'two' ? (src === sxA ? sxB : sxA) : sxTarget);
-    const spkLabel = (s) => (s ? '화자 ' + s : null);
+    const spkLabel = (s) => (s ? String(s) : null); // 화자 번호만 전송(표시는 클라가 아이콘+번호)
 
     // 현재 누적분을 한 문장으로 확정 (GPT 호출 없음)
     const commit = () => {
@@ -1577,7 +1604,7 @@ function handleHost(ws) {
       // 실시간 TTS: 확정된 번역문을 타깃 언어 보이스로 합성해 모바일 뷰어(폰)에게만 전송.
       //  호스트(시스템 오디오 캡처) 스피커로는 재생하지 않음 → TTS 재캡처 피드백 루프 원천 차단.
       if (ttsOn) {
-        const voiceId = target === 'ko' ? (ttsVoice || CARTESIA_VOICES.ko) : (CARTESIA_VOICES[target] || CARTESIA_VOICES.en);
+        const voiceId = cartesiaVoiceId(target, gender);
         cartesiaTTSStream(out, voiceId, target, (b64) => { broadcastAudio(sessionId, b64); })
           .catch(() => {});
       }
@@ -1591,8 +1618,7 @@ function handleHost(ws) {
       // TTS 연결 워밍업 + 키/보이스 검증(첫 음성 지연 단축)
       if (ttsOn) {
         const wLang = sxMode === 'two' ? 'ko' : sxTarget;
-        const wVoice = wLang === 'ko' ? (ttsVoice || CARTESIA_VOICES.ko) : (CARTESIA_VOICES[wLang] || CARTESIA_VOICES.en);
-        cartesiaWarmup(wVoice, wLang).then((r) => toHost({ type: 'status', message: r.ok ? '음성(Cartesia) 준비됨' : ('음성 준비 실패: ' + r.error) }));
+        cartesiaWarmup(cartesiaVoiceId(wLang, gender), wLang).then((r) => toHost({ type: 'status', message: r.ok ? '음성(Cartesia) 준비됨' : ('음성 준비 실패: ' + r.error) }));
       }
       bumpIdle();
     });

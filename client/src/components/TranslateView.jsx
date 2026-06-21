@@ -25,6 +25,7 @@ import MicNoneIcon from '@mui/icons-material/MicNone';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
 import TuneIcon from '@mui/icons-material/Tune';
+import PersonIcon from '@mui/icons-material/Person';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -82,17 +83,6 @@ const SX_LATENCY = [
 const MODELS = [
   { v: 'gpt-5-nano', label: 'gpt-5-nano (기본)' },
   { v: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
-];
-// Cartesia 한국어 보이스(타깃이 한국어일 때 사용; 타깃이 영/일/중이면 서버 기본 보이스)
-const VOICES = [
-  { id: '4dd4630e-19e0-4243-bca0-676ff85119b7', name: 'Haeun (여, 차분)' },
-  { id: 'e1717dc3-b87b-4720-aa7f-b6db290e0609', name: 'Taehyun (남, 친근)' },
-  { id: '89f4372f-1f73-4b85-8e1e-5d24ed8bc826', name: 'Jaewon (남, 안정)' },
-  { id: '304fdbd8-65e6-40d6-ab78-f9d18b9efdf9', name: 'Jihyun (여, 앵커)' },
-  { id: 'ce9ca2b6-2bed-4452-99bb-052e1ec0b534', name: 'Seoyun (여, 따뜻)' },
-  { id: 'a0fc16d3-01af-482b-910f-ed063c3d79d3', name: 'Subin (여, 단정)' },
-  { id: '7706804e-ea85-443a-968a-b9bf363bdde8', name: 'Minji (여, 모던)' },
-  { id: '69c18e1d-fab0-4747-b9da-58617cd8b9e4', name: 'Soyeon (여, 밝음)' },
 ];
 // Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
 const ENDPOINTS = [
@@ -174,10 +164,24 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Cartesia TTS 음성 출력
   const [diar, setDiar] = useState(localStorage.getItem('kac-sx-diar') === '1'); // 화자 구분
-  const [ttsVoice, setTtsVoice] = useState(() => {
-    const v = localStorage.getItem('kac-sx-voice');
-    return VOICES.some((x) => x.id === v) ? v : VOICES[0].id;
-  });
+  const [gender, setGender] = useState(() => localStorage.getItem('kac-sx-gender') || 'f'); // 음성 성별
+  const [previewing, setPreviewing] = useState(false);
+  const previewVoice = async () => {
+    if (previewing) return;
+    const lang = sxMode === 'two' ? sxA : sxTarget; // 출력언어로 미리듣기
+    setPreviewing(true);
+    try {
+      const blob = await api.ttsPreview(lang, gender);
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.onended = () => URL.revokeObjectURL(url);
+      await a.play();
+    } catch (e) {
+      alert('미리듣기 실패: ' + (e.message || e));
+    } finally {
+      setPreviewing(false);
+    }
+  };
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
@@ -291,7 +295,7 @@ export default function TranslateView({ session: initial, onBack }) {
         refine: true,
         audioOut: cfg.pipeline === 'translate' && audioOutOn, // 호스트 재생은 translate만(soniox TTS는 폰으로만)
         tts: cfg.pipeline === 'soniox' && ttsOn,
-        ttsVoice,
+        gender,
         diar: cfg.pipeline === 'soniox' && diar,
         volume,
         endpointing,
@@ -480,16 +484,26 @@ export default function TranslateView({ session: initial, onBack }) {
                 </Box>
               </Field>
               {ttsOn && (
-                <Field label="보이스(한국어)">
-                  <Select
-                    size="small"
-                    value={ttsVoice}
-                    disabled={recording}
-                    onChange={(e) => { setTtsVoice(e.target.value); localStorage.setItem('kac-sx-voice', e.target.value); }}
-                    sx={{ ...selSx, minWidth: 150 }}
-                  >
-                    {VOICES.map((v) => (<MenuItem key={v.id} value={v.id}>{v.name}</MenuItem>))}
-                  </Select>
+                <Field label="음성(성별)">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Select
+                      size="small"
+                      value={gender}
+                      disabled={recording}
+                      onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }}
+                      sx={{ ...selSx, minWidth: 90 }}
+                    >
+                      <MenuItem value="f">여성</MenuItem>
+                      <MenuItem value="m">남성</MenuItem>
+                    </Select>
+                    <Tooltip title="미리듣기(출력 언어)">
+                      <span>
+                        <IconButton size="small" onClick={previewVoice} disabled={previewing} sx={{ border: 1, borderColor: 'divider' }}>
+                          <VolumeUpIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
                 </Field>
               )}
             </>
@@ -849,7 +863,10 @@ function Row({ side, text, spans, source, showSource, speaker }) {
         }}
       >
         {speaker && (
-          <Typography sx={{ fontSize: 11, fontWeight: 800, color: 'primary.main', mb: 0.25, letterSpacing: '0.02em' }}>{speaker}</Typography>
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, mb: 0.4, px: 0.75, py: 0.1, borderRadius: 5, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>
+            <PersonIcon sx={{ fontSize: 14 }} />
+            <Typography component="span" sx={{ fontSize: 11, fontWeight: 800, lineHeight: 1.6 }}>{speaker}</Typography>
+          </Box>
         )}
         <Typography
           sx={{
