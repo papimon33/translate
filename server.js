@@ -1392,6 +1392,7 @@ function handleViewer(ws) {
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
+  if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
   ws.on('message', (data, isBinary) => {
     if (isBinary) { if (talk) talk.feed(data); return; }
     try {
@@ -1598,12 +1599,15 @@ function handleHost(ws) {
     const SENT_END = /[.!?。！？…]/;
     // 마침표가 문장 끝이 아닌 약어들(영어 타깃에서 오탐 방지)
     const ABBR = new Set(['mr','mrs','ms','dr','prof','sr','jr','st','vs','etc','inc','ltd','co','corp','no','vol','fig','dept','univ','gov','gen','col','sgt','lt','capt','cmdr','rev','hon','pres','approx','mt','ave','rd','blvd','ph','messrs']);
+    // 합성을 순차 직렬화: 짧은 뒷문장이 먼저 합성 완료돼 먼저 재생되는 순서 뒤바뀜 방지
+    let ttsChain = Promise.resolve();
     const speakTts = (text) => {
       const tx = (text || '').trim();
       if (!ttsOn || !tx) return;
       if (!/[\p{L}\p{N}]/u.test(tx)) return; // 문장부호만 있으면 스킵(Cartesia 400 방지)
-      const voiceId = cartesiaVoiceId(ttsLang, gender);
-      cartesiaTTSStream(tx, voiceId, ttsLang, (b64) => { broadcastAudio(sessionId, b64); }).catch(() => {});
+      const lang = ttsLang;                  // 호출 시점 타깃 언어 고정
+      const voiceId = cartesiaVoiceId(lang, gender);
+      ttsChain = ttsChain.then(() => cartesiaTTSStream(tx, voiceId, lang, (b64) => { broadcastAudio(sessionId, b64); }).catch(() => {}));
     };
     const flushTtsSentences = () => {
       if (!ttsOn) return;

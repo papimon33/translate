@@ -163,7 +163,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Cartesia TTS 음성 출력
-  const [diar, setDiar] = useState(localStorage.getItem('kac-sx-diar') === '1'); // 화자 구분
+  const [diar, setDiar] = useState(localStorage.getItem('kac-sx-diar') !== '0'); // 화자 구분(기본 ON)
   const [gender, setGender] = useState(() => localStorage.getItem('kac-sx-gender') || 'f'); // 음성 성별
   const [previewing, setPreviewing] = useState(false);
   const previewVoice = async () => {
@@ -474,7 +474,7 @@ export default function TranslateView({ session: initial, onBack }) {
                   </Field>
                 </>
               )}
-              <Field label="폰 음성(TTS)">
+              <Field label="음성재생(TTS)">
                 <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
                   <Switch
                     checked={ttsOn}
