@@ -945,7 +945,10 @@ app.get('/api/qr', async (req, res) => {
     host = `${getLanIp()}:${PORT}`;
     proto = 'http';
   }
-  const url = `${proto}://${host}/mobile.html?session=${encodeURIComponent(sessionId)}`;
+  // 데스크 안내 모드는 전용(최소 UI·터치 시작·전체화면) 뷰어로
+  const sess = getSession(sessionId);
+  const viewer = sess && sess.pipeline === 'desk' ? 'desk.html' : 'mobile.html';
+  const url = `${proto}://${host}/${viewer}?session=${encodeURIComponent(sessionId)}`;
   try {
     const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 1 });
     res.json({ url, qr: dataUrl });
@@ -1778,6 +1781,7 @@ function handleHost(ws) {
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null);
     };
 
+    // 무음 자동종료: 발화가 들릴 때마다 리셋 → deskIdleMs 동안 '아무 말도' 없으면 대화 종료(다음 손님)
     const armForeignTimer = () => {
       clearTimeout(foreignTimer);
       foreignTimer = setTimeout(() => { if (phase === 'locked') endConversation(); }, deskIdleMs);
@@ -1835,6 +1839,7 @@ function handleHost(ws) {
       const toks = ev.tokens || [];
       if (!toks.length) return;
       bumpIdle();
+      if (phase === 'locked') armForeignTimer(); // 어떤 발화든(안내원 한국어 포함) 들리면 무음 타이머 리셋
       let endHit = false, nonFinal = '', nonFinalTrans = '';
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
@@ -1844,7 +1849,6 @@ function handleHost(ws) {
           const lang = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
           if (lang && !curSrc) curSrc = lang;
           if (t.is_final) finalText += t.text; else nonFinal += t.text;
-          if (phase === 'locked' && lang === lockedB) armForeignTimer(); // 외국어 활동 → 무음 타이머 리셋
         }
       }
       const shownSrc = (finalText + nonFinal).trim();

@@ -86,6 +86,8 @@ export default function App() {
       <SummaryPage />
     ) : view === 'terms' ? (
       <TermsConfigPage user={user} />
+    ) : view === 'desk' ? (
+      <SessionList onOpen={setSession} user={user} deskMode />
     ) : view === 'admin' && user.role === 'admin' ? (
       <AdminPage />
     ) : (
@@ -111,10 +113,15 @@ export default function App() {
       onToggleTheme={toggleTheme}
       mode={mode}
       user={user}
-      view={session ? 'sessions' : view}
+      view={session ? (session.pipeline === 'desk' ? 'desk' : 'sessions') : view}
       onHome={() => {
         setSession(null);
         setView('sessions');
+        setDrawer(false);
+      }}
+      onDesk={() => {
+        setSession(null);
+        setView('desk');
         setDrawer(false);
       }}
       onSummaries={() => {

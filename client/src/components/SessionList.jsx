@@ -18,6 +18,7 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Fab from '@mui/material/Fab';
 import Select from '@mui/material/Select';
 import { alpha } from '@mui/material/styles';
 import { MULTI_LANGS, OUT_LANGS } from '../theme.js';
@@ -42,7 +43,7 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
-export default function SessionList({ onOpen, user }) {
+export default function SessionList({ onOpen, user, deskMode }) {
   const isAdmin = user?.role === 'admin';
   const [list, setList] = useState(null);
   const [dlg, setDlg] = useState(false);
@@ -63,7 +64,7 @@ export default function SessionList({ onOpen, user }) {
 
   const openDlg = () => {
     setName('');
-    setPipeline('soniox');
+    setPipeline(deskMode ? 'desk' : 'soniox');
     setDlg(true);
   };
 
@@ -107,7 +108,9 @@ export default function SessionList({ onOpen, user }) {
     }
   };
 
-  const allIds = (list || []).map((s) => s.id);
+  // 데스크 메뉴는 desk 세션만, 실시간 번역 메뉴는 desk 외 세션만
+  const shown = (list || []).filter((s) => (deskMode ? s.pipeline === 'desk' : s.pipeline !== 'desk'));
+  const allIds = shown.map((s) => s.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allIds));
   const deleteSelected = async () => {
@@ -118,13 +121,13 @@ export default function SessionList({ onOpen, user }) {
     reload();
   };
 
-  const empty = list && list.length === 0;
+  const empty = list && shown.length === 0;
 
   return (
     <>
       {/* 헤더 */}
       <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Typography variant="h6">실시간 번역</Typography>
+        <Typography variant="h6">{deskMode ? '데스크 안내' : '실시간 번역'}</Typography>
       </Box>
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
@@ -153,8 +156,8 @@ export default function SessionList({ onOpen, user }) {
                   <Button size="small" color="inherit" onClick={() => setSelectMode(true)} sx={{ color: 'text.secondary' }}>
                     선택
                   </Button>
-                  <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>
-                    새 세션
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+                    {deskMode ? '안내데스크' : '새 세션'}
                   </Button>
                 </>
               )}
@@ -171,17 +174,19 @@ export default function SessionList({ onOpen, user }) {
               >
                 <RecordVoiceOverIcon sx={{ fontSize: 38 }} />
               </Avatar>
-              <Typography sx={{ fontSize: 18, fontWeight: 800, color: 'text.primary' }}>아직 세션이 없어요</Typography>
+              <Typography sx={{ fontSize: 18, fontWeight: 800, color: 'text.primary' }}>
+                {deskMode ? '안내데스크가 없어요' : '아직 세션이 없어요'}
+              </Typography>
               <Typography sx={{ fontSize: 14, mt: 0.75, mb: 3 }}>
-                새 세션을 만들고 외국어를 실시간으로 번역해 보세요.
+                {deskMode ? '안내데스크를 만들어 대면 통역을 시작하세요. (데스크마다 별도 세션)' : '새 세션을 만들고 외국어를 실시간으로 번역해 보세요.'}
               </Typography>
               <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
-                새 세션 만들기
+                {deskMode ? '안내데스크 만들기' : '새 세션 만들기'}
               </Button>
             </Box>
           )}
 
-          {(list || []).map((s) => (
+          {shown.map((s) => (
             <Card
               key={s.id}
               sx={{
@@ -232,6 +237,16 @@ export default function SessionList({ onOpen, user }) {
         </Box>
       </Box>
 
+      {/* 모바일: 우하단 고정 + 버튼(화면 이동해도 위치 유지) */}
+      <Fab
+        color="primary"
+        aria-label={deskMode ? '안내데스크 추가' : '새 세션'}
+        onClick={openDlg}
+        sx={{ position: 'fixed', right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', display: { xs: 'flex', sm: 'none' }, zIndex: 1200 }}
+      >
+        <AddIcon />
+      </Fab>
+
       <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
         <MenuItem onClick={summarize}>
           <ListItemIcon>
@@ -254,45 +269,44 @@ export default function SessionList({ onOpen, user }) {
       </Menu>
 
       <Dialog open={dlg} onClose={() => setDlg(false)} PaperProps={{ sx: { width: 440, maxWidth: 440 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>새 세션</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>{deskMode ? '새 안내데스크' : '새 세션'}</DialogTitle>
         <DialogContent>
+          {/* 실시간 번역: 모드 선택을 이름 입력보다 위에 (데스크 메뉴에서는 모드 고정이라 숨김) */}
+          {!deskMode && (
+            <>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 0.5, mb: 1 }}>번역 방식</Typography>
+              <ToggleButtonGroup
+                exclusive
+                fullWidth
+                size="small"
+                value={pipeline}
+                onChange={(e, v) => v && setPipeline(v)}
+                color="primary"
+                sx={{ mb: 2.5 }}
+              >
+                <ToggleButton value="soniox" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+                  <b>다국어 번역</b>
+                  <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
+                    참가자가 원하는 언어로 다국어 번역
+                  </Typography>
+                </ToggleButton>
+                <ToggleButton value="translate" disabled={!isAdmin} sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+                  <b>실시간 통역</b>
+                  <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
+                    {isAdmin ? '자막 및 음성으로 실시간 통역' : '관리자 전용'}
+                  </Typography>
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </>
+          )}
           <TextField
             autoFocus
             fullWidth
-            placeholder="세션 이름 (비우면 첫 문장으로 자동)"
+            placeholder={deskMode ? '데스크 이름 (예: 1터미널 안내데스크)' : '세션 이름 (비우면 첫 문장으로 자동)'}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && create()}
           />
-
-          <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2.5, mb: 1 }}>번역 방식</Typography>
-          <ToggleButtonGroup
-            exclusive
-            fullWidth
-            size="small"
-            value={pipeline}
-            onChange={(e, v) => v && setPipeline(v)}
-            color="primary"
-          >
-            <ToggleButton value="soniox" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-              <b>다국어 번역</b>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                참가자가 원하는 언어로 다국어 번역
-              </Typography>
-            </ToggleButton>
-            <ToggleButton value="translate" disabled={!isAdmin} sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-              <b>실시간 통역</b>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                {isAdmin ? '자막 및 음성으로 실시간 통역' : '관리자 전용'}
-              </Typography>
-            </ToggleButton>
-            <ToggleButton value="desk" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-              <b>데스크 안내</b>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                안내데스크 대면 통역(언어 자동감지·양방향)
-              </Typography>
-            </ToggleButton>
-          </ToggleButtonGroup>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setDlg(false)}>취소</Button>

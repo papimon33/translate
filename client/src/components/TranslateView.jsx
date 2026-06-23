@@ -100,6 +100,16 @@ const ENDPOINTS = [
   { v: 1200, label: '1200ms' },
 ];
 
+// 데스크: 무음 자동중지(세션 리셋) 시간 — 기본 7초
+const DESK_IDLE = [
+  { v: 3, label: '3초' },
+  { v: 5, label: '5초' },
+  { v: 7, label: '7초 (기본)' },
+  { v: 10, label: '10초' },
+  { v: 15, label: '15초' },
+  { v: 20, label: '20초' },
+];
+
 const pulse = keyframes`
   0% { box-shadow: 0 0 0 0 rgba(244,63,94,.5); }
   70% { box-shadow: 0 0 0 16px rgba(244,63,94,0); }
@@ -160,6 +170,10 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxLatency, setSxLatency] = useState(() => {
     const v = Number(localStorage.getItem('kac-sx-latency'));
     return Number.isFinite(v) ? v : 0;
+  });
+  const [deskIdle, setDeskIdle] = useState(() => {
+    const v = Number(localStorage.getItem('kac-desk-idle'));
+    return Number.isFinite(v) && v > 0 ? v : 7; // 초
   });
   const [sxMode, setSxMode] = useState(() => localStorage.getItem('kac-sx-mode') || 'one'); // 'one' | 'two'
   const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
@@ -331,7 +345,8 @@ export default function TranslateView({ session: initial, onBack }) {
     try {
       recRef.current = await startRecorder({
         sessionId: initial.id,
-        mode: sourceMode,
+        mode: cfg.pipeline === 'desk' ? 'mic' : sourceMode, // 데스크는 항상 마이크
+        deskIdle: cfg.pipeline === 'desk' ? deskIdle * 1000 : undefined, // 무음 자동중지(ms)
         inLang: cfg.inLang,
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
@@ -378,7 +393,7 @@ export default function TranslateView({ session: initial, onBack }) {
     localStorage.setItem('kac-src', v ? '1' : '0');
   };
   // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
-  const showSource = cfg.pipeline !== 'translate' && srcVisible;
+  const showSource = cfg.pipeline === 'desk' ? true : (cfg.pipeline !== 'translate' && srcVisible);
   const showPartial = true;
   const pipeLabel = PIPES.find((p) => p.v === cfg.pipeline)?.label;
 
@@ -437,13 +452,41 @@ export default function TranslateView({ session: initial, onBack }) {
           variant="outlined"
           sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: 3, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
         >
-          <Field label="오디오 소스">
-            <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
-              {SRC.map((s) => (
-                <MenuItem key={s.v} value={s.v}>{s.label}</MenuItem>
-              ))}
-            </Select>
-          </Field>
+          {cfg.pipeline !== 'desk' && (
+            <Field label="오디오 소스">
+              <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
+                {SRC.map((s) => (
+                  <MenuItem key={s.v} value={s.v}>{s.label}</MenuItem>
+                ))}
+              </Select>
+            </Field>
+          )}
+          {cfg.pipeline === 'desk' && (
+            <>
+              <Field label="음성 감지 민감도">
+                <Select
+                  size="small"
+                  value={sxSens}
+                  disabled={recording}
+                  onChange={(e) => { const v = Number(e.target.value); setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }}
+                  sx={{ ...selSx, minWidth: 130 }}
+                >
+                  {SX_SENS.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
+                </Select>
+              </Field>
+              <Field label="세션 자동중지(무음)">
+                <Select
+                  size="small"
+                  value={deskIdle}
+                  disabled={recording}
+                  onChange={(e) => { const v = Number(e.target.value); setDeskIdle(v); localStorage.setItem('kac-desk-idle', String(v)); }}
+                  sx={{ ...selSx, minWidth: 120 }}
+                >
+                  {DESK_IDLE.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
+                </Select>
+              </Field>
+            </>
+          )}
           {cfg.pipeline !== 'translate' && cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
             <Field label="입력 언어">
               <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 120 }}>
@@ -580,11 +623,13 @@ export default function TranslateView({ session: initial, onBack }) {
               </Select>
             </Field>
           )}
-          <Field label="원어 표시">
-            <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
-              <Switch checked={srcVisible} onChange={(e) => toggleSrc(e.target.checked)} />
-            </Box>
-          </Field>
+          {cfg.pipeline !== 'desk' && (
+            <Field label="원어 표시">
+              <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+                <Switch checked={srcVisible} onChange={(e) => toggleSrc(e.target.checked)} />
+              </Box>
+            </Field>
+          )}
           {cfg.pipeline === 'translate' && (
             <Field label="음성 출력">
               <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
@@ -698,7 +743,8 @@ export default function TranslateView({ session: initial, onBack }) {
         {/* 하단 그라데이션 + FAB */}
         <Box
           sx={{
-            position: 'absolute', left: 0, right: 0, bottom: 0, height: 130,
+            // 모바일: 화면 고정(스크롤해도 위치 유지) / 데스크톱: 채팅영역 하단
+            position: { xs: 'fixed', sm: 'absolute' }, left: 0, right: 0, bottom: 0, height: 130, zIndex: 1100,
             display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
             background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
           }}
