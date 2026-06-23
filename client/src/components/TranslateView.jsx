@@ -216,6 +216,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [connecting, setConnecting] = useState(false);
   const recRef = useRef(null);
   const scrollRef = useRef(null);
+  const onMessageRef = useRef(null); // 패시브 뷰어 연결이 최신 onMessage 를 호출하도록
 
   const startingRef = useRef(false); // 시작 버튼 연타로 중복 세션 생성 방지
   // 번역 GPT 모델(테스트용). 기본 gpt-5-nano.
@@ -264,7 +265,7 @@ export default function TranslateView({ session: initial, onBack }) {
     let ws = null, closed = false;
     const conn = () => {
       ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${initial.id}`);
-      ws.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch {} };
+      ws.onmessage = (ev) => { try { onMessageRef.current && onMessageRef.current(JSON.parse(ev.data)); } catch {} };
       ws.onclose = () => { if (!closed) setTimeout(conn, 1500); };
     };
     conn();
@@ -333,6 +334,10 @@ export default function TranslateView({ session: initial, onBack }) {
       setPartials({ left: '', right: '' });
       return;
     }
+    if (m.type === 'desk-remote-start') { // 뷰어(손님) 터치 → 호스트 마이크 캡처 시작
+      if (cfg.pipeline === 'desk') start();
+      return;
+    }
     if (m.type === 'partial' || m.type === 'sentence') setConnecting(false); // 첫 결과 도착 → 연결중 해제
     if (m.type === 'partial') {
       setPartials((p) => ({ ...p, [m.side || 'right']: m.text || '' }));
@@ -355,6 +360,7 @@ export default function TranslateView({ session: initial, onBack }) {
       });
     }
   };
+  onMessageRef.current = onMessage; // 패시브 뷰어 연결이 항상 최신 핸들러를 쓰도록
 
   const start = async () => {
     if (recording || recRef.current || startingRef.current) return; // 연타 중복 방지

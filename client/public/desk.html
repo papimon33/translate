@@ -88,34 +88,8 @@ function isStandalone(){
 function show(id){ ['landing','startWrap','stage'].forEach(s => $(s).classList.toggle('show', s===id)); }
 
 let curLang = 'ko', started = false, ws = null;
-let stream = null, audioCtx = null, proc = null;
 const cards = new Map();
 let order = [];
-
-/* ---- 오디오 캡처 → 24kHz PCM16 ---- */
-function downsampleTo24k(f32, inRate){
-  if (inRate === 24000) return f32;
-  const ratio = inRate / 24000, outLen = Math.round(f32.length / ratio), out = new Float32Array(outLen);
-  for (let i=0;i<outLen;i++){ const idx=i*ratio, i0=Math.floor(idx), i1=Math.min(i0+1,f32.length-1); out[i]=f32[i0]*(1-(idx-i0))+f32[i1]*(idx-i0); }
-  return out;
-}
-function floatTo16(f32){
-  const buf = new ArrayBuffer(f32.length*2), view = new DataView(buf);
-  for (let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); s=s<0?s*0x8000:s*0x7fff; view.setInt16(i*2,s,true); }
-  return buf;
-}
-function startCapture(){
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const inRate = audioCtx.sampleRate;
-  const src = audioCtx.createMediaStreamSource(stream);
-  proc = audioCtx.createScriptProcessor(4096, 1, 1);
-  const g = audioCtx.createGain(); g.gain.value = 0;
-  src.connect(proc); proc.connect(g); g.connect(audioCtx.destination);
-  proc.onaudioprocess = (e) => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(floatTo16(downsampleTo24k(e.inputBuffer.getChannelData(0), inRate)));
-  };
-}
 
 /* ---- 표시 ---- */
 function applySxInfo(info){ if(!info) return; if(info.mode==='two') curLang = info.b || curLang; render(); }
@@ -151,7 +125,7 @@ function connect(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}`);
   ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { ws.send(JSON.stringify({ type:'desk-start' })); };
+  ws.onopen = () => { ws.send(JSON.stringify({ type:'desk-viewer-start' })); }; // 호스트 캡처 원격 시작 요청(마이크는 호스트)
   ws.onclose = () => { if (started) setTimeout(connect, 1500); };
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
@@ -170,23 +144,17 @@ function goFullscreen(){
   if (fn) { try { fn.call(el); } catch {} }
 }
 
-async function start(){
+function start(){
   if (started) return;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true } }); }
-  catch (e) { alert('마이크 권한이 필요합니다 / Microphone permission required'); return; }
   started = true;
   goFullscreen();
   show('stage');
-  startCapture();
-  connect();
+  connect(); // 마이크는 호스트에서 캡처 → 뷰어는 표시만 + 원격 시작 신호
 }
 function end(){
   started = false;
-  try { ws && ws.send(JSON.stringify({ type:'desk-stop' })); } catch {}
+  try { ws && ws.send(JSON.stringify({ type:'desk-viewer-stop' })); } catch {}
   try { ws && ws.close(); } catch {}
-  try { proc && (proc.onaudioprocess = null); } catch {}
-  try { stream && stream.getTracks().forEach(t => t.stop()); } catch {}
-  try { audioCtx && audioCtx.close(); } catch {}
   if (document.fullscreenElement || document.webkitFullscreenElement) {
     (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document);
   }

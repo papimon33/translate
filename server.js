@@ -1529,26 +1529,12 @@ function handleViewer(ws) {
   room.viewers.add(ws);
   ws._audioWanted = false; // '음성 듣기' 구독 여부
   let talk = null; // 폰 PTT 파이프라인
-  // 데스크 파이프라인은 룸 공유(room.deskPipe): 호스트·뷰어 어느 쪽이 시작해도 같은 파이프라인을 먹이고 둘 다 표출
-  const relDesk = () => {
-    const r = rooms.get(ws._session);
-    if (r && r.deskPipe && ws._deskFeeding) {
-      r.deskPipe.feeders.delete(ws);
-      ws._deskFeeding = false;
-      if (r.deskPipe.feeders.size === 0) { try { r.deskPipe.pipe.stop(); } catch {} r.deskPipe = null; }
-    }
-  };
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
   if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
   ws.on('message', (data, isBinary) => {
-    if (isBinary) {
-      const r = rooms.get(ws._session);
-      if (ws._deskFeeding && r && r.deskPipe) r.deskPipe.pipe.feed(data);
-      else if (talk) talk.feed(data);
-      return;
-    }
+    if (isBinary) { if (talk) talk.feed(data); return; }
     try {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
@@ -1557,20 +1543,13 @@ function handleViewer(ws) {
           if (!talk) talk = startTalkPipeline(ws._session, 'right');
           if (!talk) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
         } else if (talk) { talk.stop(); talk = null; }
-      } else if (m.type === 'desk-start') {
-        const r = getRoom(ws._session);
-        if (!r.deskPipe) {
-          const pipe = startDeskPipeline(ws._session, { deskLangs: m.deskLangs, deskIdle: m.deskIdle, sxSens: m.sxSens });
-          if (!pipe) { ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' })); }
-          else r.deskPipe = { pipe, feeders: new Set() };
-        }
-        if (r.deskPipe) { r.deskPipe.feeders.add(ws); ws._deskFeeding = true; }
-      } else if (m.type === 'desk-stop') {
-        relDesk();
+      } else if (m.type === 'desk-viewer-start') {
+        // 데스크: 마이크는 호스트. 뷰어 터치 → 호스트(패시브 뷰어 연결)에 캡처 시작 요청
+        broadcast(ws._session, { type: 'desk-remote-start' });
       }
     } catch {}
   });
-  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } relDesk(); });
+  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } });
 }
 
 /* ----------------------------- 호스트 ----------------------------- */
