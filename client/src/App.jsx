@@ -30,8 +30,16 @@ export default function App() {
   const [view, setView] = useState('sessions'); // 'sessions' | 'admin'
   const [user, setUser] = useState(undefined); // undefined=확인중, null=로그아웃
   const [drawer, setDrawer] = useState(false); // 모바일 네비 드로어
+  const [isFs, setIsFs] = useState(false); // 전체화면(데스크 안내) — nav 숨김
   const theme = useMemo(() => buildTheme(mode), [mode]);
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  useEffect(() => {
+    const h = () => setIsFs(!!(document.fullscreenElement || document.webkitFullscreenElement));
+    document.addEventListener('fullscreenchange', h);
+    document.addEventListener('webkitfullscreenchange', h);
+    return () => { document.removeEventListener('fullscreenchange', h); document.removeEventListener('webkitfullscreenchange', h); };
+  }, []);
 
   useEffect(() => {
     api
@@ -150,6 +158,7 @@ export default function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+          {!isFs && (
           <AppBar position="static" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
             <Toolbar sx={{ gap: 1, minHeight: 56 }}>
               <IconButton edge="start" onClick={() => setDrawer(true)} aria-label="메뉴">
@@ -166,6 +175,7 @@ export default function App() {
               <Typography sx={{ fontWeight: 800, fontSize: 16 }}>KAC Translator</Typography>
             </Toolbar>
           </AppBar>
+          )}
           <Drawer open={drawer} onClose={() => setDrawer(false)} PaperProps={{ sx: { width: 268 } }}>
             {nav}
           </Drawer>
@@ -182,7 +192,7 @@ export default function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-        {nav}
+        {!isFs && nav}
         <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           {mainEl}
         </Box>

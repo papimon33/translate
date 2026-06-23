@@ -53,6 +53,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [snack, setSnack] = useState(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
+  const [deskQr, setDeskQr] = useState(null); // 데스크 뷰어 랜딩 QR
 
   const reload = () => api.list().then(setList);
   const toggleSel = (id) =>
@@ -61,6 +62,9 @@ export default function SessionList({ onOpen, user, deskMode }) {
   useEffect(() => {
     reload();
   }, []);
+  useEffect(() => {
+    if (deskMode) api.deskLandingQr().then(setDeskQr).catch(() => {});
+  }, [deskMode]);
 
   const openDlg = () => {
     setName('');
@@ -132,6 +136,19 @@ export default function SessionList({ onOpen, user, deskMode }) {
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
+          {/* 데스크 뷰어 접속용 랜딩 QR (방 선택 화면) */}
+          {deskMode && deskQr && (
+            <Card sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, mb: 2 }}>
+              <Box component="img" src={deskQr.qr} alt="뷰어 QR" sx={{ width: 96, height: 96, bgcolor: '#fff', borderRadius: 2, p: 0.5, flex: 'none' }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontWeight: 800, fontSize: 15 }}>뷰어 접속 QR (안내데스크 선택 화면)</Typography>
+                <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
+                  손님 태블릿으로 이 QR을 스캔 → 안내데스크를 고르면 시작 화면(전체화면)이 떠요.
+                </Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.5, wordBreak: 'break-all' }}>{deskQr.url}</Typography>
+              </Box>
+            </Card>
+          )}
           {/* 목록 영역 우상단 툴바: 새 세션 / 선택·삭제 */}
           {!empty && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>

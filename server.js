@@ -841,6 +841,15 @@ app.get('/api/sessions/:id', (req, res) => {
   res.json(s);
 });
 
+// 데스크 뷰어 랜딩(공개): 안내데스크 세션 목록(id·제목만) — 뷰어가 방을 선택해 접속
+app.get('/api/desk-sessions', (req, res) => {
+  const list = sessions
+    .filter((s) => s.pipeline === 'desk')
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    .map((s) => ({ id: s.id, title: s.title || '안내데스크' }));
+  res.json(list);
+});
+
 app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
@@ -949,7 +958,9 @@ function getLanIp() {
 /* ---- QR (세션별 모바일 URL) ---- */
 app.get('/api/qr', async (req, res) => {
   const sessionId = String(req.query.session || '');
-  if (!sessionId) return res.status(400).json({ error: 'session required' });
+  // 데스크 랜딩 QR: session 없이 호출하면 안내데스크 선택 화면(desk.html)으로
+  const landing = req.query.desk === '1' || (!sessionId && req.query.landing === '1');
+  if (!sessionId && !landing) return res.status(400).json({ error: 'session required' });
   // 배포 환경: 요청 host/proto 사용(Render 등은 x-forwarded-* 로 전달).
   let proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
   let host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
@@ -958,10 +969,14 @@ app.get('/api/qr', async (req, res) => {
     host = `${getLanIp()}:${PORT}`;
     proto = 'http';
   }
-  // 데스크 안내 모드는 전용(최소 UI·터치 시작·전체화면) 뷰어로
-  const sess = getSession(sessionId);
-  const viewer = sess && sess.pipeline === 'desk' ? 'desk.html' : 'mobile.html';
-  const url = `${proto}://${host}/${viewer}?session=${encodeURIComponent(sessionId)}`;
+  // 데스크 안내 모드는 전용(최소 UI·터치 시작·전체화면) 뷰어로. 랜딩(세션 선택)은 desk.html (세션 없이)
+  const sess = sessionId ? getSession(sessionId) : null;
+  let url;
+  if (landing) url = `${proto}://${host}/desk.html`;
+  else {
+    const viewer = sess && sess.pipeline === 'desk' ? 'desk.html' : 'mobile.html';
+    url = `${proto}://${host}/${viewer}?session=${encodeURIComponent(sessionId)}`;
+  }
   try {
     const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 1 });
     res.json({ url, qr: dataUrl });
@@ -1514,13 +1529,26 @@ function handleViewer(ws) {
   room.viewers.add(ws);
   ws._audioWanted = false; // '음성 듣기' 구독 여부
   let talk = null; // 폰 PTT 파이프라인
-  let deskPipe = null; // 데스크 안내 모드: 뷰어가 마이크를 직접 캡처해 구동
+  // 데스크 파이프라인은 룸 공유(room.deskPipe): 호스트·뷰어 어느 쪽이 시작해도 같은 파이프라인을 먹이고 둘 다 표출
+  const relDesk = () => {
+    const r = rooms.get(ws._session);
+    if (r && r.deskPipe && ws._deskFeeding) {
+      r.deskPipe.feeders.delete(ws);
+      ws._deskFeeding = false;
+      if (r.deskPipe.feeders.size === 0) { try { r.deskPipe.pipe.stop(); } catch {} r.deskPipe = null; }
+    }
+  };
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
   if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
   ws.on('message', (data, isBinary) => {
-    if (isBinary) { if (deskPipe) deskPipe.feed(data); else if (talk) talk.feed(data); return; }
+    if (isBinary) {
+      const r = rooms.get(ws._session);
+      if (ws._deskFeeding && r && r.deskPipe) r.deskPipe.pipe.feed(data);
+      else if (talk) talk.feed(data);
+      return;
+    }
     try {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
@@ -1530,16 +1558,19 @@ function handleViewer(ws) {
           if (!talk) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
         } else if (talk) { talk.stop(); talk = null; }
       } else if (m.type === 'desk-start') {
-        if (!deskPipe) {
-          deskPipe = startDeskPipeline(ws._session, { deskLangs: m.deskLangs, deskIdle: m.deskIdle, sxSens: m.sxSens });
-          if (!deskPipe) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
+        const r = getRoom(ws._session);
+        if (!r.deskPipe) {
+          const pipe = startDeskPipeline(ws._session, { deskLangs: m.deskLangs, deskIdle: m.deskIdle, sxSens: m.sxSens });
+          if (!pipe) { ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' })); }
+          else r.deskPipe = { pipe, feeders: new Set() };
         }
+        if (r.deskPipe) { r.deskPipe.feeders.add(ws); ws._deskFeeding = true; }
       } else if (m.type === 'desk-stop') {
-        if (deskPipe) { deskPipe.stop(); deskPipe = null; }
+        relDesk();
       }
     } catch {}
   });
-  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } if (deskPipe) { deskPipe.stop(); deskPipe = null; } });
+  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } relDesk(); });
 }
 
 /* ----------------------------- 호스트 ----------------------------- */

@@ -17,6 +17,7 @@ export const api = {
     }).then(json),
   remove: (id) => fetch('/api/sessions/' + id, { method: 'DELETE' }).then(json),
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
+  deskLandingQr: () => fetch('/api/qr?desk=1').then(json),
 
   me: () => fetch('/api/me').then(json),
   login: (id, password, remember) =>

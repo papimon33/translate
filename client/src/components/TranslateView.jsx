@@ -26,6 +26,7 @@ import MicNoneIcon from '@mui/icons-material/MicNone';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
 import TuneIcon from '@mui/icons-material/Tune';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import PersonIcon from '@mui/icons-material/Person';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -175,6 +176,7 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = Number(localStorage.getItem('kac-desk-idle'));
     return Number.isFinite(v) && v > 0 ? v : 7; // 초
   });
+  const [deskCfgOpen, setDeskCfgOpen] = useState(false); // 데스크 설정(민감도/자동중지) 접기
   const [sxMode, setSxMode] = useState(() => localStorage.getItem('kac-sx-mode') || 'one'); // 'one' | 'two'
   const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
@@ -254,6 +256,21 @@ export default function TranslateView({ session: initial, onBack }) {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, partials]);
+
+  // 데스크: 패시브 뷰어 연결 — 뷰어(손님)가 시작해도 호스트 화면에 동시 표출(녹음 안 해도 수신)
+  useEffect(() => {
+    if (cfg.pipeline !== 'desk') return;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    let ws = null, closed = false;
+    const conn = () => {
+      ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${initial.id}`);
+      ws.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch {} };
+      ws.onclose = () => { if (!closed) setTimeout(conn, 1500); };
+    };
+    conn();
+    return () => { closed = true; try { ws && ws.close(); } catch {} };
+    // eslint-disable-next-line
+  }, [cfg.pipeline, initial.id]);
 
   // 연결/인식이 지나치게 지연되면 무한 스피너 대신 안내로 전환(특히 시스템 오디오)
   useEffect(() => {
@@ -437,7 +454,17 @@ export default function TranslateView({ session: initial, onBack }) {
             <QrCode2Icon />
           </IconButton>
         </Tooltip>
-        {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
+        {cfg.pipeline === 'desk' && (
+          <Tooltip title="전체화면">
+            <IconButton
+              onClick={() => { const el = document.documentElement; const fn = el.requestFullscreen || el.webkitRequestFullscreen; if (fn) try { fn.call(el); } catch {} }}
+              sx={{ border: 1, borderColor: 'divider' }}
+            >
+              <FullscreenIcon />
+            </IconButton>
+          </Tooltip>
+        )}
+        {cfg.pipeline === 'soniox' && (
           <Tooltip title="고급 설정">
             <IconButton onClick={() => setSxSettingsOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
               <TuneIcon />
@@ -450,7 +477,7 @@ export default function TranslateView({ session: initial, onBack }) {
       <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: 1.5 }}>
         <Paper
           variant="outlined"
-          sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: 3, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
+          sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: cfg.pipeline === 'desk' ? 1.5 : 3, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
         >
           {cfg.pipeline !== 'desk' && (
             <Field label="오디오 소스">
@@ -463,28 +490,35 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
           {cfg.pipeline === 'desk' && (
             <>
-              <Field label="음성 감지 민감도">
-                <Select
-                  size="small"
-                  value={sxSens}
-                  disabled={recording}
-                  onChange={(e) => { const v = Number(e.target.value); setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }}
-                  sx={{ ...selSx, minWidth: 130 }}
-                >
-                  {SX_SENS.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
-                </Select>
-              </Field>
-              <Field label="세션 자동중지(무음)">
-                <Select
-                  size="small"
-                  value={deskIdle}
-                  disabled={recording}
-                  onChange={(e) => { const v = Number(e.target.value); setDeskIdle(v); localStorage.setItem('kac-desk-idle', String(v)); }}
-                  sx={{ ...selSx, minWidth: 120 }}
-                >
-                  {DESK_IDLE.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
-                </Select>
-              </Field>
+              <Button size="small" variant={deskCfgOpen ? 'contained' : 'outlined'} startIcon={<TuneIcon fontSize="small" />} onClick={() => setDeskCfgOpen((o) => !o)} sx={{ textTransform: 'none', alignSelf: 'center' }}>
+                설정
+              </Button>
+              {deskCfgOpen && (
+                <>
+                  <Field label="음성 감지 민감도">
+                    <Select
+                      size="small"
+                      value={sxSens}
+                      disabled={recording}
+                      onChange={(e) => { const v = Number(e.target.value); setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }}
+                      sx={{ ...selSx, minWidth: 130 }}
+                    >
+                      {SX_SENS.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
+                    </Select>
+                  </Field>
+                  <Field label="세션 자동중지(무음)">
+                    <Select
+                      size="small"
+                      value={deskIdle}
+                      disabled={recording}
+                      onChange={(e) => { const v = Number(e.target.value); setDeskIdle(v); localStorage.setItem('kac-desk-idle', String(v)); }}
+                      sx={{ ...selSx, minWidth: 120 }}
+                    >
+                      {DESK_IDLE.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
+                    </Select>
+                  </Field>
+                </>
+              )}
             </>
           )}
           {cfg.pipeline !== 'translate' && cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
