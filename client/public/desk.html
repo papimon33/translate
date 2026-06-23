@@ -10,7 +10,6 @@
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
     -webkit-user-select:none; user-select:none; overscroll-behavior:none; }
-  /* 시작 버튼(하나) */
   #startWrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:10; }
   #startBtn { border:none; cursor:pointer; color:#fff; font-weight:800;
     background:linear-gradient(135deg,#7c9cff,#9b87ff); border-radius:28px;
@@ -18,17 +17,23 @@
     box-shadow:0 16px 50px rgba(124,156,255,.45); }
   #startBtn small { display:block; font-size:16px; font-weight:600; opacity:.9; margin-top:8px; }
   #startBtn .tap { display:block; font-size:40px; margin-bottom:10px; }
-  /* 번역 표시 영역 */
-  #stage { position:fixed; inset:0; display:none; flex-direction:column; justify-content:flex-end;
+  #stage { position:fixed; inset:0; display:none; flex-direction:column; justify-content:center;
     padding:6vh 6vw calc(6vh + env(safe-area-inset-bottom)); gap:18px; }
   .line { line-height:1.4; word-break:keep-all; overflow-wrap:anywhere; }
   .line.prev { font-size:clamp(20px,4vw,40px); color:var(--muted); opacity:.55; }
   .line.cur  { font-size:clamp(32px,7vw,76px); font-weight:800; }
-  .line.cur.staff { color:var(--accent); }          /* 안내원 → 외국인 언어 번역(주 정보) */
-  .line.cur.self  { color:var(--fg); opacity:.85; } /* 외국인 자기 발화(원문) */
+  .line.cur.staff { color:var(--accent); }
+  .line.cur.self  { color:var(--fg); opacity:.9; }
+  /* 말하기 대기: 통통 튀는 점 */
+  #dots { display:flex; gap:22px; align-items:flex-end; justify-content:center; height:40vh; }
+  #dots span { width:24px; height:24px; border-radius:50%; background:var(--muted);
+    animation:bounce 1.2s infinite ease-in-out; }
+  #dots span:nth-child(2){ animation-delay:.18s; }
+  #dots span:nth-child(3){ animation-delay:.36s; }
+  @keyframes bounce { 0%,80%,100%{ transform:translateY(0); opacity:.4; } 40%{ transform:translateY(-34px); opacity:1; } }
   #endBtn { position:fixed; top:calc(env(safe-area-inset-top) + 12px); right:14px; z-index:11;
     display:none; width:40px; height:40px; border-radius:12px; border:1px solid #2a3242;
-    background:rgba(20,24,33,.6); color:var(--muted); font-size:20px; align-items:center; justify-content:center; }
+    background:rgba(20,24,33,.6); color:var(--muted); font-size:20px; align-items:center; justify-content:center; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -39,93 +44,126 @@
       <small>请触摸开始 · タッチして開始 · Chạm để bắt đầu</small>
     </button>
   </div>
-  <div id="stage"></div>
+  <div id="stage">
+    <div id="dots"><span></span><span></span><span></span></div>
+    <div id="lines"></div>
+  </div>
   <div id="endBtn">✕</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const sessionId = params.get('session') || 'default';
-const LABEL = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', vi:'Tiếng Việt', th:'ไทย', tl:'Filipino', id:'Bahasa', ru:'Русский', ms:'Melayu' };
 
-let curLang = 'ko';        // 외국인(뷰어) 표시 언어 = 감지된 B
+let curLang = 'ko';
 let started = false;
 let ws = null;
-const cards = new Map();    // id -> {texts, source, staff}
+let stream = null, audioCtx = null, proc = null;
+const cards = new Map();
 let order = [];
 
-function applySxInfo(info){
-  if (!info) return;
-  if (info.mode === 'two') curLang = info.b || curLang; // 데스크 뷰어는 외국인 언어(B)
-  render();
+/* ---- 오디오 캡처 → 24kHz PCM16 ---- */
+function downsampleTo24k(f32, inRate){
+  if (inRate === 24000) return f32;
+  const ratio = inRate / 24000, outLen = Math.round(f32.length / ratio), out = new Float32Array(outLen);
+  for (let i=0;i<outLen;i++){ const idx=i*ratio, i0=Math.floor(idx), i1=Math.min(i0+1,f32.length-1); out[i]=f32[i0]*(1-(idx-i0))+f32[i1]*(idx-i0); }
+  return out;
 }
+function floatTo16(f32){
+  const buf = new ArrayBuffer(f32.length*2), view = new DataView(buf);
+  for (let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); s=s<0?s*0x8000:s*0x7fff; view.setInt16(i*2,s,true); }
+  return buf;
+}
+function startCapture(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const inRate = audioCtx.sampleRate;
+  const src = audioCtx.createMediaStreamSource(stream);
+  proc = audioCtx.createScriptProcessor(4096, 1, 1);
+  const g = audioCtx.createGain(); g.gain.value = 0;
+  src.connect(proc); proc.connect(g); g.connect(audioCtx.destination);
+  proc.onaudioprocess = (e) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const input = e.inputBuffer.getChannelData(0);
+    ws.send(floatTo16(downsampleTo24k(input, inRate)));
+  };
+}
+
+/* ---- 표시 ---- */
+function applySxInfo(info){ if(!info) return; if(info.mode==='two') curLang = info.b || curLang; render(); }
 function textOf(c){
-  if (c.texts && c.texts[curLang]) return { t: c.texts[curLang], staff: true };   // 안내원 답변(외국인 언어)
-  if (c.source) return { t: c.source, staff: false };                             // 외국인 자기 발화(원문)
-  return { t: '', staff: false };
+  if (c.texts && c.texts[curLang]) return { t:c.texts[curLang], staff:true };
+  if (c.source) return { t:c.source, staff:false };
+  return { t:'', staff:false };
 }
 function upsert(item){
   let c = cards.get(item.id);
-  if (!c) { c = {}; cards.set(item.id, c); order.push(item.id); }
-  c.texts = item.texts || {};
-  c.source = item.source || '';
+  if (!c){ c={}; cards.set(item.id,c); order.push(item.id); }
+  c.texts = item.texts || {}; c.source = item.source || '';
   render();
 }
-function clearAll(){ cards.clear(); order = []; render(); }
+function clearAll(){ cards.clear(); order=[]; render(); }
 function render(){
   if (!started) return;
-  const stage = $('stage');
-  // 최근 발화만: 현재(큰 글씨) + 직전 1개(흐리게)
-  const ids = order.filter(id => { const r = textOf(cards.get(id)); return r.t; });
+  const ids = order.filter(id => textOf(cards.get(id)).t);
   const last = ids.slice(-2);
-  stage.innerHTML = '';
+  $('dots').style.display = last.length ? 'none' : 'flex';
+  const lines = $('lines'); lines.innerHTML = '';
   last.forEach((id, idx) => {
-    const c = cards.get(id); const r = textOf(c);
+    const r = textOf(cards.get(id));
     const div = document.createElement('div');
     const isCur = idx === last.length - 1;
     div.className = 'line ' + (isCur ? ('cur ' + (r.staff ? 'staff' : 'self')) : 'prev');
     div.textContent = r.t;
-    stage.appendChild(div);
+    lines.appendChild(div);
   });
 }
 
+/* ---- WS ---- */
 function connect(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}`);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { ws.send(JSON.stringify({ type:'desk-start' })); };
   ws.onclose = () => { if (started) setTimeout(connect, 1500); };
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
-    if (m.type === 'snapshot') { (m.items||[]).forEach(upsert); }
+    if (m.type === 'snapshot') (m.items||[]).forEach(upsert);
     else if (m.type === 'sentence') upsert(m);
     else if (m.type === 'meta') applySxInfo(m.sxInfo);
     else if (m.type === 'desk-reset') clearAll();
   };
 }
 
-async function loadMeta(){
-  try { const s = await fetch('/api/sessions/' + sessionId).then(r => r.json());
-    if (s && s.sxInfo) applySxInfo(s.sxInfo);
-  } catch {}
+/* ---- 전체화면 ---- */
+function goFullscreen(){
+  const el = document.documentElement;
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  if (fn) { try { fn.call(el); } catch {} }
 }
 
-function start(){
+async function start(){
   if (started) return;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true } }); }
+  catch (e) { alert('마이크 권한이 필요합니다 / Microphone permission required'); return; }
   started = true;
+  goFullscreen();
   $('startWrap').style.display = 'none';
   $('stage').style.display = 'flex';
   $('endBtn').style.display = 'flex';
-  const el = document.documentElement;
-  const fs = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (fs) { try { fs.call(el); } catch {} }
-  loadMeta();
+  startCapture();
   connect();
 }
 function end(){
   started = false;
+  try { ws && ws.send(JSON.stringify({ type:'desk-stop' })); } catch {}
   try { ws && ws.close(); } catch {}
+  try { proc && (proc.onaudioprocess = null); } catch {}
+  try { stream && stream.getTracks().forEach(t => t.stop()); } catch {}
+  try { audioCtx && audioCtx.close(); } catch {}
   if (document.fullscreenElement || document.webkitFullscreenElement) {
     (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document);
   }
+  cards.clear(); order = [];
   $('stage').style.display = 'none';
   $('endBtn').style.display = 'none';
   $('startWrap').style.display = 'flex';

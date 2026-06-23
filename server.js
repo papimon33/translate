@@ -1377,18 +1377,137 @@ function startTalkPipeline(sessionId, side) {
   };
 }
 
+/* 데스크 안내(뷰어 구동): 뷰어 태블릿이 직접 마이크를 캡처 → 이 파이프라인으로 전송.
+   detect(one_way→ko + 언어식별) → 외국어 첫 문장 endpoint에서 그 언어로 lock → two_way(ko↔X) 재연결.
+   무음 deskIdleMs(기본 7초) 동안 아무 말 없으면 대화 종료(deskLog 보존)·리셋 → 다시 감지. 결과는 뷰어+호스트로 broadcast. */
+function startDeskPipeline(sessionId, opts = {}) {
+  if (!SONIOX_API_KEY) return null;
+  const A = 'ko';
+  const SUPPORTED = ['en', 'ja', 'zh', 'vi', 'th', 'tl', 'id', 'ru', 'ms'];
+  let CAND = SUPPORTED;
+  if (opts.deskLangs) {
+    const f = String(opts.deskLangs).split(',').map((s) => s.trim().toLowerCase()).filter((c) => SUPPORTED.includes(c));
+    if (f.length) CAND = f;
+  }
+  const deskIdleMs = Math.min(60000, Math.max(2000, Number(opts.deskIdle) || 7000));
+  const sens = Number(opts.sxSens);
+  const side = 'right';
+  let phase = 'detect', lockedB = null, sx = null, sxReady = false, stopped = false;
+  const pending = [];
+  let foreignTimer = null;
+  let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommitText = '';
+
+  const baseConfig = () => ({
+    api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+    enable_language_identification: true, enable_endpoint_detection: true,
+    endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
+    max_endpoint_delay_ms: 2000, endpoint_latency_adjustment_level: 0,
+    ...(buildSonioxContext() ? { context: buildSonioxContext() } : {}),
+  });
+  const configFor = () => (phase === 'locked' && lockedB
+    ? { ...baseConfig(), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } }
+    : { ...baseConfig(), language_hints: [A, ...CAND], translation: { type: 'one_way', target_language: A } });
+
+  const sendMeta = () => {
+    const sxInfo = phase === 'locked' && lockedB ? { mode: 'two', a: A, b: lockedB } : { mode: 'one', target: A, detect: true };
+    const s = getSession(sessionId);
+    if (s) { s.sxInfo = sxInfo; if (phase === 'locked') s.langs = [A, lockedB]; saveSessions(); }
+    broadcast(sessionId, { type: 'meta', sxInfo });
+    sendToHosts(sessionId, { type: 'meta', sxInfo });
+  };
+  const targetKeyFor = (src) => (phase === 'locked' ? (src === A ? lockedB : A) : A);
+  const reset = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; };
+
+  const live = (id, langTexts, source) => { const m = { type: 'sentence', id, side, source: source || null, texts: langTexts, terms: {} }; broadcast(sessionId, m); sendToHosts(sessionId, m); };
+  const commit = () => {
+    const id = curId, txt = finalText.trim(), src = curSrc;
+    const tgt = (finalTrans.trim() || lastTrans).trim();
+    reset();
+    if (!id || !txt) return;
+    const out = tgt || txt;
+    if (out && out === lastCommitText) return;
+    lastCommitText = out;
+    const msg = applyItem(sessionId, id, side, { [targetKeyFor(src)]: out }, txt);
+    broadcast(sessionId, msg); sendToHosts(sessionId, msg);
+  };
+
+  const armTimer = () => { clearTimeout(foreignTimer); foreignTimer = setTimeout(() => { if (phase === 'locked') endConversation(); }, deskIdleMs); };
+  const endConversation = () => {
+    clearTimeout(foreignTimer);
+    commit();
+    const s = getSession(sessionId);
+    if (s) {
+      if (Array.isArray(s.items) && s.items.length) {
+        s.deskLog = s.deskLog || [];
+        s.deskLog.push({ endedAt: Date.now(), lang: lockedB, items: s.items });
+        if (s.deskLog.length > 200) s.deskLog = s.deskLog.slice(-200);
+        s.items = [];
+      }
+      saveSessions();
+    }
+    lastCommitText = ''; phase = 'detect'; lockedB = null; reset();
+    broadcast(sessionId, { type: 'desk-reset' }); sendToHosts(sessionId, { type: 'desk-reset' });
+    broadcast(sessionId, { type: 'snapshot', items: [] });
+    sendMeta();
+    reconnect();
+  };
+  const relock = (B) => { phase = 'locked'; lockedB = B; lastCommitText = ''; reset(); sendMeta(); armTimer(); reconnect(); };
+
+  function reconnect() {
+    if (stopped) return;
+    const old = sx; sxReady = false;
+    const next = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
+    sx = next;
+    next.on('open', () => { try { next.send(JSON.stringify(configFor())); } catch {} sxReady = true; while (pending.length) { try { next.send(pending.shift()); } catch {} } });
+    next.on('message', onMsg);
+    next.on('error', () => {});
+    next.on('close', () => {});
+    try { if (old && old !== next) old.close(); } catch {}
+  }
+  function onMsg(raw) {
+    let ev; try { ev = JSON.parse(raw.toString()); } catch { return; }
+    if (ev.error_code) return;
+    const toks = ev.tokens || [];
+    if (!toks.length) return;
+    if (phase === 'locked') armTimer();
+    let endHit = false, nonFinal = '', nonFinalTrans = '';
+    for (const t of toks) {
+      if (t.text === '<end>') { endHit = true; continue; }
+      if (t.translation_status === 'translation') { if (t.is_final) finalTrans += t.text; else nonFinalTrans += t.text; }
+      else { const lang = t.language ? String(t.language).split('-')[0].toLowerCase() : ''; if (lang && !curSrc) curSrc = lang; if (t.is_final) finalText += t.text; else nonFinal += t.text; }
+    }
+    const shownSrc = (finalText + nonFinal).trim(), shownTgt = (finalTrans + nonFinalTrans).trim();
+    if (shownTgt) lastTrans = shownTgt;
+    if (!curId && (shownSrc || shownTgt)) curId = newId();
+    if (curId) live(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null);
+    if (endHit || finalText.length >= 200) {
+      const src = curSrc;
+      commit();
+      if (phase === 'detect' && src && src !== A && CAND.includes(src)) relock(src);
+    }
+  }
+
+  sendMeta();
+  reconnect();
+  return {
+    feed: (data) => { if (sxReady && sx) { try { sx.send(data); } catch {} } else if (pending.length < 2000) pending.push(data); },
+    stop: () => { stopped = true; clearTimeout(foreignTimer); try { sx && sx.send(''); } catch {} try { sx && sx.close(); } catch {} },
+  };
+}
+
 /* ----------------------------- 뷰어 ------------------------------- */
 function handleViewer(ws) {
   const room = getRoom(ws._session);
   room.viewers.add(ws);
   ws._audioWanted = false; // '음성 듣기' 구독 여부
   let talk = null; // 폰 PTT 파이프라인
+  let deskPipe = null; // 데스크 안내 모드: 뷰어가 마이크를 직접 캡처해 구동
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
   if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
   ws.on('message', (data, isBinary) => {
-    if (isBinary) { if (talk) talk.feed(data); return; }
+    if (isBinary) { if (deskPipe) deskPipe.feed(data); else if (talk) talk.feed(data); return; }
     try {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
@@ -1397,10 +1516,17 @@ function handleViewer(ws) {
           if (!talk) talk = startTalkPipeline(ws._session, 'right');
           if (!talk) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
         } else if (talk) { talk.stop(); talk = null; }
+      } else if (m.type === 'desk-start') {
+        if (!deskPipe) {
+          deskPipe = startDeskPipeline(ws._session, { deskLangs: m.deskLangs, deskIdle: m.deskIdle, sxSens: m.sxSens });
+          if (!deskPipe) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
+        }
+      } else if (m.type === 'desk-stop') {
+        if (deskPipe) { deskPipe.stop(); deskPipe = null; }
       }
     } catch {}
   });
-  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } });
+  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } if (deskPipe) { deskPipe.stop(); deskPipe = null; } });
 }
 
 /* ----------------------------- 호스트 ----------------------------- */
