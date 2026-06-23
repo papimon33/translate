@@ -82,6 +82,19 @@ if (!fs.existsSync(STATIC_DIR)) {
 }
 app.use(express.static(STATIC_DIR));
 
+// 데스크 뷰어 PWA manifest(세션별 start_url) — '홈 화면에 추가'로 실행 시 항상 전체화면 유지
+app.get('/desk.webmanifest', (req, res) => {
+  const session = String(req.query.session || '');
+  const start = '/desk.html' + (session ? `?session=${encodeURIComponent(session)}` : '');
+  res.type('application/manifest+json').json({
+    name: 'KAC Desk', short_name: 'KAC Desk',
+    display: 'fullscreen', display_override: ['fullscreen', 'standalone'],
+    background_color: '#0b0e14', theme_color: '#0b0e14',
+    start_url: start, scope: '/',
+    icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+  });
+});
+
 const server = http.createServer(app);
 
 /* ================================================================== */

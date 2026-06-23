@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>KAC Desk</title>
+<!-- 항상 전체화면: '홈 화면에 추가' 후 실행하면 브라우저 UI 없이 풀스크린 유지 -->
+<link id="manifest" rel="manifest" href="/desk.webmanifest" />
+<meta name="theme-color" content="#0b0e14" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="KAC Desk" />
 <style>
   :root { --bg:#0b0e14; --fg:#f3f5fa; --muted:#8a93a6; --accent:#7c9cff; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -54,6 +61,11 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const sessionId = params.get('session') || 'default';
+// 세션별 manifest(홈화면 추가 시 이 세션으로 전체화면 실행)
+(function(){ const mf = document.getElementById('manifest'); if (mf && params.get('session')) mf.href = '/desk.webmanifest?session=' + encodeURIComponent(sessionId); })();
+function isStandalone(){
+  try { return window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; }
+}
 
 let curLang = 'ko';
 let started = false;
@@ -136,6 +148,7 @@ function connect(){
 
 /* ---- 전체화면 ---- */
 function goFullscreen(){
+  if (isStandalone()) return; // 홈화면 실행(PWA)이면 이미 전체화면
   const el = document.documentElement;
   const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
   if (fn) { try { fn.call(el); } catch {} }
