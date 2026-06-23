@@ -174,9 +174,16 @@ applyFs();
 // 번역 방향 라벨(언어 선택은 안 되므로 표시만): 단방향=→타깃, 양방향=A↔B
 function applySxInfo(info){
   const el = $('langLabel');
-  if (!info) { el.textContent = '연결 대기 중…'; el.style.display='block'; return; }
-  if (info.mode === 'two') { curLang = info.a; el.textContent = (LABEL[info.a]||info.a) + ' ↔ ' + (LABEL[info.b]||info.b); }
-  else { curLang = info.target; el.textContent = '→ ' + (LABEL[info.target]||info.target); }
+  if (!info) { el.textContent = (sessionPipeline==='desk') ? '말씀하시면 통역됩니다' : '연결 대기 중…'; el.style.display='block'; return; }
+  if (info.mode === 'two') {
+    // 데스크 뷰어(외국인 태블릿)는 자기 언어(b)를 본다. 일반 soniox는 a(=ko).
+    curLang = (sessionPipeline === 'desk') ? info.b : info.a;
+    el.textContent = (LABEL[info.a]||info.a) + ' ↔ ' + (LABEL[info.b]||info.b);
+  } else if (sessionPipeline === 'desk') {
+    curLang = 'ko'; el.textContent = '언어 감지 중… (말씀하세요)'; // detect 단계
+  } else {
+    curLang = info.target; el.textContent = '→ ' + (LABEL[info.target]||info.target);
+  }
   el.style.display = 'block';
   rerender();
 }
@@ -194,6 +201,9 @@ async function loadSession(){
     // 다국어 번역: 방향 라벨 표시(선택 불가) + 음성 듣기 + 누르고 말하기
     applySxInfo(sxInfo);
     $('audioBtn').style.display = 'flex'; $('pttBtn').style.display = 'flex';
+  } else if (sessionPipeline === 'desk') {
+    // 데스크 안내: 외국인 자기 언어 자동 표시(입력은 호스트 마이크, 뷰어는 표시 전용)
+    applySxInfo(sxInfo);
   } else {
     // whisper(구): 다국어 select 유지
     langSel.innerHTML=''; langSel.style.display='';
@@ -257,6 +267,8 @@ function renderLine(c){
   c.line.textContent = txt || c.source || '';
 }
 function rerender(){ cards.forEach(renderLine); }
+// 데스크: 대화 종료 시 화면 초기화(다음 손님)
+function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); if(empty) empty.style.display=''; }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
 
 /* ---- 번역 음성 재생 (translate, 24kHz PCM16) ---- */
@@ -294,7 +306,8 @@ function connect(){
     else if(m.type==='partial'){ setPartial(m.text); }
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
     else if(m.type==='audio'){ if(audioOn) playPcm24(m.b64); }
-    else if(m.type==='meta'){ if(sessionPipeline==='soniox') applySxInfo(m.sxInfo); }
+    else if(m.type==='meta'){ if(sessionPipeline==='soniox' || sessionPipeline==='desk') applySxInfo(m.sxInfo); }
+    else if(m.type==='desk-reset'){ clearAll(); }
     else if(m.type==='speakers'){ speakerNames = m.speakers || {}; rerenderSpk(); }
     else if(m.type==='host'){ setHostActive(m.active); }
   };

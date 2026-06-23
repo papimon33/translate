@@ -61,6 +61,7 @@ const PIPES = [
   { v: 'translate', label: '실시간 통역' },
   { v: 'deepgram', label: '다국어 번역 (Deepgram)' },
   { v: 'soniox', label: '다국어 번역' },
+  { v: 'desk', label: '데스크 안내 모드' },
 ];
 // Soniox 엔드포인트 튜닝 테스트용 프리셋 — 민감도 -1.0~1.0 (0.1 단위)
 const SX_SENS = Array.from({ length: 21 }, (_, i) => {
@@ -296,6 +297,11 @@ export default function TranslateView({ session: initial, onBack }) {
       setTimeout(() => setNotice(''), 6000);
       return;
     }
+    if (m.type === 'desk-reset') { // 데스크: 대화 종료 → 화면 초기화(다음 손님)
+      setMessages([]);
+      setPartials({ left: '', right: '' });
+      return;
+    }
     if (m.type === 'partial' || m.type === 'sentence') setConnecting(false); // 첫 결과 도착 → 연결중 해제
     if (m.type === 'partial') {
       setPartials((p) => ({ ...p, [m.side || 'right']: m.text || '' }));
@@ -416,7 +422,7 @@ export default function TranslateView({ session: initial, onBack }) {
             <QrCode2Icon />
           </IconButton>
         </Tooltip>
-        {cfg.pipeline === 'soniox' && (
+        {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
           <Tooltip title="고급 설정">
             <IconButton onClick={() => setSxSettingsOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
               <TuneIcon />
@@ -438,7 +444,7 @@ export default function TranslateView({ session: initial, onBack }) {
               ))}
             </Select>
           </Field>
-          {cfg.pipeline !== 'translate' && cfg.pipeline !== 'soniox' && (
+          {cfg.pipeline !== 'translate' && cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
             <Field label="입력 언어">
               <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 120 }}>
                 {LANGS.map((l) => (
@@ -552,7 +558,7 @@ export default function TranslateView({ session: initial, onBack }) {
               )}
             </>
           )}
-          {cfg.pipeline !== 'soniox' && (
+          {cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
             <Field label="출력 언어">
               <Select
                 size="small"
@@ -615,7 +621,7 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
 
-          {cfg.pipeline !== 'soniox' && (
+          {cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
             <Field label="번역 모델(테스트)">
               <Select
                 size="small"

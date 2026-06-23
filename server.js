@@ -801,10 +801,10 @@ app.get('/api/sessions', requireAuth, (req, res) => {
 app.post('/api/sessions', requireAuth, (req, res) => {
   const now = Date.now();
   const b = req.body || {};
-  const pipeline = ['translate', 'deepgram', 'soniox'].includes(b.pipeline) ? b.pipeline : 'whisper';
-  // whisper 는 항상 한·영·일·중 전부 번역. translate 는 단일 출력 언어.
+  const pipeline = ['translate', 'deepgram', 'soniox', 'desk'].includes(b.pipeline) ? b.pipeline : 'whisper';
+  // whisper 는 항상 한·영·일·중 전부 번역. translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장).
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
-  const langs = pipeline === 'translate' ? [outLang] : ALL_LANGS.slice(); // whisper·deepgram 은 다국어
+  const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice()); // whisper·deepgram 다국어
   const s = {
     id: newId(),
     owner: req.user.id, // 소유자
@@ -1302,6 +1302,8 @@ server.on('upgrade', (req, socket, head) => {
       ws._tts = searchParams.get('tts');           // soniox 실시간 TTS on('1')
       ws._gender = searchParams.get('gender');     // 음성 성별 'm' | 'f'
       ws._diar = searchParams.get('diar');         // 화자 구분 on('1')
+      ws._deskLangs = searchParams.get('deskLangs'); // desk 후보 언어(콤마구분) — 취항국
+      ws._deskIdle = searchParams.get('deskIdle');   // desk 외국어 무음 리셋(ms)
       wss.emit('connection', ws, req);
     });
   } else {
@@ -1498,6 +1500,7 @@ function handleHost(ws) {
   if (pipeline === 'translate') runTranslate();
   else if (pipeline === 'deepgram') runDeepgram();
   else if (pipeline === 'soniox') runSoniox();
+  else if (pipeline === 'desk') runDesk();
   else runWhisper();
 
   /* ---------- Soniox stt-rt-v5 (전사) -> gpt 번역 [테스트] ---------- */
@@ -1715,6 +1718,160 @@ function handleHost(ws) {
       } catch {}
     });
     ws.on('close', () => { try { sx.close(); } catch {} });
+  }
+
+  /* ---------- 데스크 안내 모드: 언어 자동감지(detect) → soniox two_way(ko↔X) ----------
+     · A=ko 고정. 외국어 첫 발화가 끝나면(endpoint) 그 언어로 lock 후 양방향 재연결.
+     · 외국어 무음 deskIdleMs(기본 7초) → 대화 종료: items 를 deskLog 에 보존하고 화면 리셋 → 다시 감지 모드.
+     · TTS/화자분리 없음. 클라(호스트=ko / 뷰어=X)는 source+texts+meta(sxInfo)로 색/표시 결정. */
+  function runDesk() {
+    if (!SONIOX_API_KEY) { toHost({ type: 'status', message: 'SONIOX_API_KEY 미설정 — 데스크 모드 사용 불가' }); return; }
+    const SX_MAX_CHARS = 200;
+    const sens = Number(ws._sxSens), maxDelay = Number(ws._sxMaxDelay), latency = Number(ws._sxLatency);
+    const A = 'ko'; // 안내원 언어(고정)
+    // soniox two_way 지원 + 취항국 후보(몽골·광둥 미지원이라 제외). ws._deskLangs(콤마구분)로 덮어쓰기.
+    const SUPPORTED = ['en', 'ja', 'zh', 'vi', 'th', 'tl', 'id', 'ru', 'ms'];
+    let CAND = SUPPORTED;
+    if (ws._deskLangs) {
+      const f = String(ws._deskLangs).split(',').map((s) => s.trim().toLowerCase()).filter((c) => SUPPORTED.includes(c));
+      if (f.length) CAND = f;
+    }
+    const deskIdleMs = Math.min(60000, Math.max(2000, Number(ws._deskIdle) || 7000)); // 외국어 무음 → 리셋
+
+    let phase = 'detect';   // 'detect' | 'locked'
+    let lockedB = null;
+    let sx = null, sxReady = false;
+    const pending = [];
+    let foreignTimer = null;
+
+    const baseConfig = () => ({
+      api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+      enable_language_identification: true, enable_endpoint_detection: true,
+      endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
+      max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
+      endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
+      ...(buildSonioxContext() ? { context: buildSonioxContext() } : {}),
+    });
+    const configFor = () => (phase === 'locked' && lockedB
+      ? { ...baseConfig(), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } }
+      : { ...baseConfig(), language_hints: [A, ...CAND], translation: { type: 'one_way', target_language: A } });
+
+    const setMeta = () => {
+      const sxInfo = phase === 'locked' && lockedB ? { mode: 'two', a: A, b: lockedB } : { mode: 'one', target: A, detect: true };
+      if (session) { session.sxInfo = sxInfo; if (phase === 'locked') session.langs = [A, lockedB]; saveSessions(); }
+      broadcast(sessionId, { type: 'meta', sxInfo });
+      toHost({ type: 'meta', sxInfo });
+    };
+
+    let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommitText = '';
+    const targetKeyFor = (src) => (phase === 'locked' ? (src === A ? lockedB : A) : A);
+    const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; };
+
+    const commit = () => {
+      const id = curId, txt = finalText.trim(), src = curSrc;
+      const tgt = (finalTrans.trim() || lastTrans).trim();
+      resetUtterance();
+      if (!id || !txt) return;
+      const out = tgt || txt;
+      if (out && out === lastCommitText) return;
+      lastCommitText = out;
+      upsertItem(id, { [targetKeyFor(src)]: out }, txt, null);
+    };
+
+    const armForeignTimer = () => {
+      clearTimeout(foreignTimer);
+      foreignTimer = setTimeout(() => { if (phase === 'locked') endConversation(); }, deskIdleMs);
+    };
+    const endConversation = () => {
+      clearTimeout(foreignTimer);
+      commit();
+      if (session) {
+        if (Array.isArray(session.items) && session.items.length) {
+          session.deskLog = session.deskLog || [];
+          session.deskLog.push({ endedAt: Date.now(), lang: lockedB, items: session.items });
+          if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200); // 보존 상한
+          session.items = [];
+        }
+        saveSessions();
+      }
+      lastCommitText = '';
+      phase = 'detect'; lockedB = null; resetUtterance();
+      broadcast(sessionId, { type: 'desk-reset' });
+      toHost({ type: 'desk-reset' });
+      broadcast(sessionId, { type: 'snapshot', items: [] });
+      setMeta();
+      toHost({ type: 'status', message: '대화 종료 — 다음 손님 대기(언어 감지 모드)' });
+      reconnect();
+    };
+
+    const relock = (B) => { // 첫 외국어 발화 확정 후 호출(해당 발화는 이미 commit 됨)
+      phase = 'locked'; lockedB = B; lastCommitText = ''; resetUtterance();
+      setMeta();
+      armForeignTimer();
+      toHost({ type: 'status', message: `언어 감지: ${B} — 양방향 통역 시작 (ko↔${B})` });
+      reconnect();
+    };
+
+    function reconnect() {
+      const old = sx;
+      sxReady = false;
+      const next = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
+      sx = next;
+      idleClose = () => { try { next.close(); } catch {} };
+      next.on('open', () => {
+        try { next.send(JSON.stringify(configFor())); } catch {}
+        sxReady = true;
+        while (pending.length) { try { next.send(pending.shift()); } catch {} }
+      });
+      next.on('message', onSxMessage);
+      next.on('error', (e) => toHost({ type: 'status', message: 'Soniox 오류: ' + ((e && e.message) || e) }));
+      next.on('close', () => {});
+      try { if (old && old !== next) old.close(); } catch {}
+    }
+
+    function onSxMessage(raw) {
+      let ev; try { ev = JSON.parse(raw.toString()); } catch { return; }
+      if (ev.error_code) { toHost({ type: 'status', message: `Soniox 오류 ${ev.error_code}: ${ev.error_message || ''}`.slice(0, 160) }); return; }
+      const toks = ev.tokens || [];
+      if (!toks.length) return;
+      bumpIdle();
+      let endHit = false, nonFinal = '', nonFinalTrans = '';
+      for (const t of toks) {
+        if (t.text === '<end>') { endHit = true; continue; }
+        if (t.translation_status === 'translation') {
+          if (t.is_final) finalTrans += t.text; else nonFinalTrans += t.text;
+        } else {
+          const lang = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
+          if (lang && !curSrc) curSrc = lang;
+          if (t.is_final) finalText += t.text; else nonFinal += t.text;
+          if (phase === 'locked' && lang === lockedB) armForeignTimer(); // 외국어 활동 → 무음 타이머 리셋
+        }
+      }
+      const shownSrc = (finalText + nonFinal).trim();
+      const shownTgt = (finalTrans + nonFinalTrans).trim();
+      if (shownTgt) lastTrans = shownTgt;
+      if (!curId && (shownSrc || shownTgt)) curId = newId();
+      if (curId) liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, null);
+      if (endHit || finalText.length >= SX_MAX_CHARS) {
+        const src = curSrc;
+        commit();
+        // 감지 모드: 외국어 발화가 한 문장 끝나면 그 언어로 lock(한국어는 통과만, lock 안 함)
+        if (phase === 'detect' && src && src !== A && CAND.includes(src)) relock(src);
+      }
+    }
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) { if (sxReady && sx) { try { sx.send(data); } catch {} } else if (pending.length < 2000) pending.push(data); return; }
+      try {
+        const m = JSON.parse(data.toString());
+        if (m.type === 'stop') { try { sx && sx.send(''); } catch {} try { sx && sx.close(); } catch {} }
+      } catch {}
+    });
+    ws.on('close', () => { clearTimeout(foreignTimer); try { sx && sx.close(); } catch {} });
+
+    setMeta();
+    reconnect();
+    toHost({ type: 'status', message: `데스크 모드 — 언어 감지 대기 (후보: ${CAND.join(', ')}, 무음 ${deskIdleMs / 1000}s 리셋)` });
   }
 
   /* ---------- Deepgram Nova-3 (전사+화자구분) -> gpt 번역 [테스트] ---------- */

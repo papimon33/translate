@@ -212,7 +212,7 @@ export default function SessionList({ onOpen, user }) {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
                     <Chip
                       size="small"
-                      label={s.pipeline === 'translate' ? '실시간 통역' : s.pipeline === 'deepgram' ? '다국어 (Deepgram)' : '다국어 번역'}
+                      label={s.pipeline === 'desk' ? '데스크 안내' : s.pipeline === 'translate' ? '실시간 통역' : s.pipeline === 'deepgram' ? '다국어 (Deepgram)' : '다국어 번역'}
                       color="primary"
                       variant="outlined"
                       sx={{ height: 20, fontSize: 11 }}
@@ -284,6 +284,12 @@ export default function SessionList({ onOpen, user }) {
               <b>실시간 통역</b>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
                 {isAdmin ? '자막 및 음성으로 실시간 통역' : '관리자 전용'}
+              </Typography>
+            </ToggleButton>
+            <ToggleButton value="desk" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
+              <b>데스크 안내</b>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
+                안내데스크 대면 통역(언어 자동감지·양방향)
               </Typography>
             </ToggleButton>
           </ToggleButtonGroup>
