@@ -81,6 +81,7 @@ export async function startRecorder(opts) {
 
   const pipes = [];
   const streams = [];
+  let muted = false; // 발화 일시정지: 연결은 유지하고 마이크 전송만 끔(무음 전송)
 
   // 번역 음성 재생(translate): 서버가 보내는 24kHz PCM16 청크를 끊김 없이 스케줄링
   let audioOutOn = !!audioOut;
@@ -157,6 +158,17 @@ export async function startRecorder(opts) {
       }
       if (src === 'mic' && onMeter) onMeter(Math.sqrt(sum / input.length), peak);
 
+      // 발화 일시정지(mute): 연결 유지 위해 무음 전송 + 주기적 keepalive(유휴 종료 방지)
+      if (muted) {
+        if (ws.readyState === WebSocket.OPEN) {
+          const ds = downsampleTo24k(input, inRate);
+          ws.send(new ArrayBuffer(ds.length * 2));
+          const t = Date.now();
+          if (t - lastActivitySent > 5000) { lastActivitySent = t; try { ws.send(JSON.stringify({ type: 'activity' })); } catch {} }
+        }
+        return;
+      }
+
       // 볼륨 게이트(마이크만): 임계 이상이면 열고 300ms hold, 이하이면 무음(0) 전송으로 번역 억제
       let gated = false;
       if (src === 'mic' && gateTh > 0) {
@@ -229,5 +241,8 @@ export async function startRecorder(opts) {
     try { outGain.gain.value = Math.max(0, v); } catch {}
   }
 
-  return { stop, setAudioOut, setVolume };
+  // 발화 on/off (세션 유지). on=true 면 일시정지(무음), false 면 발화중
+  function setMuted(on) { muted = !!on; }
+
+  return { stop, setAudioOut, setVolume, setMuted };
 }

@@ -24,6 +24,7 @@ import { alpha } from '@mui/material/styles';
 import { keyframes } from '@mui/system';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import MicNoneIcon from '@mui/icons-material/MicNone';
+import MicOffIcon from '@mui/icons-material/MicOff';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -211,6 +212,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
+  const [micMuted, setMicMuted] = useState(false); // 발화 일시정지(세션 유지, 마이크만 off)
   const [level, setLevel] = useState(0);
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
@@ -413,6 +415,7 @@ export default function TranslateView({ session: initial, onBack }) {
       }
       recRef.current = rec;
       setRecording(true);
+      setMicMuted(false); // 시작 시 발화 on
       setConnecting(true); // 엔진 연결~첫 결과까지 표시
     } catch (e) {
       alert(e.message);
@@ -425,9 +428,16 @@ export default function TranslateView({ session: initial, onBack }) {
     recRef.current?.stop();
     recRef.current = null;
     setRecording(false);
+    setMicMuted(false);
     setConnecting(false);
     setLevel(0);
     setPartials({ left: '', right: '' });
+  };
+  // 발화 on/off (세션은 유지) — 다시 켜도 재연결 지연 없음
+  const toggleMute = () => {
+    const next = !micMuted;
+    setMicMuted(next);
+    if (recRef.current && recRef.current.setMuted) recRef.current.setMuted(next);
   };
 
   const toggleSrc = (v) => {
@@ -791,10 +801,26 @@ export default function TranslateView({ session: initial, onBack }) {
           sx={{
             // 모바일: 화면 고정(스크롤해도 위치 유지) / 데스크톱: 채팅영역 하단
             position: { xs: 'fixed', sm: 'absolute' }, left: 0, right: 0, bottom: 0, height: 130, zIndex: 1100,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, pointerEvents: 'none',
             background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
           }}
         >
+          {recording && (
+            <Button
+              onClick={toggleMute}
+              disableElevation
+              startIcon={micMuted ? <MicOffIcon /> : <MicNoneIcon />}
+              variant="outlined"
+              color={micMuted ? 'inherit' : 'error'}
+              sx={{
+                pointerEvents: 'auto', px: 2.5, py: 1.25, borderRadius: 2.5, fontSize: 14, fontWeight: 700,
+                bgcolor: 'background.paper', boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                color: micMuted ? 'text.secondary' : 'error.main',
+              }}
+            >
+              {micMuted ? '발화 시작' : '발화 멈춤'}
+            </Button>
+          )}
           <Button
             onClick={recording ? stop : start}
             disableElevation
