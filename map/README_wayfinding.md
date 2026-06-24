@@ -45,23 +45,25 @@
 - 무채색(흰/연회색), 내부 벽은 연한 회색. **보안구역은 하늘색 채움(색)으로만 구분**(점선 경계 없음).
 - 평소 시설 아이콘은 **전부 숨김**. 경로 시: 출발/목적지 = **현위치 핀**, 경유 에스컬레이터/엘리베이터만
   **입체 그래픽 + 아이콘(래퍼 없음)**. 에스컬레이터는 `transit_groups` 매핑 지점에서만, 평면 방향(`ESC_DIR`) 기준으로 두 층을 잇는 경사 그래픽.
-- **층별 정렬**: 축척/위치가 층마다 달라 보정 가능. 숫자(`floorCalib`/`setCalib`) 대신 **`test.html`의 `🔧 층 정렬`**
-  버튼을 켜면 지도에서 **드래그로 이동 · 슬라이더로 크기**를 맞추고, 결과 보정값을 textarea로 복사해 `create({floorCalib})`에
-  붙여넣으면 된다. 편집 API: `setEditFloor · clientToLocal · floorAtLocal · planDeltaFromScreen · nudgeCalib · setCalib · resetCalib · getCalib`.
+- **층별 정렬(권장: 2D 정합 도구)**: 축척/위치가 층마다 달라 보정 필요. **`align.html`** 에서 4개 도면을
+  **탑다운으로 겹쳐** 띄우고 드래그(이동)·슬라이더(가로/세로 따로 `scaleX/scaleY`)로 맞춘다. `에스컬레이터 기준
+  자동정렬` 로 공유 노드(transit_groups) 기준 1차 정렬 후 미세조정. `3D에 적용(저장)` 누르면 `localStorage`에
+  저장되고, **`test.html`을 열면 그 정합값이 자동 반영**된다. `create({floorCalib})` 로 직접 넘겨도 됨.
+  보정 모델: `보정좌표 = (평면좌표 − 중심)·(sx,sy) + 중심 + (dx,dy)` (평면 단위).
 - 길찾기 엔진(벽/보안 회피 직교 A* + transit_groups 멀티플로어 그래프)은 v1과 동일(검증됨).
 
-### 테스트 (`test.html` — 자체 완결)
-출발층/방향·카테고리·검색·시설선택·전체화면 컨트롤로 `map.showRoute()` 를 호출하는 데모.
-**데이터(window.AIRPORT_DATA)와 라이브러리(airport25d.js)가 전부 인라인**되어 있어 다른 파일/서버 없이
-**그냥 더블클릭만으로 즉시 실행**된다(`file://`). 외부 리소스 요청 0개로 검증됨.
+### 파일 / 빌드
+| 소스(편집) | 산출물(자체 완결) | 용도 |
+|---|---|---|
+| `test.src.html`  | `test.html`  | 3D 길찾기 뷰 (데이터+라이브러리 인라인) |
+| `align.src.html` | `align.html` | 2D 탑다운 정합 도구 (데이터 인라인) |
 
-소스 수정 후 재생성:
-```
-# airport25d.js 또는 wayfinding_data.js 를 고쳤으면
-python3 map/_build_test.py     # test.html 의 인라인 블록을 최신 소스로 다시 채움(idempotent)
-```
-빌드는 `<!--DATA:START-->…<!--DATA:END-->`, `<!--LIB:START-->…<!--LIB:END-->` 마커 사이를 교체한다.
-HTML/CSS/JS 컨트롤(마커 밖)을 고친 뒤 재빌드하면 그대로 유지된다.
+- `*.html` 은 **다른 파일/서버 없이 더블클릭(`file://`)만으로 즉시 실행**(외부요청 0).
+- 편집은 `*.src.html`(또는 `airport25d.js`/`wayfinding_data.js`)를 고친 뒤:
+  ```
+  python3 map/_build_test.py     # *.src.html 의 <script src> 를 인라인해 *.html 생성
+  ```
+- 워크플로: **`align.html` 에서 정합 → 저장 → `test.html` 에서 3D 확인** (localStorage `kac_floorCalib` 로 연결).
 
 검증: 1F→3F(엘베), 1F→4F(엘베+ESC-E), 2F→3F, 동일층 경로 / 경로 중 시설 숨김 / 외부요청 0 / 콘솔 에러 없음.
 

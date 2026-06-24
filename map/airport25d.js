@@ -227,9 +227,11 @@ function create(opts){
     layoutReady=true;
   }
   function calOf(fk){return (O.floorCalib&&O.floorCalib[fk])||{s:1,dx:0,dy:0};}
-  function calMat(fk){const fl=FL[fk],cal=calOf(fk),s=cal.s||1;
-    const offX=A*(cal.dx||0)*RS+C*(cal.dy||0)*RS, offY=B*(cal.dx||0)*RS+Dd*(cal.dy||0)*RS;
-    return {a:s*A,b:s*B,c:s*C,d:s*Dd, e:s*fl.e0+fl.cx0*(1-s)+offX, f:s*fl.f0+fl.cy0*(1-s)+offY};}
+  // 보정: 평면좌표를 '평면 중심 기준 비균일 확대(sx,sy) + 평면이동(dx,dy)' 으로 변형
+  function calMat(fk){const fl=FL[fk],cal=calOf(fk);
+    const sx=cal.sx!=null?cal.sx:(cal.s!=null?cal.s:1), sy=cal.sy!=null?cal.sy:(cal.s!=null?cal.s:1);
+    const kx=(fl.mw/2)*(1-sx)+RS*(cal.dx||0), ky=(fl.mh/2)*(1-sy)+RS*(cal.dy||0);
+    return {a:A*sx,b:B*sx,c:C*sy,d:Dd*sy, e:fl.e0+A*kx+C*ky, f:fl.f0+B*kx+Dd*ky};}
   function project(fk,x,y){const m=calMat(fk),mx=x*RS,my=y*RS;return [m.a*mx+m.c*my+m.e, m.b*mx+m.d*my+m.f];}
   function floorBBox(fk){const fl=FL[fk],m=calMat(fk);
     const cs=[[0,0],[fl.mw,0],[0,fl.mh],[fl.mw,fl.mh]].map(p=>[m.a*p[0]+m.c*p[1]+m.e, m.b*p[0]+m.d*p[1]+m.f]);

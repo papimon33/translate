@@ -3,93 +3,91 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>airport25d 테스트 · 김포공항 2.5D 길찾기</title>
+<title>층 정합(2D 탑다운) · 김포공항 길찾기</title>
 <style>
-  :root{--bg:#0e1217;--panel:#161c24;--ink:#e6eaef;--mut:#93a0ab;--line:#2a333d;--acc:#ff7a55;}
+  :root{--bg:#0a0d11;--panel:#161c24;--ink:#e6eaef;--mut:#93a0ab;--line:#2a333d;--acc:#ff7a55;}
   *{box-sizing:border-box;}
-  body{margin:0;background:#0a0d11;color:var(--ink);font-family:system-ui,"Noto Sans KR",sans-serif;}
-  header{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Noto Sans KR",sans-serif;}
+  header{padding:12px 18px;border-bottom:1px solid var(--line);}
   header h1{font-size:16px;margin:0;font-weight:600;}
   header .sub{font-size:12px;color:var(--mut);margin-top:3px;}
-  header a{margin-left:auto;font-size:13px;color:#11151a;background:#ffcf66;padding:8px 12px;border-radius:9px;text-decoration:none;font-weight:600;}
   .layout{display:flex;gap:14px;align-items:flex-start;padding:14px;max-width:1500px;margin:0 auto;}
-  .panel{width:320px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
-  .map-col{flex:1;min-width:0;}
+  .panel{width:300px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .stage-col{flex:1;min-width:0;}
   .gt{font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 7px;}
   .gt:first-child{margin-top:0;}
-  .row{display:flex;gap:6px;flex-wrap:wrap;}
   .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
   .seg button{border:none;background:transparent;padding:7px 12px;font-size:13px;cursor:pointer;color:var(--ink);}
-  .seg button.on{background:var(--acc);color:#11151a;font-weight:600;}
   .seg button+button{border-left:1px solid var(--line);}
-  .chip{border:1px solid var(--line);background:transparent;color:var(--ink);padding:6px 11px;border-radius:16px;font-size:12.5px;cursor:pointer;}
-  .chip.on{background:var(--ink);color:#11151a;border-color:var(--ink);}
-  input[type=search]{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;margin-top:2px;background:#0e1319;color:var(--ink);}
-  .compass{display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,34px);gap:4px;justify-content:center;}
-  .compass button{border:1px solid var(--line);background:transparent;border-radius:8px;font-size:13px;cursor:pointer;color:var(--ink);}
-  .compass button.on{background:#2aa37a;color:#fff;border-color:#2aa37a;}
-  .compass .mid{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--mut);}
-  .list{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:9px;margin-top:6px;}
-  .item{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid #1b222b;}
-  .item:last-child{border-bottom:none;}
-  .item:hover{background:#1b222b;}
-  .item.on{background:#2a1f1a;}
-  .item .ic{width:22px;height:22px;flex:none;border-radius:5px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;}
-  .item .ic img{width:18px;height:18px;}
-  .item .fl{margin-left:auto;font-size:11px;color:var(--mut);}
-  .info{margin-top:12px;font-size:13px;line-height:1.55;background:#10161d;border:1px solid var(--line);border-radius:9px;padding:11px;min-height:42px;}
-  .info b{color:var(--acc);}
-  .steps{margin:8px 0 0;padding-left:2px;list-style:none;font-size:12.5px;color:var(--mut);}
-  .steps li{padding:2px 0 2px 18px;position:relative;}
-  .steps li::before{content:"";position:absolute;left:4px;top:9px;width:6px;height:6px;border-radius:50%;background:var(--acc);}
-  .actions{display:flex;gap:8px;margin-top:10px;}
-  .actions button{flex:1;padding:9px;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:9px;cursor:pointer;font-size:13px;}
-  .actions button:hover{background:#1b222b;}
-  #mapbox{position:relative;}
-  #fsbtn{position:absolute;top:10px;right:10px;z-index:8;border:1px solid var(--line);background:rgba(20,26,33,.85);color:var(--ink);padding:7px 11px;border-radius:9px;cursor:pointer;font-size:13px;}
-  .calibNote{font-size:12px;color:var(--mut);margin-top:8px;}
-  .loading{padding:40px;text-align:center;color:var(--mut);}
-  @media(max-width:860px){.layout{flex-direction:column;}.panel{width:100%;}}
+  .seg button.on{color:#11151a;font-weight:700;}
+  button.act{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:9px;padding:8px 10px;font-size:13px;cursor:pointer;}
+  button.act:hover{background:#1b222b;}
+  label.fld{display:block;font-size:12px;color:var(--mut);margin:9px 0 2px;}
+  input[type=range]{width:100%;}
+  .vis{display:flex;flex-direction:column;gap:5px;font-size:13px;}
+  .vis label{display:flex;align-items:center;gap:7px;cursor:pointer;}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block;}
+  #out{width:100%;height:104px;margin-top:8px;font:11px ui-monospace,monospace;background:#0e1319;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px;resize:vertical;}
+  .stagebox{position:relative;background:
+      repeating-linear-gradient(0deg,#11161c 0 23px,#0e1318 23px 24px),
+      repeating-linear-gradient(90deg,#11161c 0 23px,#0e1318 23px 24px);
+    background-color:#0e1318;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  #stage{position:relative;}
+  .layer{position:absolute;left:0;top:0;transform-origin:center center;}
+  .layer svg{display:block;width:100%;height:100%;}
+  .layer.active{outline:2px dashed #ffcf66;outline-offset:2px;cursor:grab;}
+  .hint{font-size:12px;color:var(--mut);line-height:1.55;margin-top:6px;}
+  .row2{display:flex;gap:6px;margin-top:8px;}
+  .row2 .act{flex:1;}
+  .saved{font-size:12px;color:#2aa37a;margin-top:6px;min-height:16px;}
 </style>
 </head>
 <body>
 <header>
-  <div>
-    <h1>airport25d · 김포공항 국제선 2.5D 멀티플로어 길찾기</h1>
-    <div class="sub">4개 층 통합 · 벽 3D 압출 · 안내데스크 출발</div>
-  </div>
-  <a href="align.html">🔧 2D 정합 열기</a>
+  <h1>층 정합 (2D 탑다운) — 도면을 겹쳐 위치·크기 맞추기</h1>
+  <div class="sub">드래그로 이동 · 가로/세로 슬라이더로 크기 · 맞춘 값은 3D 뷰(test.html)에 그대로 적용</div>
 </header>
 
 <div class="layout">
   <div class="panel">
-    <div class="gt">출발 안내데스크</div>
-    <div class="seg" id="deskFloor"><button data-f="1F" class="on">1F 데스크</button><button data-f="2F">2F 데스크</button></div>
-    <div class="gt">출발 방향</div>
-    <div class="compass" id="compass">
-      <div></div><button data-s="N">북</button><div></div>
-      <button data-s="W">서</button><div class="mid">데스크</div><button data-s="E">동</button>
-      <div></div><button data-s="S" class="on">남</button><div></div>
+    <div class="gt">조정할 층</div>
+    <div class="seg" id="floorSeg">
+      <button data-f="1F" class="on">1F</button><button data-f="2F">2F</button><button data-f="3F">3F</button><button data-f="4F">4F</button>
     </div>
-    <div class="gt">카테고리</div>
-    <div class="row" id="cats"></div>
-    <div class="gt">목적지 검색 · 선택</div>
-    <input type="search" id="q" placeholder="이름·태그 검색 (음수대, 환전, cafe…)">
-    <div class="list" id="list"></div>
-    <div class="actions">
-      <button id="clearBtn">경로 지우기</button>
-      <button id="reloadCalib">정합값 다시 불러오기</button>
+
+    <div class="gt">크기 (가로 / 세로 따로)</div>
+    <label class="fld">가로 scaleX <span id="sxV">1.00</span></label>
+    <input type="range" id="sx" min="0.5" max="1.6" step="0.005" value="1">
+    <label class="fld">세로 scaleY <span id="syV">1.00</span></label>
+    <input type="range" id="sy" min="0.5" max="1.6" step="0.005" value="1">
+    <label class="vis" style="margin-top:8px;"><input type="checkbox" id="lockAR"> 가로·세로 같이(비율 고정)</label>
+
+    <div class="gt">전체 투명도</div>
+    <input type="range" id="op" min="0.2" max="1" step="0.05" value="0.6">
+
+    <div class="gt">표시 층</div>
+    <div class="vis" id="visList"></div>
+
+    <div class="row2">
+      <button class="act" id="autoBtn">에스컬레이터 기준 자동정렬</button>
     </div>
-    <div class="calibNote" id="calibNote"></div>
-    <div class="info" id="info">목적지를 선택하면 안내데스크에서 출발하는 경로를 모든 층에 걸쳐 표시합니다.</div>
-    <ol class="steps" id="steps"></ol>
+    <div class="row2">
+      <button class="act" id="resetFloor">이 층 초기화</button>
+      <button class="act" id="resetAll">전체 초기화</button>
+    </div>
+
+    <div class="gt">결과 (floorCalib)</div>
+    <textarea id="out" readonly></textarea>
+    <div class="row2">
+      <button class="act" id="copyBtn">📋 복사</button>
+      <button class="act" id="applyBtn">3D에 적용(저장)</button>
+    </div>
+    <div class="saved" id="saved"></div>
+    <div class="hint">팁: 한 층을 기준으로 두고, 나머지 층의 벽·기둥선이 겹치도록 드래그/늘리기 하세요. 같은 에스컬레이터·엘리베이터 위치를 맞추면 정확합니다.</div>
   </div>
 
-  <div class="map-col">
-    <div id="mapbox">
-      <button id="fsbtn">⛶ 전체화면</button>
-      <div id="map"><div class="loading">지도 로딩 중… (4개 층 래스터화)</div></div>
-    </div>
+  <div class="stage-col">
+    <div class="stagebox"><div id="stage"></div></div>
   </div>
 </div>
 
@@ -98,534 +96,128 @@ window.AIRPORT_DATA={"note":"pSeq=아이콘 단위. 같은 pSeq 시설들은 동
 
 </script>
 <script>
-/* ====================================================================
-   airport25d.js — 김포공항 국제선 2.5D 멀티플로어 길찾기 (재사용 라이브러리)
-
-   호출:
-     const map = AirportMap25D.create({ container, data:AIRPORT_DATA, options });
-     map.showRoute({ deskFloor:'1F', deskSide:'S', dest:{floor:'4F', name:'유아휴게실'} });
-     map.clearRoute();
-
-   렌더
-   - 4개 층을 하나의 화면에 분리 적층(겹치지 않는 최소 간격 = 실제 층고 느낌).
-   - 각 층은 도면 SVG 래스터화 마스크로 재구성: 바닥 footprint 아래 압출(슬래브 두께),
-     내부 벽(#000)만 위로 offset 적층 → 수직 압출. 외곽(건물 경계) 벽은 제거.
-   - 무채색(흰/연회색). 보안구역은 하늘색 채움(색)으로만 구분(점선 경계 없음).
-   - 시설 아이콘은 평소 전부 숨김. 경로 표시 시: 출발/목적지 = 현위치 핀,
-     경유 에스컬레이터/엘리베이터만 입체 그래픽 + 아이콘(래퍼 없음).
-   - 에스컬레이터는 transit_groups(확정 매핑)에서만, 평면 방향(ESC_DIR) 기준.
-   - 층별 축척/위치는 floorCalib 로 수동 보정.
-   ==================================================================== */
-(function (global) {
-"use strict";
-
-const FLOORS = ['1F', '2F', '3F', '4F'];
-const NS = "http://www.w3.org/2000/svg";
-
-/* ---------- 조절 상수 ---------- */
-const DEFAULTS = {
-  wallHeight: 16,        // 내부 벽 압출 높이(논리 px)
-  plateThickness: 10,    // 바닥 슬래브 두께
-  isoRot: 27 * Math.PI / 180,
-  isoKy: 0.5,            // 세로 압축(아이소 틸트)
-  renderScale: 0.6,      // 도면 래스터 해상도 배율
-  gap: null,             // 층 간격(null=자동: 겹치지 않는 최소)
-  gapMargin: 14,         // 자동 간격 여유
-  pad: 64,
-  wallEdgeErode: 6,      // 외곽 벽 제거 두께(마스크 px). 클수록 더 깎임
-  metersPerUnit: 0.075,
-  walkMps: 1.2,
-  // 층별 수동 보정: 보정좌표 = 원래좌표 * s + (dx,dy)  (원본 SVG 단위)
-  floorCalib: { '1F':{s:1,dx:0,dy:0}, '2F':{s:1,dx:0,dy:0}, '3F':{s:1,dx:0,dy:0}, '4F':{s:1,dx:0,dy:0} },
-};
-
-/* ---------- 색 (무채색 + 최소 강조) ---------- */
-const COL = {
-  bg:        '#0e1217',
-  plateTop:  '#eef1f4',
-  plateSec:  '#cfe4f3',   // 보안구역(하늘색 채움)
-  slabSide:  '#b3bcc5',
-  wallTop:   '#c6ccd2',   // 내부 벽 윗면(연한 회색)
-  wallSide:  '#a1a9b2',   // 내부 벽 측면
-  route:     '#ff7a55',
-  routeGlow: 'rgba(255,122,85,0.22)',
-  start:     '#7c6cf0',
-  dest:      '#ff5a3c',
-  escTop:    '#dde3e9',
-  escSide:   '#aab2bb',
-  escStep:   '#9098a1',
-  text:      '#dfe4e9',
-  chip:      { '1F':'#c98a2b', '2F':'#3b82d6', '3F':'#2aa37a', '4F':'#8b5cf6' },
-};
-const FLOOR_KR = { '1F':'1F', '2F':'2F', '3F':'3F', '4F':'4F' };
-// 평면도 기준 에스컬레이터 진행 방향(요구사항 매핑 노트)
-const ESC_DIR = { 'ESC-A':'E', 'ESC-B':'W', 'ESC-C':'N', 'ESC-D':'N', 'ESC-E':'E' };
-
-/* ---------- 유틸 ---------- */
-function pip(x, y, poly){let c=false,n=poly.length,j=n-1;
-  for(let i=0;i<n;i++){const xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
-    if(((yi>y)!=(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))c=!c;j=i;}return c;}
-function E(n,a){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;}
-function dist(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1]);}
-function lerp(a,b,t){return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t];}
-function ensureSize(svg,W,H){return /<svg[^>]*\bwidth=/.test(svg)?svg:svg.replace(/<svg/i,`<svg width="${W}" height="${H}"`);}
-function svgToImg(s){return new Promise((res,rej)=>{const img=new Image();img.onload=()=>res(img);img.onerror=rej;
-  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(s);});}
-function hex(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
-function put(d,o,c){d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255;}
-
-/* ====================================================================
-   힙 + 직교 A* + 연결요소 스냅 (검증된 로직)
-   ==================================================================== */
-class Heap{constructor(){this.a=[];}get size(){return this.a.length;}
-  push(p,v){const a=this.a;a.push([p,v]);let i=a.length-1;
-    while(i>0){const q=(i-1)>>1;if(a[q][0]<=a[i][0])break;const t=a[q];a[q]=a[i];a[i]=t;i=q;}}
-  pop(){const a=this.a,top=a[0],last=a.pop();
-    if(a.length){a[0]=last;let i=0,n=a.length;
-      while(true){let l=2*i+1,r=l+1,s=i;if(l<n&&a[l][0]<a[s][0])s=l;if(r<n&&a[r][0]<a[s][0])s=r;
-        if(s===i)break;const t=a[s];a[s]=a[i];a[i]=t;i=s;}}return top;}}
-function snapMain(G,gx,gy){const gw=G.gw,gh=G.gh;
-  gx=Math.max(0,Math.min(gw-1,gx));gy=Math.max(0,Math.min(gh-1,gy));
-  if(G.comp[gy*gw+gx]===G.main)return[gx,gy];
-  for(let r=1;r<200;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
-    if(Math.abs(dx)!==r&&Math.abs(dy)!==r)continue;
-    const nx=gx+dx,ny=gy+dy;if(nx>=0&&ny>=0&&nx<gw&&ny<gh&&G.comp[ny*gw+nx]===G.main)return[nx,ny];}
-  for(let r=1;r<200;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
-    const nx=gx+dx,ny=gy+dy;if(nx>=0&&ny>=0&&nx<gw&&ny<gh&&!G.blocked[ny*gw+nx])return[nx,ny];}
-  return[gx,gy];}
-function astar(G,sxv,syv,txv,tyv){const gw=G.gw,gh=G.gh,blk=G.blocked;
-  const [s0,s1]=snapMain(G,Math.round(sxv*G.sx),Math.round(syv*G.sy));
-  const [t0,t1]=snapMain(G,Math.round(txv*G.sx),Math.round(tyv*G.sy));
-  const start=s1*gw+s0,goal=t1*gw+t0;
-  if(start===goal)return[[sxv,syv],[txv,tyv]];
-  const gx2=goal%gw,gy2=(goal/gw)|0;
-  const g=new Float64Array(gw*gh).fill(Infinity),came=new Int32Array(gw*gh).fill(-1);
-  g[start]=0;const H=new Heap();H.push(Math.abs(s0-gx2)+Math.abs(s1-gy2),start);
-  while(H.size){const cur=H.pop()[1];if(cur===goal)break;
-    const cx=cur%gw,cy=(cur/gw)|0,cg=g[cur],ng=cg+1;let ni;
-    if(cx+1<gw){ni=cur+1;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs(cx+1-gx2)+Math.abs(cy-gy2),ni);}}
-    if(cx-1>=0){ni=cur-1;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs(cx-1-gx2)+Math.abs(cy-gy2),ni);}}
-    if(cy+1<gh){ni=cur+gw;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs(cx-gx2)+Math.abs(cy+1-gy2),ni);}}
-    if(cy-1>=0){ni=cur-gw;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs(cx-gx2)+Math.abs(cy-1-gy2),ni);}}}
-  if(came[goal]<0&&goal!==start)return null;
-  const path=[];let c=goal;while(c>=0){const cx=c%gw,cy=(c/gw)|0;path.push([(cx+0.5)/G.sx,(cy+0.5)/G.sy]);if(c===start)break;c=came[c];}
-  path.reverse();path[0]=[sxv,syv];path[path.length-1]=[txv,tyv];return path;}
-function simplifyOrtho(p){if(!p||p.length<3)return p;const o=[p[0]];
-  for(let i=1;i<p.length-1;i++){const a=p[i-1],b=p[i],c=p[i+1];
-    if(Math.sign(b[0]-a[0])!==Math.sign(c[0]-b[0])||Math.sign(b[1]-a[1])!==Math.sign(c[1]-b[1]))o.push(b);}
-  o.push(p[p.length-1]);return o;}
-function pathLen(p){let L=0;for(let i=1;i<p.length;i++)L+=dist(p[i],p[i-1]);return L;}
-
-/* ====================================================================
-   라이브러리 본체
-   ==================================================================== */
-function create(opts){
-  opts=opts||{};
-  const data=opts.data||global.AIRPORT_DATA;
-  if(!data) throw new Error('AIRPORT_DATA 필요 (opts.data 또는 window.AIRPORT_DATA)');
-  const container=typeof opts.container==='string'?document.querySelector(opts.container):opts.container;
-  if(!container) throw new Error('container 필요');
-  const O=Object.assign({},DEFAULTS,opts);
-  if(opts.floorCalib) O.floorCalib=Object.assign({}, DEFAULTS.floorCalib, opts.floorCalib);
-  const ROT=O.isoRot,KY=O.isoKy,RS=O.renderScale,WALL_H=O.wallHeight,THICK=O.plateThickness,PAD=O.pad;
-  const A=Math.cos(ROT),B=KY*Math.sin(ROT),C=-Math.sin(ROT),Dd=KY*Math.cos(ROT);
-
-  /* DOM */
-  container.innerHTML='';
-  const wrap=document.createElement('div');
-  wrap.style.cssText='position:relative;width:100%;background:'+COL.bg+';border-radius:12px;overflow:hidden;';
-  const cv=document.createElement('canvas');cv.style.cssText='display:block;width:100%;height:auto;';
-  const svg=E('svg',{});svg.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
-  wrap.appendChild(cv);wrap.appendChild(svg);container.appendChild(wrap);
-  const ctx=cv.getContext('2d');
-
-  const FL={};
-  let LOGW=0,LOGH=0,layoutReady=false;
-  const listeners={};
-  const ST={route:null,routeActive:false,desk:{floor:'1F',side:'S'}};
-  const emit=(ev,p)=>{(listeners[ev]||[]).forEach(f=>f(p));};
-
-  /* ---------- 래스터화 + 마스크(외곽 벽 제거) + 그리드 ---------- */
-  function isSec(r,g,b){return b>=235&&(b-r)>=6&&(b-g)>=1;}
-  function lumOf(r,g,b){return 0.299*r+0.587*g+0.114*b;}
-
-  async function rasterFloor(fk){
-    const fdat=data.floors[fk],W=fdat.viewBox[0],H=fdat.viewBox[1];
-    const mw=Math.round(W*RS),mh=Math.round(H*RS);
-    const img=await svgToImg(ensureSize(fdat.svg,W,H));
-    const src=document.createElement('canvas');src.width=mw;src.height=mh;
-    const sctx=src.getContext('2d',{willReadFrequently:true});
-    sctx.clearRect(0,0,mw,mh);sctx.drawImage(img,0,0,mw,mh);
-    const px=sctx.getImageData(0,0,mw,mh).data;
-
-    // 1차 판정
-    const inside=new Uint8Array(mw*mh),wallM=new Uint8Array(mw*mh),secM=new Uint8Array(mw*mh);
-    for(let i=0;i<mw*mh;i++){const o=i*4;if(px[o+3]<40)continue;inside[i]=1;
-      const r=px[o],g=px[o+1],b=px[o+2];
-      if(lumOf(r,g,b)<60)wallM[i]=1;else if(isSec(r,g,b))secM[i]=1;}
-    // 외곽 벽 제거: 건물 경계(바깥) R px 이내 벽은 제외 → 내부 벽만 유지
-    const R=O.wallEdgeErode,keep=new Uint8Array(mw*mh);
-    for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){const i=y*mw+x;if(!wallM[i])continue;
-      let outer=false;
-      for(let dy=-R;dy<=R&&!outer;dy++)for(let dx=-R;dx<=R;dx++){
-        const nx=x+dx,ny=y+dy;
-        if(nx<0||ny<0||nx>=mw||ny>=mh||!inside[ny*mw+nx]){outer=true;break;}}
-      if(!outer)keep[i]=1;}
-    // 마스크 채우기
-    const top=new ImageData(mw,mh),slab=new ImageData(mw,mh),wt=new ImageData(mw,mh),ws=new ImageData(mw,mh);
-    const cTop=hex(COL.plateTop),cSec=hex(COL.plateSec),cSlab=hex(COL.slabSide),cWt=hex(COL.wallTop),cWs=hex(COL.wallSide);
-    for(let i=0;i<mw*mh;i++){if(!inside[i])continue;const o=i*4;
-      put(slab.data,o,cSlab);
-      if(keep[i]){put(wt.data,o,cWt);put(ws.data,o,cWs);put(top.data,o,cTop);}
-      else if(secM[i])put(top.data,o,cSec);
-      else put(top.data,o,cTop);}
-    const masks={};
-    for(const [k,id] of [['top',top],['slab',slab],['wallTop',wt],['wallSide',ws]]){
-      const c=document.createElement('canvas');c.width=mw;c.height=mh;c.getContext('2d').putImageData(id,0,0);masks[k]=c;}
-
-    // 길찾기 그리드(보안구역=폴리곤으로 정확 차단)
-    const gw=Math.max(40,Math.round(mw/3)),gh=Math.max(40,Math.round(mh/3));
-    const blocked=new Uint8Array(gw*gh),sx=gw/W,sy=gh/H,secs=fdat.security_polygons||[];
-    for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){
-      const mx=Math.min(mw-1,Math.round((x+0.5)/gw*mw)),my=Math.min(mh-1,Math.round((y+0.5)/gh*mh)),o=(my*mw+mx)*4;
-      let bl=false;if(px[o+3]<40)bl=true;else if(lumOf(px[o],px[o+1],px[o+2])<60)bl=true;
-      if(!bl){const vx=(x+0.5)/sx,vy=(y+0.5)/sy;for(const poly of secs){if(pip(vx,vy,poly)){bl=true;break;}}}
-      blocked[y*gw+x]=bl?1:0;}
-    const comp=new Int32Array(gw*gh).fill(-1);let lab=0,mainL=-1,mc=0;
-    for(let i=0;i<comp.length;i++){if(blocked[i]||comp[i]>=0)continue;let cnt=0;const stk=[i];comp[i]=lab;
-      while(stk.length){const c=stk.pop();cnt++;const cx=c%gw,cy=(c/gw)|0;
-        if(cx+1<gw){const n=c+1;if(!blocked[n]&&comp[n]<0){comp[n]=lab;stk.push(n);}}
-        if(cx-1>=0){const n=c-1;if(!blocked[n]&&comp[n]<0){comp[n]=lab;stk.push(n);}}
-        if(cy+1<gh){const n=c+gw;if(!blocked[n]&&comp[n]<0){comp[n]=lab;stk.push(n);}}
-        if(cy-1>=0){const n=c-gw;if(!blocked[n]&&comp[n]<0){comp[n]=lab;stk.push(n);}}}
-      if(cnt>mc){mc=cnt;mainL=lab;}lab++;}
-    FL[fk]={W,H,mw,mh,masks,grid:{gw,gh,blocked,comp,main:mainL,sx,sy}};
-  }
-
-  /* ---------- 레이아웃 (기준 적층) + 층별 보정(calMat) ----------
-     기준(base) 배치는 보정과 무관하게 계산(센터링·적층). 보정 s/dx/dy 는
-     '층 중심 기준 확대 + 화면이동'으로 calMat 에서 적용 → dx/dy 가 실제로 먹고
-     s 는 제자리에서 커짐(드래그 편집에 직관적). */
-  function computeLayout(){
-    let maxW=0;
-    FLOORS.forEach((fk)=>{const fl=FL[fk];
-      const cs=[[0,0],[fl.mw,0],[0,fl.mh],[fl.mw,fl.mh]].map(p=>[A*p[0]+C*p[1], B*p[0]+Dd*p[1]]);
-      let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
-      cs.forEach(p=>{minX=Math.min(minX,p[0]);maxX=Math.max(maxX,p[0]);minY=Math.min(minY,p[1]);maxY=Math.max(maxY,p[1]);});
-      fl.bMinX=minX;fl.bMinY=minY;fl.w=maxX-minX;fl.h=maxY-minY;maxW=Math.max(maxW,fl.w);});
-    const topY={};topY['4F']=PAD+WALL_H;
-    for(let i=2;i>=0;i--){const up=FLOORS[i+1],lo=FLOORS[i];
-      const gap=(O.gap!=null)?O.gap:(FL[up].h+THICK+WALL_H+O.gapMargin);topY[lo]=topY[up]+gap;}
-    const centerX=PAD+maxW/2;
-    FLOORS.forEach((fk)=>{const fl=FL[fk];
-      fl.e0=centerX-fl.w/2-fl.bMinX; fl.f0=topY[fk]-fl.bMinY; fl.topY=topY[fk];
-      fl.cx0=A*(fl.mw/2)+C*(fl.mh/2)+fl.e0; fl.cy0=B*(fl.mw/2)+Dd*(fl.mh/2)+fl.f0;});
-    LOGW=maxW+2*PAD; LOGH=FL['1F'].topY+FL['1F'].h+THICK+PAD;
-    svg.setAttribute('viewBox',`0 0 ${LOGW.toFixed(1)} ${LOGH.toFixed(1)}`);
-    const dpr=Math.min(global.devicePixelRatio||1,2);
-    cv.width=Math.round(LOGW*dpr);cv.height=Math.round(LOGH*dpr);cv._dpr=dpr;
-    layoutReady=true;
-  }
-  function calOf(fk){return (O.floorCalib&&O.floorCalib[fk])||{s:1,dx:0,dy:0};}
-  // 보정: 평면좌표를 '평면 중심 기준 비균일 확대(sx,sy) + 평면이동(dx,dy)' 으로 변형
-  function calMat(fk){const fl=FL[fk],cal=calOf(fk);
-    const sx=cal.sx!=null?cal.sx:(cal.s!=null?cal.s:1), sy=cal.sy!=null?cal.sy:(cal.s!=null?cal.s:1);
-    const kx=(fl.mw/2)*(1-sx)+RS*(cal.dx||0), ky=(fl.mh/2)*(1-sy)+RS*(cal.dy||0);
-    return {a:A*sx,b:B*sx,c:C*sy,d:Dd*sy, e:fl.e0+A*kx+C*ky, f:fl.f0+B*kx+Dd*ky};}
-  function project(fk,x,y){const m=calMat(fk),mx=x*RS,my=y*RS;return [m.a*mx+m.c*my+m.e, m.b*mx+m.d*my+m.f];}
-  function floorBBox(fk){const fl=FL[fk],m=calMat(fk);
-    const cs=[[0,0],[fl.mw,0],[0,fl.mh],[fl.mw,fl.mh]].map(p=>[m.a*p[0]+m.c*p[1]+m.e, m.b*p[0]+m.d*p[1]+m.f]);
-    let a1=1e9,b1=1e9,a2=-1e9,b2=-1e9;cs.forEach(p=>{a1=Math.min(a1,p[0]);a2=Math.max(a2,p[0]);b1=Math.min(b1,p[1]);b2=Math.max(b2,p[1]);});
-    return {minX:a1,minY:b1-WALL_H,maxX:a2,maxY:b2+THICK};}
-
-  /* ---------- 캔버스: 압출 바닥 ---------- */
-  function drawFloors(){
-    const dpr=cv._dpr;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
-    for(let i=3;i>=0;i--){const fk=FLOORS[i],fl=FL[fk],mk=fl.masks,m=calMat(fk);
-      const T=(dy)=>ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
-      ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,(m.e+7)*dpr,(m.f+THICK+9)*dpr);
-      ctx.globalAlpha=0.16;ctx.drawImage(mk.slab,0,0);ctx.globalAlpha=1;   // 그림자
-      for(let k=THICK;k>=1;k--){T(k);ctx.drawImage(mk.slab,0,0);}          // 슬래브 두께
-      T(0);ctx.drawImage(mk.top,0,0);                                      // 바닥 윗면
-      for(let k=0;k<WALL_H;k++){T(-k);ctx.drawImage(mk.wallSide,0,0);}     // 내부 벽 측면
-      T(-WALL_H);ctx.drawImage(mk.wallTop,0,0);                            // 내부 벽 윗면
-    }
-    ctx.setTransform(1,0,0,1,0,0);
-  }
-
-  /* ---------- 멀티플로어 그래프 ---------- */
-  const GROUPS=data.floor_links.transit_groups;
-  function nodeById(id){const fk=id.split('-')[0];
-    for(const n of data.vertical_nodes[fk])if(n.id===id){const o={...n};if(id==='2F-ESC-3')o.y=447.0;return o;}return null;}
-  const ADJ={'1F':new Set(),'2F':new Set(),'3F':new Set(),'4F':new Set()},PAIRG={};
-  for(const g of GROUPS)for(const a of g.connects)for(const b of g.connects){if(a===b)continue;
-    const na=g.nodes.find(id=>id.startsWith(a)),nb=g.nodes.find(id=>id.startsWith(b));
-    if(na&&nb){ADJ[a].add(b);(PAIRG[a+'>'+b]=PAIRG[a+'>'+b]||[]).push(g);}}
-  function floorSeq(a,b){if(a===b)return[a];const prev={[a]:null},q=[a];
-    while(q.length){const c=q.shift();if(c===b)break;for(const nb of[...ADJ[c]].sort())if(!(nb in prev)){prev[nb]=c;q.push(nb);}}
-    if(!(b in prev))return null;const s=[];let c=b;while(c!==null){s.push(c);c=prev[c];}return s.reverse();}
-  const SIDE_OFF=46;
-  function deskStart(fk,side){const dk=data.guide_desks[fk];const[x,y]=dk.svg;
-    const off={N:[0,-SIDE_OFF],S:[0,SIDE_OFF],E:[SIDE_OFF,0],W:[-SIDE_OFF,0]}[side]||[0,SIDE_OFF];
-    return {desk:[x,y],start:[x+off[0],y+off[1]]};}
-  function facilitiesOf(fk){return (data.facilities[fk]||[]).map((f,idx)=>({...f,floor:fk,idx}));}
-  function iconURL(pSeq){const g=data.pseq_icon_groups[pSeq];return g&&g.svg?('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(g.svg)):null;}
-
-  function computeRoute(deskFloor,deskSide,dest){
-    const seq=floorSeq(deskFloor,dest.floor);if(!seq)return{error:'층간 연결 경로 없음'};
-    const{desk,start}=deskStart(deskFloor,deskSide);
-    const legs=[];let cur=start,curFloor=deskFloor;
-    for(let i=0;i<seq.length-1;i++){const Aa=seq[i],Bb=seq[i+1];const cands=PAIRG[Aa+'>'+Bb]||[];
-      let bg=null,bp=null,bl=1e18,bnA=null,bnB=null;
-      for(const g of cands){const na=nodeById(g.nodes.find(id=>id.startsWith(Aa))),nb=nodeById(g.nodes.find(id=>id.startsWith(Bb)));
-        if(!na||!nb)continue;const p=astar(FL[curFloor].grid,cur[0],cur[1],na.x,na.y);if(!p)continue;
-        const L=pathLen(p);if(L<bl){bl=L;bg=g;bp=p;bnA=na;bnB=nb;}}
-      if(!bg)return{error:`${Aa}→${Bb} 환승 지점 도달 불가`};
-      legs.push({floor:Aa,pts:simplifyOrtho(bp),desk:(i===0?desk:null),exitTo:{node:bnA,nodeB:bnB,transit:bg,toFloor:Bb}});
-      cur=[bnB.x,bnB.y];curFloor=Bb;}
-    const p=astar(FL[curFloor].grid,cur[0],cur[1],dest.x,dest.y);
-    if(!p)return{error:'목적지 경로 없음'};
-    legs.push({floor:curFloor,pts:simplifyOrtho(p),desk:(seq.length===1?desk:null),arrive:dest});
-    return {legs,seq,totalLen:legs.reduce((s,l)=>s+pathLen(l.pts),0)};
-  }
-
-  /* ---------- SVG 오버레이 ---------- */
-  let dotRAF=null;
-  function clearLayer(){if(dotRAF)cancelAnimationFrame(dotRAF);svg.innerHTML='';}
-  function renderOverlay(){
-    clearLayer();
-    const defs=E('defs',{});
-    defs.innerHTML='<marker id="a25-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L8 5L1 9" fill="none" stroke="'+COL.route+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>';
-    svg.appendChild(defs);
-    // 정렬 편집: 선택 층 하이라이트
-    if(ST.editFloor&&FL[ST.editFloor]){const b=floorBBox(ST.editFloor);
-      svg.appendChild(E('rect',{x:b.minX.toFixed(1),y:b.minY.toFixed(1),width:(b.maxX-b.minX).toFixed(1),height:(b.maxY-b.minY).toFixed(1),rx:8,fill:'rgba(255,207,102,0.07)',stroke:'#ffcf66','stroke-width':2,'stroke-dasharray':'9 6'}));}
-    // 층 라벨 칩 (1F/2F/3F/4F)
-    FLOORS.forEach((fk)=>{const fl=FL[fk];const left=project(fk,0,fl.H*0.5);chip(left[0]-58,left[1]-13,FLOOR_KR[fk],COL.chip[fk]);});
-    // 보안구역 점선 경계: 제거(요구사항). 하늘색 채움(마스크)으로만 구분.
-    // 시설 아이콘: 평소 전부 숨김(요구사항). 경로 시에만 표시.
-    if(ST.routeActive&&ST.route&&ST.route.legs)drawRoute(ST.route);
-  }
-  function chip(x,y,label,color){
-    const g=E('g',{});
-    g.appendChild(E('rect',{x:x,y:y,rx:13,width:44,height:26,fill:'rgba(18,24,31,0.85)',stroke:color,'stroke-width':1.4}));
-    const t=E('text',{x:x+22,y:y+17,'text-anchor':'middle','font-size':13,'font-family':'system-ui,sans-serif','font-weight':700,fill:color});
-    t.textContent=label;g.appendChild(t);svg.appendChild(g);
-  }
-  function iconOnly(x,y,url,size){ // 래퍼 없이 아이콘만
-    if(!url)return;svg.appendChild(E('image',{href:url,'xlink:href':url,x:x-size/2,y:y-size/2,width:size,height:size}));
-  }
-  function locPin(x,y,color,labelTxt){ // 지도 현위치 핀
-    const r=10,g=E('g',{});
-    g.appendChild(E('ellipse',{cx:x,cy:y+1,rx:5,ry:2,fill:'rgba(0,0,0,0.35)'}));
-    g.appendChild(E('path',{d:`M ${x} ${y} C ${x-r} ${y-r*1.5}, ${x-r} ${y-r*2.6}, ${x} ${y-r*2.8} C ${x+r} ${y-r*2.6}, ${x+r} ${y-r*1.5}, ${x} ${y} Z`,fill:color,stroke:'#fff','stroke-width':1.8}));
-    g.appendChild(E('circle',{cx:x,cy:y-r*1.75,r:r*0.46,fill:'#fff'}));
-    svg.appendChild(g);
-    if(labelTxt)label(x,y-r*2.8-7,labelTxt,color,true);
-  }
-  function label(x,y,txt,color,strong){
-    const t=E('text',{x:x,y:y,'text-anchor':'middle','font-size':strong?13:12,'font-family':'system-ui,sans-serif','font-weight':strong?700:500,fill:color,'paint-order':'stroke',stroke:COL.bg,'stroke-width':3.5,'stroke-linejoin':'round'});
-    t.textContent=txt;svg.appendChild(t);
-  }
-
-  /* 에스컬레이터/엘리베이터 입체 그래픽 (층↔층 연결) */
-  function poly(pts,fill,stroke,sw){return E('polygon',{points:pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' '),fill:fill,stroke:stroke||'none','stroke-width':sw||0});}
-  function drawEscalator(lowF,nodeA,upF,nodeB){
-    const p0=project(lowF,nodeA.x,nodeA.y),p1=project(upF,nodeB.x,nodeB.y);
-    const vx=p1[0]-p0[0],vy=p1[1]-p0[1],L=Math.hypot(vx,vy)||1,HW=15;
-    const ux=vx/L,uy=vy/L,nx=-uy*HW,ny=ux*HW;
-    const a=[p0[0]+nx,p0[1]+ny],b=[p0[0]-nx,p0[1]-ny],c=[p1[0]-nx,p1[1]-ny],d=[p1[0]+nx,p1[1]+ny];
-    const TH=7; // 측면 두께(아래로)
-    // 측면(아래)
-    svg.appendChild(poly([b,c,[c[0],c[1]+TH],[b[0],b[1]+TH]],COL.escSide,'#7f8893',0.5));
-    svg.appendChild(poly([a,b,[b[0],b[1]+TH],[a[0],a[1]+TH]],COL.escSide,'#7f8893',0.5));
-    // 윗면(경사)
-    svg.appendChild(poly([a,b,c,d],COL.escTop,'#8f98a2',0.6));
-    // 계단 줄무늬
-    const N=Math.max(4,Math.round(L/14));
-    for(let k=1;k<N;k++){const t=k/N,e1=lerp(a,d,t),e2=lerp(b,c,t);
-      svg.appendChild(E('line',{x1:e1[0].toFixed(1),y1:e1[1].toFixed(1),x2:e2[0].toFixed(1),y2:e2[1].toFixed(1),stroke:COL.escStep,'stroke-width':0.8,'stroke-opacity':0.7}));}
-    // 난간(양 옆, 살짝 띄움)
-    svg.appendChild(E('line',{x1:a[0],y1:a[1]-3,x2:d[0],y2:d[1]-3,stroke:'#8b949e','stroke-width':2,'stroke-linecap':'round'}));
-    svg.appendChild(E('line',{x1:b[0],y1:b[1]-3,x2:c[0],y2:c[1]-3,stroke:'#8b949e','stroke-width':2,'stroke-linecap':'round'}));
-    return {p0,p1};
-  }
-  function drawElevator(lowF,nodeA,upF,nodeB){
-    const p0=project(lowF,nodeA.x,nodeA.y),p1=project(upF,nodeB.x,nodeB.y);
-    const vx=p1[0]-p0[0],vy=p1[1]-p0[1],L=Math.hypot(vx,vy)||1,HW=12;
-    const ux=vx/L,uy=vy/L,nx=-uy*HW,ny=ux*HW;
-    const a=[p0[0]+nx,p0[1]+ny],b=[p0[0]-nx,p0[1]-ny],c=[p1[0]-nx,p1[1]-ny],d=[p1[0]+nx,p1[1]+ny];
-    svg.appendChild(poly([a,b,c,d],'#dfe5ea','#8f98a2',0.6));
-    // 케이블/칸 표시
-    const mid=lerp(p0,p1,0.5);
-    svg.appendChild(E('line',{x1:p0[0],y1:p0[1],x2:p1[0],y2:p1[1],stroke:'#aab2bb','stroke-width':1,'stroke-dasharray':'4 4'}));
-    return {p0,p1};
-  }
-
-  function drawRoute(r){
-    const allPts=[];
-    r.legs.forEach((leg)=>{
-      const scr=leg.pts.map(p=>project(leg.floor,p[0],p[1]));
-      const dStr="M"+scr.map(q=>q[0].toFixed(1)+" "+q[1].toFixed(1)).join(" L ");
-      svg.appendChild(E('path',{d:dStr,fill:'none',stroke:COL.routeGlow,'stroke-width':12,'stroke-linecap':'round','stroke-linejoin':'round'}));
-      svg.appendChild(E('path',{d:dStr,fill:'none',stroke:COL.route,'stroke-width':5,'stroke-linecap':'round','stroke-linejoin':'round'}));
-      allPts.push(...scr);
-      if(leg.exitTo){
-        const isElev=leg.exitTo.transit.type==='elevator';
-        const ep=isElev?drawElevator(leg.floor,leg.exitTo.node,leg.exitTo.toFloor,leg.exitTo.nodeB)
-                       :drawEscalator(leg.floor,leg.exitTo.node,leg.exitTo.toFloor,leg.exitTo.nodeB);
-        allPts.push(ep.p0,ep.p1);
-        // 경유 아이콘(래퍼 없음): 에스컬=11, 엘베=12
-        const mid=lerp(ep.p0,ep.p1,0.5);
-        iconOnly(mid[0],mid[1],iconURL(isElev?'12':'11'),26);
-      }
-    });
-    // 출발/목적지 = 현위치 핀
-    const dl=r.legs[0];if(dl.desk){const d=project(dl.floor,dl.desk[0],dl.desk[1]);locPin(d[0],d[1],COL.start,'출발');}
-    const last=r.legs[r.legs.length-1],dst=last.arrive;
-    if(dst){const e=project(last.floor,dst.x,dst.y);locPin(e[0],e[1],COL.dest,dst.name);}
-    if(allPts.length>1)animateDot(allPts);
-  }
-  function animateDot(pts){
-    const dot=E('circle',{r:6,fill:COL.route,stroke:'#fff','stroke-width':2});
-    const glow=E('circle',{r:10,fill:COL.route,opacity:0.28});svg.appendChild(glow);svg.appendChild(dot);
-    const seg=[];let tot=0;for(let i=1;i<pts.length;i++){const L=dist(pts[i],pts[i-1]);seg.push(L);tot+=L;}
-    const DUR=Math.min(9000,Math.max(3500,tot*5)),HOLD=1400,CY=DUR+HOLD;let t0=null;
-    function fr(t){if(t0===null)t0=t;const e=(t-t0)%CY,p=e<DUR?e/DUR:1;
-      let tr=p*tot,acc=0,i=0;while(i<seg.length-1&&acc+seg[i]<tr){acc+=seg[i];i++;}
-      const f=seg[i]?(tr-acc)/seg[i]:0,x=pts[i][0]+(pts[i+1][0]-pts[i][0])*f,y=pts[i][1]+(pts[i+1][1]-pts[i][1])*f;
-      dot.setAttribute('cx',x.toFixed(1));dot.setAttribute('cy',y.toFixed(1));glow.setAttribute('cx',x.toFixed(1));glow.setAttribute('cy',y.toFixed(1));
-      dotRAF=requestAnimationFrame(fr);}
-    dotRAF=requestAnimationFrame(fr);
-  }
-
-  /* ---------- 공개 API ---------- */
-  const api={
-    el:wrap,
-    isReady(){return layoutReady;},
-    listFacilities(){const o=[];FLOORS.forEach(fk=>facilitiesOf(fk).forEach(f=>o.push(f)));return o;},
-    setDesk(floor,side){ST.desk.floor=floor||ST.desk.floor;ST.desk.side=side||ST.desk.side;
-      if(ST.routeActive&&ST.route&&ST.route._dest)api.showRoute({deskFloor:ST.desk.floor,deskSide:ST.desk.side,dest:ST.route._dest});},
-    getRoute(){return ST.route;},
-    // 층별 정렬(보정)
-    getCalib(){return JSON.parse(JSON.stringify(O.floorCalib));},
-    setCalib(fk,c){O.floorCalib[fk]=Object.assign({s:1,dx:0,dy:0},O.floorCalib[fk],c);drawFloors();renderOverlay();emit('calib',api.getCalib());},
-    nudgeCalib(fk,ddx,ddy){const c=calOf(fk);api.setCalib(fk,{dx:(c.dx||0)+ddx,dy:(c.dy||0)+ddy});},
-    resetCalib(fk){if(fk)api.setCalib(fk,{s:1,dx:0,dy:0});else{FLOORS.forEach(f=>O.floorCalib[f]={s:1,dx:0,dy:0});drawFloors();renderOverlay();emit('calib',api.getCalib());}},
-    // 드래그 편집 보조
-    viewBox(){return {w:LOGW,h:LOGH};},
-    setEditFloor(fk){ST.editFloor=fk||null;renderOverlay();},
-    getEditFloor(){return ST.editFloor||null;},
-    clientToLocal(cx,cy){const r=cv.getBoundingClientRect();return [(cx-r.left)/r.width*LOGW,(cy-r.top)/r.height*LOGH];},
-    floorAtLocal(vx,vy){for(let i=0;i<4;i++){const fk=FLOORS[i],b=floorBBox(fk);if(vx>=b.minX&&vx<=b.maxX&&vy>=b.minY&&vy<=b.maxY)return fk;}return null;},
-    // 화면(viewBox) 이동량 → 평면(plan) dx,dy 증분
-    planDeltaFromScreen(dvx,dvy){const det=A*Dd-B*C;return [(Dd*dvx-C*dvy)/det/RS,(-B*dvx+A*dvy)/det/RS];},
-    on(ev,cb){(listeners[ev]=listeners[ev]||[]).push(cb);return api;},
-    showRoute(spec){
-      spec=spec||{};
-      const deskFloor=spec.deskFloor||ST.desk.floor,deskSide=spec.deskSide||ST.desk.side;
-      ST.desk.floor=deskFloor;ST.desk.side=deskSide;
-      let dest=spec.dest;
-      if(dest&&dest.floor&&dest.x==null&&dest.name)dest=facilitiesOf(dest.floor).find(f=>f.name===dest.name&&!f.in_secure)||dest;
-      if(!dest||dest.x==null)return{error:'목적지를 찾을 수 없음'};
-      const r=computeRoute(deskFloor,deskSide,dest);r._dest=dest;
-      ST.route=r;ST.routeActive=!r.error;renderOverlay();
-      if(!r.error){const m=Math.round(r.totalLen*O.metersPerUnit),min=Math.max(1,Math.round(r.totalLen*O.metersPerUnit/O.walkMps/60));
-        r.summary={dest:dest.name,floor:dest.floor,meters:m,minutes:min,transfers:r.legs.filter(l=>l.exitTo).length,
-          steps:[`${deskFloor} 안내데스크 출발 (${({N:'북',S:'남',E:'동',W:'서'})[deskSide]}쪽)`,
-                 ...r.legs.filter(l=>l.exitTo).map(l=>`${l.floor} → ${l.exitTo.toFloor} : ${l.exitTo.transit.type==='elevator'?'엘리베이터':'에스컬레이터'} (${l.exitTo.transit.id})`),
-                 `${dest.floor} ${dest.name} 도착`]};}
-      emit('route',r);return r;
-    },
-    clearRoute(){ST.routeActive=false;ST.route=null;renderOverlay();emit('route',null);},
-    redraw(){computeLayout();drawFloors();renderOverlay();},
-    destroy(){if(dotRAF)cancelAnimationFrame(dotRAF);container.innerHTML='';},
-  };
-
-  (async function init(){
-    for(const fk of FLOORS){try{await rasterFloor(fk);}catch(e){console.error('raster fail',fk,e);}}
-    computeLayout();drawFloors();renderOverlay();
-    emit('ready',api);if(typeof O.onReady==='function')O.onReady(api);
-  })();
-
-  return api;
-}
-
-global.AirportMap25D={create};
-})(window);
-
-</script>
-<script>
 "use strict";
 const D = window.AIRPORT_DATA;
-const FLOORS=['1F','2F','3F','4F'];
-const ST={deskFloor:'1F',deskSide:'S',cat:'all',q:'',sel:null};
-let map=null;
+const FLOORS = ['1F','2F','3F','4F'];
+const COLORS = { '1F':'#e2554e', '2F':'#3b82d6', '3F':'#1f9e6e', '4F':'#8b5cf6' };
 
-function loadCalib(){try{const s=localStorage.getItem('kac_floorCalib');return s?JSON.parse(s):undefined;}catch(e){return undefined;}}
-function calibNote(){const c=loadCalib();document.getElementById('calibNote').textContent=
-  c?'정합값 적용됨 (align.html에서 저장한 층별 크기/위치)':'정합값 없음 — 기본 배치. align.html에서 맞춰 저장하면 적용됩니다.';}
+// 보정 상태 (sx,sy,dx,dy) — dx,dy 는 평면(SVG) 단위
+const calib = {};
+FLOORS.forEach(f=>calib[f]={sx:1,sy:1,dx:0,dy:0});
+(function loadSaved(){try{const s=localStorage.getItem('kac_floorCalib');if(s){const o=JSON.parse(s);
+  FLOORS.forEach(f=>{if(o[f])calib[f]={sx:o[f].sx??o[f].s??1,sy:o[f].sy??o[f].s??1,dx:o[f].dx||0,dy:o[f].dy||0};});}}catch(e){}})();
 
-const CATS=[
- {id:'all',label:'전체',kw:null},
- {id:'food',label:'식음료',kw:['카페','커피','식','면','돈까스','버거','도넛','빵','베이커','cafe','coffee','공차','스타벅','파리','파스쿠','에그','던킨','오사카','마리','정테이블','대청','롯데리아','분식','요아정']},
- {id:'shop',label:'편의·면세',kw:['편의','면세','cu','duty','인도장','카카오','디자인스킨','세븐']},
- {id:'money',label:'환전·금융',kw:['은행','환전','exchange','환급','신한']},
- {id:'transport',label:'교통',kw:['버스','렌터카','쏘카','발권','항공','매표']},
- {id:'telecom',label:'로밍·통신',kw:['로밍','유심','wifi','유플러스','kt','sk']},
- {id:'amenity',label:'편의시설',kw:['화장실','유아','수유','휠체어','유모차','충전','음수대','제세동기','기도실','약국','우편','수하물','수화물','흡연','라운지','안마']},
- {id:'move',label:'이동·안내',kw:['에스컬','엘리베','안내데스크','음성유도','촉지도']},
-];
-function catMatch(f,cat){if(cat==='all')return true;const c=CATS.find(c=>c.id===cat);if(!c||!c.kw)return true;
-  const h=(f.name+' '+(f.tags||[]).join(' ')).toLowerCase();return c.kw.some(k=>h.includes(k.toLowerCase()));}
-function iconURL(p){const g=D.pseq_icon_groups[p];return g&&g.svg?('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(g.svg)):null;}
-
-function buildCats(){const w=document.getElementById('cats');w.innerHTML='';
-  CATS.forEach(c=>{const b=document.createElement('button');b.className='chip'+(c.id===ST.cat?' on':'');b.textContent=c.label;
-    b.onclick=()=>{ST.cat=c.id;buildCats();buildList();};w.appendChild(b);});}
-function buildList(){
-  const list=document.getElementById('list');list.innerHTML='';const q=ST.q.trim().toLowerCase();
-  FLOORS.forEach(fk=>(D.facilities[fk]||[]).forEach((f,idx)=>{
-    if(f.in_secure)return; if(!catMatch(f,ST.cat))return;
-    if(q){const h=(f.name+' '+(f.tags||[]).join(' ')).toLowerCase();if(!h.includes(q))return;}
-    const it=document.createElement('div');
-    it.className='item'+(ST.sel&&ST.sel.floor===fk&&ST.sel.idx===idx?' on':'');
-    const u=iconURL(f.pSeq);
-    it.innerHTML=`<span class="ic">${u?`<img src="${u}">`:'📍'}</span><span>${f.name}</span><span class="fl">${fk}</span>`;
-    it.onclick=()=>pick({...f,floor:fk,idx});list.appendChild(it);
-  }));
-}
-function pick(f){ST.sel=f;buildList();
-  const r=map.showRoute({deskFloor:ST.deskFloor,deskSide:ST.deskSide,dest:{floor:f.floor,name:f.name}});renderInfo(r);}
-function renderInfo(r){
-  const info=document.getElementById('info'),steps=document.getElementById('steps');steps.innerHTML='';
-  if(!r||r.error){info.innerHTML=(ST.sel?`<b>${ST.sel.name}</b> · `:'')+((r&&r.error)||'경로 없음');return;}
-  const s=r.summary;
-  info.innerHTML=`목적지 <b>${s.dest}</b> (${s.floor})<br>출발 ${ST.deskFloor} 안내데스크 · ${({N:'북',S:'남',E:'동',W:'서'})[ST.deskSide]}쪽<br>`+
-    `약 <b>${s.meters} m</b> · 도보 약 ${s.minutes}분 · 환승 ${s.transfers}회 <span style="color:var(--mut)">(축척 추정)</span>`;
-  s.steps.forEach(t=>{const li=document.createElement('li');li.textContent=t;steps.appendChild(li);});
+// 도면 재색칠: 벽=층색, 배경/보안=투명, 텍스트 제거 → 색선 도면(온도지)
+function recolor(svg,color){
+  return svg
+    .replace(/<text[\s\S]*?<\/text>/gi,'')
+    .replace(/#ffffff/gi,'transparent').replace(/#fff(?![0-9a-f])/gi,'transparent')
+    .replace(/#f4fcff/gi,'transparent').replace(/#e4f5ff/gi,'transparent').replace(/#f2fafd/gi,'transparent')
+    .replace(/#000000/gi,color).replace(/#000(?![0-9a-f])/gi,color);
 }
 
-document.getElementById('deskFloor').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
-  ST.deskFloor=b.dataset.f;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));if(ST.sel)pick(ST.sel);});
-document.getElementById('compass').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!b.dataset.s)return;
-  ST.deskSide=b.dataset.s;[...e.currentTarget.querySelectorAll('button')].forEach(x=>x.classList.toggle('on',x===b));if(ST.sel)pick(ST.sel);});
-document.getElementById('q').addEventListener('input',e=>{ST.q=e.target.value;buildList();});
-document.getElementById('clearBtn').addEventListener('click',()=>{ST.sel=null;buildList();map.clearRoute();
-  document.getElementById('info').textContent='경로를 지웠습니다. 목적지를 선택하세요.';document.getElementById('steps').innerHTML='';});
-document.getElementById('reloadCalib').addEventListener('click',()=>{const c=loadCalib();
-  if(c)FLOORS.forEach(f=>{if(c[f])map.setCalib(f,c[f]);});calibNote();
-  if(ST.sel)pick(ST.sel);});
-document.getElementById('fsbtn').addEventListener('click',()=>{const el=document.getElementById('mapbox');
-  if(!document.fullscreenElement)el.requestFullscreen&&el.requestFullscreen();else document.exitFullscreen();});
+// 레이아웃: 공통 FIT 으로 모든 층을 원점 정렬해 겹침
+let FIT=1;
+const stage=document.getElementById('stage');
+const layers={};
+function build(){
+  let maxW=0,maxH=0;
+  FLOORS.forEach(f=>{const v=D.floors[f].viewBox;maxW=Math.max(maxW,v[0]);maxH=Math.max(maxH,v[1]);});
+  const stageW=Math.min(1060, (document.querySelector('.stage-col').clientWidth||980)-4);
+  FIT=(stageW-40)/maxW;
+  stage.style.width=stageW+'px';
+  stage.style.height=Math.round(maxH*FIT+40)+'px';
+  FLOORS.forEach(f=>{
+    const v=D.floors[f].viewBox;
+    const el=document.createElement('div');
+    el.className='layer';el.dataset.f=f;
+    el.style.width=(v[0]*FIT)+'px';el.style.height=(v[1]*FIT)+'px';
+    el.style.left='20px';el.style.top='20px';
+    el.innerHTML=recolor(D.floors[f].svg, COLORS[f]);
+    stage.appendChild(el);layers[f]=el;
+  });
+}
 
-buildCats();buildList();calibNote();
-map = AirportMap25D.create({
-  container:'#map', data:D, wallHeight:16,
-  floorCalib: loadCalib(),   // align.html 에서 저장한 정합값 자동 적용
-  onReady(){ document.getElementById('info').textContent='준비 완료. 목적지를 선택하면 경로를 표시합니다.'; },
-});
-map.on('route',r=>{ if(r&&r.summary) renderInfo(r); });
+let active='1F', opacity=0.6, vis={'1F':1,'2F':1,'3F':1,'4F':1};
+function applyOne(f){const c=calib[f];const el=layers[f];
+  el.style.transform=`translate(${c.dx*FIT}px,${c.dy*FIT}px) scale(${c.sx},${c.sy})`;
+  el.style.opacity = vis[f] ? (f===active?Math.min(1,opacity+0.25):opacity) : 0;
+  el.style.zIndex = (f===active?5:1);
+  el.classList.toggle('active', f===active && vis[f]);
+}
+function applyAll(){FLOORS.forEach(applyOne);updateOut();}
+
+function round(n,p){const m=Math.pow(10,p);return Math.round(n*m)/m;}
+function updateOut(){
+  const o={};FLOORS.forEach(f=>{const c=calib[f];o[f]={sx:round(c.sx,3),sy:round(c.sy,3),dx:round(c.dx,1),dy:round(c.dy,1)};});
+  document.getElementById('out').value='floorCalib: '+JSON.stringify(o);
+}
+
+// 컨트롤
+function selFloor(f){active=f;
+  [...document.querySelectorAll('#floorSeg button')].forEach(b=>{b.classList.toggle('on',b.dataset.f===f);b.style.background=b.dataset.f===f?COLORS[f]:'transparent';});
+  document.getElementById('sx').value=calib[f].sx;document.getElementById('sxV').textContent=calib[f].sx.toFixed(2);
+  document.getElementById('sy').value=calib[f].sy;document.getElementById('syV').textContent=calib[f].sy.toFixed(2);
+  applyAll();
+}
+document.getElementById('floorSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(b)selFloor(b.dataset.f);});
+function setSX(v){calib[active].sx=v;document.getElementById('sxV').textContent=v.toFixed(2);
+  if(document.getElementById('lockAR').checked){calib[active].sy=v;document.getElementById('sy').value=v;document.getElementById('syV').textContent=v.toFixed(2);}applyAll();}
+function setSY(v){calib[active].sy=v;document.getElementById('syV').textContent=v.toFixed(2);
+  if(document.getElementById('lockAR').checked){calib[active].sx=v;document.getElementById('sx').value=v;document.getElementById('sxV').textContent=v.toFixed(2);}applyAll();}
+document.getElementById('sx').addEventListener('input',e=>setSX(parseFloat(e.target.value)));
+document.getElementById('sy').addEventListener('input',e=>setSY(parseFloat(e.target.value)));
+document.getElementById('op').addEventListener('input',e=>{opacity=parseFloat(e.target.value);applyAll();});
+document.getElementById('resetFloor').addEventListener('click',()=>{calib[active]={sx:1,sy:1,dx:0,dy:0};selFloor(active);});
+document.getElementById('resetAll').addEventListener('click',()=>{FLOORS.forEach(f=>calib[f]={sx:1,sy:1,dx:0,dy:0});selFloor(active);});
+document.getElementById('copyBtn').addEventListener('click',()=>{const t=document.getElementById('out');t.select();
+  if(navigator.clipboard)navigator.clipboard.writeText(t.value);else document.execCommand('copy');
+  document.getElementById('saved').textContent='복사됨';});
+document.getElementById('applyBtn').addEventListener('click',()=>{
+  const o={};FLOORS.forEach(f=>{const c=calib[f];o[f]={sx:round(c.sx,4),sy:round(c.sy,4),dx:round(c.dx,2),dy:round(c.dy,2)};});
+  localStorage.setItem('kac_floorCalib',JSON.stringify(o));
+  document.getElementById('saved').innerHTML='저장됨 · <a href="test.html" style="color:#ff7a55">test.html 열기</a> 하면 3D에 적용됩니다.';});
+
+// 표시 층 토글
+const vl=document.getElementById('visList');
+FLOORS.forEach(f=>{const lab=document.createElement('label');
+  lab.innerHTML=`<input type="checkbox" data-f="${f}" checked><span class="sw" style="background:${COLORS[f]}"></span>${f}`;
+  vl.appendChild(lab);});
+vl.addEventListener('change',e=>{const cb=e.target;if(cb.dataset.f){vis[cb.dataset.f]=cb.checked?1:0;applyAll();}});
+
+// 드래그 이동 (활성 층)
+let drag=false,lx=0,ly=0;
+stage.addEventListener('pointerdown',e=>{drag=true;lx=e.clientX;ly=e.clientY;stage.setPointerCapture(e.pointerId);
+  if(layers[active])layers[active].style.cursor='grabbing';e.preventDefault();});
+stage.addEventListener('pointermove',e=>{if(!drag)return;
+  const dxp=e.clientX-lx,dyp=e.clientY-ly;lx=e.clientX;ly=e.clientY;
+  calib[active].dx+=dxp/FIT;calib[active].dy+=dyp/FIT;applyOne(active);updateOut();});
+function end(){drag=false;if(layers[active])layers[active].style.cursor='grab';}
+stage.addEventListener('pointerup',end);stage.addEventListener('pointercancel',end);
+
+// 에스컬레이터/엘리베이터 공유지점 기준 자동정렬(이동량 seed; 크기는 수동)
+const GROUPS=D.floor_links.transit_groups;
+function nodeById(id){const fk=id.split('-')[0];for(const n of D.vertical_nodes[fk])if(n.id===id){const o={...n};if(id==='2F-ESC-3')o.y=447;return o;}return null;}
+function autoAlign(){
+  FLOORS.forEach(f=>calib[f]={sx:calib[f].sx,sy:calib[f].sy,dx:0,dy:0}); // 크기 유지, 위치 리셋
+  const placed={'1F':true};let rem=new Set(['2F','3F','4F']),changed=true;
+  while(rem.size&&changed){changed=false;
+    for(const B of [...rem]){
+      for(const g of GROUPS){if(!g.connects.includes(B))continue;
+        const A=g.connects.find(f=>f!==B&&placed[f]);if(!A)continue;
+        const nb=nodeById(g.nodes.find(id=>id.startsWith(B))),na=nodeById(g.nodes.find(id=>id.startsWith(A)));
+        if(!nb||!na)continue;
+        calib[B].dx=(na.x+calib[A].dx)-nb.x; calib[B].dy=(na.y+calib[A].dy)-nb.y;
+        placed[B]=true;rem.delete(B);changed=true;break;}
+    }
+  }
+  selFloor(active);
+}
+document.getElementById('autoBtn').addEventListener('click',autoAlign);
+
+// init
+build();selFloor('1F');
+window.addEventListener('resize',()=>{/* FIT 고정 유지: 새로고침 시 재계산 */});
 </script>
 </body>
 </html>
