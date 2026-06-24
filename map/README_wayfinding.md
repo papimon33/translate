@@ -56,14 +56,18 @@
 | 소스(편집) | 산출물(자체 완결) | 용도 |
 |---|---|---|
 | `test.src.html`  | `test.html`  | 3D 길찾기 뷰 (데이터+라이브러리 인라인) |
-| `align.src.html` | `align.html` | 2D 탑다운 정합 도구 (데이터 인라인) |
+| `align.src.html` | `align.html` | 2D 탑다운 정합 도구 — 층별 크기/위치 (`kac_floorCalib`) |
+| `gap.src.html`   | `gap.html`   | 3D 층 높이 간격 조정 — 드래그/슬라이더 (`kac_floorGaps`) |
 
 - `*.html` 은 **다른 파일/서버 없이 더블클릭(`file://`)만으로 즉시 실행**(외부요청 0).
 - 편집은 `*.src.html`(또는 `airport25d.js`/`wayfinding_data.js`)를 고친 뒤:
   ```
   python3 map/_build_test.py     # *.src.html 의 <script src> 를 인라인해 *.html 생성
   ```
-- 워크플로: **`align.html` 에서 정합 → 저장 → `test.html` 에서 3D 확인** (localStorage `kac_floorCalib` 로 연결).
+- 워크플로: **`align.html`(겹쳐서 정합) → `gap.html`(높이 간격) → `test.html`(3D 확인)**.
+  세 페이지는 localStorage(`kac_floorCalib`, `kac_floorGaps`)로 연결돼, 맞춘 값이 자동 반영된다.
+- **층 높이 간격**: `create({floorGaps:[g_1F2F, g_2F3F, g_3F4F]})` 또는 `map.setFloorGaps([..])`/`setUniformGap(v)`/`resetGaps()`.
+  작게 주면 층이 겹쳐 실제 층고처럼 보인다. `null`=자동(겹치지 않는 최대).
 
 검증: 1F→3F(엘베), 1F→4F(엘베+ESC-E), 2F→3F, 동일층 경로 / 경로 중 시설 숨김 / 외부요청 0 / 콘솔 에러 없음.
 

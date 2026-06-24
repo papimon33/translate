@@ -31,6 +31,7 @@ const DEFAULTS = {
   renderScale: 0.6,      // 도면 래스터 해상도 배율
   gap: null,             // 층 간격(null=자동: 겹치지 않는 최소)
   gapMargin: 14,         // 자동 간격 여유
+  floorGaps: null,       // [1F-2F, 2F-3F, 3F-4F] 간격(px). null=자동. 숫자=균일. 작게 주면 겹침 허용
   pad: 64,
   wallEdgeErode: 6,      // 외곽 벽 제거 두께(마스크 px). 클수록 더 깎임
   metersPerUnit: 0.075,
@@ -140,7 +141,7 @@ function create(opts){
   const ctx=cv.getContext('2d');
 
   const FL={};
-  let LOGW=0,LOGH=0,layoutReady=false;
+  let LOGW=0,LOGH=0,layoutReady=false,usedGaps={};
   const listeners={};
   const ST={route:null,routeActive:false,desk:{floor:'1F',side:'S'}};
   const emit=(ev,p)=>{(listeners[ev]||[]).forEach(f=>f(p));};
@@ -213,9 +214,14 @@ function create(opts){
       let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
       cs.forEach(p=>{minX=Math.min(minX,p[0]);maxX=Math.max(maxX,p[0]);minY=Math.min(minY,p[1]);maxY=Math.max(maxY,p[1]);});
       fl.bMinX=minX;fl.bMinY=minY;fl.w=maxX-minX;fl.h=maxY-minY;maxW=Math.max(maxW,fl.w);});
-    const topY={};topY['4F']=PAD+WALL_H;
+    const topY={};topY['4F']=PAD+WALL_H;usedGaps={};
     for(let i=2;i>=0;i--){const up=FLOORS[i+1],lo=FLOORS[i];
-      const gap=(O.gap!=null)?O.gap:(FL[up].h+THICK+WALL_H+O.gapMargin);topY[lo]=topY[up]+gap;}
+      let gap;
+      if(Array.isArray(O.floorGaps)&&O.floorGaps[i]!=null) gap=O.floorGaps[i];
+      else if(typeof O.floorGaps==='number') gap=O.floorGaps;
+      else if(O.gap!=null) gap=O.gap;
+      else gap=FL[up].h+THICK+WALL_H+O.gapMargin;
+      usedGaps[lo]=gap; topY[lo]=topY[up]+gap;}
     const centerX=PAD+maxW/2;
     FLOORS.forEach((fk)=>{const fl=FL[fk];
       fl.e0=centerX-fl.w/2-fl.bMinX; fl.f0=topY[fk]-fl.bMinY; fl.topY=topY[fk];
@@ -412,6 +418,11 @@ function create(opts){
     setCalib(fk,c){O.floorCalib[fk]=Object.assign({s:1,dx:0,dy:0},O.floorCalib[fk],c);drawFloors();renderOverlay();emit('calib',api.getCalib());},
     nudgeCalib(fk,ddx,ddy){const c=calOf(fk);api.setCalib(fk,{dx:(c.dx||0)+ddx,dy:(c.dy||0)+ddy});},
     resetCalib(fk){if(fk)api.setCalib(fk,{s:1,dx:0,dy:0});else{FLOORS.forEach(f=>O.floorCalib[f]={s:1,dx:0,dy:0});drawFloors();renderOverlay();emit('calib',api.getCalib());}},
+    // 층간 높이 간격 [1F-2F, 2F-3F, 3F-4F]
+    getFloorGaps(){return [usedGaps['1F'],usedGaps['2F'],usedGaps['3F']];},
+    setFloorGaps(arr){O.floorGaps=[arr[0],arr[1],arr[2]];computeLayout();drawFloors();renderOverlay();emit('gaps',api.getFloorGaps());},
+    setUniformGap(v){api.setFloorGaps([v,v,v]);},
+    resetGaps(){O.floorGaps=null;computeLayout();drawFloors();renderOverlay();emit('gaps',api.getFloorGaps());},
     // 드래그 편집 보조
     viewBox(){return {w:LOGW,h:LOGH};},
     setEditFloor(fk){ST.editFloor=fk||null;renderOverlay();},

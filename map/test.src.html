@@ -58,7 +58,8 @@
     <h1>airport25d · 김포공항 국제선 2.5D 멀티플로어 길찾기</h1>
     <div class="sub">4개 층 통합 · 벽 3D 압출 · 안내데스크 출발</div>
   </div>
-  <a href="align.html">🔧 2D 정합 열기</a>
+  <a href="align.html">🔧 2D 정합</a>
+  <a href="gap.html" style="margin-left:8px;">↕ 높이 간격</a>
 </header>
 
 <div class="layout">
@@ -103,6 +104,7 @@ const ST={deskFloor:'1F',deskSide:'S',cat:'all',q:'',sel:null};
 let map=null;
 
 function loadCalib(){try{const s=localStorage.getItem('kac_floorCalib');return s?JSON.parse(s):undefined;}catch(e){return undefined;}}
+function loadGaps(){try{const s=localStorage.getItem('kac_floorGaps');return s?JSON.parse(s):undefined;}catch(e){return undefined;}}
 function calibNote(){const c=loadCalib();document.getElementById('calibNote').textContent=
   c?'정합값 적용됨 (align.html에서 저장한 층별 크기/위치)':'정합값 없음 — 기본 배치. align.html에서 맞춰 저장하면 적용됩니다.';}
 
@@ -154,7 +156,8 @@ document.getElementById('q').addEventListener('input',e=>{ST.q=e.target.value;bu
 document.getElementById('clearBtn').addEventListener('click',()=>{ST.sel=null;buildList();map.clearRoute();
   document.getElementById('info').textContent='경로를 지웠습니다. 목적지를 선택하세요.';document.getElementById('steps').innerHTML='';});
 document.getElementById('reloadCalib').addEventListener('click',()=>{const c=loadCalib();
-  if(c)FLOORS.forEach(f=>{if(c[f])map.setCalib(f,c[f]);});calibNote();
+  if(c)FLOORS.forEach(f=>{if(c[f])map.setCalib(f,c[f]);});
+  const g=loadGaps(); if(g)map.setFloorGaps(g); calibNote();
   if(ST.sel)pick(ST.sel);});
 document.getElementById('fsbtn').addEventListener('click',()=>{const el=document.getElementById('mapbox');
   if(!document.fullscreenElement)el.requestFullscreen&&el.requestFullscreen();else document.exitFullscreen();});
@@ -163,6 +166,7 @@ buildCats();buildList();calibNote();
 map = AirportMap25D.create({
   container:'#map', data:D, wallHeight:16,
   floorCalib: loadCalib(),   // align.html 에서 저장한 정합값 자동 적용
+  floorGaps:  loadGaps(),    // gap.html 에서 확정한 층 높이 간격 자동 적용
   onReady(){ document.getElementById('info').textContent='준비 완료. 목적지를 선택하면 경로를 표시합니다.'; },
 });
 map.on('route',r=>{ if(r&&r.summary) renderInfo(r); });

@@ -30,7 +30,7 @@ def build(src_name, out_name):
     (BASE / out_name).write_text(html, encoding="utf-8")
     return len(html)
 
-for src, out in [("test.src.html", "test.html"), ("align.src.html", "align.html")]:
+for src, out in [("test.src.html", "test.html"), ("align.src.html", "align.html"), ("gap.src.html", "gap.html")]:
     n = build(src, out)
     print(f"built {out}: {n:,} bytes")
 print(f"(inlined data {len(data):,} + lib {len(lib):,})")

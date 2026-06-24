@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>층 높이 간격 조정 · 김포공항 길찾기</title>
+<style>
+  :root{--bg:#0e1217;--panel:#161c24;--ink:#e6eaef;--mut:#93a0ab;--line:#2a333d;--acc:#ff7a55;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:#0a0d11;color:var(--ink);font-family:system-ui,"Noto Sans KR",sans-serif;}
+  header{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;}
+  header h1{font-size:16px;margin:0;font-weight:600;}
+  header .sub{font-size:12px;color:var(--mut);margin-top:3px;}
+  header a{margin-left:auto;font-size:13px;color:var(--ink);border:1px solid var(--line);padding:8px 12px;border-radius:9px;text-decoration:none;}
+  .layout{display:flex;gap:14px;align-items:flex-start;padding:14px;max-width:1500px;margin:0 auto;}
+  .panel{width:300px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .map-col{flex:1;min-width:0;}
+  .gt{font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 7px;}
+  .gt:first-child{margin-top:0;}
+  input[type=range]{width:100%;}
+  .gaprow{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid #1b222b;}
+  .gaprow b{color:var(--acc);font-variant-numeric:tabular-nums;}
+  button.act{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:9px;padding:9px 10px;font-size:13px;cursor:pointer;}
+  button.act:hover{background:#1b222b;}
+  .row2{display:flex;gap:6px;margin-top:10px;}
+  .row2 .act{flex:1;}
+  .hint{font-size:12px;color:var(--mut);line-height:1.55;margin-top:10px;}
+  .saved{font-size:12px;color:#2aa37a;margin-top:6px;min-height:16px;}
+  #mapbox{position:relative;}
+  #map{cursor:ns-resize;}
+  .loading{padding:40px;text-align:center;color:var(--mut);}
+  @media(max-width:860px){.layout{flex-direction:column;}.panel{width:100%;}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>층 높이 간격 조정 (3D)</h1>
+    <div class="sub">층을 위/아래로 드래그하거나 슬라이더로 간격 조절 · 확정하면 test.html에 반영</div>
+  </div>
+  <a href="test.html">← 3D 뷰로</a>
+  <a href="align.html">2D 정합</a>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <div class="gt">전체 간격 (균일)</div>
+    <input type="range" id="uni" min="24" max="440" step="2" value="200">
+    <div style="font-size:12px;color:var(--mut);margin-top:3px;">현재 슬라이더: <b id="uniV" style="color:var(--ink)">200</b> px</div>
+
+    <div class="gt">층별 간격 (px)</div>
+    <div class="gaprow"><span>3F ↔ 4F</span><b id="g2">–</b></div>
+    <div class="gaprow"><span>2F ↔ 3F</span><b id="g1">–</b></div>
+    <div class="gaprow"><span>1F ↔ 2F</span><b id="g0">–</b></div>
+
+    <div class="row2">
+      <button class="act" id="autoBtn">자동(넓게)로 초기화</button>
+    </div>
+    <div class="row2">
+      <button class="act" id="saveBtn" style="background:#ffcf66;color:#11151a;font-weight:600;border-color:#ffcf66;">간격 확정(저장)</button>
+    </div>
+    <div class="saved" id="saved"></div>
+    <div class="hint">· 지도에서 <b style="color:var(--ink)">한 층을 위/아래로 드래그</b>하면 그 층과 위층 사이 간격이 바뀝니다(아래로 끌면 넓게).<br>· 전체를 똑같이 줄이려면 위 <b style="color:var(--ink)">균일 슬라이더</b>를 쓰세요.<br>· 간격을 줄이면 층이 겹쳐 실제 건물 층고처럼 보입니다.</div>
+  </div>
+
+  <div class="map-col">
+    <div id="mapbox"><div id="map"><div class="loading">지도 로딩 중…</div></div></div>
+  </div>
+</div>
+
+<script src="wayfinding_data.js"></script>
+<script src="airport25d.js"></script>
+<script>
+"use strict";
+const D=window.AIRPORT_DATA;
+const FLOORS=['1F','2F','3F','4F'];
+let map=null;
+function loadJSON(k){try{const s=localStorage.getItem(k);return s?JSON.parse(s):undefined;}catch(e){return undefined;}}
+
+function updateUI(){
+  if(!map)return;const g=map.getFloorGaps();
+  document.getElementById('g0').textContent=Math.round(g[0]);
+  document.getElementById('g1').textContent=Math.round(g[1]);
+  document.getElementById('g2').textContent=Math.round(g[2]);
+}
+
+map=AirportMap25D.create({
+  container:'#map', data:D, wallHeight:16,
+  floorCalib: loadJSON('kac_floorCalib'),   // 2D 정합값 적용
+  floorGaps:  loadJSON('kac_floorGaps'),     // 이전에 확정한 간격
+  onReady(api){ const g=api.getFloorGaps(); const avg=Math.round((g[0]+g[1]+g[2])/3);
+    document.getElementById('uni').value=Math.min(440,Math.max(24,avg));
+    document.getElementById('uniV').textContent=document.getElementById('uni').value;
+    updateUI(); },
+});
+
+document.getElementById('uni').addEventListener('input',e=>{const v=+e.target.value;
+  document.getElementById('uniV').textContent=v;map.setUniformGap(v);updateUI();});
+document.getElementById('autoBtn').addEventListener('click',()=>{map.resetGaps();
+  const g=map.getFloorGaps(),avg=Math.round((g[0]+g[1]+g[2])/3);
+  document.getElementById('uni').value=Math.min(440,Math.max(24,avg));document.getElementById('uniV').textContent=document.getElementById('uni').value;
+  localStorage.removeItem('kac_floorGaps');updateUI();document.getElementById('saved').textContent='자동 간격으로 초기화됨';});
+document.getElementById('saveBtn').addEventListener('click',()=>{
+  localStorage.setItem('kac_floorGaps',JSON.stringify(map.getFloorGaps().map(n=>Math.round(n))));
+  document.getElementById('saved').innerHTML='확정 저장됨 · <a href="test.html" style="color:#ff7a55">test.html</a> 에 반영됩니다.';});
+
+// 층 세로 드래그로 간격 조정
+const mapEl=document.getElementById('map');
+let drag=null;
+mapEl.addEventListener('pointerdown',e=>{
+  const p=map.clientToLocal(e.clientX,e.clientY);const fk=map.floorAtLocal(p[0],p[1]);
+  const idx={'1F':0,'2F':1,'3F':2}[fk];
+  if(idx==null)return;  // 4F(최상단)은 기준 → 드래그 없음
+  const rect=mapEl.getBoundingClientRect();
+  drag={idx,startY:e.clientY,startGaps:map.getFloorGaps(),scale:map.viewBox().h/rect.height};
+  mapEl.setPointerCapture(e.pointerId);e.preventDefault();});
+mapEl.addEventListener('pointermove',e=>{if(!drag)return;
+  const dg=(e.clientY-drag.startY)*drag.scale;
+  const gaps=drag.startGaps.slice();
+  gaps[drag.idx]=Math.max(14,Math.min(560,drag.startGaps[drag.idx]+dg));
+  map.setFloorGaps(gaps);
+  document.getElementById('uniV').textContent=Math.round((gaps[0]+gaps[1]+gaps[2])/3);
+  updateUI();});
+function end(){drag=null;}
+mapEl.addEventListener('pointerup',end);mapEl.addEventListener('pointercancel',end);
+</script>
+</body>
+</html>
