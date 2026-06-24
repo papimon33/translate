@@ -19,28 +19,33 @@
   const map = AirportMap25D.create({
     container: '#map',          // 엘리먼트 또는 셀렉터
     data: window.AIRPORT_DATA,  // 생략 시 전역 사용
-    wallHeight: 22,             // 벽 압출 높이(상수, 조절 가능)
-    plateThickness: 13,         // 바닥 슬래브 두께
+    wallHeight: 16,             // 내부 벽 압출 높이(상수)
+    plateThickness: 10,         // 바닥 슬래브 두께
+    wallEdgeErode: 6,           // 외곽 벽 제거 두께(마스크 px). 크게 = 더 깎임
+    // 층별 수동 정렬: 보정좌표 = 원래좌표 * s + (dx,dy)  (원본 SVG 단위)
+    floorCalib: { '1F':{s:1,dx:0,dy:0}, '2F':{s:1,dx:0,dy:0}, '3F':{s:1,dx:0,dy:0}, '4F':{s:1,dx:0,dy:0} },
     onReady(api){ /* 준비 완료 */ },
   });
 
-  // 핵심: 출발 안내데스크 → 목적지 경로 표시 (ESC/ELEV 외 시설은 자동 숨김)
+  // 핵심: 출발 안내데스크 → 목적지 경로 표시
   map.showRoute({ deskFloor:'1F', deskSide:'S', dest:{ floor:'4F', name:'유아휴게실' } });
   // dest 는 {floor,name} 또는 {floor,x,y} 모두 가능
-  map.clearRoute();             // 경로 지우고 전체 시설 다시 표시
+  map.clearRoute();
 
+  map.setCalib('4F', { s:1.05, dx:20, dy:0 });    // 실행 중 한 층 정렬 미세조정
   map.on('route', r => console.log(r.summary));   // {dest,floor,meters,minutes,transfers,steps[]}
-  map.on('facilityClick', f => {});               // 핀 클릭 시
 </script>
 ```
-반환 객체(api): `showRoute · clearRoute · setDesk(floor,side) · listFacilities() · getRoute() · on(ev,cb) · redraw() · destroy() · el`.
+반환 객체(api): `showRoute · clearRoute · setDesk(floor,side) · setCalib(floor,{s,dx,dy}) · listFacilities() · getRoute() · on(ev,cb) · redraw() · destroy() · el`.
 
 ### 렌더 개념
-- 4개 층 **분리 적층 아이소메트릭**(exploded). 축소해도 위치 불변(고정 논리 viewBox + CSS 균일 스케일).
-- 각 층 도면 SVG를 래스터화한 마스크로 **재구성**: 바닥 footprint를 아래로 압출(두께) + 검정(#000) 벽을
-  위로 offset 적층 복제해 **수직 압출 직육면체**. 외곽/내부 벽 동일 높이.
-- 무채색(흰/연회색) 바닥 + **하늘색 보안구역**(색+점선 경계로 구분). 층 식별은 라벨 칩 색으로만.
-- 시설 아이콘은 **평면**(빌보드 3D 아님). 경로 표시 중에는 ESC/ELEV만 남기고 나머지 숨김.
+- 4개 층을 한 화면에 **겹치지 않는 최소 간격으로 적층**(실제 층고 느낌). 고정 논리 viewBox + CSS 균일 스케일 → 축소해도 위치 불변.
+- 각 층 도면 SVG 래스터화 마스크로 **재구성**: 바닥 footprint를 아래로 압출(슬래브 두께) +
+  **내부 벽(#000)만** 위로 offset 적층 복제해 수직 압출. **외곽(건물 경계) 벽은 제거**(`wallEdgeErode`).
+- 무채색(흰/연회색), 내부 벽은 연한 회색. **보안구역은 하늘색 채움(색)으로만 구분**(점선 경계 없음).
+- 평소 시설 아이콘은 **전부 숨김**. 경로 시: 출발/목적지 = **현위치 핀**, 경유 에스컬레이터/엘리베이터만
+  **입체 그래픽 + 아이콘(래퍼 없음)**. 에스컬레이터는 `transit_groups` 매핑 지점에서만, 평면 방향(`ESC_DIR`) 기준으로 두 층을 잇는 경사 그래픽.
+- **층별 정렬**: 축척/위치가 층마다 달라 `floorCalib`(또는 `setCalib`)로 `s`(배율)·`dx/dy`(평면 이동) 수동 보정. 기본 1/0/0.
 - 길찾기 엔진(벽/보안 회피 직교 A* + transit_groups 멀티플로어 그래프)은 v1과 동일(검증됨).
 
 ### 테스트 (`test.html` — 자체 완결)
