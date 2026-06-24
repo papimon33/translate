@@ -68,6 +68,27 @@ export default function App() {
     setDrawer(false);
   };
 
+  // 브라우저 뒤로가기(popstate) ↔ 앱 화면 연동: 세션 안에서 뒤로가기 → 목록
+  useEffect(() => {
+    try { window.history.replaceState({ view: 'sessions', session: null }, ''); } catch {}
+    const onPop = (e) => {
+      const st = (e && e.state) || { view: 'sessions', session: null };
+      setSession(st.session || null);
+      setView(st.view || 'sessions');
+      setDrawer(false);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  // 화면 이동 시 히스토리에 push(뒤로가기로 직전 화면 복귀)
+  const navTo = (next) => {
+    try { window.history.pushState(next, ''); } catch {}
+    setSession(next.session || null);
+    setView(next.view || 'sessions');
+    setDrawer(false);
+  };
+  const openSession = (s) => navTo({ session: s, view }); // 현재 목록(실시간/데스크) 위에서 세션 열기
+
   if (user === undefined) {
     return (
       <ThemeProvider theme={theme}>
@@ -89,17 +110,17 @@ export default function App() {
 
   const main =
     session ? (
-      <TranslateView session={session} onBack={() => setSession(null)} />
+      <TranslateView session={session} onBack={() => window.history.back()} />
     ) : view === 'summaries' ? (
       <SummaryPage />
     ) : view === 'terms' ? (
       <TermsConfigPage user={user} />
     ) : view === 'desk' ? (
-      <SessionList onOpen={setSession} user={user} deskMode />
+      <SessionList onOpen={openSession} user={user} deskMode />
     ) : view === 'admin' && user.role === 'admin' ? (
       <AdminPage />
     ) : (
-      <SessionList onOpen={setSession} user={user} />
+      <SessionList onOpen={openSession} user={user} />
     );
   const mainEl = (
     <Suspense
@@ -122,31 +143,11 @@ export default function App() {
       mode={mode}
       user={user}
       view={session ? (session.pipeline === 'desk' ? 'desk' : 'sessions') : view}
-      onHome={() => {
-        setSession(null);
-        setView('sessions');
-        setDrawer(false);
-      }}
-      onDesk={() => {
-        setSession(null);
-        setView('desk');
-        setDrawer(false);
-      }}
-      onSummaries={() => {
-        setSession(null);
-        setView('summaries');
-        setDrawer(false);
-      }}
-      onTerms={() => {
-        setSession(null);
-        setView('terms');
-        setDrawer(false);
-      }}
-      onAdmin={() => {
-        setSession(null);
-        setView('admin');
-        setDrawer(false);
-      }}
+      onHome={() => navTo({ view: 'sessions' })}
+      onDesk={() => navTo({ view: 'desk' })}
+      onSummaries={() => navTo({ view: 'summaries' })}
+      onTerms={() => navTo({ view: 'terms' })}
+      onAdmin={() => navTo({ view: 'admin' })}
       onLogout={logout}
       onUserUpdate={(u) => setUser(u)}
     />
