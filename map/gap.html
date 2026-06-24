@@ -321,8 +321,9 @@ function create(opts){
 
   /* ---------- 캔버스: 압출 바닥 ---------- */
   function drawFloors(){
+    // 아래층(1F)부터 그려 위층(4F)이 맨 위에 오도록 → 겹치면 4F가 보임
     const dpr=cv._dpr;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
-    for(let i=3;i>=0;i--){const fk=FLOORS[i],fl=FL[fk],mk=fl.masks,m=calMat(fk);
+    for(let i=0;i<=3;i++){const fk=FLOORS[i],fl=FL[fk],mk=fl.masks,m=calMat(fk);
       const T=(dy)=>ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
       ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,(m.e+7)*dpr,(m.f+THICK+9)*dpr);
       ctx.globalAlpha=0.16;ctx.drawImage(mk.slab,0,0);ctx.globalAlpha=1;   // 그림자
