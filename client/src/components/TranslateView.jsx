@@ -12,6 +12,7 @@ import Fab from '@mui/material/Fab';
 import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
+import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
@@ -27,6 +28,8 @@ import QrCode2Icon from '@mui/icons-material/QrCode2';
 import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
 import TuneIcon from '@mui/icons-material/Tune';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PersonIcon from '@mui/icons-material/Person';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -176,7 +179,11 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = Number(localStorage.getItem('kac-desk-idle'));
     return Number.isFinite(v) && v > 0 ? v : 7; // 초
   });
-  const [deskCfgOpen, setDeskCfgOpen] = useState(false); // 데스크 설정(민감도/자동중지) 접기
+  const [optsOpen, setOptsOpen] = useState(true); // 옵션(컨트롤) 바 접기 — 접으면 번역영역 넓어짐
+  const [micSens, setMicSens] = useState(() => {
+    const v = Number(localStorage.getItem('kac-mic-sens'));
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100; // 마이크 음성인식 민감도 0~100 (기기 저장)
+  });
   const [sxMode, setSxMode] = useState(() => localStorage.getItem('kac-sx-mode') || 'one'); // 'one' | 'two'
   const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
@@ -380,7 +387,7 @@ export default function TranslateView({ session: initial, onBack }) {
         diar: cfg.pipeline === 'soniox' && diar,
         volume,
         endpointing,
-        sxSens,
+        sxSens: cfg.pipeline === 'desk' ? (micSens / 100) * 2 - 1 : sxSens, // 데스크: 마이크 민감도(0~100)→soniox(-1~1)
         sxMaxDelay,
         sxLatency,
         sxMode,
@@ -470,20 +477,26 @@ export default function TranslateView({ session: initial, onBack }) {
             </IconButton>
           </Tooltip>
         )}
-        {cfg.pipeline === 'soniox' && (
+        {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
           <Tooltip title="고급 설정">
             <IconButton onClick={() => setSxSettingsOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
               <TuneIcon />
             </IconButton>
           </Tooltip>
         )}
+        <Tooltip title={optsOpen ? '옵션 숨기기' : '옵션 보기'}>
+          <IconButton onClick={() => setOptsOpen((o) => !o)} sx={{ border: 1, borderColor: 'divider' }}>
+            {optsOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </IconButton>
+        </Tooltip>
       </Box>
 
-      {/* 컨트롤 바 */}
+      {/* 컨트롤 바 (옵션) — 접으면 번역 영역이 넓어짐 */}
+      <Collapse in={optsOpen}>
       <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: 1.5 }}>
         <Paper
           variant="outlined"
-          sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: cfg.pipeline === 'desk' ? 1.5 : 3, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
+          sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
         >
           {cfg.pipeline !== 'desk' && (
             <Field label="오디오 소스">
@@ -495,37 +508,17 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
           {cfg.pipeline === 'desk' && (
-            <>
-              <Button size="small" variant={deskCfgOpen ? 'contained' : 'outlined'} startIcon={<TuneIcon fontSize="small" />} onClick={() => setDeskCfgOpen((o) => !o)} sx={{ textTransform: 'none', alignSelf: 'center' }}>
-                설정
-              </Button>
-              {deskCfgOpen && (
-                <>
-                  <Field label="음성 감지 민감도">
-                    <Select
-                      size="small"
-                      value={sxSens}
-                      disabled={recording}
-                      onChange={(e) => { const v = Number(e.target.value); setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }}
-                      sx={{ ...selSx, minWidth: 130 }}
-                    >
-                      {SX_SENS.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
-                    </Select>
-                  </Field>
-                  <Field label="세션 자동중지(무음)">
-                    <Select
-                      size="small"
-                      value={deskIdle}
-                      disabled={recording}
-                      onChange={(e) => { const v = Number(e.target.value); setDeskIdle(v); localStorage.setItem('kac-desk-idle', String(v)); }}
-                      sx={{ ...selSx, minWidth: 120 }}
-                    >
-                      {DESK_IDLE.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
-                    </Select>
-                  </Field>
-                </>
-              )}
-            </>
+            <Field label="세션 자동중지(무음)">
+              <Select
+                size="small"
+                value={deskIdle}
+                disabled={recording}
+                onChange={(e) => { const v = Number(e.target.value); setDeskIdle(v); localStorage.setItem('kac-desk-idle', String(v)); }}
+                sx={{ ...selSx, minWidth: 120 }}
+              >
+                {DESK_IDLE.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
+              </Select>
+            </Field>
           )}
           {cfg.pipeline !== 'translate' && cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
             <Field label="입력 언어">
@@ -740,6 +733,7 @@ export default function TranslateView({ session: initial, onBack }) {
           </Field>
         </Paper>
       </Box>
+      </Collapse>
 
       {notice && (
         <Box sx={{ mx: { xs: 1.5, sm: 3 }, mb: 1, px: 1.75, py: 1, borderRadius: 2, fontSize: 13, bgcolor: (t) => alpha(t.palette.warning.main, 0.14), color: 'warning.main', border: 1, borderColor: (t) => alpha(t.palette.warning.main, 0.4) }}>
@@ -819,29 +813,36 @@ export default function TranslateView({ session: initial, onBack }) {
       </Box>
 
       <Dialog open={sxSettingsOpen} onClose={() => setSxSettingsOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>고급 설정 (Soniox)</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>고급 설정</DialogTitle>
         <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>녹음 전에 설정하세요. 문장 끊김 타이밍을 조절합니다.</Typography>
-          <SxSlider label="종료 민감도" hint="높을수록 더 자주/빨리 끊김" value={sxSens} min={-1} max={1} step={0.1} disabled={recording}
-            fmt={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
-            onChange={(v) => { setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }} />
-          <SxSlider label="최대 지연" hint="무음 후 이 시간 안에 강제 종료(ms)" value={sxMaxDelay} min={500} max={3000} step={100} disabled={recording}
-            fmt={(v) => v + 'ms'}
-            onChange={(v) => { setSxMaxDelay(v); localStorage.setItem('kac-sx-maxdelay', String(v)); }} />
-          <SxSlider label="지연 레벨" hint="높을수록 저지연(끊김↑, 정확도↓)" value={sxLatency} min={0} max={3} step={1} disabled={recording}
+          <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>이 설정은 이 기기에 저장됩니다.</Typography>
+          <SxSlider label="마이크 음성인식 민감도" hint="높을수록 작은 소리도 더 민감하게 인식" value={micSens} min={0} max={100} step={1} disabled={recording}
             fmt={(v) => String(v)}
-            onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); }} />
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
-            <Box>
-              <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>화자 구분</Typography>
-              <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>발화자별로 '화자 N' 표시 (정확도는 다소↓)</Typography>
-            </Box>
-            <Switch
-              checked={diar}
-              disabled={recording}
-              onChange={(e) => { setDiar(e.target.checked); localStorage.setItem('kac-sx-diar', e.target.checked ? '1' : '0'); }}
-            />
-          </Box>
+            onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); }} />
+          {cfg.pipeline === 'soniox' && (
+            <>
+              <SxSlider label="종료 민감도" hint="높을수록 더 자주/빨리 끊김" value={sxSens} min={-1} max={1} step={0.1} disabled={recording}
+                fmt={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
+                onChange={(v) => { setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }} />
+              <SxSlider label="최대 지연" hint="무음 후 이 시간 안에 강제 종료(ms)" value={sxMaxDelay} min={500} max={3000} step={100} disabled={recording}
+                fmt={(v) => v + 'ms'}
+                onChange={(v) => { setSxMaxDelay(v); localStorage.setItem('kac-sx-maxdelay', String(v)); }} />
+              <SxSlider label="지연 레벨" hint="높을수록 저지연(끊김↑, 정확도↓)" value={sxLatency} min={0} max={3} step={1} disabled={recording}
+                fmt={(v) => String(v)}
+                onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+                <Box>
+                  <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>화자 구분</Typography>
+                  <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>발화자별로 '화자 N' 표시 (정확도는 다소↓)</Typography>
+                </Box>
+                <Switch
+                  checked={diar}
+                  disabled={recording}
+                  onChange={(e) => { setDiar(e.target.checked); localStorage.setItem('kac-sx-diar', e.target.checked ? '1' : '0'); }}
+                />
+              </Box>
+            </>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button variant="contained" onClick={() => setSxSettingsOpen(false)}>닫기</Button>

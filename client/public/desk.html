@@ -132,8 +132,15 @@ function connect(){
     if (m.type === 'snapshot') (m.items||[]).forEach(upsert);
     else if (m.type === 'sentence') upsert(m);
     else if (m.type === 'meta') applySxInfo(m.sxInfo);
-    else if (m.type === 'desk-reset') clearAll();
+    else if (m.type === 'desk-reset') backToTouch(); // 대화 종료(무음) → 터치 화면으로
   };
+}
+// 대화 종료 시: 발화대기(점) 화면이 아니라 시작(터치) 화면으로 복귀 (전체화면은 유지)
+function backToTouch(){
+  started = false;
+  try { ws && ws.close(); } catch {}
+  cards.clear(); order = [];
+  show('startWrap');
 }
 
 /* ---- 전체화면 ---- */
@@ -173,7 +180,7 @@ async function loadRooms(){
     list.forEach(s => {
       const b = document.createElement('button');
       b.className = 'room'; b.textContent = s.title;
-      b.addEventListener('click', () => { sessionId = s.id; const mf=$('manifest'); if(mf) mf.href='/desk.webmanifest?session='+encodeURIComponent(sessionId); show('startWrap'); });
+      b.addEventListener('click', () => { sessionId = s.id; const mf=$('manifest'); if(mf) mf.href='/desk.webmanifest?session='+encodeURIComponent(sessionId); goFullscreen(); show('startWrap'); });
       box.appendChild(b);
     });
   } catch { box.innerHTML = '<div id="roomsEmpty">목록을 불러오지 못했습니다.</div>'; }

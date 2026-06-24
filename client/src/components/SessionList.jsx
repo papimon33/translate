@@ -6,25 +6,27 @@ import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import IconButton from '@mui/material/IconButton';
 import Avatar from '@mui/material/Avatar';
-import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
+import DialogTitle from '@mui/material/DialogTitle';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Fab from '@mui/material/Fab';
-import Select from '@mui/material/Select';
+import Collapse from '@mui/material/Collapse';
 import { alpha } from '@mui/material/styles';
-import { MULTI_LANGS, OUT_LANGS } from '../theme.js';
 import Snackbar from '@mui/material/Snackbar';
 import MuiAlert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import QrCode2Icon from '@mui/icons-material/QrCode2';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -43,38 +45,47 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
+// 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
+function uniqueName(base, titles) {
+  if (!titles.includes(base)) return base;
+  let i = 1;
+  while (titles.includes(`${base} ${i}`)) i++;
+  return `${base} ${i}`;
+}
+
 export default function SessionList({ onOpen, user, deskMode }) {
   const isAdmin = user?.role === 'admin';
   const [list, setList] = useState(null);
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
+  const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
   const [pipeline, setPipeline] = useState('soniox');
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected] = useState(() => new Set());
   const [deskQr, setDeskQr] = useState(null); // 데스크 뷰어 랜딩 QR
+  const [qrOpen, setQrOpen] = useState(false); // QR 기본 숨김
+  const [rename, setRename] = useState(null); // { id, val } 제목 변경
 
   const reload = () => api.list().then(setList);
-  const toggleSel = (id) =>
-    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const exitSelect = () => { setSelectMode(false); setSelected(new Set()); };
-  useEffect(() => {
-    reload();
-  }, []);
+  useEffect(() => { reload(); }, []);
   useEffect(() => {
     if (deskMode) api.deskLandingQr().then(setDeskQr).catch(() => {});
   }, [deskMode]);
 
+  const base = deskMode ? '안내데스크' : '새 세션';
   const openDlg = () => {
-    setName('');
+    const titles = (list || []).map((s) => s.title);
+    setName(uniqueName(base, titles));
+    setEditName(false);
     setPipeline(deskMode ? 'desk' : 'soniox');
     setDlg(true);
   };
 
   const create = async () => {
     setDlg(false);
-    const s = await api.create({ title: name.trim() || '새 세션', pipeline, inLang: 'auto' });
+    const titles = (list || []).map((s) => s.title);
+    const title = name.trim() || uniqueName(base, titles);
+    const s = await api.create({ title, pipeline, inLang: 'auto' });
     onOpen(s);
   };
 
@@ -101,6 +112,13 @@ export default function SessionList({ onOpen, user, deskMode }) {
     await api.remove(id);
     reload();
   };
+  const startRename = () => { setRename({ id: menu.session.id, val: menu.session.title || '' }); setMenu(null); };
+  const saveRename = async () => {
+    const { id, val } = rename;
+    setRename(null);
+    await api.patch(id, { title: (val || '').trim() || '제목 없음' });
+    reload();
+  };
   const summarize = async () => {
     const s = menu.session;
     setMenu(null);
@@ -114,17 +132,6 @@ export default function SessionList({ onOpen, user, deskMode }) {
 
   // 데스크 메뉴는 desk 세션만, 실시간 번역 메뉴는 desk 외 세션만
   const shown = (list || []).filter((s) => (deskMode ? s.pipeline === 'desk' : s.pipeline !== 'desk'));
-  const allIds = shown.map((s) => s.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allIds));
-  const deleteSelected = async () => {
-    if (!selected.size) return;
-    if (!confirm(`선택한 ${selected.size}개 세션을 삭제할까요?`)) return;
-    for (const id of selected) { try { await api.remove(id); } catch {} }
-    exitSelect();
-    reload();
-  };
-
   const empty = list && shown.length === 0;
 
   return (
@@ -136,50 +143,39 @@ export default function SessionList({ onOpen, user, deskMode }) {
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
-          {/* 데스크 뷰어 접속용 랜딩 QR (방 선택 화면) */}
-          {deskMode && deskQr && (
-            <Card sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, mb: 2 }}>
-              <Box component="img" src={deskQr.qr} alt="뷰어 QR" sx={{ width: 96, height: 96, bgcolor: '#fff', borderRadius: 2, p: 0.5, flex: 'none' }} />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontWeight: 800, fontSize: 15 }}>뷰어 접속 QR (안내데스크 선택 화면)</Typography>
-                <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
-                  손님 태블릿으로 이 QR을 스캔 → 안내데스크를 고르면 시작 화면(전체화면)이 떠요.
-                </Typography>
-                <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.5, wordBreak: 'break-all' }}>{deskQr.url}</Typography>
-              </Box>
-            </Card>
-          )}
-          {/* 목록 영역 우상단 툴바: 새 세션 / 선택·삭제 */}
-          {!empty && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
-              <Box sx={{ flex: 1 }} />
-              {selectMode ? (
-                <>
-                  <Button size="small" onClick={toggleAll}>{allSelected ? '전체 해제' : '전체 선택'}</Button>
-                  <Button
-                    size="small"
-                    color="error"
-                    variant="outlined"
-                    startIcon={<DeleteOutlineIcon />}
-                    disabled={!selected.size}
-                    onClick={deleteSelected}
-                  >
-                    삭제 ({selected.size})
-                  </Button>
-                  <Button size="small" onClick={exitSelect}>취소</Button>
-                </>
-              ) : (
-                <>
-                  <Button size="small" color="inherit" onClick={() => setSelectMode(true)} sx={{ color: 'text.secondary' }}>
-                    선택
-                  </Button>
-                  <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
-                    {deskMode ? '안내데스크' : '새 세션'}
-                  </Button>
-                </>
+          {/* 상단 툴바: (데스크) QR 토글 + 새 세션 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
+            <Box sx={{ flex: 1 }} />
+            {deskMode && (
+              <Tooltip title="뷰어 접속 QR">
+                <IconButton onClick={() => setQrOpen((o) => !o)} color={qrOpen ? 'primary' : 'default'} sx={{ border: 1, borderColor: 'divider' }}>
+                  <QrCode2Icon />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+              새 세션
+            </Button>
+          </Box>
+
+          {/* 데스크 뷰어 접속용 랜딩 QR (기본 숨김) */}
+          {deskMode && (
+            <Collapse in={qrOpen && !!deskQr}>
+              {deskQr && (
+                <Card sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, mb: 2 }}>
+                  <Box component="img" src={deskQr.qr} alt="뷰어 QR" sx={{ width: 96, height: 96, bgcolor: '#fff', borderRadius: 2, p: 0.5, flex: 'none' }} />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 800, fontSize: 15 }}>뷰어 접속 QR (안내데스크 선택 화면)</Typography>
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
+                      손님 태블릿으로 스캔 → 안내데스크 선택 → 시작 화면(전체화면).
+                    </Typography>
+                    <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.5, wordBreak: 'break-all' }}>{deskQr.url}</Typography>
+                  </Box>
+                </Card>
               )}
-            </Box>
+            </Collapse>
           )}
+
           {empty && (
             <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
               <Avatar
@@ -198,7 +194,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                 {deskMode ? '안내데스크를 만들어 대면 통역을 시작하세요. (데스크마다 별도 세션)' : '새 세션을 만들고 외국어를 실시간으로 번역해 보세요.'}
               </Typography>
               <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
-                {deskMode ? '안내데스크 만들기' : '새 세션 만들기'}
+                새 세션 만들기
               </Button>
             </Box>
           )}
@@ -213,10 +209,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                 '&:hover': { transform: 'translateY(-2px)', boxShadow: 6, borderColor: 'primary.main' },
               }}
             >
-              <CardActionArea onClick={() => (selectMode ? toggleSel(s.id) : onOpen(s))} sx={{ px: 2, py: 1.75, display: 'flex', justifyContent: 'flex-start', gap: 1.75 }}>
-                {selectMode && (
-                  <Checkbox checked={selected.has(s.id)} tabIndex={-1} disableRipple sx={{ p: 0, ml: -0.5 }} />
-                )}
+              <CardActionArea onClick={() => onOpen(s)} sx={{ px: 2, py: 1.75, display: 'flex', justifyContent: 'flex-start', gap: 1.75 }}>
                 <Avatar
                   variant="rounded"
                   sx={{
@@ -244,11 +237,9 @@ export default function SessionList({ onOpen, user, deskMode }) {
                   </Box>
                 </Box>
               </CardActionArea>
-              {!selectMode && (
-                <IconButton sx={{ mr: 1 }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
-                  <MoreVertIcon />
-                </IconButton>
-              )}
+              <IconButton sx={{ mr: 1 }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
+                <MoreVertIcon />
+              </IconButton>
             </Card>
           ))}
         </Box>
@@ -257,7 +248,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
       {/* 모바일: 우하단 고정 + 버튼(화면 이동해도 위치 유지) */}
       <Fab
         color="primary"
-        aria-label={deskMode ? '안내데스크 추가' : '새 세션'}
+        aria-label="새 세션"
         onClick={openDlg}
         sx={{ position: 'fixed', right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', display: { xs: 'flex', sm: 'none' }, zIndex: 1200 }}
       >
@@ -265,6 +256,12 @@ export default function SessionList({ onOpen, user, deskMode }) {
       </Fab>
 
       <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
+        <MenuItem onClick={startRename}>
+          <ListItemIcon>
+            <EditOutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          제목 변경
+        </MenuItem>
         <MenuItem onClick={summarize}>
           <ListItemIcon>
             <AutoAwesomeIcon fontSize="small" />
@@ -285,13 +282,36 @@ export default function SessionList({ onOpen, user, deskMode }) {
         </MenuItem>
       </Menu>
 
+      {/* 새 세션 모달: 상단 제목칸(펜으로 수정) + 모드 선택 */}
       <Dialog open={dlg} onClose={() => setDlg(false)} PaperProps={{ sx: { width: 440, maxWidth: 440 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>{deskMode ? '새 안내데스크' : '새 세션'}</DialogTitle>
-        <DialogContent>
-          {/* 실시간 번역: 모드 선택을 이름 입력보다 위에 (데스크 메뉴에서는 모드 고정이라 숨김) */}
+        <DialogContent sx={{ pt: 3 }}>
+          {editName ? (
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => setEditName(false)}
+              onKeyDown={(e) => { if (e.key === 'Enter') setEditName(false); }}
+              sx={{ mb: 1 }}
+            />
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+              <Typography sx={{ fontWeight: 800, fontSize: 20, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {name}
+              </Typography>
+              <Tooltip title="제목 수정">
+                <IconButton size="small" onClick={() => setEditName(true)}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
+
           {!deskMode && (
             <>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 0.5, mb: 1 }}>번역 방식</Typography>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2, mb: 1 }}>번역 방식</Typography>
               <ToggleButtonGroup
                 exclusive
                 fullWidth
@@ -299,7 +319,6 @@ export default function SessionList({ onOpen, user, deskMode }) {
                 value={pipeline}
                 onChange={(e, v) => v && setPipeline(v)}
                 color="primary"
-                sx={{ mb: 2.5 }}
               >
                 <ToggleButton value="soniox" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
                   <b>다국어 번역</b>
@@ -316,20 +335,30 @@ export default function SessionList({ onOpen, user, deskMode }) {
               </ToggleButtonGroup>
             </>
           )}
-          <TextField
-            autoFocus
-            fullWidth
-            placeholder={deskMode ? '데스크 이름 (예: 1터미널 안내데스크)' : '세션 이름 (비우면 첫 문장으로 자동)'}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && create()}
-          />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setDlg(false)}>취소</Button>
-          <Button variant="contained" onClick={create}>
-            만들기
-          </Button>
+          <Button variant="contained" onClick={create}>만들기</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 제목 변경 */}
+      <Dialog open={!!rename} onClose={() => setRename(null)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>제목 변경</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            value={rename?.val || ''}
+            onChange={(e) => setRename((r) => ({ ...r, val: e.target.value }))}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveRename(); }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setRename(null)}>취소</Button>
+          <Button variant="contained" onClick={saveRename}>저장</Button>
         </DialogActions>
       </Dialog>
 
