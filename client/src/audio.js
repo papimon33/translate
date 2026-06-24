@@ -54,8 +54,8 @@ function downsampleTo24k(f32, inRate) {
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
   const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle } = opts;
-  // 마이크 음성인식 민감도(0~100): 일정 볼륨(peak) 이상일 때만 실제 오디오 전송. 100=게이트 없음(기본).
-  const gateTh = (typeof micSens === 'number' && micSens < 100) ? (1 - micSens / 100) * 0.08 : 0;
+  // 마이크 입력 게이트(0~100): 0=모든 소리 전송(게이트 없음, 기본), 높일수록 더 큰 소리(peak)만 전송.
+  const gateTh = (typeof micSens === 'number' && micSens > 0) ? (micSens / 100) * 0.08 : 0;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
