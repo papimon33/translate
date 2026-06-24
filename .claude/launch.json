@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "port": 3000
+    },
+    {
+      "name": "map-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/jake/Documents/claude/translate/map/_serve.py"],
+      "port": 8765
     }
   ]
 }
