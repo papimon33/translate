@@ -1,4 +1,56 @@
-# 김포공항 국제선 2.5D 길찾기 (`wayfinding.html`)
+# 김포공항 국제선 2.5D 길찾기
+
+두 가지 구현이 있다.
+
+| 파일 | 설명 |
+|---|---|
+| **`airport25d.js` + `test.html`** | **(권장/최신)** 4개 층을 하나의 화면에 통합한 입체 멀티플로어 뷰. 벽 3D 압출·바닥 슬래브 두께·무채색·다른 웹앱에서 함수 호출용 라이브러리 + 테스트 페이지. |
+| `wayfinding.html` (v1) | 한 층씩 보여주는 등각 틸트 단일 파일 앱(이전 버전). |
+
+---
+
+## A. `airport25d.js` — 재사용 라이브러리 (최신)
+
+### 호출 방법 (다른 웹앱에서)
+```html
+<script src="wayfinding_data.js"></script>   <!-- window.AIRPORT_DATA -->
+<script src="airport25d.js"></script>
+<script>
+  const map = AirportMap25D.create({
+    container: '#map',          // 엘리먼트 또는 셀렉터
+    data: window.AIRPORT_DATA,  // 생략 시 전역 사용
+    wallHeight: 22,             // 벽 압출 높이(상수, 조절 가능)
+    plateThickness: 13,         // 바닥 슬래브 두께
+    onReady(api){ /* 준비 완료 */ },
+  });
+
+  // 핵심: 출발 안내데스크 → 목적지 경로 표시 (ESC/ELEV 외 시설은 자동 숨김)
+  map.showRoute({ deskFloor:'1F', deskSide:'S', dest:{ floor:'4F', name:'유아휴게실' } });
+  // dest 는 {floor,name} 또는 {floor,x,y} 모두 가능
+  map.clearRoute();             // 경로 지우고 전체 시설 다시 표시
+
+  map.on('route', r => console.log(r.summary));   // {dest,floor,meters,minutes,transfers,steps[]}
+  map.on('facilityClick', f => {});               // 핀 클릭 시
+</script>
+```
+반환 객체(api): `showRoute · clearRoute · setDesk(floor,side) · listFacilities() · getRoute() · on(ev,cb) · redraw() · destroy() · el`.
+
+### 렌더 개념
+- 4개 층 **분리 적층 아이소메트릭**(exploded). 축소해도 위치 불변(고정 논리 viewBox + CSS 균일 스케일).
+- 각 층 도면 SVG를 래스터화한 마스크로 **재구성**: 바닥 footprint를 아래로 압출(두께) + 검정(#000) 벽을
+  위로 offset 적층 복제해 **수직 압출 직육면체**. 외곽/내부 벽 동일 높이.
+- 무채색(흰/연회색) 바닥 + **하늘색 보안구역**(색+점선 경계로 구분). 층 식별은 라벨 칩 색으로만.
+- 시설 아이콘은 **평면**(빌보드 3D 아님). 경로 표시 중에는 ESC/ELEV만 남기고 나머지 숨김.
+- 길찾기 엔진(벽/보안 회피 직교 A* + transit_groups 멀티플로어 그래프)은 v1과 동일(검증됨).
+
+### 테스트
+`test.html` — 출발층/방향·카테고리·검색·시설선택·전체화면 컨트롤로 `map.showRoute()` 호출. 더블클릭으로
+바로 열림(`file://`, data·js를 `<script src>`로 로드). 검증: 1F→3F(엘베), 1F→4F(엘베+ESC-E),
+2F→3F, 동일층 경로 / 경로 중 시설 숨김 / 콘솔 에러 없음.
+
+---
+
+## B. `wayfinding.html` (v1)
 
 `prompt_2.5d_wayfinding.md` 요건을 구현한 단일 파일 인터랙티브 앱. 참고 구현 `wayfinding_min.html`의
 검증된 로직(벽 래스터화 + 직교 A*)을 재사용하고 그 위에 2.5D·멀티플로어·아이콘·환승을 얹었다.

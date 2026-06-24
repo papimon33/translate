@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>airport25d 테스트 · 김포공항 2.5D 길찾기</title>
+<style>
+  :root{--bg:#0e1217;--panel:#161c24;--ink:#e6eaef;--mut:#93a0ab;--line:#2a333d;--acc:#ff7a55;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:#0a0d11;color:var(--ink);font-family:system-ui,"Noto Sans KR",sans-serif;}
+  header{padding:12px 18px;border-bottom:1px solid var(--line);}
+  header h1{font-size:16px;margin:0;font-weight:600;}
+  header .sub{font-size:12px;color:var(--mut);margin-top:3px;}
+  .layout{display:flex;gap:14px;align-items:flex-start;padding:14px;max-width:1500px;margin:0 auto;}
+  .panel{width:320px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .map-col{flex:1;min-width:0;}
+  .gt{font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 7px;}
+  .gt:first-child{margin-top:0;}
+  .row{display:flex;gap:6px;flex-wrap:wrap;}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .seg button{border:none;background:transparent;padding:7px 12px;font-size:13px;cursor:pointer;color:var(--ink);}
+  .seg button.on{background:var(--acc);color:#11151a;font-weight:600;}
+  .seg button+button{border-left:1px solid var(--line);}
+  .chip{border:1px solid var(--line);background:transparent;color:var(--ink);padding:6px 11px;border-radius:16px;font-size:12.5px;cursor:pointer;}
+  .chip.on{background:var(--ink);color:#11151a;border-color:var(--ink);}
+  input[type=search]{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;margin-top:2px;background:#0e1319;color:var(--ink);}
+  .compass{display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,34px);gap:4px;justify-content:center;}
+  .compass button{border:1px solid var(--line);background:transparent;border-radius:8px;font-size:13px;cursor:pointer;color:var(--ink);}
+  .compass button.on{background:#2aa37a;color:#fff;border-color:#2aa37a;}
+  .compass .mid{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--mut);}
+  .list{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:9px;margin-top:6px;}
+  .item{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid #1b222b;}
+  .item:last-child{border-bottom:none;}
+  .item:hover{background:#1b222b;}
+  .item.on{background:#2a1f1a;}
+  .item .ic{width:22px;height:22px;flex:none;border-radius:5px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+  .item .ic img{width:18px;height:18px;}
+  .item .fl{margin-left:auto;font-size:11px;color:var(--mut);}
+  .info{margin-top:12px;font-size:13px;line-height:1.55;background:#10161d;border:1px solid var(--line);border-radius:9px;padding:11px;min-height:42px;}
+  .info b{color:var(--acc);}
+  .steps{margin:8px 0 0;padding-left:2px;list-style:none;font-size:12.5px;color:var(--mut);}
+  .steps li{padding:2px 0 2px 18px;position:relative;}
+  .steps li::before{content:"";position:absolute;left:4px;top:9px;width:6px;height:6px;border-radius:50%;background:var(--acc);}
+  .actions{display:flex;gap:8px;margin-top:10px;}
+  .actions button{flex:1;padding:9px;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:9px;cursor:pointer;font-size:13px;}
+  .actions button:hover{background:#1b222b;}
+  #mapbox{position:relative;}
+  #fsbtn{position:absolute;top:10px;right:10px;z-index:8;border:1px solid var(--line);background:rgba(20,26,33,.85);color:var(--ink);padding:7px 11px;border-radius:9px;cursor:pointer;font-size:13px;}
+  .loading{padding:40px;text-align:center;color:var(--mut);}
+  @media(max-width:860px){.layout{flex-direction:column;}.panel{width:100%;}}
+</style>
+</head>
+<body>
+<header>
+  <h1>airport25d · 김포공항 국제선 2.5D 멀티플로어 길찾기 (테스트)</h1>
+  <div class="sub">라이브러리 <code>AirportMap25D.create()</code> 호출 데모 · 4개 층 통합 · 벽 3D 압출 · 안내데스크 출발</div>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <div class="gt">출발 안내데스크</div>
+    <div class="seg" id="deskFloor"><button data-f="1F" class="on">1F 데스크</button><button data-f="2F">2F 데스크</button></div>
+    <div class="gt">출발 방향</div>
+    <div class="compass" id="compass">
+      <div></div><button data-s="N">북</button><div></div>
+      <button data-s="W">서</button><div class="mid">데스크</div><button data-s="E">동</button>
+      <div></div><button data-s="S" class="on">남</button><div></div>
+    </div>
+    <div class="gt">카테고리</div>
+    <div class="row" id="cats"></div>
+    <div class="gt">목적지 검색 · 선택</div>
+    <input type="search" id="q" placeholder="이름·태그 검색 (음수대, 환전, cafe…)">
+    <div class="list" id="list"></div>
+    <div class="actions">
+      <button id="clearBtn">경로 지우기</button>
+    </div>
+    <div class="info" id="info">목적지를 선택하면 안내데스크에서 출발하는 경로를 모든 층에 걸쳐 표시합니다.</div>
+    <ol class="steps" id="steps"></ol>
+  </div>
+
+  <div class="map-col">
+    <div id="mapbox">
+      <button id="fsbtn">⛶ 전체화면</button>
+      <div id="map"><div class="loading">지도 로딩 중… (4개 층 래스터화)</div></div>
+    </div>
+  </div>
+</div>
+
+<script src="wayfinding_data.js"></script>
+<script src="airport25d.js"></script>
+<script>
+"use strict";
+const D = window.AIRPORT_DATA;
+const FLOORS=['1F','2F','3F','4F'];
+const ST={deskFloor:'1F',deskSide:'S',cat:'all',q:'',sel:null};
+let map=null;
+
+const CATS=[
+ {id:'all',label:'전체',kw:null},
+ {id:'food',label:'식음료',kw:['카페','커피','식','면','돈까스','버거','도넛','빵','베이커','cafe','coffee','공차','스타벅','파리','파스쿠','에그','던킨','오사카','마리','정테이블','대청','롯데리아','분식','요아정']},
+ {id:'shop',label:'편의·면세',kw:['편의','면세','cu','duty','인도장','카카오','디자인스킨','세븐']},
+ {id:'money',label:'환전·금융',kw:['은행','환전','exchange','환급','신한']},
+ {id:'transport',label:'교통',kw:['버스','렌터카','쏘카','발권','항공','매표']},
+ {id:'telecom',label:'로밍·통신',kw:['로밍','유심','wifi','유플러스','kt','sk']},
+ {id:'amenity',label:'편의시설',kw:['화장실','유아','수유','휠체어','유모차','충전','음수대','제세동기','기도실','약국','우편','수하물','수화물','흡연','라운지','안마']},
+ {id:'move',label:'이동·안내',kw:['에스컬','엘리베','안내데스크','음성유도','촉지도']},
+];
+function catMatch(f,cat){if(cat==='all')return true;const c=CATS.find(c=>c.id===cat);if(!c||!c.kw)return true;
+  const h=(f.name+' '+(f.tags||[]).join(' ')).toLowerCase();return c.kw.some(k=>h.includes(k.toLowerCase()));}
+function iconURL(p){const g=D.pseq_icon_groups[p];return g&&g.svg?('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(g.svg)):null;}
+
+function buildCats(){const w=document.getElementById('cats');w.innerHTML='';
+  CATS.forEach(c=>{const b=document.createElement('button');b.className='chip'+(c.id===ST.cat?' on':'');b.textContent=c.label;
+    b.onclick=()=>{ST.cat=c.id;buildCats();buildList();};w.appendChild(b);});}
+function buildList(){
+  const list=document.getElementById('list');list.innerHTML='';const q=ST.q.trim().toLowerCase();let sec=0,sh=0;
+  FLOORS.forEach(fk=>(D.facilities[fk]||[]).forEach((f,idx)=>{
+    if(f.in_secure){sec++;return;} if(!catMatch(f,ST.cat))return;
+    if(q){const h=(f.name+' '+(f.tags||[]).join(' ')).toLowerCase();if(!h.includes(q))return;}
+    sh++;const it=document.createElement('div');
+    it.className='item'+(ST.sel&&ST.sel.floor===fk&&ST.sel.idx===idx?' on':'');
+    const u=iconURL(f.pSeq);
+    it.innerHTML=`<span class="ic">${u?`<img src="${u}">`:'📍'}</span><span>${f.name}</span><span class="fl">${fk}</span>`;
+    it.onclick=()=>pick({...f,floor:fk,idx});list.appendChild(it);
+  }));
+}
+function pick(f){ST.sel=f;buildList();
+  const r=map.showRoute({deskFloor:ST.deskFloor,deskSide:ST.deskSide,dest:{floor:f.floor,name:f.name}});
+  renderInfo(r);}
+function renderInfo(r){
+  const info=document.getElementById('info'),steps=document.getElementById('steps');steps.innerHTML='';
+  if(!r||r.error){info.innerHTML=(ST.sel?`<b>${ST.sel.name}</b> · `:'')+((r&&r.error)||'경로 없음');return;}
+  const s=r.summary;
+  info.innerHTML=`목적지 <b>${s.dest}</b> (${s.floor})<br>출발 ${ST.deskFloor} 안내데스크 · ${({N:'북',S:'남',E:'동',W:'서'})[ST.deskSide]}쪽<br>`+
+    `약 <b>${s.meters} m</b> · 도보 약 ${s.minutes}분 · 환승 ${s.transfers}회 <span style="color:var(--mut)">(축척 추정)</span>`;
+  s.steps.forEach(t=>{const li=document.createElement('li');li.textContent=t;steps.appendChild(li);});
+}
+
+document.getElementById('deskFloor').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  ST.deskFloor=b.dataset.f;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  if(ST.sel)pick(ST.sel);});
+document.getElementById('compass').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!b.dataset.s)return;
+  ST.deskSide=b.dataset.s;[...e.currentTarget.querySelectorAll('button')].forEach(x=>x.classList.toggle('on',x===b));
+  if(ST.sel)pick(ST.sel);});
+document.getElementById('q').addEventListener('input',e=>{ST.q=e.target.value;buildList();});
+document.getElementById('clearBtn').addEventListener('click',()=>{ST.sel=null;buildList();map.clearRoute();
+  document.getElementById('info').textContent='경로를 지웠습니다. 목적지를 선택하세요.';document.getElementById('steps').innerHTML='';});
+document.getElementById('fsbtn').addEventListener('click',()=>{const el=document.getElementById('mapbox');
+  if(!document.fullscreenElement)el.requestFullscreen&&el.requestFullscreen();else document.exitFullscreen();});
+
+buildCats();buildList();
+map = AirportMap25D.create({
+  container:'#map',
+  data:D,
+  wallHeight:22,
+  onReady(){ document.getElementById('info').textContent='준비 완료. 목적지를 선택하면 경로를 표시합니다.'; },
+});
+map.on('facilityClick',f=>{ST.sel={...f};buildList();});
+map.on('route',r=>{ if(r&&r.summary) renderInfo(r); });
+</script>
+</body>
+</html>
