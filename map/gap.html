@@ -448,13 +448,24 @@ function create(opts){
   function iconOnly(x,y,url,size){ // 래퍼 없이 아이콘만
     if(!url)return;svg.appendChild(E('image',{href:url,'xlink:href':url,x:x-size/2,y:y-size/2,width:size,height:size}));
   }
-  function locPin(x,y,color,labelTxt){ // 지도 현위치 핀
-    const r=10,g=E('g',{});
-    g.appendChild(E('ellipse',{cx:x,cy:y+1,rx:5,ry:2,fill:'rgba(0,0,0,0.35)'}));
-    g.appendChild(E('path',{d:`M ${x} ${y} C ${x-r} ${y-r*1.5}, ${x-r} ${y-r*2.6}, ${x} ${y-r*2.8} C ${x+r} ${y-r*2.6}, ${x+r} ${y-r*1.5}, ${x} ${y} Z`,fill:color,stroke:'#fff','stroke-width':1.8}));
-    g.appendChild(E('circle',{cx:x,cy:y-r*1.75,r:r*0.46,fill:'#fff'}));
-    svg.appendChild(g);
-    if(labelTxt)label(x,y-r*2.8-7,labelTxt,color,true);
+  // 첨부 핀 아이콘(location-pin-svgrepo). tip 이 (x,y)에 오도록. top y 반환.
+  function pinIcon(x,y,color,h){
+    const s=h/64, tx=(x-32*s), ty=(y-60*s), g=E('g',{transform:`translate(${tx.toFixed(2)},${ty.toFixed(2)}) scale(${s.toFixed(4)})`});
+    g.appendChild(E('ellipse',{cx:32,cy:63,rx:9,ry:3,fill:'rgba(0,0,0,0.28)'}));
+    g.appendChild(E('path',{d:'M32,52.789l-12-18C18.5,32,16,28.031,16,24c0-8.836,7.164-16,16-16s16,7.164,16,16c0,4.031-2.055,8-4,10.789L32,52.789z',fill:color}));
+    g.appendChild(E('path',{d:'M32,0C18.746,0,8,10.746,8,24c0,5.219,1.711,10.008,4.555,13.93c0.051,0.094,0.059,0.199,0.117,0.289l16,24C29.414,63.332,30.664,64,32,64s2.586-0.668,3.328-1.781l16-24c0.059-0.09,0.066-0.195,0.117-0.289C54.289,34.008,56,29.219,56,24C56,10.746,45.254,0,32,0z M44,34.789l-12,18l-12-18C18.5,32,16,28.031,16,24c0-8.836,7.164-16,16-16s16,7.164,16,16C48,28.031,45.945,32,44,34.789z',fill:'#2b3440'}));
+    g.appendChild(E('circle',{cx:32,cy:24,r:8,fill:'#2b3440'}));
+    svg.appendChild(g);return ty;
+  }
+  // 콜아웃 뱃지(둥근 알약 + 아래 꼬리). tipY 아래를 가리킴.
+  function callout(cx,tipY,text,bg,fg,upper){
+    const t=upper?text.toUpperCase():text, korean=/[가-힣]/.test(t), fs=12.5;
+    const w=Math.max(38,t.length*(korean?fs*1.04:fs*0.66)+20),h=23,tail=6, x=cx-w/2, y=tipY-tail-h;
+    const g=E('g',{});
+    g.appendChild(E('rect',{x:x.toFixed(1),y:y.toFixed(1),width:w.toFixed(1),height:h,rx:11.5,fill:bg}));
+    g.appendChild(E('path',{d:`M${(cx-5.5).toFixed(1)} ${(tipY-tail).toFixed(1)}L${(cx+5.5).toFixed(1)} ${(tipY-tail).toFixed(1)}L${cx.toFixed(1)} ${tipY.toFixed(1)}Z`,fill:bg}));
+    const tx=E('text',{x:cx.toFixed(1),y:(y+h/2+4.6).toFixed(1),'text-anchor':'middle','font-size':fs,'font-weight':700,fill:fg,'font-family':"'SF Pro Display','Helvetica Neue',Pretendard,system-ui,sans-serif",'letter-spacing':upper?'2':'0.2'});
+    tx.textContent=t;g.appendChild(tx);svg.appendChild(g);
   }
   function label(x,y,txt,color,strong){
     const t=E('text',{x:x,y:y,'text-anchor':'middle','font-size':strong?13:12,'font-family':'system-ui,sans-serif','font-weight':strong?700:500,fill:color,'paint-order':'stroke',stroke:COL.bg,'stroke-width':3.5,'stroke-linejoin':'round'});
@@ -483,33 +494,39 @@ function create(opts){
       if(leg.exitTo){const a=lp[lp.length-1],b=project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y);
         pts.push([a[0],b[1]]);pts.push(b);}
     });
-    // 경로: 출발→목적지로 점이 하나씩 늘어나는 애니메이션(아래 깔림)
-    if(pts.length>1)animateDots(pts);
+    // 경로: 코멧 헤드 + 잔상 점선이 출발→목적지로 흐르는 애니메이션(아래 깔림)
+    if(pts.length>1)animateRoute(pts);
     // 에스컬레이터/엘리베이터 아이콘: 양쪽 층의 실제 위치에 표시(1F→2F면 둘 다)
     r.legs.forEach((leg)=>{if(leg.exitTo){const isElev=leg.exitTo.transit.type==='elevator',u=iconURL(isElev?'12':'11');
       const a=project(leg.floor,leg.exitTo.node.x,leg.exitTo.node.y),b=project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y);
       iconOnly(a[0],a[1],u,22);iconOnly(b[0],b[1],u,22);}});
-    // 출발: 노란 큐브(2/3) + 현위치 핀(박스와 겹침) + "Here"
+    // 출발: 노란 큐브(2/3) + 현위치 핀(박스와 겹침) + "HERE" 콜아웃
     const dl=r.legs[0];if(dl.desk){const c=project(dl.floor,dl.desk[0],dl.desk[1]);
       drawCube(dl.floor,dl.desk[0],dl.desk[1],CUBE_SZ,13);
-      locPin(c[0],c[1],COL.here);
-      label(c[0],c[1]-34,'Here',COL.start,true);}
-    // 목적지: 핀 + 언어별 명칭
+      const top=pinIcon(c[0],c[1],COL.here,30);callout(c[0],top,'Here',COL.here,'#fff',true);}
+    // 목적지: 첨부 핀 + 언어별 명칭 콜아웃
     const last=r.legs[r.legs.length-1],dst=last.arrive;
-    if(dst){const e=project(last.floor,dst.x,dst.y);locPin(e[0],e[1],COL.dest,tr(dst));}
+    if(dst){const e=project(last.floor,dst.x,dst.y);const top=pinIcon(e[0],e[1],COL.dest,30);callout(e[0],top,tr(dst),COL.dest,'#fff',false);}
   }
-  // 점이 출발지부터 목적지까지 하나씩 늘어나는 애니메이션
-  function animateDots(pts){
+  // 코멧 헤드 + 페이드인 잔상 점 + 은은한 가이드 라인
+  function animateRoute(pts){
     if(dotRAF)cancelAnimationFrame(dotRAF);
     const seg=[],cum=[0];let tot=0;
     for(let i=1;i<pts.length;i++){const d=dist(pts[i-1],pts[i]);seg.push(d);tot+=d;cum.push(tot);}
-    function at(s){let i=1;while(i<cum.length&&cum[i]<s)i++;if(i>=cum.length)return pts[pts.length-1];
-      const t=(s-cum[i-1])/(seg[i-1]||1);return [pts[i-1][0]+(pts[i][0]-pts[i-1][0])*t,pts[i-1][1]+(pts[i][1]-pts[i-1][1])*t];}
-    const S=11,dots=[];
-    for(let s=0;s<=tot;s+=S){const p=at(s);dots.push(svg.appendChild(E('circle',{cx:p[0].toFixed(1),cy:p[1].toFixed(1),r:2.8,fill:COL.route,opacity:0})));}
-    const N=dots.length,PER=42,GROW=N*PER,HOLD=900,CY=GROW+HOLD;let t0=null,last=-1;
-    function fr(t){if(t0===null)t0=t;const e=(t-t0)%CY,shown=e<GROW?Math.floor(e/PER)+1:N;
-      if(shown!==last){for(let i=0;i<N;i++)dots[i].setAttribute('opacity',i<shown?1:0);last=shown;}
+    const at=(s)=>{let i=1;while(i<cum.length&&cum[i]<s)i++;if(i>=cum.length)return pts[pts.length-1];
+      const t=(s-cum[i-1])/(seg[i-1]||1);return [pts[i-1][0]+(pts[i][0]-pts[i-1][0])*t,pts[i-1][1]+(pts[i][1]-pts[i-1][1])*t];};
+    // 은은한 전체 가이드
+    svg.appendChild(E('path',{d:'M'+pts.map(p=>p[0].toFixed(1)+' '+p[1].toFixed(1)).join('L'),fill:'none',stroke:COL.route,'stroke-opacity':0.16,'stroke-width':2.4,'stroke-linecap':'round','stroke-dasharray':'0.1 11'}));
+    const S=13,dots=[],darc=[];
+    for(let s=0;s<=tot;s+=S){const p=at(s);darc.push(s);dots.push(svg.appendChild(E('circle',{cx:p[0].toFixed(1),cy:p[1].toFixed(1),r:3,fill:COL.route,opacity:0})));}
+    const halo=svg.appendChild(E('circle',{r:11,fill:COL.route,opacity:0}));
+    const core=svg.appendChild(E('circle',{r:5,fill:'#eaf4ff',stroke:COL.route,'stroke-width':2.5,opacity:0}));
+    const N=dots.length,GROW=Math.max(1500,tot*3.2),HOLD=1100,CY=GROW+HOLD,FADE=S*3.5;let t0=null;
+    function fr(t){if(t0===null)t0=t;const e=(t-t0)%CY,grow=e<GROW,head=grow?(e/GROW)*tot:tot;
+      const hp=at(head),hr=10+1.6*Math.sin(t/170);
+      halo.setAttribute('cx',hp[0].toFixed(1));halo.setAttribute('cy',hp[1].toFixed(1));halo.setAttribute('r',hr.toFixed(1));halo.setAttribute('opacity',grow?0.32:0);
+      core.setAttribute('cx',hp[0].toFixed(1));core.setAttribute('cy',hp[1].toFixed(1));core.setAttribute('opacity',grow?1:0);
+      for(let i=0;i<N;i++){const a=head-darc[i];dots[i].setAttribute('opacity',a<=0?0:Math.min(1,a/FADE));}
       dotRAF=requestAnimationFrame(fr);}
     dotRAF=requestAnimationFrame(fr);
   }
