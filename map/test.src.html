@@ -58,7 +58,10 @@
     <h1>airport25d · 김포공항 국제선 2.5D 멀티플로어 길찾기</h1>
     <div class="sub">4개 층 통합 · 벽 3D 압출 · 안내데스크 출발</div>
   </div>
-  <a href="align.html">🔧 2D 정합</a>
+  <select id="lang" style="margin-left:auto;background:#0e1319;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:7px 9px;font-size:13px;">
+    <option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option><option value="zh">中文</option>
+  </select>
+  <a href="align.html" style="margin-left:10px;">🔧 2D 정합</a>
   <a href="gap.html" style="margin-left:8px;">↕ 높이 간격</a>
 </header>
 
@@ -165,11 +168,13 @@ document.getElementById('fsbtn').addEventListener('click',()=>{const el=document
 buildCats();buildList();calibNote();
 map = AirportMap25D.create({
   container:'#map', data:D, wallHeight:16,
+  lang: document.getElementById('lang').value,   // 목적지 표기 언어(기본 한글)
   floorCalib: loadCalib(),   // align.html 에서 저장한 정합값 자동 적용
   floorGaps:  loadGaps(),    // gap.html 에서 확정한 층 높이 간격 자동 적용
   onReady(){ document.getElementById('info').textContent='준비 완료. 목적지를 선택하면 경로를 표시합니다.'; },
 });
 map.on('route',r=>{ if(r&&r.summary) renderInfo(r); });
+document.getElementById('lang').addEventListener('change',e=>map.setLang(e.target.value));
 </script>
 </body>
 </html>
