@@ -121,6 +121,10 @@
     <span class="lbl">QR코드 보기</span>
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><polyline points="9 18 15 12 9 6"/></svg>
   </div>
+  <div class="srow click" id="rowFull">
+    <span class="lbl">전체화면</span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><polyline points="9 18 15 12 9 6"/></svg>
+  </div>
   <div class="srow click" id="rowSrc">
     <span class="lbl">원문 동시 보기</span>
     <label class="sw"><input type="checkbox" id="srcToggle" /><span class="sl"></span></label>
@@ -329,6 +333,14 @@ $('fsUp').onclick = (e) => { e.stopPropagation(); fsPct = Math.min(200, fsPct+10
 $('fsDown').onclick = (e) => { e.stopPropagation(); fsPct = Math.max(50, fsPct-10); applyFs(); };
 // QR / 원문 / 다크모드: 행 전체 클릭으로 동작
 $('rowQr').onclick = () => { closeSheet(); $('qrModal').classList.add('show'); };
+$('rowFull').onclick = () => {
+  closeSheet();
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEl) { (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document); return; }
+  const el = document.documentElement;
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (fn) { try { fn.call(el); } catch {} }
+};
 $('rowSrc').onclick = () => { showSrc = !showSrc; $('srcToggle').checked = showSrc; localStorage.setItem('kac-msrc', showSrc?'1':'0'); applySrc(); };
 $('audioBtn').onclick = () => { audioOn = !audioOn; $('audioBtn').classList.toggle('on', audioOn); if(audioOn) enableAudio(); sendAudioSub(audioOn); };
 $('rowDark').onclick = () => { applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); };

@@ -45,13 +45,13 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
-// 통역 용도 프리셋(대면/온라인/현장) — 카드로 선택, soniox 엔진 공통
+// 통역 프리셋 — 카드로 선택, soniox 엔진 공통. 순서: 단방향 → 양방향 → 모바일
 export const PRESETS = [
-  { v: 'meeting', icon: '🗣️', label: '대면 회의', desc: '각자 언어로 양방향 대화 (마이크)' },
-  { v: 'online', icon: '💻', label: '온라인 회의', desc: '화면 소리를 한국어 자막으로' },
-  { v: 'field', icon: '📱', label: '현장 통역', desc: '휴대폰으로 1:1 안내 (발화 켜고/끄기)' },
+  { v: 'oneway', icon: '🎯', label: '단방향 번역', desc: '입력값을 단일 언어로 번역\n발표 번역 · 온라인 회의 추천' },
+  { v: 'twoway', icon: '🗣️', label: '양방향 번역', desc: '각자 언어로 양방향 대화\n오프라인 회의 추천' },
+  { v: 'mobile', icon: '📱', label: '모바일 모드', desc: '버튼을 눌러 대화 on/off\n현장 사용 추천' },
 ];
-const PRESET_LABEL = { meeting: '대면 회의', online: '온라인 회의', field: '현장 통역' };
+const PRESET_LABEL = { oneway: '단방향 번역', twoway: '양방향 번역', mobile: '모바일 모드', meeting: '양방향 번역', online: '단방향 번역', field: '모바일 모드' };
 
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
@@ -85,7 +85,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
     const titles = (list || []).map((s) => s.title);
     setName(uniqueName(base, titles));
     setEditName(false);
-    setPreset('meeting');
+    setPreset('oneway');
     setDlg(true);
   };
 
@@ -322,9 +322,8 @@ export default function SessionList({ onOpen, user, deskMode }) {
 
           {!deskMode && (
             <>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2, mb: 1 }}>용도</Typography>
               {/* 데스크톱: 가로 3열 / 모바일: 세로 스택 */}
-              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1, mt: 2 }}>
                 {PRESETS.map((p) => {
                   const sel = preset === p.v;
                   return (
@@ -339,7 +338,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                       }}
                     >
                       <Typography sx={{ fontWeight: 800, fontSize: 14 }}>{p.icon} {p.label}</Typography>
-                      <Typography sx={{ fontSize: 11.5, color: 'text.secondary', mt: 0.3, lineHeight: 1.35 }}>{p.desc}</Typography>
+                      <Typography sx={{ fontSize: 11.5, color: 'text.secondary', mt: 0.3, lineHeight: 1.35, whiteSpace: 'pre-line' }}>{p.desc}</Typography>
                     </Box>
                   );
                 })}
