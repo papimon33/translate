@@ -153,7 +153,8 @@ export default function TranslateView({ session: initial, onBack }) {
     outLang: initial.outLang || 'ko',
   });
   const [dispLang, setDispLang] = useState(initial.outLang || 'ko'); // 화면에 표시할 언어
-  const [sourceMode, setSourceMode] = useState('mic');
+  // 통역 용도 프리셋: 소스/방향 기본값 (online=시스템 단방향→ko, 대면/현장=마이크 양방향)
+  const [sourceMode, setSourceMode] = useState(initial.preset === 'online' ? 'system' : 'mic');
   const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
   const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
   const [volume, setVolume] = useState(() => {
@@ -185,8 +186,9 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = Number(localStorage.getItem('kac-mic-sens'));
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100; // 마이크 음성인식 민감도 0~100 (100=가장 민감, 낮출수록 큰 소리만). 기기 저장
   });
-  const [sxMode, setSxMode] = useState(() => localStorage.getItem('kac-sx-mode') || 'one'); // 'one' | 'two'
-  const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
+  // 프리셋: online=단방향→ko, 대면/현장=양방향. (없으면 기존 localStorage)
+  const [sxMode, setSxMode] = useState(() => (initial.preset ? (initial.preset === 'online' ? 'one' : 'two') : (localStorage.getItem('kac-sx-mode') || 'one')));
+  const [sxTarget, setSxTarget] = useState(() => (initial.preset === 'online' ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Cartesia TTS 음성 출력
@@ -447,7 +449,8 @@ export default function TranslateView({ session: initial, onBack }) {
   // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
   const showSource = cfg.pipeline === 'desk' ? true : (cfg.pipeline !== 'translate' && srcVisible);
   const showPartial = true;
-  const pipeLabel = PIPES.find((p) => p.v === cfg.pipeline)?.label;
+  const PRESET_LABEL = { meeting: '대면 회의', online: '온라인 회의', field: '현장 통역' };
+  const pipeLabel = initial.preset ? PRESET_LABEL[initial.preset] : PIPES.find((p) => p.v === cfg.pipeline)?.label;
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>

@@ -88,7 +88,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           메뉴
         </Typography>
       )}
-      <NavItem collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="실시간 번역" active={view === 'sessions'} onClick={onHome} />
+      <NavItem collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="통역" active={view === 'sessions'} onClick={onHome} />
       <NavItem collapsed={collapsed} icon={<RecordVoiceOverIcon fontSize="small" />} label="데스크 안내" active={view === 'desk'} onClick={onDesk} />
       <NavItem collapsed={collapsed} icon={<AutoAwesomeOutlinedIcon fontSize="small" />} label="AI 요약" active={view === 'summaries'} onClick={onSummaries} />
       <NavItem collapsed={collapsed} icon={<MenuBookOutlinedIcon fontSize="small" />} label="용어 설정" active={view === 'terms'} onClick={onTerms} />

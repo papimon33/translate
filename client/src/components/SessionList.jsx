@@ -45,6 +45,14 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
+// 통역 용도 프리셋(대면/온라인/현장) — 카드로 선택, soniox 엔진 공통
+export const PRESETS = [
+  { v: 'meeting', icon: '🗣️', label: '대면 회의', desc: '각자 언어로 양방향 대화 (마이크)' },
+  { v: 'online', icon: '💻', label: '온라인 회의', desc: '화면 소리를 한국어 자막으로' },
+  { v: 'field', icon: '📱', label: '현장 통역', desc: '휴대폰으로 1:1 안내 (발화 켜고/끄기)' },
+];
+const PRESET_LABEL = { meeting: '대면 회의', online: '온라인 회의', field: '현장 통역' };
+
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
   if (!titles.includes(base)) return base;
@@ -59,7 +67,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
-  const [pipeline, setPipeline] = useState('soniox');
+  const [preset, setPreset] = useState('meeting'); // 통역 용도 프리셋
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
   const [deskQr, setDeskQr] = useState(null); // 데스크 뷰어 랜딩 QR
@@ -77,7 +85,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
     const titles = (list || []).map((s) => s.title);
     setName(uniqueName(base, titles));
     setEditName(false);
-    setPipeline(deskMode ? 'desk' : 'soniox');
+    setPreset('meeting');
     setDlg(true);
   };
 
@@ -85,7 +93,10 @@ export default function SessionList({ onOpen, user, deskMode }) {
     setDlg(false);
     const titles = (list || []).map((s) => s.title);
     const title = name.trim() || uniqueName(base, titles);
-    const s = await api.create({ title, pipeline, inLang: 'auto' });
+    const body = deskMode
+      ? { title, pipeline: 'desk', inLang: 'auto' }
+      : { title, pipeline: 'soniox', preset, inLang: 'auto' };
+    const s = await api.create(body);
     onOpen(s);
   };
 
@@ -138,7 +149,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
     <>
       {/* 헤더 */}
       <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Typography variant="h6">{deskMode ? '데스크 안내' : '실시간 번역'}</Typography>
+        <Typography variant="h6">{deskMode ? '데스크 안내' : '통역'}</Typography>
       </Box>
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
@@ -227,7 +238,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
                     <Chip
                       size="small"
-                      label={s.pipeline === 'desk' ? '데스크 안내' : s.pipeline === 'translate' ? '실시간 통역' : s.pipeline === 'deepgram' ? '다국어 (Deepgram)' : '다국어 번역'}
+                      label={s.pipeline === 'desk' ? '데스크 안내' : s.preset ? PRESET_LABEL[s.preset] : s.pipeline === 'translate' ? '실시간 통역' : s.pipeline === 'deepgram' ? '다국어 (Deepgram)' : '다국어 번역'}
                       color="primary"
                       variant="outlined"
                       sx={{ height: 20, fontSize: 11 }}
@@ -311,28 +322,28 @@ export default function SessionList({ onOpen, user, deskMode }) {
 
           {!deskMode && (
             <>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2, mb: 1 }}>번역 방식</Typography>
-              <ToggleButtonGroup
-                exclusive
-                fullWidth
-                size="small"
-                value={pipeline}
-                onChange={(e, v) => v && setPipeline(v)}
-                color="primary"
-              >
-                <ToggleButton value="soniox" sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-                  <b>다국어 번역</b>
-                  <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                    참가자가 원하는 언어로 다국어 번역
-                  </Typography>
-                </ToggleButton>
-                <ToggleButton value="translate" disabled={!isAdmin} sx={{ textTransform: 'none', flexDirection: 'column', py: 1.2, gap: 0.3 }}>
-                  <b>실시간 통역</b>
-                  <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3 }}>
-                    {isAdmin ? '자막 및 음성으로 실시간 통역' : '관리자 전용'}
-                  </Typography>
-                </ToggleButton>
-              </ToggleButtonGroup>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2, mb: 1 }}>용도</Typography>
+              {/* 데스크톱: 가로 3열 / 모바일: 세로 스택 */}
+              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                {PRESETS.map((p) => {
+                  const sel = preset === p.v;
+                  return (
+                    <Box
+                      key={p.v}
+                      onClick={() => setPreset(p.v)}
+                      sx={{
+                        flex: 1, cursor: 'pointer', borderRadius: 2, p: 1.5,
+                        border: 2, borderColor: sel ? 'primary.main' : 'divider',
+                        bgcolor: (t) => (sel ? alpha(t.palette.primary.main, 0.08) : 'transparent'),
+                        transition: 'border-color .12s, background .12s',
+                      }}
+                    >
+                      <Typography sx={{ fontWeight: 800, fontSize: 14 }}>{p.icon} {p.label}</Typography>
+                      <Typography sx={{ fontSize: 11.5, color: 'text.secondary', mt: 0.3, lineHeight: 1.35 }}>{p.desc}</Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
             </>
           )}
         </DialogContent>

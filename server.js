@@ -806,7 +806,7 @@ app.delete('/api/summaries/:id', requireAuth, (req, res) => {
 app.get('/api/sessions', requireAuth, (req, res) => {
   const list = sessions
     .filter((s) => s.owner === req.user.id) // 사용자마다 자기 세션만
-    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper' }))
+    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
 });
@@ -818,6 +818,8 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   // whisper 는 항상 한·영·일·중 전부 번역. translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장).
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice()); // whisper·deepgram 다국어
+  // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
+  const preset = ['meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
   const s = {
     id: newId(),
     owner: req.user.id, // 소유자
@@ -825,6 +827,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
     createdAt: now,
     updatedAt: now,
     pipeline, // 생성 후 변경 불가
+    ...(preset ? { preset } : {}),
     langs,
     outLang,
     inLang: b.inLang || 'auto',
