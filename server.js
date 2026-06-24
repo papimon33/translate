@@ -1893,6 +1893,7 @@ function handleHost(ws) {
     let phase = 'detect';   // 'detect' | 'locked'
     let lockedB = null;
     let sx = null, sxReady = false;
+    let closed = false;     // 호스트 중지/종료 — 자동 재연결 금지 플래그
     const pending = [];
     let foreignTimer = null;
 
@@ -1966,6 +1967,7 @@ function handleHost(ws) {
     };
 
     function reconnect() {
+      if (closed) return;
       const old = sx;
       sxReady = false;
       const next = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
@@ -1978,7 +1980,13 @@ function handleHost(ws) {
       });
       next.on('message', onSxMessage);
       next.on('error', (e) => toHost({ type: 'status', message: 'Soniox 오류: ' + ((e && e.message) || e) }));
-      next.on('close', () => {});
+      // 현재 활성 연결이 예기치 않게 끊기면(중지/유휴 아님) 자동 재연결 — 녹음 중 멈춤 방지
+      next.on('close', () => {
+        if (sx === next && !closed && !idleStopped) {
+          toHost({ type: 'status', message: '엔진 재연결 중…' });
+          setTimeout(() => { if (sx === next && !closed && !idleStopped) reconnect(); }, 800);
+        }
+      });
       try { if (old && old !== next) old.close(); } catch {}
     }
 
@@ -2017,10 +2025,10 @@ function handleHost(ws) {
       if (isBinary) { if (sxReady && sx) { try { sx.send(data); } catch {} } else if (pending.length < 2000) pending.push(data); return; }
       try {
         const m = JSON.parse(data.toString());
-        if (m.type === 'stop') { try { sx && sx.send(''); } catch {} try { sx && sx.close(); } catch {} }
+        if (m.type === 'stop') { closed = true; try { sx && sx.send(''); } catch {} try { sx && sx.close(); } catch {} }
       } catch {}
     });
-    ws.on('close', () => { clearTimeout(foreignTimer); try { sx && sx.close(); } catch {} });
+    ws.on('close', () => { closed = true; clearTimeout(foreignTimer); try { sx && sx.close(); } catch {} });
 
     setMeta();
     reconnect();
