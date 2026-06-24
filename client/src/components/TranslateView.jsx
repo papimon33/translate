@@ -387,7 +387,8 @@ export default function TranslateView({ session: initial, onBack }) {
         diar: cfg.pipeline === 'soniox' && diar,
         volume,
         endpointing,
-        sxSens: cfg.pipeline === 'desk' ? (micSens / 100) * 2 - 1 : sxSens, // 데스크: 마이크 민감도(0~100)→soniox(-1~1)
+        micSens, // 마이크 음성인식 민감도(0~100): 일정 볼륨 이상만 전송하는 클라이언트 볼륨 게이트
+        sxSens,
         sxMaxDelay,
         sxLatency,
         sxMode,

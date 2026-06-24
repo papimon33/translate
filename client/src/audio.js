@@ -53,7 +53,9 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle } = opts;
+  // 마이크 음성인식 민감도(0~100): 일정 볼륨(peak) 이상일 때만 실제 오디오 전송. 100=게이트 없음(기본).
+  const gateTh = (typeof micSens === 'number' && micSens < 100) ? (1 - micSens / 100) * 0.08 : 0;
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -140,6 +142,7 @@ export async function startRecorder(opts) {
     const TH = 0.015;
     const vad = { speaking: false, silence: 0, since: 0 };
     let lastActivitySent = 0;
+    let gateOpenUntil = 0; // 게이트가 열려 있는(전송) 시한 — 마지막 큰 소리 이후 hold
 
     proc.onaudioprocess = (e) => {
       const input = e.inputBuffer.getChannelData(0);
@@ -152,7 +155,16 @@ export async function startRecorder(opts) {
       }
       if (src === 'mic' && onMeter) onMeter(Math.sqrt(sum / input.length), peak);
 
-      if (ws.readyState === WebSocket.OPEN) ws.send(floatTo16BitPCM(downsampleTo24k(input, inRate)));
+      // 볼륨 게이트(마이크만): 임계 이상이면 열고 300ms hold, 이하이면 무음(0) 전송으로 번역 억제
+      let gated = false;
+      if (src === 'mic' && gateTh > 0) {
+        if (peak >= gateTh) gateOpenUntil = Date.now() + 300;
+        if (Date.now() >= gateOpenUntil) gated = true;
+      }
+      if (ws.readyState === WebSocket.OPEN) {
+        const ds = downsampleTo24k(input, inRate);
+        ws.send(gated ? new ArrayBuffer(ds.length * 2) : floatTo16BitPCM(ds));
+      }
 
       // 소리(시스템 오디오 포함)가 들리면 유휴 자동종료 방지 신호(2초마다 1회)
       if (peak > TH && ws.readyState === WebSocket.OPEN) {
