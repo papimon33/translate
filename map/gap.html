@@ -99,7 +99,8 @@ const NS = "http://www.w3.org/2000/svg";
 
 /* ---------- 조절 상수 ---------- */
 const DEFAULTS = {
-  wallHeight: 16,        // 내부 벽 압출 높이(논리 px)
+  wallHeight: 16,        // 경계벽 압출 높이(논리 px)
+  wallOpacity: 0.45,     // 벽 반투명도
   plateThickness: 10,    // 바닥 슬래브 두께
   isoRot: 27 * Math.PI / 180,
   isoKy: 0.5,            // 세로 압축(아이소 틸트)
@@ -256,19 +257,25 @@ function create(opts){
     const px=sctx.getImageData(0,0,mw,mh).data;
 
     // 1차 판정
-    // inside / 보안구역(하늘색) 판정. 도면의 검정(#000) 벽은 무시.
-    const inside=new Uint8Array(mw*mh),secM=new Uint8Array(mw*mh);
-    for(let i=0;i<mw*mh;i++){const o=i*4;if(px[o+3]<40)continue;inside[i]=1;
-      if(isSec(px[o],px[o+1],px[o+2]))secM[i]=1;}
-    // 벽 = 보호구역(하늘) ↔ 일반구역(흰)의 경계에만. 1px 경계 → R 두께로 확장. 그 외 구조물 없음.
+    // inside 판정
+    const inside=new Uint8Array(mw*mh);
+    for(let i=0;i<mw*mh;i++){if(px[i*4+3]>=40)inside[i]=1;}
+    // 보안구역 = security_polygons 를 채워 solid 로 판정(내부 흰 섬에 의한 내부 경계 방지)
+    const secPolys=fdat.security_polygons||[];
+    const secCv=document.createElement('canvas');secCv.width=mw;secCv.height=mh;
+    const sx2=secCv.getContext('2d');sx2.fillStyle='#fff';
+    secPolys.forEach(poly=>{sx2.beginPath();poly.forEach((p,k)=>{const X=p[0]*RS,Y=p[1]*RS;if(k)sx2.lineTo(X,Y);else sx2.moveTo(X,Y);});sx2.closePath();sx2.fill();});
+    const sd=sx2.getImageData(0,0,mw,mh).data, secM=new Uint8Array(mw*mh);
+    for(let i=0;i<mw*mh;i++){if(inside[i]&&sd[i*4+3]>40)secM[i]=1;}
+    // 벽 = 보안↔일반 경계의 '일반구역 쪽'에만(보안구역 내부엔 벽 없음). 두께 절반.
     const edge=new Uint8Array(mw*mh);
     for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){const i=y*mw+x;if(!inside[i])continue;const s=secM[i];
       if((x+1<mw&&inside[i+1]&&secM[i+1]!==s)||(x-1>=0&&inside[i-1]&&secM[i-1]!==s)||
          (y+1<mh&&inside[i+mw]&&secM[i+mw]!==s)||(y-1>=0&&inside[i-mw]&&secM[i-mw]!==s))edge[i]=1;}
-    const R=3, wallB=new Uint8Array(mw*mh);   // 경계벽 두께(half)
+    const R=1, wallB=new Uint8Array(mw*mh);   // 경계벽 두께(이전의 절반) · 일반쪽만
     for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){if(!edge[y*mw+x])continue;
       for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){const nx=x+dx,ny=y+dy;
-        if(nx>=0&&ny>=0&&nx<mw&&ny<mh&&inside[ny*mw+nx])wallB[ny*mw+nx]=1;}}
+        if(nx>=0&&ny>=0&&nx<mw&&ny<mh&&inside[ny*mw+nx]&&!secM[ny*mw+nx])wallB[ny*mw+nx]=1;}}
     // 마스크: 바닥(일반=흰/보안=하늘) + 경계벽만 압출
     const top=new ImageData(mw,mh),slab=new ImageData(mw,mh),wt=new ImageData(mw,mh),ws=new ImageData(mw,mh);
     const cTop=hex(COL.plateTop),cSec=hex(COL.plateSec),cSlab=hex(COL.slabSide),cWt=hex(COL.wallTop),cWs=hex(COL.wallSide);
@@ -341,17 +348,25 @@ function create(opts){
     return {minX:a1,minY:b1-WALL_H,maxX:a2,maxY:b2+THICK};}
 
   /* ---------- 캔버스: 압출 바닥 ---------- */
+  let wallTmp=null,wtx=null;
   function drawFloors(){
     // 아래층(1F)부터 그려 위층(4F)이 맨 위에 오도록 → 겹치면 4F가 보임
-    const dpr=cv._dpr;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
+    const dpr=cv._dpr;
+    if(!wallTmp||wallTmp.width!==cv.width||wallTmp.height!==cv.height){
+      wallTmp=document.createElement('canvas');wallTmp.width=cv.width;wallTmp.height=cv.height;wtx=wallTmp.getContext('2d');}
+    ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
     for(let i=0;i<=3;i++){const fk=FLOORS[i],fl=FL[fk],mk=fl.masks,m=calMat(fk);
       const T=(dy)=>ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
       ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,(m.e+7)*dpr,(m.f+THICK+9)*dpr);
       ctx.globalAlpha=0.16;ctx.drawImage(mk.slab,0,0);ctx.globalAlpha=1;   // 그림자
       for(let k=THICK;k>=1;k--){T(k);ctx.drawImage(mk.slab,0,0);}          // 슬래브 두께
       T(0);ctx.drawImage(mk.top,0,0);                                      // 바닥 윗면
-      for(let k=0;k<WALL_H;k++){T(-k);ctx.drawImage(mk.wallSide,0,0);}     // 내부 벽 측면
-      T(-WALL_H);ctx.drawImage(mk.wallTop,0,0);                            // 내부 벽 윗면
+      // 경계벽: 오프스크린에 불투명 압출 후 반투명으로 1회 합성(겹침 누적 방지)
+      wtx.setTransform(1,0,0,1,0,0);wtx.clearRect(0,0,wallTmp.width,wallTmp.height);
+      const WT=(dy)=>wtx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
+      for(let k=0;k<WALL_H;k++){WT(-k);wtx.drawImage(mk.wallSide,0,0);}
+      WT(-WALL_H);wtx.drawImage(mk.wallTop,0,0);
+      ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=O.wallOpacity;ctx.drawImage(wallTmp,0,0);ctx.globalAlpha=1;
     }
     ctx.setTransform(1,0,0,1,0,0);
   }
