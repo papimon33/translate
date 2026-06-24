@@ -45,7 +45,9 @@
 - 무채색(흰/연회색), 내부 벽은 연한 회색. **보안구역은 하늘색 채움(색)으로만 구분**(점선 경계 없음).
 - 평소 시설 아이콘은 **전부 숨김**. 경로 시: 출발/목적지 = **현위치 핀**, 경유 에스컬레이터/엘리베이터만
   **입체 그래픽 + 아이콘(래퍼 없음)**. 에스컬레이터는 `transit_groups` 매핑 지점에서만, 평면 방향(`ESC_DIR`) 기준으로 두 층을 잇는 경사 그래픽.
-- **층별 정렬**: 축척/위치가 층마다 달라 `floorCalib`(또는 `setCalib`)로 `s`(배율)·`dx/dy`(평면 이동) 수동 보정. 기본 1/0/0.
+- **층별 정렬**: 축척/위치가 층마다 달라 보정 가능. 숫자(`floorCalib`/`setCalib`) 대신 **`test.html`의 `🔧 층 정렬`**
+  버튼을 켜면 지도에서 **드래그로 이동 · 슬라이더로 크기**를 맞추고, 결과 보정값을 textarea로 복사해 `create({floorCalib})`에
+  붙여넣으면 된다. 편집 API: `setEditFloor · clientToLocal · floorAtLocal · planDeltaFromScreen · nudgeCalib · setCalib · resetCalib · getCalib`.
 - 길찾기 엔진(벽/보안 회피 직교 A* + transit_groups 멀티플로어 그래프)은 v1과 동일(검증됨).
 
 ### 테스트 (`test.html` — 자체 완결)

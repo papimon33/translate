@@ -135,7 +135,7 @@ function create(opts){
   const wrap=document.createElement('div');
   wrap.style.cssText='position:relative;width:100%;background:'+COL.bg+';border-radius:12px;overflow:hidden;';
   const cv=document.createElement('canvas');cv.style.cssText='display:block;width:100%;height:auto;';
-  const svg=E('svg',{});svg.style.cssText='position:absolute;inset:0;width:100%;height:100%;';
+  const svg=E('svg',{});svg.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
   wrap.appendChild(cv);wrap.appendChild(svg);container.appendChild(wrap);
   const ctx=cv.getContext('2d');
 
@@ -202,46 +202,51 @@ function create(opts){
     FL[fk]={W,H,mw,mh,masks,grid:{gw,gh,blocked,comp,main:mainL,sx,sy}};
   }
 
-  /* ---------- 레이아웃 (층별 보정 + 겹치지 않는 최소 적층) ---------- */
+  /* ---------- 레이아웃 (기준 적층) + 층별 보정(calMat) ----------
+     기준(base) 배치는 보정과 무관하게 계산(센터링·적층). 보정 s/dx/dy 는
+     '층 중심 기준 확대 + 화면이동'으로 calMat 에서 적용 → dx/dy 가 실제로 먹고
+     s 는 제자리에서 커짐(드래그 편집에 직관적). */
   function computeLayout(){
-    const calib=O.floorCalib||{};
     let maxW=0;
-    FLOORS.forEach((fk)=>{const fl=FL[fk];const cal=calib[fk]||{s:1,dx:0,dy:0};
-      fl.sa=A*cal.s;fl.sb=B*cal.s;fl.sc=C*cal.s;fl.sd=Dd*cal.s;
-      fl.offx=A*cal.dx*RS+C*cal.dy*RS;fl.offy=B*cal.dx*RS+Dd*cal.dy*RS;
-      const cs=[[0,0],[fl.mw,0],[0,fl.mh],[fl.mw,fl.mh]].map(p=>[fl.sa*p[0]+fl.sc*p[1]+fl.offx, fl.sb*p[0]+fl.sd*p[1]+fl.offy]);
+    FLOORS.forEach((fk)=>{const fl=FL[fk];
+      const cs=[[0,0],[fl.mw,0],[0,fl.mh],[fl.mw,fl.mh]].map(p=>[A*p[0]+C*p[1], B*p[0]+Dd*p[1]]);
       let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
       cs.forEach(p=>{minX=Math.min(minX,p[0]);maxX=Math.max(maxX,p[0]);minY=Math.min(minY,p[1]);maxY=Math.max(maxY,p[1]);});
-      fl.minX=minX;fl.minY=minY;fl.w=maxX-minX;fl.h=maxY-minY;maxW=Math.max(maxW,fl.w);});
-    // 위층(4F)부터 아래로, 겹치지 않는 최소 간격(=윗층 높이+압출)
+      fl.bMinX=minX;fl.bMinY=minY;fl.w=maxX-minX;fl.h=maxY-minY;maxW=Math.max(maxW,fl.w);});
     const topY={};topY['4F']=PAD+WALL_H;
     for(let i=2;i>=0;i--){const up=FLOORS[i+1],lo=FLOORS[i];
-      const gap=(O.gap!=null)?O.gap:(FL[up].h+THICK+WALL_H+O.gapMargin);
-      topY[lo]=topY[up]+gap;}
+      const gap=(O.gap!=null)?O.gap:(FL[up].h+THICK+WALL_H+O.gapMargin);topY[lo]=topY[up]+gap;}
     const centerX=PAD+maxW/2;
-    FLOORS.forEach((fk)=>{const fl=FL[fk];fl.e=centerX-fl.w/2-fl.minX;fl.topY=topY[fk];fl.f=fl.topY-fl.minY;});
-    LOGW=maxW+2*PAD;LOGH=FL['1F'].topY+FL['1F'].h+THICK+PAD;
+    FLOORS.forEach((fk)=>{const fl=FL[fk];
+      fl.e0=centerX-fl.w/2-fl.bMinX; fl.f0=topY[fk]-fl.bMinY; fl.topY=topY[fk];
+      fl.cx0=A*(fl.mw/2)+C*(fl.mh/2)+fl.e0; fl.cy0=B*(fl.mw/2)+Dd*(fl.mh/2)+fl.f0;});
+    LOGW=maxW+2*PAD; LOGH=FL['1F'].topY+FL['1F'].h+THICK+PAD;
     svg.setAttribute('viewBox',`0 0 ${LOGW.toFixed(1)} ${LOGH.toFixed(1)}`);
     const dpr=Math.min(global.devicePixelRatio||1,2);
     cv.width=Math.round(LOGW*dpr);cv.height=Math.round(LOGH*dpr);cv._dpr=dpr;
     layoutReady=true;
   }
-  function project(fk,x,y){const fl=FL[fk];
-    return [fl.sa*(x*RS)+fl.sc*(y*RS)+fl.offx+fl.e, fl.sb*(x*RS)+fl.sd*(y*RS)+fl.offy+fl.f];}
+  function calOf(fk){return (O.floorCalib&&O.floorCalib[fk])||{s:1,dx:0,dy:0};}
+  function calMat(fk){const fl=FL[fk],cal=calOf(fk),s=cal.s||1;
+    const offX=A*(cal.dx||0)*RS+C*(cal.dy||0)*RS, offY=B*(cal.dx||0)*RS+Dd*(cal.dy||0)*RS;
+    return {a:s*A,b:s*B,c:s*C,d:s*Dd, e:s*fl.e0+fl.cx0*(1-s)+offX, f:s*fl.f0+fl.cy0*(1-s)+offY};}
+  function project(fk,x,y){const m=calMat(fk),mx=x*RS,my=y*RS;return [m.a*mx+m.c*my+m.e, m.b*mx+m.d*my+m.f];}
+  function floorBBox(fk){const fl=FL[fk],m=calMat(fk);
+    const cs=[[0,0],[fl.mw,0],[0,fl.mh],[fl.mw,fl.mh]].map(p=>[m.a*p[0]+m.c*p[1]+m.e, m.b*p[0]+m.d*p[1]+m.f]);
+    let a1=1e9,b1=1e9,a2=-1e9,b2=-1e9;cs.forEach(p=>{a1=Math.min(a1,p[0]);a2=Math.max(a2,p[0]);b1=Math.min(b1,p[1]);b2=Math.max(b2,p[1]);});
+    return {minX:a1,minY:b1-WALL_H,maxX:a2,maxY:b2+THICK};}
 
   /* ---------- 캔버스: 압출 바닥 ---------- */
   function drawFloors(){
     const dpr=cv._dpr;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
-    for(let i=3;i>=0;i--){const fk=FLOORS[i],fl=FL[fk],m=fl.masks;
-      const ex=(fl.offx+fl.e),fy=(fl.offy+fl.f);
-      const T=(dy)=>ctx.setTransform(fl.sa*dpr,fl.sb*dpr,fl.sc*dpr,fl.sd*dpr,ex*dpr,(fy+dy)*dpr);
-      // 그림자
-      ctx.setTransform(fl.sa*dpr,fl.sb*dpr,fl.sc*dpr,fl.sd*dpr,(ex+7)*dpr,(fy+THICK+9)*dpr);
-      ctx.globalAlpha=0.16;ctx.drawImage(m.slab,0,0);ctx.globalAlpha=1;
-      for(let k=THICK;k>=1;k--){T(k);ctx.drawImage(m.slab,0,0);}   // 슬래브 두께
-      T(0);ctx.drawImage(m.top,0,0);                               // 바닥 윗면
-      for(let k=0;k<WALL_H;k++){T(-k);ctx.drawImage(m.wallSide,0,0);}  // 내부 벽 측면
-      T(-WALL_H);ctx.drawImage(m.wallTop,0,0);                     // 내부 벽 윗면
+    for(let i=3;i>=0;i--){const fk=FLOORS[i],fl=FL[fk],mk=fl.masks,m=calMat(fk);
+      const T=(dy)=>ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
+      ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,(m.e+7)*dpr,(m.f+THICK+9)*dpr);
+      ctx.globalAlpha=0.16;ctx.drawImage(mk.slab,0,0);ctx.globalAlpha=1;   // 그림자
+      for(let k=THICK;k>=1;k--){T(k);ctx.drawImage(mk.slab,0,0);}          // 슬래브 두께
+      T(0);ctx.drawImage(mk.top,0,0);                                      // 바닥 윗면
+      for(let k=0;k<WALL_H;k++){T(-k);ctx.drawImage(mk.wallSide,0,0);}     // 내부 벽 측면
+      T(-WALL_H);ctx.drawImage(mk.wallTop,0,0);                            // 내부 벽 윗면
     }
     ctx.setTransform(1,0,0,1,0,0);
   }
@@ -290,6 +295,9 @@ function create(opts){
     const defs=E('defs',{});
     defs.innerHTML='<marker id="a25-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L8 5L1 9" fill="none" stroke="'+COL.route+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>';
     svg.appendChild(defs);
+    // 정렬 편집: 선택 층 하이라이트
+    if(ST.editFloor&&FL[ST.editFloor]){const b=floorBBox(ST.editFloor);
+      svg.appendChild(E('rect',{x:b.minX.toFixed(1),y:b.minY.toFixed(1),width:(b.maxX-b.minX).toFixed(1),height:(b.maxY-b.minY).toFixed(1),rx:8,fill:'rgba(255,207,102,0.07)',stroke:'#ffcf66','stroke-width':2,'stroke-dasharray':'9 6'}));}
     // 층 라벨 칩 (1F/2F/3F/4F)
     FLOORS.forEach((fk)=>{const fl=FL[fk];const left=project(fk,0,fl.H*0.5);chip(left[0]-58,left[1]-13,FLOOR_KR[fk],COL.chip[fk]);});
     // 보안구역 점선 경계: 제거(요구사항). 하늘색 채움(마스크)으로만 구분.
@@ -397,7 +405,19 @@ function create(opts){
     setDesk(floor,side){ST.desk.floor=floor||ST.desk.floor;ST.desk.side=side||ST.desk.side;
       if(ST.routeActive&&ST.route&&ST.route._dest)api.showRoute({deskFloor:ST.desk.floor,deskSide:ST.desk.side,dest:ST.route._dest});},
     getRoute(){return ST.route;},
-    setCalib(fk,c){O.floorCalib[fk]=Object.assign({s:1,dx:0,dy:0},O.floorCalib[fk],c);computeLayout();drawFloors();renderOverlay();},
+    // 층별 정렬(보정)
+    getCalib(){return JSON.parse(JSON.stringify(O.floorCalib));},
+    setCalib(fk,c){O.floorCalib[fk]=Object.assign({s:1,dx:0,dy:0},O.floorCalib[fk],c);drawFloors();renderOverlay();emit('calib',api.getCalib());},
+    nudgeCalib(fk,ddx,ddy){const c=calOf(fk);api.setCalib(fk,{dx:(c.dx||0)+ddx,dy:(c.dy||0)+ddy});},
+    resetCalib(fk){if(fk)api.setCalib(fk,{s:1,dx:0,dy:0});else{FLOORS.forEach(f=>O.floorCalib[f]={s:1,dx:0,dy:0});drawFloors();renderOverlay();emit('calib',api.getCalib());}},
+    // 드래그 편집 보조
+    viewBox(){return {w:LOGW,h:LOGH};},
+    setEditFloor(fk){ST.editFloor=fk||null;renderOverlay();},
+    getEditFloor(){return ST.editFloor||null;},
+    clientToLocal(cx,cy){const r=cv.getBoundingClientRect();return [(cx-r.left)/r.width*LOGW,(cy-r.top)/r.height*LOGH];},
+    floorAtLocal(vx,vy){for(let i=0;i<4;i++){const fk=FLOORS[i],b=floorBBox(fk);if(vx>=b.minX&&vx<=b.maxX&&vy>=b.minY&&vy<=b.maxY)return fk;}return null;},
+    // 화면(viewBox) 이동량 → 평면(plan) dx,dy 증분
+    planDeltaFromScreen(dvx,dvy){const det=A*Dd-B*C;return [(Dd*dvx-C*dvy)/det/RS,(-B*dvx+A*dvy)/det/RS];},
     on(ev,cb){(listeners[ev]=listeners[ev]||[]).push(cb);return api;},
     showRoute(spec){
       spec=spec||{};
