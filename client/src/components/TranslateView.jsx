@@ -182,7 +182,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [optsOpen, setOptsOpen] = useState(true); // 옵션(컨트롤) 바 접기 — 접으면 번역영역 넓어짐
   const [micSens, setMicSens] = useState(() => {
     const v = Number(localStorage.getItem('kac-mic-sens'));
-    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 0; // 마이크 입력 게이트 0~100 (0=모든 소리, 높일수록 큰 소리만). 기기 저장
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100; // 마이크 음성인식 민감도 0~100 (100=가장 민감, 낮출수록 큰 소리만). 기기 저장
   });
   const [sxMode, setSxMode] = useState(() => localStorage.getItem('kac-sx-mode') || 'one'); // 'one' | 'two'
   const [sxTarget, setSxTarget] = useState(() => localStorage.getItem('kac-sx-target') || 'en');
@@ -817,7 +817,7 @@ export default function TranslateView({ session: initial, onBack }) {
         <DialogTitle sx={{ fontWeight: 800 }}>고급 설정</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>이 설정은 이 기기에 저장됩니다.</Typography>
-          <SxSlider label="마이크 입력 게이트(최소 볼륨)" hint="0=모든 소리 인식, 높일수록 큰 소리에만 반응(주변 소음 무시)" value={micSens} min={0} max={100} step={1} disabled={recording}
+          <SxSlider label="마이크 음성인식 민감도" hint="100=가장 민감(모든 소리), 낮출수록 큰 소리에만 반응(주변 소음 무시)" value={micSens} min={0} max={100} step={1} disabled={recording}
             fmt={(v) => String(v)}
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); }} />
           {cfg.pipeline === 'soniox' && (
