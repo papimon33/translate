@@ -53,6 +53,7 @@ const COL = {
   route:     '#3da5ff',   // 이동 경로(밝은 파랑) 동그란 점선
   start:     '#f2c200',   // 출발 큐브(노랑)
   startTop:  '#ffd633', startSideA:'#d6a900', startSideB:'#b88f00',
+  here:      '#1e6fe6',   // 현위치 핀(파랑)
   dest:      '#ff5a3c',
   text:      '#dfe4e9',
   chip:      { '1F':'#c98a2b', '2F':'#3b82d6', '3F':'#2aa37a', '4F':'#8b5cf6' },
@@ -138,6 +139,13 @@ function reduceBends(G,path){
   let cur=path;
   for(let k=0;k<5;k++){const nx=reduceBendsOnce(G,cur);if(nx.length>=cur.length){cur=nx;break;}cur=nx;}
   return cur;}
+// 평면 사각형(plan)을 임시로 막고 fn 실행 → 복원 (출발 큐브를 통과 못하게)
+function withBlockedRect(G,rect,fn){
+  const x0=Math.max(0,Math.floor(rect[0]*G.sx)),y0=Math.max(0,Math.floor(rect[1]*G.sy)),
+        x1=Math.min(G.gw-1,Math.ceil(rect[2]*G.sx)),y1=Math.min(G.gh-1,Math.ceil(rect[3]*G.sy));
+  const saved=[];
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const idx=y*G.gw+x;saved.push(idx,G.blocked[idx]);G.blocked[idx]=1;}
+  try{return fn();}finally{for(let i=0;i<saved.length;i+=2)G.blocked[saved[i]]=saved[i+1];}}
 
 /* ====================================================================
    라이브러리 본체
@@ -307,7 +315,8 @@ function create(opts){
   function floorSeq(a,b){if(a===b)return[a];const prev={[a]:null},q=[a];
     while(q.length){const c=q.shift();if(c===b)break;for(const nb of[...ADJ[c]].sort())if(!(nb in prev)){prev[nb]=c;q.push(nb);}}
     if(!(b in prev))return null;const s=[];let c=b;while(c!==null){s.push(c);c=prev[c];}return s.reverse();}
-  const SIDE_OFF=23;   // 안내데스크 동서남북 이격(1/2로 축소)
+  const SIDE_OFF=23;            // 안내데스크 동서남북 이격(1/2로 축소)
+  const CUBE_SZ=SIDE_OFF*2*2/3; // 출발 큐브 한 변(2/3로 축소). 경로는 이 박스를 통과 못함
   function deskStart(fk,side){const dk=data.guide_desks[fk];const[x,y]=dk.svg;
     const off={N:[0,-SIDE_OFF],S:[0,SIDE_OFF],E:[SIDE_OFF,0],W:[-SIDE_OFF,0]}[side]||[0,SIDE_OFF];
     return {desk:[x,y],start:[x+off[0],y+off[1]]};}
@@ -319,19 +328,23 @@ function create(opts){
   function computeRoute(deskFloor,deskSide,dest){
     const seq=floorSeq(deskFloor,dest.floor);if(!seq)return{error:'층간 연결 경로 없음'};
     const{desk,start}=deskStart(deskFloor,deskSide);
-    const legs=[];let cur=start,curFloor=deskFloor;
-    for(let i=0;i<seq.length-1;i++){const Aa=seq[i],Bb=seq[i+1];const cands=PAIRG[Aa+'>'+Bb]||[];
-      let bg=null,bp=null,bl=1e18,bnA=null,bnB=null;
-      for(const g of cands){const na=nodeById(g.nodes.find(id=>id.startsWith(Aa))),nb=nodeById(g.nodes.find(id=>id.startsWith(Bb)));
-        if(!na||!nb)continue;const p=astar(FL[curFloor].grid,cur[0],cur[1],na.x,na.y);if(!p)continue;
-        const L=pathLen(p);if(L<bl){bl=L;bg=g;bp=p;bnA=na;bnB=nb;}}
-      if(!bg)return{error:`${Aa}→${Bb} 환승 지점 도달 불가`};
-      legs.push({floor:Aa,pts:reduceBends(FL[curFloor].grid,simplifyOrtho(bp)),desk:(i===0?desk:null),exitTo:{node:bnA,nodeB:bnB,transit:bg,toFloor:Bb}});
-      cur=[bnB.x,bnB.y];curFloor=Bb;}
-    const p=astar(FL[curFloor].grid,cur[0],cur[1],dest.x,dest.y);
-    if(!p)return{error:'목적지 경로 없음'};
-    legs.push({floor:curFloor,pts:reduceBends(FL[curFloor].grid,simplifyOrtho(p)),desk:(seq.length===1?desk:null),arrive:dest});
-    return {legs,seq,totalLen:legs.reduce((s,l)=>s+pathLen(l.pts),0)};
+    const ch=CUBE_SZ/2, cubeRect=[desk[0]-ch,desk[1]-ch,desk[0]+ch,desk[1]+ch];
+    // 출발 큐브를 장애물로 막은 채 경로 계산(서→동이면 박스를 돌아 나감)
+    return withBlockedRect(FL[deskFloor].grid, cubeRect, ()=>{
+      const legs=[];let cur=start,curFloor=deskFloor;
+      for(let i=0;i<seq.length-1;i++){const Aa=seq[i],Bb=seq[i+1];const cands=PAIRG[Aa+'>'+Bb]||[];
+        let bg=null,bp=null,bl=1e18,bnA=null,bnB=null;
+        for(const g of cands){const na=nodeById(g.nodes.find(id=>id.startsWith(Aa))),nb=nodeById(g.nodes.find(id=>id.startsWith(Bb)));
+          if(!na||!nb)continue;const p=astar(FL[curFloor].grid,cur[0],cur[1],na.x,na.y);if(!p)continue;
+          const L=pathLen(p);if(L<bl){bl=L;bg=g;bp=p;bnA=na;bnB=nb;}}
+        if(!bg)return{error:`${Aa}→${Bb} 환승 지점 도달 불가`};
+        legs.push({floor:Aa,pts:reduceBends(FL[curFloor].grid,simplifyOrtho(bp)),desk:(i===0?desk:null),exitTo:{node:bnA,nodeB:bnB,transit:bg,toFloor:Bb}});
+        cur=[bnB.x,bnB.y];curFloor=Bb;}
+      const p=astar(FL[curFloor].grid,cur[0],cur[1],dest.x,dest.y);
+      if(!p)return{error:'목적지 경로 없음'};
+      legs.push({floor:curFloor,pts:reduceBends(FL[curFloor].grid,simplifyOrtho(p)),desk:(seq.length===1?desk:null),arrive:dest});
+      return {legs,seq,totalLen:legs.reduce((s,l)=>s+pathLen(l.pts),0)};
+    });
   }
 
   /* ---------- SVG 오버레이 ---------- */
@@ -393,23 +406,37 @@ function create(opts){
       const lp=leg.pts.map(p=>project(leg.floor,p[0],p[1]));
       lp.forEach(p=>pts.push(p));
       if(leg.exitTo){const a=lp[lp.length-1],b=project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y);
-        pts.push([a[0],b[1]]);pts.push(b);}   // 수직 라이저 + (정렬되면 0) 진입 보정
+        pts.push([a[0],b[1]]);pts.push(b);}
     });
-    // 밝은 파랑 동그란 점선
-    const dStr="M"+pts.map(q=>q[0].toFixed(1)+" "+q[1].toFixed(1)).join(" L ");
-    svg.appendChild(E('path',{d:dStr,fill:'none',stroke:COL.route,'stroke-width':5,'stroke-linecap':'round','stroke-dasharray':'0.1 12'}));
-    // 경유 에스컬레이터/엘리베이터 아이콘(래퍼 없음) — 경로상만
-    r.legs.forEach((leg)=>{if(leg.exitTo){
+    // 경로: 출발→목적지로 점이 하나씩 늘어나는 애니메이션(아래 깔림)
+    if(pts.length>1)animateDots(pts);
+    // 에스컬레이터/엘리베이터 아이콘: 양쪽 층의 실제 위치에 표시(1F→2F면 둘 다)
+    r.legs.forEach((leg)=>{if(leg.exitTo){const isElev=leg.exitTo.transit.type==='elevator',u=iconURL(isElev?'12':'11');
       const a=project(leg.floor,leg.exitTo.node.x,leg.exitTo.node.y),b=project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y);
-      const isElev=leg.exitTo.transit.type==='elevator';
-      iconOnly(a[0],(a[1]+b[1])/2,iconURL(isElev?'12':'11'),24);   // 수직 라이저 중간
-    }});
-    // 출발: 노란 큐브 + "Here"
-    const dl=r.legs[0];if(dl.desk){drawCube(dl.floor,dl.desk[0],dl.desk[1],SIDE_OFF*2,20);
-      const c=project(dl.floor,dl.desk[0],dl.desk[1]);label(c[0],c[1]-30,'Here',COL.start,true);}
+      iconOnly(a[0],a[1],u,22);iconOnly(b[0],b[1],u,22);}});
+    // 출발: 노란 큐브(2/3) + 현위치 핀(박스와 겹침) + "Here"
+    const dl=r.legs[0];if(dl.desk){const c=project(dl.floor,dl.desk[0],dl.desk[1]);
+      drawCube(dl.floor,dl.desk[0],dl.desk[1],CUBE_SZ,13);
+      locPin(c[0],c[1],COL.here);
+      label(c[0],c[1]-34,'Here',COL.start,true);}
     // 목적지: 핀 + 언어별 명칭
     const last=r.legs[r.legs.length-1],dst=last.arrive;
     if(dst){const e=project(last.floor,dst.x,dst.y);locPin(e[0],e[1],COL.dest,tr(dst));}
+  }
+  // 점이 출발지부터 목적지까지 하나씩 늘어나는 애니메이션
+  function animateDots(pts){
+    if(dotRAF)cancelAnimationFrame(dotRAF);
+    const seg=[],cum=[0];let tot=0;
+    for(let i=1;i<pts.length;i++){const d=dist(pts[i-1],pts[i]);seg.push(d);tot+=d;cum.push(tot);}
+    function at(s){let i=1;while(i<cum.length&&cum[i]<s)i++;if(i>=cum.length)return pts[pts.length-1];
+      const t=(s-cum[i-1])/(seg[i-1]||1);return [pts[i-1][0]+(pts[i][0]-pts[i-1][0])*t,pts[i-1][1]+(pts[i][1]-pts[i-1][1])*t];}
+    const S=11,dots=[];
+    for(let s=0;s<=tot;s+=S){const p=at(s);dots.push(svg.appendChild(E('circle',{cx:p[0].toFixed(1),cy:p[1].toFixed(1),r:2.8,fill:COL.route,opacity:0})));}
+    const N=dots.length,PER=42,GROW=N*PER,HOLD=900,CY=GROW+HOLD;let t0=null,last=-1;
+    function fr(t){if(t0===null)t0=t;const e=(t-t0)%CY,shown=e<GROW?Math.floor(e/PER)+1:N;
+      if(shown!==last){for(let i=0;i<N;i++)dots[i].setAttribute('opacity',i<shown?1:0);last=shown;}
+      dotRAF=requestAnimationFrame(fr);}
+    dotRAF=requestAnimationFrame(fr);
   }
 
   /* ---------- 공개 API ---------- */
