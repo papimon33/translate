@@ -82,6 +82,7 @@ export async function startRecorder(opts) {
   const pipes = [];
   const streams = [];
   let muted = false; // 발화 일시정지: 연결은 유지하고 마이크 전송만 끔(무음 전송)
+  let ttsMutedUntil = 0; // TTS 재생 동안 마이크 자동 음소거(피드백 방지) — audioCtx 시간 기준
 
   // 번역 음성 재생(translate): 서버가 보내는 24kHz PCM16 청크를 끊김 없이 스케줄링
   let audioOutOn = !!audioOut;
@@ -108,6 +109,7 @@ export async function startRecorder(opts) {
       if (outCursor < now) outCursor = now + 0.08; // 약간의 버퍼로 초기 끊김 방지
       node.start(outCursor);
       outCursor += buf.duration;
+      ttsMutedUntil = outCursor + 0.3; // 재생 끝 + 짧은 꼬리까지 마이크 음소거
     } catch {}
   };
 
@@ -158,8 +160,8 @@ export async function startRecorder(opts) {
       }
       if (src === 'mic' && onMeter) onMeter(Math.sqrt(sum / input.length), peak);
 
-      // 발화 일시정지(mute): 연결 유지 위해 무음 전송 + 주기적 keepalive(유휴 종료 방지)
-      if (muted) {
+      // 발화 일시정지(mute) 또는 TTS 재생 중 자동 음소거: 무음 전송 + keepalive
+      if (muted || audioCtx.currentTime < ttsMutedUntil) {
         if (ws.readyState === WebSocket.OPEN) {
           const ds = downsampleTo24k(input, inRate);
           ws.send(new ArrayBuffer(ds.length * 2));

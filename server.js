@@ -944,6 +944,15 @@ function broadcastAudio(sessionId, b64) {
     }
   }
 }
+// TTS 음성을 호스트로 — 뷰어(상대) 발화의 번역을 호스트가 듣게 함
+function sendAudioToHosts(sessionId, b64) {
+  const room = rooms.get(sessionId);
+  if (!room) return;
+  const msg = JSON.stringify({ type: 'audio', b64 });
+  for (const h of room.hosts) {
+    if (h.readyState === WebSocket.OPEN) h.send(msg);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  로컬 네트워크 IP (모바일 접속용)                                    */
@@ -1381,7 +1390,8 @@ function startTalkPipeline(sessionId, side) {
     broadcast(sessionId, msg); sendToHosts(sessionId, msg);
     if (cfg.ttsOn) {
       const voiceId = cartesiaVoiceId(target, cfg.gender || 'f');
-      cartesiaTTSStream(out, voiceId, target, (b64) => broadcastAudio(sessionId, b64)).catch(() => {});
+      // 뷰어(폰 PTT) 발화 번역 → 호스트로 음성 전달(+다른 뷰어). 호스트가 상대 말을 듣게 함.
+      cartesiaTTSStream(out, voiceId, target, (b64) => { sendAudioToHosts(sessionId, b64); broadcastAudio(sessionId, b64); }).catch(() => {});
     }
   };
   sx.on('open', () => { try { sx.send(JSON.stringify(config)); } catch {} ready = true; while (pending.length) sx.send(pending.shift()); });

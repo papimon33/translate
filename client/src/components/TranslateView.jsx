@@ -388,8 +388,8 @@ export default function TranslateView({ session: initial, onBack }) {
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
         refine: true,
-        audioOut: cfg.pipeline === 'translate' && audioOutOn, // 호스트 재생은 translate만(soniox TTS는 폰으로만)
-        tts: cfg.pipeline === 'soniox' && ttsOn,
+        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || cfg.pipeline === 'soniox', // soniox: 호스트가 상대(뷰어) TTS 청취
+        tts: cfg.pipeline === 'soniox', // soniox 는 TTS 자동 on(별도 재생 버튼 없음)
         gender,
         diar: cfg.pipeline === 'soniox' && diar,
         volume,
@@ -626,38 +626,28 @@ export default function TranslateView({ session: initial, onBack }) {
                   </Field>
                 </>
               )}
-              <Field label="음성재생(TTS)">
-                <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
-                  <Switch
-                    checked={ttsOn}
+              {/* TTS 는 자동 on(별도 재생 버튼 없음). 음성(성별)만 선택 + 미리듣기 */}
+              <Field label="음성(성별)">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Select
+                    size="small"
+                    value={gender}
                     disabled={recording}
-                    onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
-                  />
+                    onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }}
+                    sx={{ ...selSx, minWidth: 90 }}
+                  >
+                    <MenuItem value="f">여성</MenuItem>
+                    <MenuItem value="m">남성</MenuItem>
+                  </Select>
+                  <Tooltip title="미리듣기(출력 언어)">
+                    <span>
+                      <IconButton size="small" onClick={previewVoice} disabled={previewing} sx={{ border: 1, borderColor: 'divider' }}>
+                        <VolumeUpIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                 </Box>
               </Field>
-              {ttsOn && (
-                <Field label="음성(성별)">
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Select
-                      size="small"
-                      value={gender}
-                      disabled={recording}
-                      onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }}
-                      sx={{ ...selSx, minWidth: 90 }}
-                    >
-                      <MenuItem value="f">여성</MenuItem>
-                      <MenuItem value="m">남성</MenuItem>
-                    </Select>
-                    <Tooltip title="미리듣기(출력 언어)">
-                      <span>
-                        <IconButton size="small" onClick={previewVoice} disabled={previewing} sx={{ border: 1, borderColor: 'divider' }}>
-                          <VolumeUpIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </Box>
-                </Field>
-              )}
             </>
           )}
           {cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
