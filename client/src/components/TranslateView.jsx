@@ -224,6 +224,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const recRef = useRef(null);
   const scrollRef = useRef(null);
   const onMessageRef = useRef(null); // 패시브 뷰어 연결이 최신 onMessage 를 호출하도록
+  const stopReqRef = useRef(false); // 연결 중(시작 await)에 중지를 누른 경우 처리
 
   const startingRef = useRef(false); // 시작 버튼 연타로 중복 세션 생성 방지
   // 번역 GPT 모델(테스트용). 기본 gpt-5-nano.
@@ -372,8 +373,9 @@ export default function TranslateView({ session: initial, onBack }) {
   const start = async () => {
     if (recording || recRef.current || startingRef.current) return; // 연타 중복 방지
     startingRef.current = true;
+    stopReqRef.current = false;
     try {
-      recRef.current = await startRecorder({
+      const rec = await startRecorder({
         sessionId: initial.id,
         mode: cfg.pipeline === 'desk' ? 'mic' : sourceMode, // 데스크는 항상 마이크
         deskIdle: cfg.pipeline === 'desk' ? deskIdle * 1000 : undefined, // 무음 자동중지(ms)
@@ -402,6 +404,14 @@ export default function TranslateView({ session: initial, onBack }) {
           setLevel(Math.max(0, Math.min(100, ((db + 60) / 60) * 100)));
         },
       });
+      // 연결되는 동안 사용자가 중지를 눌렀으면 즉시 정리하고 켜지 않음
+      if (stopReqRef.current) {
+        try { rec.stop(); } catch {}
+        setRecording(false);
+        setConnecting(false);
+        return;
+      }
+      recRef.current = rec;
       setRecording(true);
       setConnecting(true); // 엔진 연결~첫 결과까지 표시
     } catch (e) {
@@ -411,6 +421,7 @@ export default function TranslateView({ session: initial, onBack }) {
     }
   };
   const stop = () => {
+    stopReqRef.current = true; // 연결 중이면 시작 완료 시점에 정리되도록 표시
     recRef.current?.stop();
     recRef.current = null;
     setRecording(false);

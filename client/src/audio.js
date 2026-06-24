@@ -115,8 +115,10 @@ export async function startRecorder(opts) {
     const ws = new WebSocket(`${proto}://${location.host}/ws/host?src=${src}&${q}`);
     ws.binaryType = 'arraybuffer';
     await new Promise((res, rej) => {
-      ws.onopen = res;
-      ws.onerror = rej;
+      // 연결이 영원히 매달리는(half-open) 경우 방지 — 12초 후 실패 처리
+      const to = setTimeout(() => { try { ws.close(); } catch {} rej(new Error('연결 시간 초과 — 다시 시도해 주세요.')); }, 12000);
+      ws.onopen = () => { clearTimeout(to); res(); };
+      ws.onerror = () => { clearTimeout(to); rej(new Error('연결 실패 — 다시 시도해 주세요.')); };
     });
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
