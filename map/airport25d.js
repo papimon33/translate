@@ -55,24 +55,17 @@ const COL = {
   startTop:  '#ffd633', startSideA:'#d6a900', startSideB:'#b88f00',
   here:      '#1e6fe6',   // 현위치 핀(파랑)
   dest:      '#ff5a3c',
-  gate:      '#13b497',   // 게이트/입구(통로) 표식
   text:      '#dfe4e9',
   chip:      { '1F':'#c98a2b', '2F':'#3b82d6', '3F':'#2aa37a', '4F':'#8b5cf6' },
 };
 const FLOOR_KR = { '1F':'1F', '2F':'2F', '3F':'3F', '4F':'4F' };
 // 평면도 기준 에스컬레이터 진행 방향(요구사항 매핑 노트)
 const ESC_DIR = { 'ESC-A':'E', 'ESC-B':'W', 'ESC-C':'N', 'ESC-D':'N', 'ESC-E':'E' };
-// 게이트/입구(통로) — 원본 도면 Entrance 좌표에서 추출. dir=바깥 방향. 글씨 없이 통로 표식만.
-const GATES = {
-  '1F':[{x:590.8,y:413.7,dir:'S'},{x:741.4,y:413.7,dir:'S'},{x:857.4,y:413.7,dir:'S'}, // GATE 3/2/1
-        {x:1090.4,y:336.4,dir:'E'},                                                     // 의전주차장 출구
-        {x:776,y:282.7,dir:'S'}],                                                       // 도착장 입구(보안경계)
-  '2F':[{x:413.8,y:506.7,dir:'S'},{x:499.2,y:506.7,dir:'S'},{x:582.3,y:506.7,dir:'S'},{x:693.2,y:506.7,dir:'S'}], // GATE 4/3/2/1
-  '3F':[{x:429.4,y:171.6,dir:'N'},{x:522.9,y:171.6,dir:'N'},{x:689.4,y:171.6,dir:'N'},{x:749.4,y:171.6,dir:'N'}, // 탑승구 34/35/R2/36
-        {x:899.4,y:213,dir:'N'},{x:998.9,y:262,dir:'N'},{x:1170.8,y:269.3,dir:'N'},{x:1393.9,y:269.3,dir:'N'},  // 탑승구 37/38/39/40
-        {x:135,y:264.6,dir:'W'},                                                         // 탑승구 R1
-        {x:587,y:381.7,dir:'S'}],                                                        // 출국장 입구(보안경계)
-  '4F':[],
+// 문(door) — 보안↔일반 경계벽을 일부 원형으로 개방해 '통로(문)'처럼 보이게 할 위치.
+// {x,y}=평면좌표(원본 SVG 단위), r=개방 반경(평면). 출국장 입구(3F 보안 남측 경계).
+// 필요 시 도착장 입구(1F) 등 같은 형식으로 추가.
+const DOORS = {
+  '3F':[{x:587,y:381.7,r:20}],   // 출국장 입구
 };
 
 /* ---------- 유틸 ---------- */
@@ -213,15 +206,25 @@ function create(opts){
     secPolys.forEach(poly=>{sx2.beginPath();poly.forEach((p,k)=>{const X=p[0]*RS,Y=p[1]*RS;if(k)sx2.lineTo(X,Y);else sx2.moveTo(X,Y);});sx2.closePath();sx2.fill();});
     const sd=sx2.getImageData(0,0,mw,mh).data, secM=new Uint8Array(mw*mh);
     for(let i=0;i<mw*mh;i++){if(inside[i]&&sd[i*4+3]>40)secM[i]=1;}
-    // 벽 = 보안↔일반 경계의 '일반구역 쪽'에만(보안구역 내부엔 벽 없음). 두께 절반.
-    const edge=new Uint8Array(mw*mh);
-    for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){const i=y*mw+x;if(!inside[i])continue;const s=secM[i];
-      if((x+1<mw&&inside[i+1]&&secM[i+1]!==s)||(x-1>=0&&inside[i-1]&&secM[i-1]!==s)||
-         (y+1<mh&&inside[i+mw]&&secM[i+mw]!==s)||(y-1>=0&&inside[i-mw]&&secM[i-mw]!==s))edge[i]=1;}
-    const R=1, wallB=new Uint8Array(mw*mh);   // 경계벽 두께(이전의 절반) · 일반쪽만
-    for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){if(!edge[y*mw+x])continue;
+    // 벽 = 보안↔일반 경계의 '일반구역 쪽'에만. 단, 보안구역의 '북쪽(상단)' 경계벽은 제외
+    // (각 층 상단면에 붙는 벽 제거 요구). 일반셀의 바로 남(아래)이 보안이고 북(위)은 보안이
+    // 아니면 = 상단 경계 → 벽 안 세움. 나머지(남/동/서 경계)는 유지.
+    const edgeG=new Uint8Array(mw*mh);
+    for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){const i=y*mw+x;if(!inside[i]||secM[i])continue;
+      const sN=(y-1>=0&&inside[i-mw]&&secM[i-mw]), sS=(y+1<mh&&inside[i+mw]&&secM[i+mw]),
+            sE=(x+1<mw&&inside[i+1]&&secM[i+1]),    sW=(x-1>=0&&inside[i-1]&&secM[i-1]);
+      if(!(sN||sS||sE||sW))continue;          // 경계 아님
+      if(sS&&!sN)continue;                      // 상단(북향) 경계 → 벽 제거
+      edgeG[i]=1;}
+    const R=1, wallB=new Uint8Array(mw*mh);   // 남은 경계벽 일반쪽 두께
+    for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){if(!edgeG[y*mw+x])continue;
       for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){const nx=x+dx,ny=y+dy;
         if(nx>=0&&ny>=0&&nx<mw&&ny<mh&&inside[ny*mw+nx]&&!secM[ny*mw+nx])wallB[ny*mw+nx]=1;}}
+    // 문: 지정 위치의 벽을 원형으로 개방 → 통로처럼 일부만 뚫림(출국장 입구 등)
+    (DOORS[fk]||[]).forEach(d=>{const cx=d.x*RS,cy=d.y*RS,rr=(d.r||18)*RS,r2=rr*rr;
+      for(let y=Math.max(0,Math.floor(cy-rr));y<=Math.min(mh-1,Math.ceil(cy+rr));y++)
+        for(let x=Math.max(0,Math.floor(cx-rr));x<=Math.min(mw-1,Math.ceil(cx+rr));x++)
+          if((x-cx)*(x-cx)+(y-cy)*(y-cy)<=r2)wallB[y*mw+x]=0;});
     // 마스크: 바닥(일반=흰/보안=하늘) + 경계벽만 압출
     const top=new ImageData(mw,mh),slab=new ImageData(mw,mh),wt=new ImageData(mw,mh),ws=new ImageData(mw,mh);
     const cTop=hex(COL.plateTop),cSec=hex(COL.plateSec),cSlab=hex(COL.slabSide),cWt=hex(COL.wallTop),cWs=hex(COL.wallSide);
@@ -317,10 +320,12 @@ function create(opts){
 
   /* ---------- 멀티플로어 그래프 ---------- */
   const GROUPS=data.floor_links.transit_groups;
+  // 경로는 무조건 에스컬레이터로만 이동(엘리베이터 제외). 데이터상 1F~4F가 ESC로 모두 연결됨.
+  const ESC_GROUPS=GROUPS.filter(g=>g.type==='escalator');
   function nodeById(id){const fk=id.split('-')[0];
     for(const n of data.vertical_nodes[fk])if(n.id===id){const o={...n};if(id==='2F-ESC-3')o.y=447.0;return o;}return null;}
   const ADJ={'1F':new Set(),'2F':new Set(),'3F':new Set(),'4F':new Set()},PAIRG={};
-  for(const g of GROUPS)for(const a of g.connects)for(const b of g.connects){if(a===b)continue;
+  for(const g of ESC_GROUPS)for(const a of g.connects)for(const b of g.connects){if(a===b)continue;
     const na=g.nodes.find(id=>id.startsWith(a)),nb=g.nodes.find(id=>id.startsWith(b));
     if(na&&nb){ADJ[a].add(b);(PAIRG[a+'>'+b]=PAIRG[a+'>'+b]||[]).push(g);}}
   function floorSeq(a,b){if(a===b)return[a];const prev={[a]:null},q=[a];
@@ -371,8 +376,6 @@ function create(opts){
       svg.appendChild(E('rect',{x:b.minX.toFixed(1),y:b.minY.toFixed(1),width:(b.maxX-b.minX).toFixed(1),height:(b.maxY-b.minY).toFixed(1),rx:8,fill:'rgba(255,207,102,0.07)',stroke:'#ffcf66','stroke-width':2,'stroke-dasharray':'9 6'}));}
     // 층 라벨 칩 (1F/2F/3F/4F)
     FLOORS.forEach((fk)=>{const fl=FL[fk];const left=project(fk,0,fl.H*0.5);chip(left[0]-58,left[1]-13,FLOOR_KR[fk],COL.chip[fk]);});
-    // 게이트/입구(통로) 표식: 항상 표시, 글씨 없이 통로 위치·바깥 방향만(원본 도면 Entrance)
-    FLOORS.forEach((fk)=>{(GATES[fk]||[]).forEach(gt=>drawGate(fk,gt));});
     // 보안구역 점선 경계: 제거(요구사항). 하늘색 채움(마스크)으로만 구분.
     // 시설 아이콘: 평소 전부 숨김(요구사항). 경로 시에만 표시.
     if(ST.routeActive&&ST.route&&ST.route.legs)drawRoute(ST.route);
@@ -410,22 +413,6 @@ function create(opts){
     t.textContent=txt;svg.appendChild(t);
   }
 
-  /* 게이트/입구(통로) 표식 — 글씨 없이 통로 위치·바깥 방향만 심플하게 */
-  function gateOutVec(fk,dir){
-    const u={N:[0,-1],S:[0,1],E:[1,0],W:[-1,0]}[dir]||[0,1],m=calMat(fk);
-    const ox=m.a*u[0]*RS+m.c*u[1]*RS, oy=m.b*u[0]*RS+m.d*u[1]*RS, L=Math.hypot(ox,oy)||1;
-    return [ox/L,oy/L];
-  }
-  function drawGate(fk,gt){
-    const c=project(fk,gt.x,gt.y),[ox,oy]=gateOutVec(fk,gt.dir),px=-oy,py=ox,col=COL.gate,g=E('g',{});
-    g.appendChild(E('circle',{cx:c[0].toFixed(1),cy:c[1].toFixed(1),r:9,fill:col,opacity:0.15}));   // 글로우(바닥 위 가시성)
-    const hw=7;                                                                                       // 문턱(통로 폭) 바: 바깥 방향에 수직
-    g.appendChild(E('line',{x1:(c[0]-px*hw).toFixed(1),y1:(c[1]-py*hw).toFixed(1),x2:(c[0]+px*hw).toFixed(1),y2:(c[1]+py*hw).toFixed(1),stroke:col,'stroke-width':3,'stroke-linecap':'round'}));
-    const chev=(d)=>{const tx=c[0]+ox*d,ty=c[1]+oy*d,bw=4.5,bl=4.5;                                   // 바깥 더블 셰브론(나가는 통로 방향)
-      g.appendChild(E('path',{d:`M${(tx-ox*bl+px*bw).toFixed(1)} ${(ty-oy*bl+py*bw).toFixed(1)}L${tx.toFixed(1)} ${ty.toFixed(1)}L${(tx-ox*bl-px*bw).toFixed(1)} ${(ty-oy*bl-py*bw).toFixed(1)}`,fill:'none',stroke:col,'stroke-width':2.4,'stroke-linecap':'round','stroke-linejoin':'round'}));};
-    chev(5.5);chev(10.5);
-    svg.appendChild(g);
-  }
   /* 출발 안내데스크 표식 — 평면 큐브 대신 2D 원형(화면 빌보드), 반지름은 큐브 반폭의 1/2 */
   function drawDeskDot(fk,planX,planY){
     const c=project(fk,planX,planY),e=project(fk,planX+CUBE_SZ/2,planY);
@@ -439,8 +426,8 @@ function create(opts){
     r.legs.forEach((leg)=>{
       const lp=leg.pts.map(p=>project(leg.floor,p[0],p[1]));
       lp.forEach(p=>pts.push(p));
-      if(leg.exitTo){const a=lp[lp.length-1],b=project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y);
-        pts.push([a[0],b[1]]);pts.push(b);}
+      // 에스컬레이터-에스컬레이터(층간): 아래층 출구→윗층 입구를 직선으로 연결(수직 L 제거)
+      if(leg.exitTo){const b=project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y);pts.push(b);}
     });
     // 경로: 코멧 헤드 + 잔상 점선이 출발→목적지로 흐르는 애니메이션(아래 깔림)
     if(pts.length>1)animateRoute(pts);
