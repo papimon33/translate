@@ -130,12 +130,25 @@ const COL = {
   startTop:  '#ffd633', startSideA:'#d6a900', startSideB:'#b88f00',
   here:      '#1e6fe6',   // 현위치 핀(파랑)
   dest:      '#ff5a3c',
+  gate:      '#13b497',   // 게이트/입구(통로) 표식
   text:      '#dfe4e9',
   chip:      { '1F':'#c98a2b', '2F':'#3b82d6', '3F':'#2aa37a', '4F':'#8b5cf6' },
 };
 const FLOOR_KR = { '1F':'1F', '2F':'2F', '3F':'3F', '4F':'4F' };
 // 평면도 기준 에스컬레이터 진행 방향(요구사항 매핑 노트)
 const ESC_DIR = { 'ESC-A':'E', 'ESC-B':'W', 'ESC-C':'N', 'ESC-D':'N', 'ESC-E':'E' };
+// 게이트/입구(통로) — 원본 도면 Entrance 좌표에서 추출. dir=바깥 방향. 글씨 없이 통로 표식만.
+const GATES = {
+  '1F':[{x:590.8,y:413.7,dir:'S'},{x:741.4,y:413.7,dir:'S'},{x:857.4,y:413.7,dir:'S'}, // GATE 3/2/1
+        {x:1090.4,y:336.4,dir:'E'},                                                     // 의전주차장 출구
+        {x:776,y:282.7,dir:'S'}],                                                       // 도착장 입구(보안경계)
+  '2F':[{x:413.8,y:506.7,dir:'S'},{x:499.2,y:506.7,dir:'S'},{x:582.3,y:506.7,dir:'S'},{x:693.2,y:506.7,dir:'S'}], // GATE 4/3/2/1
+  '3F':[{x:429.4,y:171.6,dir:'N'},{x:522.9,y:171.6,dir:'N'},{x:689.4,y:171.6,dir:'N'},{x:749.4,y:171.6,dir:'N'}, // 탑승구 34/35/R2/36
+        {x:899.4,y:213,dir:'N'},{x:998.9,y:262,dir:'N'},{x:1170.8,y:269.3,dir:'N'},{x:1393.9,y:269.3,dir:'N'},  // 탑승구 37/38/39/40
+        {x:135,y:264.6,dir:'W'},                                                         // 탑승구 R1
+        {x:587,y:381.7,dir:'S'}],                                                        // 출국장 입구(보안경계)
+  '4F':[],
+};
 
 /* ---------- 유틸 ---------- */
 function pip(x, y, poly){let c=false,n=poly.length,j=n-1;
@@ -365,8 +378,6 @@ function create(opts){
     ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
     for(let i=0;i<=3;i++){const fk=FLOORS[i],fl=FL[fk],mk=fl.masks,m=calMat(fk);
       const T=(dy)=>ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
-      ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,(m.e+7)*dpr,(m.f+THICK+9)*dpr);
-      ctx.globalAlpha=0.16;ctx.drawImage(mk.slab,0,0);ctx.globalAlpha=1;   // 그림자
       for(let k=THICK;k>=1;k--){T(k);ctx.drawImage(mk.slab,0,0);}          // 슬래브 두께
       T(0);ctx.drawImage(mk.top,0,0);                                      // 바닥 윗면
       // 경계벽: 오프스크린에 불투명 압출 후 반투명으로 1회 합성(겹침 누적 방지)
@@ -435,6 +446,8 @@ function create(opts){
       svg.appendChild(E('rect',{x:b.minX.toFixed(1),y:b.minY.toFixed(1),width:(b.maxX-b.minX).toFixed(1),height:(b.maxY-b.minY).toFixed(1),rx:8,fill:'rgba(255,207,102,0.07)',stroke:'#ffcf66','stroke-width':2,'stroke-dasharray':'9 6'}));}
     // 층 라벨 칩 (1F/2F/3F/4F)
     FLOORS.forEach((fk)=>{const fl=FL[fk];const left=project(fk,0,fl.H*0.5);chip(left[0]-58,left[1]-13,FLOOR_KR[fk],COL.chip[fk]);});
+    // 게이트/입구(통로) 표식: 항상 표시, 글씨 없이 통로 위치·바깥 방향만(원본 도면 Entrance)
+    FLOORS.forEach((fk)=>{(GATES[fk]||[]).forEach(gt=>drawGate(fk,gt));});
     // 보안구역 점선 경계: 제거(요구사항). 하늘색 채움(마스크)으로만 구분.
     // 시설 아이콘: 평소 전부 숨김(요구사항). 경로 시에만 표시.
     if(ST.routeActive&&ST.route&&ST.route.legs)drawRoute(ST.route);
@@ -472,17 +485,27 @@ function create(opts){
     t.textContent=txt;svg.appendChild(t);
   }
 
-  /* 출발 표식: 노란 정육면체 큐브 */
-  function poly(pts,fill,stroke,sw){return E('polygon',{points:pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' '),fill:fill,stroke:stroke||'none','stroke-width':sw||0});}
-  function drawCube(fk,planX,planY,sizePlan,hpx){
-    const s=sizePlan/2;
-    const base=[[planX-s,planY-s],[planX+s,planY-s],[planX+s,planY+s],[planX-s,planY+s]].map(p=>project(fk,p[0],p[1]));
-    const top=base.map(p=>[p[0],p[1]-hpx]);
-    let bi=0;for(let i=1;i<4;i++)if(base[i][1]>base[bi][1])bi=i;        // 앞쪽 아래 꼭짓점
-    const L=(bi+3)%4,Rr=(bi+1)%4;
-    svg.appendChild(poly([base[bi],base[Rr],top[Rr],top[bi]],COL.startSideA,'#9c7a00',0.5));
-    svg.appendChild(poly([base[bi],base[L],top[L],top[bi]],COL.startSideB,'#9c7a00',0.5));
-    svg.appendChild(poly(top,COL.startTop,'#9c7a00',0.6));
+  /* 게이트/입구(통로) 표식 — 글씨 없이 통로 위치·바깥 방향만 심플하게 */
+  function gateOutVec(fk,dir){
+    const u={N:[0,-1],S:[0,1],E:[1,0],W:[-1,0]}[dir]||[0,1],m=calMat(fk);
+    const ox=m.a*u[0]*RS+m.c*u[1]*RS, oy=m.b*u[0]*RS+m.d*u[1]*RS, L=Math.hypot(ox,oy)||1;
+    return [ox/L,oy/L];
+  }
+  function drawGate(fk,gt){
+    const c=project(fk,gt.x,gt.y),[ox,oy]=gateOutVec(fk,gt.dir),px=-oy,py=ox,col=COL.gate,g=E('g',{});
+    g.appendChild(E('circle',{cx:c[0].toFixed(1),cy:c[1].toFixed(1),r:9,fill:col,opacity:0.15}));   // 글로우(바닥 위 가시성)
+    const hw=7;                                                                                       // 문턱(통로 폭) 바: 바깥 방향에 수직
+    g.appendChild(E('line',{x1:(c[0]-px*hw).toFixed(1),y1:(c[1]-py*hw).toFixed(1),x2:(c[0]+px*hw).toFixed(1),y2:(c[1]+py*hw).toFixed(1),stroke:col,'stroke-width':3,'stroke-linecap':'round'}));
+    const chev=(d)=>{const tx=c[0]+ox*d,ty=c[1]+oy*d,bw=4.5,bl=4.5;                                   // 바깥 더블 셰브론(나가는 통로 방향)
+      g.appendChild(E('path',{d:`M${(tx-ox*bl+px*bw).toFixed(1)} ${(ty-oy*bl+py*bw).toFixed(1)}L${tx.toFixed(1)} ${ty.toFixed(1)}L${(tx-ox*bl-px*bw).toFixed(1)} ${(ty-oy*bl-py*bw).toFixed(1)}`,fill:'none',stroke:col,'stroke-width':2.4,'stroke-linecap':'round','stroke-linejoin':'round'}));};
+    chev(5.5);chev(10.5);
+    svg.appendChild(g);
+  }
+  /* 출발 안내데스크 표식 — 평면 큐브 대신 2D 원형(화면 빌보드), 반지름은 큐브 반폭의 1/2 */
+  function drawDeskDot(fk,planX,planY){
+    const c=project(fk,planX,planY),e=project(fk,planX+CUBE_SZ/2,planY);
+    const r=Math.max(3,Math.hypot(e[0]-c[0],e[1]-c[1])/2);
+    svg.appendChild(E('circle',{cx:c[0].toFixed(1),cy:c[1].toFixed(1),r:r.toFixed(1),fill:COL.start,stroke:'#9c7a00','stroke-width':1}));
   }
 
   function drawRoute(r){
@@ -500,10 +523,10 @@ function create(opts){
     r.legs.forEach((leg)=>{if(leg.exitTo){const isElev=leg.exitTo.transit.type==='elevator',u=iconURL(isElev?'12':'11');
       const a=project(leg.floor,leg.exitTo.node.x,leg.exitTo.node.y),b=project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y);
       iconOnly(a[0],a[1],u,22);iconOnly(b[0],b[1],u,22);}});
-    // 출발: 노란 큐브(2/3) + 현위치 핀(박스와 겹침) + "HERE" 콜아웃
+    // 출발: 노란 2D 원형 + 현위치 핀(겹침) + "Here" 콜아웃
     const dl=r.legs[0];if(dl.desk){const c=project(dl.floor,dl.desk[0],dl.desk[1]);
-      drawCube(dl.floor,dl.desk[0],dl.desk[1],CUBE_SZ,13);
-      const top=pinIcon(c[0],c[1],COL.here,30);callout(c[0],top,'Here',COL.here,'#fff',true);}
+      drawDeskDot(dl.floor,dl.desk[0],dl.desk[1]);
+      const top=pinIcon(c[0],c[1],COL.here,30);callout(c[0],top,'Here',COL.here,'#fff',false);}
     // 목적지: 첨부 핀 + 언어별 명칭 콜아웃
     const last=r.legs[r.legs.length-1],dst=last.arrive;
     if(dst){const e=project(last.floor,dst.x,dst.y);const top=pinIcon(e[0],e[1],COL.dest,30);callout(e[0],top,tr(dst),COL.dest,'#fff',false);}
