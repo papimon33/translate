@@ -27,16 +27,23 @@
     onReady(api){ /* 준비 완료 */ },
   });
 
-  // 핵심: 출발 안내데스크 → 목적지 경로 표시
+  // 핵심: 출발 안내데스크 → 목적지 경로 표시 (단일)
   map.showRoute({ deskFloor:'1F', deskSide:'S', dest:{ floor:'4F', name:'유아휴게실' } });
-  // dest 는 {floor,name} 또는 {floor,x,y} 모두 가능
+  // dest 한 개는 {floor,name} | {floor,name,nth} | {floor,x,y} | 시설객체(listFacilities() 원소)
+
+  // 복수 목적지(동시 경로 표시) — dest 에 배열, 또는 dests 사용
+  map.showRoute({ deskFloor:'1F', deskSide:'S', dest:[
+    { floor:'1F', name:'화장실', nth:1 },   // 같은 층 같은 이름 → nth(1-base)로 구분
+    { floor:'1F', name:'화장실', nth:2 },   //   또는 {floor,x,y}/시설객체로 정확 지정
+  ]});
+  // 반환·이벤트: { routes:[...], summaries:[{dest,floor,meters,minutes,transfers,steps[]}...], summary }
   map.clearRoute();
 
   map.setCalib('4F', { s:1.05, dx:20, dy:0 });    // 실행 중 한 층 정렬 미세조정
-  map.on('route', r => console.log(r.summary));   // {dest,floor,meters,minutes,transfers,steps[]}
+  map.on('route', r => console.log(r.summaries)); // 목적지별 요약 배열
 </script>
 ```
-반환 객체(api): `showRoute · clearRoute · setDesk(floor,side) · setCalib(floor,{s,dx,dy}) · listFacilities() · getRoute() · on(ev,cb) · redraw() · destroy() · el`.
+반환 객체(api): `showRoute · clearRoute · setDesk(floor,side) · setCalib(floor,{s,dx,dy}) · listFacilities() · getRoute() · getRoutes() · on(ev,cb) · redraw() · destroy() · el`.
 
 ### 렌더 개념
 - 4개 층을 한 화면에 적층. **z순서: 4F가 맨 위, 1F가 맨 아래**(겹치면 위층이 보임). 고정 논리 viewBox + CSS 균일 스케일 → 축소해도 위치 불변.
@@ -44,8 +51,9 @@
   **단, 보안구역의 북쪽(상단) 경계벽은 제외**(각 층 상단면에 붙는 벽 제거 — 일반셀의 바로 남쪽이 보안이고 북쪽은 아니면 벽 안 세움).
 - 무채색(흰/연회색). **보안구역은 하늘색 채움으로 구분**(점선 경계 없음).
 - **가독성(시각 조절 상수, 파일 상단)**: 배경 `COL.bg`=어두운 남색(순검정 금지). 층 깊이감 — 위층 밝게/아래층
-  어둡게 `FLOOR_SHADE`(바닥색에 곱), 바닥 측면 하단 그림자 `SIDE_GRAD`, 층 간격 `gapMargin`. 라벨(콜아웃)은
+  어둡게 `FLOOR_SHADE`(바닥색에 곱, 기본 4F→1F 약 6%), 바닥 측면 하단 그림자 `SIDE_GRAD`, 층 간격 `gapMargin`. 라벨(콜아웃)은
   작게+반투명+그림자 `LABEL`, 시설 아이콘은 흰 프레임+그림자 `ICON`(드롭섀도 필터 `#a25-shadow`). 칩/패널 `COL.panel`.
+  핀/라벨 기본 투명도 `PIN.opacity`, **목적지 아이콘·라벨 fade in/out 점멸 `BLINK`**(min/max/주기).
 - 평소 시설 아이콘은 **전부 숨김**. 경로 시: 출발=**노란 2D 원형 + "Here"**, 목적지=**현위치 핀**(언어별 명칭),
   경유 **에스컬레이터만 아이콘**(래퍼 없음, 3D 구조물 없음).
 - **문(통로) 개방**: 지정 위치(`DOORS` 상수)의 보안↔일반 경계벽을 **원형으로 일부 개방**해 '문'처럼 통로를 냄.
@@ -54,6 +62,8 @@
   1F→4F = 1F→2F→3F→4F. 경로 = **글로우 코멧 헤드 + 페이드인 잔상 점선** 애니메이션(밝은 파랑) + 은은한 전체 가이드.
   꺾임 최소화(`reduceBends`), **층간(에스컬레이터-에스컬레이터)은 아래층 출구→윗층 입구를 직선으로 연결**.
   에스컬레이터 아이콘은 **양쪽 층의 실제 위치**에 표시(1F→2F면 둘 다).
+- **복수 목적지**: `showRoute({dest:[...]})` 로 여러 곳을 동시에 안내(공유 출발 1개 + 목적지별 경로/핀). 같은 층
+  같은 이름(예: 화장실 2개)은 `nth` 또는 `{floor,x,y}`/시설객체로 구분. 목적지 핀+라벨은 **fade in/out 점멸**(`BLINK`).
 - 출발/목적지 핀 = **첨부 핀 아이콘**(`images/location-pin.svg` 경로 인라인, 현위치=파랑/목적지=코랄). 라벨은 **콜아웃 뱃지**(알약+꼬리, "Here"/목적지명).
   출발에는 **노란 2D 원형**(반지름 = `CUBE_SZ` 반폭의 1/2)도 함께(핀 겹침). 표식은 평면 원형이지만 경로 차단에는 여전히 `CUBE_SZ` 사각 footprint를 **장애물**로 써서 경로가 통과 못하고 돌아 나감.
   길찾기 차단 = 건물 밖 + 보안구역 + 출발 큐브 footprint. 안내데스크 동서남북 이격은 작게(`SIDE_OFF`).

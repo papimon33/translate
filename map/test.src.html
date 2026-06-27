@@ -103,7 +103,7 @@
 "use strict";
 const D = window.AIRPORT_DATA;
 const FLOORS=['1F','2F','3F','4F'];
-const ST={deskFloor:'1F',deskSide:'S',cat:'all',q:'',sel:null};
+const ST={deskFloor:'1F',deskSide:'S',cat:'all',q:'',sels:[]};  // sels=복수 목적지(토글 선택)
 let map=null;
 
 function loadCalib(){try{const s=localStorage.getItem('kac_floorCalib');return s?JSON.parse(s):undefined;}catch(e){return undefined;}}
@@ -134,34 +134,46 @@ function buildList(){
     if(f.in_secure)return; if(!catMatch(f,ST.cat))return;
     if(q){const h=(f.name+' '+(f.tags||[]).join(' ')).toLowerCase();if(!h.includes(q))return;}
     const it=document.createElement('div');
-    it.className='item'+(ST.sel&&ST.sel.floor===fk&&ST.sel.idx===idx?' on':'');
+    it.className='item'+(ST.sels.some(s=>s.floor===fk&&s.idx===idx)?' on':'');
     const u=iconURL(f.pSeq);
     it.innerHTML=`<span class="ic">${u?`<img src="${u}">`:'📍'}</span><span>${f.name}</span><span class="fl">${fk}</span>`;
-    it.onclick=()=>pick({...f,floor:fk,idx});list.appendChild(it);
+    it.onclick=()=>toggle({...f,floor:fk,idx});list.appendChild(it);
   }));
 }
-function pick(f){ST.sel=f;buildList();
-  const r=map.showRoute({deskFloor:ST.deskFloor,deskSide:ST.deskSide,dest:{floor:f.floor,name:f.name}});renderInfo(r);}
+function toggle(f){const i=ST.sels.findIndex(s=>s.floor===f.floor&&s.idx===f.idx);
+  if(i>=0)ST.sels.splice(i,1);else ST.sels.push(f);
+  buildList();reroute();}
+function reroute(){
+  if(!ST.sels.length){map.clearRoute();
+    document.getElementById('info').textContent='목적지를 선택하세요(여러 개 선택 가능 · 다시 클릭 시 해제).';
+    document.getElementById('steps').innerHTML='';return;}
+  // 시설객체(좌표 포함)를 그대로 배열로 전달 → 같은층 같은이름(화장실 2개)도 구분됨
+  const r=map.showRoute({deskFloor:ST.deskFloor,deskSide:ST.deskSide,dest:ST.sels});renderInfo(r);}
 function renderInfo(r){
   const info=document.getElementById('info'),steps=document.getElementById('steps');steps.innerHTML='';
-  if(!r||r.error){info.innerHTML=(ST.sel?`<b>${ST.sel.name}</b> · `:'')+((r&&r.error)||'경로 없음');return;}
-  const s=r.summary;
-  info.innerHTML=`목적지 <b>${s.dest}</b> (${s.floor})<br>출발 ${ST.deskFloor} 안내데스크 · ${({N:'북',S:'남',E:'동',W:'서'})[ST.deskSide]}쪽<br>`+
-    `약 <b>${s.meters} m</b> · 도보 약 ${s.minutes}분 · 환승 ${s.transfers}회 <span style="color:var(--mut)">(축척 추정)</span>`;
-  s.steps.forEach(t=>{const li=document.createElement('li');li.textContent=t;steps.appendChild(li);});
+  const sums=(r&&r.summaries)||(r&&r.summary?[r.summary]:[]),ok=sums.filter(s=>s&&!s.error);
+  const head=`출발 ${ST.deskFloor} 안내데스크 · ${({N:'북',S:'남',E:'동',W:'서'})[ST.deskSide]}쪽`;
+  if(!ok.length){info.innerHTML=(r&&r.error)||'경로 없음';return;}
+  if(ok.length===1){const s=ok[0];
+    info.innerHTML=`목적지 <b>${s.dest}</b> (${s.floor})<br>${head}<br>약 <b>${s.meters} m</b> · 도보 약 ${s.minutes}분 · 환승 ${s.transfers}회 <span style="color:var(--mut)">(축척 추정)</span>`;
+    s.steps.forEach(t=>{const li=document.createElement('li');li.textContent=t;steps.appendChild(li);});
+  }else{
+    info.innerHTML=`목적지 <b>${ok.length}곳</b> 동시 안내<br>${head}`;
+    ok.forEach(s=>{const li=document.createElement('li');li.innerHTML=`<b>${s.dest}</b> (${s.floor}) · 약 ${s.meters} m · 도보 ${s.minutes}분 · 환승 ${s.transfers}회`;steps.appendChild(li);});
+  }
 }
 
 document.getElementById('deskFloor').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
-  ST.deskFloor=b.dataset.f;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));if(ST.sel)pick(ST.sel);});
+  ST.deskFloor=b.dataset.f;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));reroute();});
 document.getElementById('compass').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!b.dataset.s)return;
-  ST.deskSide=b.dataset.s;[...e.currentTarget.querySelectorAll('button')].forEach(x=>x.classList.toggle('on',x===b));if(ST.sel)pick(ST.sel);});
+  ST.deskSide=b.dataset.s;[...e.currentTarget.querySelectorAll('button')].forEach(x=>x.classList.toggle('on',x===b));reroute();});
 document.getElementById('q').addEventListener('input',e=>{ST.q=e.target.value;buildList();});
-document.getElementById('clearBtn').addEventListener('click',()=>{ST.sel=null;buildList();map.clearRoute();
+document.getElementById('clearBtn').addEventListener('click',()=>{ST.sels=[];buildList();map.clearRoute();
   document.getElementById('info').textContent='경로를 지웠습니다. 목적지를 선택하세요.';document.getElementById('steps').innerHTML='';});
 document.getElementById('reloadCalib').addEventListener('click',()=>{const c=loadCalib();
   if(c)FLOORS.forEach(f=>{if(c[f])map.setCalib(f,c[f]);});
   const g=loadGaps(); if(g)map.setFloorGaps(g); calibNote();
-  if(ST.sel)pick(ST.sel);});
+  reroute();});
 document.getElementById('fsbtn').addEventListener('click',()=>{const el=document.getElementById('mapbox');
   if(!document.fullscreenElement)el.requestFullscreen&&el.requestFullscreen();else document.exitFullscreen();});
 
