@@ -49,6 +49,11 @@
   #dots span:nth-child(3){ animation-delay:.36s; }
   @keyframes bounce { 0%,80%,100%{ transform:translateY(0); opacity:.35; } 40%{ transform:translateY(-34px); opacity:1; } }
   /* 종료(X): 평소엔 숨김, 화면 탭하면 잠깐 표시 */
+  /* 길안내 맵 오버레이(자동 표시/숨김) */
+  #mapOverlay { position:fixed; inset:0; z-index:20; display:none; flex-direction:column; background:#fff; }
+  #map { flex:1; min-height:0; }
+  #mapCap { padding:14px 18px calc(14px + env(safe-area-inset-bottom)); font-size:clamp(20px,4.5vw,34px); font-weight:800;
+    color:var(--accent); text-align:center; background:#fff; border-top:1px solid var(--line); }
   #endBtn { position:fixed; top:calc(env(safe-area-inset-top) + 12px); right:14px; z-index:11;
     width:38px; height:38px; border-radius:12px; border:1px solid var(--line);
     background:rgba(255,255,255,.85); color:var(--muted); font-size:18px;
@@ -76,6 +81,9 @@
     <div id="lines"></div>
   </div>
   <div id="endBtn">✕</div>
+
+  <!-- 길안내 맵 오버레이 -->
+  <div id="mapOverlay"><div id="map"></div><div id="mapCap"></div></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -132,7 +140,8 @@ function connect(){
     if (m.type === 'snapshot') (m.items||[]).forEach(upsert);
     else if (m.type === 'sentence') upsert(m);
     else if (m.type === 'meta') applySxInfo(m.sxInfo);
-    else if (m.type === 'desk-reset') backToTouch(); // 대화 종료(무음) → 터치 화면으로
+    else if (m.type === 'wayfind') showWayfind(m);  // 길안내(시설 질문 감지) → 맵 오버레이
+    else if (m.type === 'desk-reset') { hideWayfind(); backToTouch(); } // 대화 종료(무음) → 터치 화면으로
   };
 }
 // 대화 종료 시: 발화대기(점) 화면이 아니라 시작(터치) 화면으로 복귀 (전체화면은 유지)
@@ -141,6 +150,40 @@ function backToTouch(){
   try { ws && ws.close(); } catch {}
   cards.clear(); order = [];
   show('startWrap');
+}
+
+/* ---- 길안내 맵(방법2: 자동 오버레이) ---- */
+let mapApi = null, mapTimer = null, mapLoading = false;
+function loadMapScripts(cb){
+  if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
+  if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
+  mapLoading = true;
+  let n = 0; const done = () => { if (++n >= 2) { mapLoading = false; cb(); } };
+  for (const src of ['/map/wayfinding_data.js', '/map/airport25d.js']) {
+    const s = document.createElement('script'); s.src = src; s.onload = done; s.onerror = done; document.head.appendChild(s);
+  }
+}
+function showWayfind(m){
+  $('mapOverlay').style.display = 'flex';
+  loadMapScripts(() => {
+    try {
+      if (!mapApi && window.AirportMap25D && window.AIRPORT_DATA) mapApi = AirportMap25D.create({ container:'#map', data:window.AIRPORT_DATA, lang: curLang });
+      if (!mapApi) return;
+      try { mapApi.setLang(curLang); } catch {}
+      const res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests });
+      let cap = m.ko || '';
+      const sm = res && res.summaries && res.summaries[0];
+      if (sm) cap += ` · 약 ${sm.minutes}분 (${sm.meters}m)` + (sm.transfers ? ` · 환승 ${sm.transfers}회` : '');
+      $('mapCap').textContent = cap;
+    } catch (e) {}
+  });
+  clearTimeout(mapTimer);
+  mapTimer = setTimeout(hideWayfind, 20000); // 20초 후 자동 닫힘(새 길안내 오면 교체)
+}
+function hideWayfind(){
+  clearTimeout(mapTimer);
+  $('mapOverlay').style.display = 'none';
+  try { mapApi && mapApi.clearRoute(); } catch {}
 }
 
 /* ---- 전체화면 ---- */
@@ -160,6 +203,7 @@ function start(){
 }
 function end(){
   started = false;
+  hideWayfind();
   try { ws && ws.send(JSON.stringify({ type:'desk-viewer-stop' })); } catch {}
   try { ws && ws.close(); } catch {}
   if (document.fullscreenElement || document.webkitFullscreenElement) {
@@ -193,6 +237,7 @@ function flashEnd(){ $('endBtn').classList.add('show'); clearTimeout(endTimer); 
 $('startBtn').addEventListener('click', start);
 $('endBtn').addEventListener('click', end);
 $('stage').addEventListener('click', flashEnd);
+$('mapOverlay').addEventListener('click', hideWayfind); // 탭하면 바로 닫기
 
 // 진입: 세션이 지정돼 있으면 시작화면, 아니면 랜딩
 if (sessionId) show('startWrap');

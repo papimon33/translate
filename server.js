@@ -82,6 +82,8 @@ if (!fs.existsSync(STATIC_DIR)) {
   console.warn('\n[경고] dist 폴더가 없습니다. 먼저 `npm run build` 를 실행하세요. (npm start 는 자동 빌드)\n');
 }
 app.use(express.static(STATIC_DIR));
+// 2.5D 맵 라이브러리/데이터/아이콘 — 데스크 뷰어 길안내용
+app.use('/map', express.static(new URL('./map/', import.meta.url).pathname));
 
 // 데스크 뷰어 PWA manifest(세션별 start_url) — '홈 화면에 추가'로 실행 시 항상 전체화면 유지
 app.get('/desk.webmanifest', (req, res) => {
