@@ -6,6 +6,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
+import { detectCategory } from './wayfind_dict.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -820,6 +821,9 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice()); // whisper·deepgram 다국어
   // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
   const preset = ['oneway', 'twoway', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
+  // 데스크 안내: 출발 안내데스크 층/방향(길안내 출발점)
+  const deskFloor = pipeline === 'desk' ? (['1F', '2F', '3F', '4F'].includes(b.deskFloor) ? b.deskFloor : '1F') : undefined;
+  const deskSide = pipeline === 'desk' ? (['E', 'W', 'S', 'N'].includes(b.deskSide) ? b.deskSide : 'S') : undefined;
   const s = {
     id: newId(),
     owner: req.user.id, // 소유자
@@ -828,6 +832,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
     updatedAt: now,
     pipeline, // 생성 후 변경 불가
     ...(preset ? { preset } : {}),
+    ...(deskFloor ? { deskFloor, deskSide } : {}),
     langs,
     outLang,
     inLang: b.inLang || 'auto',
@@ -861,6 +866,10 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   const b = req.body || {};
   if (typeof b.title === 'string') s.title = b.title;
   if (typeof b.inLang === 'string') s.inLang = b.inLang;
+  if (s.pipeline === 'desk') { // 데스크 출발 층/방향
+    if (['1F', '2F', '3F', '4F'].includes(b.deskFloor)) s.deskFloor = b.deskFloor;
+    if (['E', 'W', 'S', 'N'].includes(b.deskSide)) s.deskSide = b.deskSide;
+  }
   if (typeof b.outLang === 'string' && LANG_NAMES[b.outLang]) {
     s.outLang = b.outLang;
     if (s.pipeline === 'translate') s.langs = [b.outLang]; // translate 출력 언어 변경
@@ -1305,6 +1314,39 @@ function splitSentences(buf) {
     }
   }
   return { sentences, rest: buf.slice(start) };
+}
+
+/* ------------------------------------------------------------------ */
+/*  데스크 길안내 — 시설 데이터 로드 + 카테고리→인스턴스 해석                */
+/* ------------------------------------------------------------------ */
+let _facilities = null; // { '1F':[{name,x,y,in_secure,...}], ... }
+function loadFacilities() {
+  if (_facilities) return _facilities;
+  try {
+    let s = fs.readFileSync(new URL('./map/wayfinding_data.js', import.meta.url), 'utf8');
+    s = s.replace(/^\s*window\.AIRPORT_DATA\s*=/, '').replace(/;\s*$/, '');
+    const d = JSON.parse(s);
+    _facilities = d.facilities || {};
+  } catch (e) { console.warn('[wayfind] 시설 데이터 로드 실패:', e.message); _facilities = {}; }
+  return _facilities;
+}
+const DESK_FLOORS = ['1F', '2F', '3F', '4F'];
+// 카테고리 → 목적지 배열. 데스크 층 우선(전부), 없으면 층번호상 가장 가까운 층. in_secure 는 가급적 제외.
+function resolveWayfind(koText, deskFloor) {
+  const cats = detectCategory(koText);
+  if (!cats.length) return null;
+  const cat = cats[0];
+  const fac = loadFacilities();
+  const onFloor = (fk) => (fac[fk] || []).filter((f) => cat.match.some((m) => String(f.name).includes(m)));
+  const pick = (list) => { const open = list.filter((f) => !f.in_secure); return (open.length ? open : list).map((f) => ({ floor: f._fk, x: f.x, y: f.y, name: f.name })); };
+  // 층 우선순위: 데스크 층 → 가까운 층 순
+  const base = DESK_FLOORS.indexOf(deskFloor) >= 0 ? deskFloor : '1F';
+  const order = DESK_FLOORS.slice().sort((a, b) => Math.abs(DESK_FLOORS.indexOf(a) - DESK_FLOORS.indexOf(base)) - Math.abs(DESK_FLOORS.indexOf(b) - DESK_FLOORS.indexOf(base)));
+  for (const fk of order) {
+    const list = onFloor(fk).map((f) => ({ ...f, _fk: fk }));
+    if (list.length) return { category: cat.id, ko: cat.ko, sameFloor: fk === base, floor: fk, dests: pick(list) };
+  }
+  return { category: cat.id, ko: cat.ko, dests: [] }; // 매칭은 됐지만 시설 없음
 }
 
 /* ------------------------------------------------------------------ */
@@ -1942,6 +1984,16 @@ function handleHost(ws) {
       if (out && out === lastCommitText) return;
       lastCommitText = out;
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null);
+      // 길안내: 외국인 발화(→한국어 번역 out)에서 시설 질문 감지 → 목적지 전송
+      if (src && src !== A) {
+        try {
+          const wf = resolveWayfind(out, (session && session.deskFloor) || '1F');
+          if (wf && wf.dests && wf.dests.length) {
+            const msg = { type: 'wayfind', category: wf.category, ko: wf.ko, floor: wf.floor, sameFloor: wf.sameFloor, dests: wf.dests, deskFloor: (session && session.deskFloor) || '1F', deskSide: (session && session.deskSide) || 'S' };
+            broadcast(sessionId, msg); toHost(msg);
+          }
+        } catch {}
+      }
     };
 
     // 무음 자동종료: 발화가 들릴 때마다 리셋 → deskIdleMs 동안 '아무 말도' 없으면 대화 종료(다음 손님)
