@@ -330,11 +330,15 @@ function create(opts){
     let {x1,y1,x2,y2}=bb;
     const padX=(x2-x1)*0.12+30, padY=(y2-y1)*0.12+40;
     x1-=padX; x2+=padX; y1-=padY+26; y2+=padY;      // 위쪽은 핀/라벨 여유 더
-    const bw=Math.max(1,x2-x1), bh=Math.max(1,y2-y1);
-    let z=Math.min(LOGW/bw, LOGH/bh); z=Math.max(1,Math.min(z,3.2));   // 1~3.2x
-    const cx=(x1+x2)/2, cy=(y1+y2)/2;
-    const txp=(0.5 - z*cx/LOGW)*100, typ=(0.5 - z*cy/LOGH)*100;
-    inner.style.transform=`translate(${txp.toFixed(2)}%, ${typ.toFixed(2)}%) scale(${z.toFixed(3)})`;}
+    // 컨테이너 실제 픽셀 크기 기준 → 고정 높이 인라인 박스에서도 경로에 맞게 줌
+    const rect=container.getBoundingClientRect();
+    const W=rect.width||1, H=rect.height||(W*LOGH/LOGW);
+    const k0=W/LOGW;                                  // cv width:100% → 로지컬→픽셀 기본 스케일
+    const bwpx=Math.max(1,(x2-x1)*k0), bhpx=Math.max(1,(y2-y1)*k0);
+    let z=Math.min(W/bwpx, H/bhpx); z=Math.max(1,Math.min(z,4));
+    const cxpx=((x1+x2)/2)*k0, cypx=((y1+y2)/2)*k0;
+    const Tx=W/2 - z*cxpx, Ty=H/2 - z*cypx;
+    inner.style.transform=`translate(${Tx.toFixed(1)}px, ${Ty.toFixed(1)}px) scale(${z.toFixed(3)})`;}
   function clearFocus(){ST.focusFloors=null;drawFloors();inner.style.transform='';}
 
   /* ---------- 캔버스: 압출 바닥 ---------- */
