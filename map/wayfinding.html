@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>김포공항 국제선 · 2.5D 길찾기</title>
+<style>
+  :root{
+    --bg:#eef1f4; --panel:#ffffff; --ink:#1c2024; --muted:#767f87; --line:#d7dde2;
+    --accent:#c0152f; --accent2:#1b6b4a; --chip:#eceae4; --chiph:#ddd9d0;
+    --floor:#ffffff; --wall:#3c434b; --secz:#e9ecf0; --node:#3f6fb0;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Noto Sans KR","Apple SD Gothic Neo",sans-serif;}
+  header{padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel);}
+  header h1{font-size:16px;margin:0;font-weight:600;}
+  header .sub{font-size:12px;color:var(--muted);margin-top:3px;}
+  .layout{display:flex;gap:14px;align-items:flex-start;padding:14px;max-width:1280px;margin:0 auto;}
+  .panel{width:330px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .map-col{flex:1;min-width:0;}
+  .mapbox{position:relative;background:linear-gradient(180deg,#f4f6f8,#e7ebef);border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:6px;}
+  svg.stage{display:block;width:100%;height:auto;}
+  .grouptitle{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 7px;}
+  .grouptitle:first-child{margin-top:0;}
+  .row{display:flex;gap:6px;flex-wrap:wrap;}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .seg button{border:none;background:var(--panel);padding:7px 12px;font-size:13px;cursor:pointer;color:var(--ink);}
+  .seg button.on{background:var(--accent);color:#fff;}
+  .seg button+button{border-left:1px solid var(--line);}
+  .chip{border:1px solid var(--line);background:var(--chip);padding:6px 11px;border-radius:16px;font-size:12.5px;cursor:pointer;}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .chip:hover{background:var(--chiph);}
+  input[type=search]{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;margin-top:2px;}
+  .compass{display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,34px);gap:4px;justify-content:center;}
+  .compass button{border:1px solid var(--line);background:var(--panel);border-radius:8px;font-size:13px;cursor:pointer;color:var(--ink);}
+  .compass button.on{background:var(--accent2);color:#fff;border-color:var(--accent2);}
+  .compass .mid{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted);}
+  .list{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:9px;margin-top:6px;}
+  .list .item{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid #eef1f4;}
+  .list .item:last-child{border-bottom:none;}
+  .list .item:hover{background:#f4f6f8;}
+  .list .item.on{background:#fdeaed;}
+  .list .item .fl{margin-left:auto;font-size:11px;color:var(--muted);flex:none;}
+  .list .item .ic{width:22px;height:22px;flex:none;border-radius:5px;background:#f1f3f5;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+  .list .item .ic img{width:20px;height:20px;}
+  .info{margin-top:12px;font-size:13px;line-height:1.55;color:var(--ink);background:#f7f9fb;border:1px solid var(--line);border-radius:9px;padding:11px;min-height:42px;}
+  .info b{color:var(--accent);}
+  .steps{margin:8px 0 0;padding-left:2px;list-style:none;font-size:12.5px;color:var(--muted);}
+  .steps li{padding:2px 0 2px 18px;position:relative;}
+  .steps li::before{content:"";position:absolute;left:4px;top:9px;width:6px;height:6px;border-radius:50%;background:var(--accent);}
+  .steps li.tr::before{background:var(--accent2);border-radius:2px;}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);padding:8px 4px 0;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .ldot{width:11px;height:11px;border-radius:50%;display:inline-block;}
+  .floortabs{position:absolute;top:10px;left:10px;z-index:5;display:flex;flex-direction:column;gap:5px;}
+  .floortabs button{width:42px;height:34px;border:1px solid var(--line);background:rgba(255,255,255,.92);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);}
+  .floortabs button.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .floortabs button:disabled{opacity:.4;cursor:default;}
+  .hovlabel{position:absolute;z-index:6;pointer-events:none;background:rgba(28,32,36,.92);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);white-space:nowrap;display:none;}
+  .navbtn{position:absolute;bottom:12px;right:12px;z-index:5;display:flex;gap:6px;}
+  .navbtn button{border:1px solid var(--line);background:rgba(255,255,255,.95);padding:8px 12px;border-radius:9px;font-size:13px;cursor:pointer;}
+  .pin{cursor:pointer;}
+  .pin-pole{stroke:#9aa3ab;stroke-width:1.4;}
+  .pin-disc{fill:#fff;stroke:#c2cad1;stroke-width:1.4;}
+  .pin.sel .pin-disc{fill:#fdeaed;stroke:var(--accent);stroke-width:2.4;}
+  .pin-dest .pin-disc{fill:var(--accent);stroke:#fff;}
+  .pin-lab{font-size:12px;fill:#1c2024;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round;}
+  .route{fill:none;stroke:var(--accent);stroke-width:6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:2 16;animation:march 1s linear infinite;}
+  .route-glow{fill:none;stroke:var(--accent);stroke-opacity:.16;stroke-width:16;stroke-linecap:round;stroke-linejoin:round;}
+  @keyframes march{to{stroke-dashoffset:-18;}}
+  .muted{color:var(--muted);font-size:12px;}
+  @media(max-width:820px){.layout{flex-direction:column;}.panel{width:100%;}}
+</style>
+</head>
+<body>
+<header>
+  <h1>김포공항 국제선 · 2.5D 인터랙티브 길찾기</h1>
+  <div class="sub">안내데스크 출발 · 벽/보안구역 회피 직교 A* · 멀티플로어 환승 자동 계산 (참고 구현 wayfinding_min.html 로직 재사용)</div>
+</header>
+
+<div class="layout">
+  <!-- 좌측 컨트롤 -->
+  <div class="panel">
+    <div class="grouptitle">출발 안내데스크</div>
+    <div class="seg" id="deskFloorSeg">
+      <button data-f="1F" class="on">1F 데스크</button>
+      <button data-f="2F">2F 데스크</button>
+    </div>
+
+    <div class="grouptitle">출발 방향</div>
+    <div class="compass" id="compass">
+      <div></div><button data-s="N">북</button><div></div>
+      <button data-s="W">서</button><div class="mid">데스크</div><button data-s="E">동</button>
+      <div></div><button data-s="S" class="on">남</button><div></div>
+    </div>
+
+    <div class="grouptitle">카테고리</div>
+    <div class="row" id="cats"></div>
+
+    <div class="grouptitle">시설 검색 · 선택</div>
+    <input type="search" id="q" placeholder="이름·태그 검색 (예: 음수대, 환전, cafe)">
+    <div class="list" id="list"></div>
+    <div class="muted" id="secNote" style="margin-top:6px;"></div>
+
+    <div class="info" id="info">목적지를 선택하면 안내데스크에서 출발하는 경로를 그립니다.</div>
+    <ol class="steps" id="steps"></ol>
+  </div>
+
+  <!-- 우측 지도 -->
+  <div class="map-col">
+    <div class="mapbox">
+      <div class="floortabs" id="floortabs"></div>
+      <div class="navbtn" id="navbtn"></div>
+      <div class="hovlabel" id="hov"></div>
+      <svg class="stage" id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <div class="legend">
+      <span><i class="ldot" style="background:#c0152f"></i>경로</span>
+      <span><i class="ldot" style="background:#1b6b4a"></i>안내데스크(출발)</span>
+      <span><i class="ldot" style="background:#3f6fb0"></i>에스컬레이터·엘리베이터</span>
+      <span><i class="ldot" style="background:#e9ecf0;border:1px solid #cfd6db"></i>보안구역(제외)</span>
+    </div>
+  </div>
+</div>
+
+<script src="wayfinding_data.js"></script>
+<script>
+"use strict";
+/* ====================================================================
+   김포공항 국제선 2.5D 길찾기
+   - 데이터: window.AIRPORT_DATA (airport_wayfinding_data.json 인라인)
+   - 벽 처리: 각 층 도면 SVG를 캔버스에 래스터화 → 검정(#000) 픽셀/건물밖/보안구역 = 장애물
+   - 경로: 직교(4방향) A* (참고 구현 재사용) + 층간 transit_groups 그래프
+   - 렌더: 아이소메트릭 어파인 투영 (등각 틸트) + 빌보드 아이콘
+   ==================================================================== */
+const D = window.AIRPORT_DATA;
+const FLOORS = ['1F','2F','3F','4F'];
+const NS = "http://www.w3.org/2000/svg";
+
+/* ---- 거리 추정 (축척 보정 필요) ----
+   도면 1 unit ≈ METERS_PER_UNIT m. 실측값으로 보정할 것. */
+const METERS_PER_UNIT = 0.075;
+const WALK_MPS = 1.2;
+
+/* ---- 아이소메트릭 투영 (어파인) ----
+   plan(x,y) → screen. rotate(θ) 후 세로 압축(KY). 직선/평행 유지(등각 틸트). */
+const ISO_ROT = 29*Math.PI/180, ISO_KY = 0.66, PAD = 60;
+function isoFor(W,H){
+  const c=Math.cos(ISO_ROT), s=Math.sin(ISO_ROT);
+  const a=c, b=ISO_KY*s, cc=-s, d=ISO_KY*c;
+  const xs=[0,W,0,W], ys=[0,0,H,H];
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  for(let i=0;i<4;i++){const X=a*xs[i]+cc*ys[i], Y=b*xs[i]+d*ys[i];
+    minx=Math.min(minx,X);maxx=Math.max(maxx,X);miny=Math.min(miny,Y);maxy=Math.max(maxy,Y);}
+  const e=PAD-minx, f=PAD-miny;
+  return {a,b,c:cc,d,e,f, vbW:(maxx-minx)+PAD*2, vbH:(maxy-miny)+PAD*2,
+          mat:`matrix(${a} ${b} ${cc} ${d} ${e} ${f})`,
+          proj:(x,y)=>[a*x+cc*y+e, b*x+d*y+f]};
+}
+
+/* ---- 기하 유틸 ---- */
+function pip(x,y,poly){let c=false,n=poly.length,j=n-1;
+  for(let i=0;i<n;i++){const xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
+    if(((yi>y)!=(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))c=!c;j=i;}return c;}
+function E(n,a){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;}
+
+/* ---- 도면 SVG 가공 ---- */
+function ensureSize(svg,W,H){
+  if(/<svg[^>]*\bwidth=/.test(svg)) return svg;
+  return svg.replace(/<svg/i,`<svg width="${W}" height="${H}"`);
+}
+function innerOf(svg){
+  return svg.replace(/^[\s\S]*?<svg[^>]*>/i,'').replace(/<\/svg>\s*$/i,'');
+}
+function displayInner(svg){           // 표시용: 텍스트 제거 + 보안색 회색화 + 벽 톤다운
+  let s = innerOf(svg);
+  s = s.replace(/<text[\s\S]*?<\/text>/gi,'');
+  s = s.replace(/#f4fcff/gi,'#e9ecf0').replace(/#e4f5ff/gi,'#e9ecf0').replace(/#f2fafd/gi,'#e9ecf0');
+  s = s.replace(/#000000/gi,'#3c434b').replace(/#000(?![0-9a-f])/gi,'#3c434b');
+  return s;
+}
+
+/* ---- 아이콘 (pSeq 단위 공유) ---- */
+const iconURLCache={};
+function iconURL(pSeq){
+  if(pSeq in iconURLCache) return iconURLCache[pSeq];
+  const g = D.pseq_icon_groups[pSeq];
+  let url=null;
+  if(g && g.svg) url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(g.svg);
+  iconURLCache[pSeq]=url; return url;
+}
+
+/* ====================================================================
+   벽 그리드 래스터화 (참고 구현 buildGrid 재사용 + 다층 일반화)
+   ==================================================================== */
+const GRID = {};   // floorKey → {gw,gh,blocked,W,H,sx,sy}
+function svgToImg(svgStr){
+  return new Promise((res,rej)=>{const img=new Image();
+    img.onload=()=>res(img); img.onerror=rej;
+    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgStr);});
+}
+async function buildGrid(fk){
+  const fdat=D.floors[fk]; const W=fdat.viewBox[0], H=fdat.viewBox[1];
+  const gw=Math.max(80,Math.round(W/3)), gh=Math.max(80,Math.round(H/3));
+  const img=await svgToImg(ensureSize(fdat.svg,W,H));
+  const cv=document.createElement('canvas'); cv.width=gw; cv.height=gh;
+  const ctx=cv.getContext('2d',{willReadFrequently:true});
+  ctx.clearRect(0,0,gw,gh);
+  ctx.drawImage(img,0,0,gw,gh);
+  const data=ctx.getImageData(0,0,gw,gh).data;
+  const blocked=new Uint8Array(gw*gh);
+  const sx=gw/W, sy=gh/H;
+  const secs=fdat.security_polygons||[];
+  for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){
+    const i=(y*gw+x)*4, a=data[i+3];
+    let block=false;
+    if(a<40) block=true;                                   // 건물 밖(채움 없음)
+    else{
+      const lum=0.299*data[i]+0.587*data[i+1]+0.114*data[i+2];
+      if(lum<60) block=true;                               // 검정 벽
+    }
+    if(!block){                                            // 보안구역 통과 금지
+      const vx=(x+0.5)/sx, vy=(y+0.5)/sy;
+      for(const poly of secs){ if(pip(vx,vy,poly)){block=true;break;} }
+    }
+    blocked[y*gw+x]=block?1:0;
+  }
+  // 통행 가능 공간 연결요소(component) 라벨링 → 가장 큰 영역 = 주 통로(main)
+  const comp=new Int32Array(gw*gh).fill(-1);
+  let label=0, mainLabel=-1, mainCnt=0;
+  for(let i=0;i<comp.length;i++){
+    if(blocked[i]||comp[i]>=0)continue;
+    let cnt=0; const st=[i]; comp[i]=label;
+    while(st.length){const c=st.pop();cnt++;const cx=c%gw,cy=(c/gw)|0;
+      if(cx+1<gw){const n=c+1;if(!blocked[n]&&comp[n]<0){comp[n]=label;st.push(n);}}
+      if(cx-1>=0){const n=c-1;if(!blocked[n]&&comp[n]<0){comp[n]=label;st.push(n);}}
+      if(cy+1<gh){const n=c+gw;if(!blocked[n]&&comp[n]<0){comp[n]=label;st.push(n);}}
+      if(cy-1>=0){const n=c-gw;if(!blocked[n]&&comp[n]<0){comp[n]=label;st.push(n);}}
+    }
+    if(cnt>mainCnt){mainCnt=cnt;mainLabel=label;}
+    label++;
+  }
+  GRID[fk]={gw,gh,blocked,comp,main:mainLabel,W,H,sx,sy};
+}
+
+// 주 통로(main component) 상에서 가장 가까운 통행 셀로 스냅.
+// 시설/수직노드 좌표가 벽·구조물(에스컬레이터 박스 등) 위에 찍혀 있어도 실제 통로에 붙임.
+function snapMain(fk,gx,gy){
+  const G=GRID[fk], gw=G.gw, gh=G.gh;
+  gx=Math.max(0,Math.min(gw-1,gx)); gy=Math.max(0,Math.min(gh-1,gy));
+  if(G.comp[gy*gw+gx]===G.main) return [gx,gy];
+  for(let r=1;r<160;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+    if(Math.abs(dx)!==r&&Math.abs(dy)!==r)continue;          // 링만 검사
+    const nx=gx+dx,ny=gy+dy;
+    if(nx>=0&&ny>=0&&nx<gw&&ny<gh&&G.comp[ny*gw+nx]===G.main)return[nx,ny];
+  }
+  // main에 못 붙으면 아무 통행셀
+  for(let r=1;r<160;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+    const nx=gx+dx,ny=gy+dy;
+    if(nx>=0&&ny>=0&&nx<gw&&ny<gh&&!G.blocked[ny*gw+nx])return[nx,ny];
+  }
+  return[gx,gy];
+}
+
+// 최소 힙 (A* 우선순위 큐)
+class Heap{
+  constructor(){this.a=[];}
+  get size(){return this.a.length;}
+  push(p,v){const a=this.a;a.push([p,v]);let i=a.length-1;
+    while(i>0){const par=(i-1)>>1;if(a[par][0]<=a[i][0])break;const t=a[par];a[par]=a[i];a[i]=t;i=par;}}
+  pop(){const a=this.a,top=a[0],last=a.pop();
+    if(a.length){a[0]=last;let i=0,n=a.length;
+      while(true){let l=2*i+1,r=l+1,s=i;if(l<n&&a[l][0]<a[s][0])s=l;if(r<n&&a[r][0]<a[s][0])s=r;
+        if(s===i)break;const t=a[s];a[s]=a[i];a[i]=t;i=s;}}
+    return top;}
+}
+/* 직교 4방향 A* (대각선 금지, 힙 기반, main component 스냅) */
+function astar(fk,sxv,syv,txv,tyv){
+  const G=GRID[fk], gw=G.gw, gh=G.gh, blk=G.blocked;
+  const [s0,s1]=snapMain(fk,Math.round(sxv*G.sx),Math.round(syv*G.sy));
+  const [t0,t1]=snapMain(fk,Math.round(txv*G.sx),Math.round(tyv*G.sy));
+  const start=s1*gw+s0, goal=t1*gw+t0;
+  if(start===goal) return [[sxv,syv],[txv,tyv]];
+  const gx2=goal%gw, gy2=(goal/gw)|0;
+  const g=new Float64Array(gw*gh).fill(Infinity);
+  const came=new Int32Array(gw*gh).fill(-1);
+  g[start]=0;
+  const H=new Heap(); H.push(Math.abs(s0-gx2)+Math.abs(s1-gy2), start);
+  while(H.size){
+    const cur=H.pop()[1];
+    if(cur===goal)break;
+    const cx=cur%gw, cy=(cur/gw)|0, cg=g[cur], ng=cg+1;
+    let ni;
+    if(cx+1<gw){ni=cur+1;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs((cx+1)-gx2)+Math.abs(cy-gy2),ni);}}
+    if(cx-1>=0){ni=cur-1;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs((cx-1)-gx2)+Math.abs(cy-gy2),ni);}}
+    if(cy+1<gh){ni=cur+gw;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs(cx-gx2)+Math.abs((cy+1)-gy2),ni);}}
+    if(cy-1>=0){ni=cur-gw;if(!blk[ni]&&ng<g[ni]){g[ni]=ng;came[ni]=cur;H.push(ng+Math.abs(cx-gx2)+Math.abs((cy-1)-gy2),ni);}}
+  }
+  if(came[goal]<0 && goal!==start) return null;
+  const path=[]; let c=goal;
+  while(c>=0){const cx=c%gw,cy=(c/gw)|0;path.push([(cx+0.5)/G.sx,(cy+0.5)/G.sy]);if(c===start)break;c=came[c];}
+  path.reverse();
+  path[0]=[sxv,syv]; path[path.length-1]=[txv,tyv];
+  return path;
+}
+function simplifyOrtho(p){
+  if(!p||p.length<3)return p;const o=[p[0]];
+  for(let i=1;i<p.length-1;i++){const a=p[i-1],b=p[i],c=p[i+1];
+    const d1=[Math.sign(b[0]-a[0]),Math.sign(b[1]-a[1])];
+    const d2=[Math.sign(c[0]-b[0]),Math.sign(c[1]-b[1])];
+    if(d1[0]!==d2[0]||d1[1]!==d2[1])o.push(b);}
+  o.push(p[p.length-1]);return o;
+}
+function pathLen(p){let L=0;for(let i=1;i<p.length;i++)L+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);return L;}
+
+/* ====================================================================
+   층간 그래프 (확정된 transit_groups 만 사용)
+   ==================================================================== */
+const GROUPS = D.floor_links.transit_groups;
+function nodeById(id){
+  const fk=id.split('-')[0];
+  for(const n of D.vertical_nodes[fk]) if(n.id===id){
+    const o={...n};
+    if(id==='2F-ESC-3') o.y=447.0;        // 규칙: 입구 높이 보정
+    return o;
+  } return null;
+}
+const ADJ={'1F':new Set(),'2F':new Set(),'3F':new Set(),'4F':new Set()};
+const PAIRG={};                           // "A>B" → [groups]
+for(const g of GROUPS){const fs=g.connects;
+  for(const a of fs)for(const b of fs){ if(a===b)continue;
+    const na=g.nodes.find(id=>id.startsWith(a)), nb=g.nodes.find(id=>id.startsWith(b));
+    if(na&&nb){ADJ[a].add(b);(PAIRG[a+'>'+b]=PAIRG[a+'>'+b]||[]).push(g);}
+  }
+}
+function floorSeq(a,b){
+  if(a===b)return[a];
+  const prev={[a]:null},q=[a];
+  while(q.length){const c=q.shift();if(c===b)break;
+    for(const nb of [...ADJ[c]].sort()) if(!(nb in prev)){prev[nb]=c;q.push(nb);}}
+  if(!(b in prev))return null;
+  const seq=[];let c=b;while(c!==null){seq.push(c);c=prev[c];}return seq.reverse();
+}
+
+/* ====================================================================
+   경로 계산 (멀티홉 환승)
+   findRoute: 안내데스크(deskFloor, deskSide) → 목적지
+   반환: legs[] = {floor, pts:[[x,y]...], enterFrom, exitTo, transit}
+   ==================================================================== */
+const SIDE_OFFSET=46;
+function deskStart(fk,side){
+  const dk=D.guide_desks[fk]; const [x,y]=dk.svg;
+  const off={N:[0,-SIDE_OFFSET],S:[0,SIDE_OFFSET],E:[SIDE_OFFSET,0],W:[-SIDE_OFFSET,0]}[side]||[0,SIDE_OFFSET];
+  return {desk:[x,y], start:[x+off[0],y+off[1]]};
+}
+function findRoute(deskFloor, deskSide, dest){
+  const seq=floorSeq(deskFloor, dest.floor);
+  if(!seq) return {error:'층간 연결 경로가 없습니다.'};
+  const {desk,start}=deskStart(deskFloor, deskSide);
+  const legs=[]; let cur=start, curFloor=deskFloor;
+  for(let i=0;i<seq.length-1;i++){
+    const A=seq[i], B=seq[i+1];
+    const cands=PAIRG[A+'>'+B]||[];
+    // 가장 가까운 환승 그룹 선택 (현재 지점→해당 층 노드 경로거리 최소)
+    let bestG=null,bestP=null,bestL=1e18,bestNodeA=null,bestNodeB=null;
+    for(const g of cands){
+      const na=nodeById(g.nodes.find(id=>id.startsWith(A)));
+      const nb=nodeById(g.nodes.find(id=>id.startsWith(B)));
+      if(!na||!nb)continue;
+      let p=astar(curFloor,cur[0],cur[1],na.x,na.y); if(!p)continue;
+      const L=pathLen(p);
+      if(L<bestL){bestL=L;bestG=g;bestP=p;bestNodeA=na;bestNodeB=nb;}
+    }
+    if(!bestG) return {error:`${A}→${B} 환승 지점에 도달할 수 없습니다.`};
+    legs.push({floor:A, pts:simplifyOrtho(bestP),
+               desk:(i===0?desk:null),
+               exitTo:{node:bestNodeA, transit:bestG, toFloor:B}});
+    cur=[bestNodeB.x,bestNodeB.y]; curFloor=B;
+  }
+  // 마지막 층: 환승 지점(or 데스크) → 목적지
+  let p=astar(curFloor,cur[0],cur[1],dest.x,dest.y);
+  if(!p) return {error:'목적지까지 경로가 없습니다(벽/보안구역).'};
+  legs.push({floor:curFloor, pts:simplifyOrtho(p),
+             desk:(seq.length===1?desk:null),
+             enterFrom:(seq.length>1?{toFloor:curFloor}:null),
+             arrive:dest});
+  const totalLen=legs.reduce((s,l)=>s+pathLen(l.pts),0);
+  return {legs, totalLen, seq};
+}
+
+/* ====================================================================
+   상태 + UI
+   ==================================================================== */
+const ST={deskFloor:'1F', deskSide:'S', viewFloor:'1F', cat:'all', q:'', sel:null, route:null};
+
+const CATS=[
+ {id:'all',label:'전체',kw:null},
+ {id:'food',label:'식음료',kw:['카페','커피','식','면','돈까스','버거','도넛','치킨','빵','베이커','cafe','coffee','food','공차','스타벅','파리','파스쿠','에그','던킨','오사카','마리','정테이블','대청','롯데리아','분식','요아정','도넛']},
+ {id:'shop',label:'편의·면세',kw:['편의','면세','cu','store','duty','인도장','카카오','디자인스킨','세븐']},
+ {id:'money',label:'환전·금융',kw:['은행','환전','bank','exchange','환급','신한']},
+ {id:'transport',label:'교통',kw:['버스','렌터카','rentcar','쏘카','bus','발권','항공','매표']},
+ {id:'telecom',label:'로밍·통신',kw:['로밍','유심','wifi','sim','유플러스','kt','sk']},
+ {id:'amenity',label:'편의시설',kw:['화장실','유아','수유','휠체어','유모차','충전','음수대','제세동기','기도실','약국','우편','수하물','수화물','흡연','라운지','안마']},
+ {id:'move',label:'이동·안내',kw:['에스컬','엘리베','안내데스크','음성유도','촉지도']},
+];
+function catMatch(fac,cat){
+  if(cat==='all')return true;
+  const c=CATS.find(c=>c.id===cat); if(!c||!c.kw)return true;
+  const hay=(fac.name+' '+(fac.tags||[]).join(' ')).toLowerCase();
+  return c.kw.some(k=>hay.includes(k.toLowerCase()));
+}
+/* 라우팅 가능 시설(목적지) 목록: 보안구역(in_secure) 제외, 수직이동 시설은 카테고리에서만 */
+function allFacilities(){
+  const out=[];
+  for(const fk of FLOORS) (D.facilities[fk]||[]).forEach((f,idx)=>out.push({...f,floor:fk,idx}));
+  return out;
+}
+const ALLFAC=allFacilities();
+
+function buildCats(){
+  const wrap=document.getElementById('cats'); wrap.innerHTML='';
+  CATS.forEach(c=>{const b=document.createElement('button');b.className='chip'+(c.id===ST.cat?' on':'');
+    b.textContent=c.label;b.onclick=()=>{ST.cat=c.id;buildCats();buildList();};wrap.appendChild(b);});
+}
+function buildList(){
+  const list=document.getElementById('list'); list.innerHTML='';
+  const q=ST.q.trim().toLowerCase();
+  let shown=0, secHidden=0;
+  ALLFAC.forEach(f=>{
+    if(f.in_secure){secHidden++;return;}                  // 보안구역 목적지 제외
+    if(!catMatch(f,ST.cat))return;
+    if(q){const hay=(f.name+' '+(f.tags||[]).join(' ')).toLowerCase(); if(!hay.includes(q))return;}
+    shown++;
+    const it=document.createElement('div');
+    it.className='item'+(ST.sel&&ST.sel.floor===f.floor&&ST.sel.idx===f.idx?' on':'');
+    const url=iconURL(f.pSeq);
+    it.innerHTML=`<span class="ic">${url?`<img src="${url}" alt="">`:'📍'}</span>`+
+                 `<span>${f.name}</span><span class="fl">${f.floor}</span>`;
+    it.onclick=()=>selectDest(f);
+    list.appendChild(it);
+  });
+  document.getElementById('secNote').textContent=
+    `표시 ${shown}곳 · 보안구역 시설 ${secHidden}곳은 일반 길찾기에서 제외됨`;
+}
+
+function buildFloorTabs(){
+  const wrap=document.getElementById('floortabs'); wrap.innerHTML='';
+  FLOORS.forEach(fk=>{const b=document.createElement('button');
+    b.textContent=fk;b.className=(fk===ST.viewFloor?'on':'');
+    b.disabled=!GRID[fk];
+    b.onclick=()=>{ST.viewFloor=fk;buildFloorTabs();renderFloor();};
+    wrap.appendChild(b);});
+}
+
+/* 출발층/방향 컨트롤 */
+document.getElementById('deskFloorSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  ST.deskFloor=b.dataset.f;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  if(ST.sel) recompute(); else {ST.viewFloor=ST.deskFloor;buildFloorTabs();renderFloor();}
+});
+document.getElementById('compass').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b||!b.dataset.s)return;
+  ST.deskSide=b.dataset.s;
+  [...e.currentTarget.querySelectorAll('button')].forEach(x=>x.classList.toggle('on',x===b));
+  if(ST.sel) recompute();
+});
+document.getElementById('q').addEventListener('input',e=>{ST.q=e.target.value;buildList();});
+
+function selectDest(f){ ST.sel=f; buildList(); recompute(); }
+function recompute(){
+  if(!ST.sel)return;
+  if(!GRID[ST.deskFloor]||!GRID[ST.sel.floor]){
+    document.getElementById('info').textContent='지도 데이터를 준비 중입니다…'; return;
+  }
+  const r=findRoute(ST.deskFloor, ST.deskSide, ST.sel);
+  ST.route=r;
+  if(r.error){document.getElementById('info').innerHTML=`<b>${ST.sel.name}</b> · ${r.error}`;
+    document.getElementById('steps').innerHTML='';return;}
+  ST.viewFloor=ST.deskFloor;
+  buildFloorTabs(); renderFloor(); renderInfo();
+}
+
+function renderInfo(){
+  const r=ST.route; if(!r||!r.legs)return;
+  const m=Math.round(r.totalLen*METERS_PER_UNIT);
+  const min=Math.max(1,Math.round((r.totalLen*METERS_PER_UNIT)/WALK_MPS/60));
+  const transfers=r.legs.filter(l=>l.exitTo).length;
+  document.getElementById('info').innerHTML=
+    `목적지 <b>${ST.sel.name}</b> (${ST.sel.floor})<br>`+
+    `출발 ${ST.deskFloor} 안내데스크 · ${({N:'북',S:'남',E:'동',W:'서'})[ST.deskSide]}쪽<br>`+
+    `약 <b>${m} m</b> · 도보 약 ${min}분 · 환승 ${transfers}회 `+
+    `<span class="muted">(거리는 도면 축척 추정값 — 실측 보정 필요)</span>`;
+  const steps=document.getElementById('steps'); steps.innerHTML='';
+  const li=(t,tr)=>{const e=document.createElement('li');if(tr)e.className='tr';e.textContent=t;steps.appendChild(e);};
+  li(`${ST.deskFloor} 안내데스크 출발 (${({N:'북',S:'남',E:'동',W:'서'})[ST.deskSide]}쪽)`);
+  r.legs.forEach(l=>{
+    if(l.exitTo){const tn=l.exitTo.transit; const kind=tn.type==='elevator'?'엘리베이터':'에스컬레이터';
+      li(`${l.floor} → ${l.exitTo.toFloor} : ${kind} 이용 (${tn.id})`,true);}
+  });
+  li(`${ST.sel.floor} ${ST.sel.name} 도착`);
+}
+
+/* ====================================================================
+   2.5D 렌더
+   ==================================================================== */
+let dotRAF=null;
+function renderFloor(){
+  const fk=ST.viewFloor, fdat=D.floors[fk];
+  const W=fdat.viewBox[0], H=fdat.viewBox[1];
+  const iso=isoFor(W,H);
+  const stage=document.getElementById('stage');
+  stage.setAttribute('viewBox',`0 0 ${iso.vbW.toFixed(1)} ${iso.vbH.toFixed(1)}`);
+  stage.innerHTML='';
+
+  // 그림자 필터
+  const defs=E('defs',{});
+  defs.innerHTML=`<filter id="fsh" x="-20%" y="-20%" width="140%" height="160%">
+    <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#5b646d" flood-opacity="0.30"/></filter>`;
+  stage.appendChild(defs);
+
+  // 바닥 평면(틸트) 그룹
+  const plane=E('g',{transform:iso.mat, filter:'url(#fsh)'});
+  const ground=E('g',{}); ground.innerHTML=displayInner(fdat.svg);
+  plane.appendChild(ground);
+  stage.appendChild(plane);
+
+  // 경로 (바닥 평면 안에서 그려 틸트 적용)
+  const routeG=E('g',{transform:iso.mat});
+  stage.appendChild(routeG);
+
+  // 화면공간 레이어(빌보드: 노드 3D + 핀)
+  const screenG=E('g',{});
+  stage.appendChild(screenG);
+
+  // --- 수직이동 노드 3D 마커 (에스컬/엘베) ---
+  (D.vertical_nodes[fk]||[]).forEach(n=>{
+    if(n.type==='STAIR')return;                     // 계단 제외
+    drawNode3D(screenG, iso, n);
+  });
+
+  // --- 시설 핀 (현재 필터/검색 + 보안 제외) ---
+  const q=ST.q.trim().toLowerCase();
+  (D.facilities[fk]||[]).forEach((f,idx)=>{
+    if(f.in_secure)return;
+    if(!catMatch(f,ST.cat))return;
+    if(q){const hay=(f.name+' '+(f.tags||[]).join(' ')).toLowerCase(); if(!hay.includes(q))return;}
+    const isSel=ST.sel&&ST.sel.floor===fk&&ST.sel.idx===idx;
+    drawPin(screenG, iso, f, idx, isSel);
+  });
+
+  // --- 안내데스크 (해당 층) ---
+  if(D.guide_desks[fk]){
+    const [dx,dy]=D.guide_desks[fk].svg; const [px,py]=iso.proj(dx,dy);
+    drawDesk(screenG, px, py);
+  }
+
+  // --- 경로 그리기(현재 층 구간) ---
+  if(ST.route&&ST.route.legs){
+    const legs=ST.route.legs.filter(l=>l.floor===fk);
+    let dotPts=[];
+    legs.forEach(l=>{
+      const dStr="M"+l.pts.map(q=>q[0].toFixed(1)+" "+q[1].toFixed(1)).join(" L ");
+      routeG.appendChild(E('path',{d:dStr,class:'route-glow'}));
+      routeG.appendChild(E('path',{d:dStr,class:'route'}));
+      dotPts=dotPts.concat(l.pts);
+      // 환승 화살표
+      if(l.exitTo){const nd=l.exitTo.node; transitCallout(screenG,iso,nd,'▲ '+l.exitTo.toFloor,'#1b6b4a');}
+    });
+    // 이동 점 애니메이션
+    if(dotPts.length>1){
+      const dot=E('circle',{r:7,fill:'#c0152f',stroke:'#fff','stroke-width':2.5});
+      routeG.appendChild(dot);
+      animateDot(dot,dotPts);
+    }
+    updateNav();
+  } else { document.getElementById('navbtn').innerHTML=''; }
+}
+
+function drawPin(layer, iso, f, idx, isSel){
+  const [px,py]=iso.proj(f.x,f.y);
+  const g=E('g',{class:'pin'+(isSel?' sel pin-dest':''), 'data-floor':f.floor, 'data-idx':idx, tabindex:0});
+  const poleH=22, r=15;
+  g.appendChild(E('line',{x1:px,y1:py,x2:px,y2:py-poleH,class:'pin-pole'}));
+  g.appendChild(E('circle',{cx:px,cy:py,r:2.5,fill:'#9aa3ab'}));   // 바닥 접점
+  g.appendChild(E('circle',{cx:px,cy:py-poleH,r:r,class:'pin-disc'}));
+  const url=iconURL(f.pSeq);
+  if(url) g.appendChild(E('image',{href:url,'xlink:href':url,x:px-r*0.72,y:py-poleH-r*0.72,width:r*1.44,height:r*1.44}));
+  if(isSel){
+    const t=E('text',{x:px,y:py-poleH-r-7,'text-anchor':'middle',class:'pin-lab','font-weight':600});
+    t.textContent=f.name; g.appendChild(t);
+  }
+  g.addEventListener('click',()=>selectDest({...f,floor:f.floor,idx}));
+  g.addEventListener('mouseenter',ev=>showHover(ev,f.name));
+  g.addEventListener('mousemove',ev=>moveHover(ev));
+  g.addEventListener('mouseleave',hideHover);
+  layer.appendChild(g);
+}
+
+/* 에스컬레이터/엘리베이터 입체 박스 마커 */
+function drawNode3D(layer, iso, n){
+  const fp=18;                                    // 평면상 풋프린트 반경
+  const c=[[ -fp,-fp],[fp,-fp],[fp,fp],[-fp,fp]].map(d=>iso.proj(n.x+d[0],n.y+d[1]));
+  const Hh=26;                                    // 화면상 높이
+  const top=c.map(p=>[p[0],p[1]-Hh]);
+  const isElev=n.type==='ELEV';
+  const colTop=isElev?'#dfe9f5':'#e6eef8';
+  const colA  =isElev?'#9fb8d6':'#b6c7de';
+  const colB  =isElev?'#86a3c6':'#9bb1cd';
+  const edge='#5d7aa0';
+  const poly=(pts,fill)=>E('polygon',{points:pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' '),
+                fill,stroke:edge,'stroke-width':1});
+  const g=E('g',{});
+  // 측면 두 면(앞쪽). 화면상 아래꼭짓점 인덱스 추정: y 최대 지점
+  let bi=0;for(let i=1;i<4;i++)if(c[i][1]>c[bi][1])bi=i;
+  const L=(bi+3)%4, R=(bi+1)%4;
+  g.appendChild(poly([c[bi],c[R],top[R],top[bi]],colA));
+  g.appendChild(poly([c[bi],c[L],top[L],top[bi]],colB));
+  g.appendChild(poly(top,colTop));
+  // 아이콘(에스컬=11, 엘베=12)
+  const url=iconURL(isElev?'12':'11');
+  const ctr=[(top[0][0]+top[2][0])/2,(top[0][1]+top[2][1])/2];
+  if(url) g.appendChild(E('image',{href:url,'xlink:href':url,x:ctr[0]-11,y:ctr[1]-11,width:22,height:22,opacity:0.96}));
+  g.style.cursor='default';
+  g.addEventListener('mouseenter',ev=>showHover(ev,n.kr));
+  g.addEventListener('mousemove',ev=>moveHover(ev));
+  g.addEventListener('mouseleave',hideHover);
+  layer.appendChild(g);
+}
+
+function drawDesk(layer, px, py){
+  const g=E('g',{});
+  g.appendChild(E('ellipse',{cx:px,cy:py,rx:14,ry:6,fill:'#1b6b4a','fill-opacity':0.18}));
+  g.appendChild(E('line',{x1:px,y1:py,x2:px,y2:py-26,stroke:'#1b6b4a','stroke-width':2}));
+  g.appendChild(E('circle',{cx:px,cy:py-26,r:9,fill:'#1b6b4a',stroke:'#fff','stroke-width':2}));
+  const t=E('text',{x:px,y:py-42,'text-anchor':'middle',class:'pin-lab','font-weight':700,fill:'#1b6b4a'});
+  t.textContent='안내데스크'; g.appendChild(t);
+  layer.appendChild(g);
+}
+
+function transitCallout(layer, iso, node, label, color){
+  const [px,py]=iso.proj(node.x,node.y);
+  const t=E('text',{x:px,y:py-46,'text-anchor':'middle',class:'pin-lab','font-weight':700,fill:color});
+  t.textContent=label; layer.appendChild(t);
+}
+
+function animateDot(dot,pts){
+  if(dotRAF)cancelAnimationFrame(dotRAF);
+  const seg=[];let tot=0;
+  for(let i=1;i<pts.length;i++){const L=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);seg.push(L);tot+=L;}
+  const DUR=Math.min(7000,Math.max(2600,tot*6)), HOLD=900, CYCLE=DUR+HOLD;
+  let t0=null;
+  function frame(t){
+    if(t0===null)t0=t;
+    const e=(t-t0)%CYCLE, p=e<DUR?e/DUR:1;
+    let travel=p*tot,acc=0,i=0;
+    while(i<seg.length-1&&acc+seg[i]<travel){acc+=seg[i];i++;}
+    const fr=seg[i]?(travel-acc)/seg[i]:0;
+    const x=pts[i][0]+(pts[i+1][0]-pts[i][0])*fr, y=pts[i][1]+(pts[i+1][1]-pts[i][1])*fr;
+    dot.setAttribute('cx',x.toFixed(1));dot.setAttribute('cy',y.toFixed(1));
+    dotRAF=requestAnimationFrame(frame);
+  }
+  dotRAF=requestAnimationFrame(frame);
+}
+
+/* 멀티플로어 이동 네비 버튼 */
+function updateNav(){
+  const nav=document.getElementById('navbtn'); nav.innerHTML='';
+  const seq=ST.route&&ST.route.seq; if(!seq||seq.length<2)return;
+  const idx=seq.indexOf(ST.viewFloor);
+  if(idx>0){const b=document.createElement('button');b.textContent='◀ '+seq[idx-1];
+    b.onclick=()=>{ST.viewFloor=seq[idx-1];buildFloorTabs();renderFloor();};nav.appendChild(b);}
+  if(idx>=0&&idx<seq.length-1){const b=document.createElement('button');b.textContent=seq[idx+1]+' ▶';
+    b.onclick=()=>{ST.viewFloor=seq[idx+1];buildFloorTabs();renderFloor();};nav.appendChild(b);}
+}
+
+/* 호버 라벨 */
+const hov=document.getElementById('hov');
+function showHover(ev,txt){hov.textContent=txt;hov.style.display='block';moveHover(ev);}
+function moveHover(ev){const box=document.querySelector('.mapbox').getBoundingClientRect();
+  hov.style.left=(ev.clientX-box.left)+'px';hov.style.top=(ev.clientY-box.top)+'px';}
+function hideHover(){hov.style.display='none';}
+
+/* ====================================================================
+   초기화
+   ==================================================================== */
+async function init(){
+  buildCats(); buildList();
+  document.getElementById('info').textContent='지도(벽 데이터) 준비 중…';
+  // 벽 그리드 래스터화 (순차)
+  for(const fk of FLOORS){
+    try{ await buildGrid(fk); }
+    catch(e){ console.error('grid fail',fk,e); }
+    buildFloorTabs();
+  }
+  buildFloorTabs(); renderFloor();
+  document.getElementById('info').textContent='목적지를 선택하면 안내데스크에서 출발하는 경로를 그립니다.';
+}
+init();
+</script>
+</body>
+</html>

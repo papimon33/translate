@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>층 정합(2D 탑다운) · 김포공항 길찾기</title>
+<style>
+  :root{--bg:#0a0d11;--panel:#161c24;--ink:#e6eaef;--mut:#93a0ab;--line:#2a333d;--acc:#ff7a55;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Noto Sans KR",sans-serif;}
+  header{padding:12px 18px;border-bottom:1px solid var(--line);}
+  header h1{font-size:16px;margin:0;font-weight:600;}
+  header .sub{font-size:12px;color:var(--mut);margin-top:3px;}
+  .layout{display:flex;gap:14px;align-items:flex-start;padding:14px;max-width:1500px;margin:0 auto;}
+  .panel{width:300px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .stage-col{flex:1;min-width:0;}
+  .gt{font-size:11px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 7px;}
+  .gt:first-child{margin-top:0;}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .seg button{border:none;background:transparent;padding:7px 12px;font-size:13px;cursor:pointer;color:var(--ink);}
+  .seg button+button{border-left:1px solid var(--line);}
+  .seg button.on{color:#11151a;font-weight:700;}
+  button.act{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:9px;padding:8px 10px;font-size:13px;cursor:pointer;}
+  button.act:hover{background:#1b222b;}
+  label.fld{display:block;font-size:12px;color:var(--mut);margin:9px 0 2px;}
+  input[type=range]{width:100%;}
+  .vis{display:flex;flex-direction:column;gap:5px;font-size:13px;}
+  .vis label{display:flex;align-items:center;gap:7px;cursor:pointer;}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block;}
+  #out{width:100%;height:104px;margin-top:8px;font:11px ui-monospace,monospace;background:#0e1319;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px;resize:vertical;}
+  .stagebox{position:relative;background:
+      repeating-linear-gradient(0deg,#11161c 0 23px,#0e1318 23px 24px),
+      repeating-linear-gradient(90deg,#11161c 0 23px,#0e1318 23px 24px);
+    background-color:#0e1318;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  #stage{position:relative;}
+  .layer{position:absolute;left:0;top:0;transform-origin:center center;}
+  .layer svg{display:block;width:100%;height:100%;}
+  .layer.active{outline:2px dashed #ffcf66;outline-offset:2px;cursor:grab;}
+  .hint{font-size:12px;color:var(--mut);line-height:1.55;margin-top:6px;}
+  .row2{display:flex;gap:6px;margin-top:8px;}
+  .row2 .act{flex:1;}
+  .saved{font-size:12px;color:#2aa37a;margin-top:6px;min-height:16px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>층 정합 (2D 탑다운) — 도면을 겹쳐 위치·크기 맞추기</h1>
+  <div class="sub">드래그로 이동 · 가로/세로 슬라이더로 크기 · 맞춘 값은 3D 뷰(test.html)에 그대로 적용</div>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <div class="gt">조정할 층</div>
+    <div class="seg" id="floorSeg">
+      <button data-f="1F" class="on">1F</button><button data-f="2F">2F</button><button data-f="3F">3F</button><button data-f="4F">4F</button>
+    </div>
+
+    <div class="gt">크기 (가로 / 세로 따로)</div>
+    <label class="fld">가로 scaleX <span id="sxV">1.00</span></label>
+    <input type="range" id="sx" min="0.5" max="1.6" step="0.005" value="1">
+    <label class="fld">세로 scaleY <span id="syV">1.00</span></label>
+    <input type="range" id="sy" min="0.5" max="1.6" step="0.005" value="1">
+    <label class="vis" style="margin-top:8px;"><input type="checkbox" id="lockAR"> 가로·세로 같이(비율 고정)</label>
+
+    <div class="gt">전체 투명도</div>
+    <input type="range" id="op" min="0.2" max="1" step="0.05" value="0.6">
+
+    <div class="gt">표시 층</div>
+    <div class="vis" id="visList"></div>
+
+    <div class="row2">
+      <button class="act" id="autoBtn">에스컬레이터 기준 자동정렬</button>
+    </div>
+    <div class="row2">
+      <button class="act" id="resetFloor">이 층 초기화</button>
+      <button class="act" id="resetAll">전체 초기화</button>
+    </div>
+
+    <div class="gt">결과 (floorCalib)</div>
+    <textarea id="out" readonly></textarea>
+    <div class="row2">
+      <button class="act" id="copyBtn">📋 복사</button>
+      <button class="act" id="applyBtn">3D에 적용(저장)</button>
+    </div>
+    <div class="saved" id="saved"></div>
+    <div class="hint">팁: 한 층을 기준으로 두고, 나머지 층의 벽·기둥선이 겹치도록 드래그/늘리기 하세요. 같은 에스컬레이터·엘리베이터 위치를 맞추면 정확합니다.</div>
+  </div>
+
+  <div class="stage-col">
+    <div class="stagebox"><div id="stage"></div></div>
+  </div>
+</div>
+
+<script src="wayfinding_data.js"></script>
+<script>
+"use strict";
+const D = window.AIRPORT_DATA;
+const FLOORS = ['1F','2F','3F','4F'];
+const COLORS = { '1F':'#e2554e', '2F':'#3b82d6', '3F':'#1f9e6e', '4F':'#8b5cf6' };
+
+// 보정 상태 (sx,sy,dx,dy) — dx,dy 는 평면(SVG) 단위
+const calib = {};
+FLOORS.forEach(f=>calib[f]={sx:1,sy:1,dx:0,dy:0});
+(function loadSaved(){try{const s=localStorage.getItem('kac_floorCalib');if(s){const o=JSON.parse(s);
+  FLOORS.forEach(f=>{if(o[f])calib[f]={sx:o[f].sx??o[f].s??1,sy:o[f].sy??o[f].s??1,dx:o[f].dx||0,dy:o[f].dy||0};});}}catch(e){}})();
+
+// 도면 재색칠: 벽=층색, 배경/보안=투명, 텍스트 제거 → 색선 도면(온도지)
+function recolor(svg,color){
+  return svg
+    .replace(/<text[\s\S]*?<\/text>/gi,'')
+    .replace(/#ffffff/gi,'transparent').replace(/#fff(?![0-9a-f])/gi,'transparent')
+    .replace(/#f4fcff/gi,'transparent').replace(/#e4f5ff/gi,'transparent').replace(/#f2fafd/gi,'transparent')
+    .replace(/#000000/gi,color).replace(/#000(?![0-9a-f])/gi,color);
+}
+
+// 레이아웃: 공통 FIT 으로 모든 층을 원점 정렬해 겹침
+let FIT=1;
+const stage=document.getElementById('stage');
+const layers={};
+function build(){
+  let maxW=0,maxH=0;
+  FLOORS.forEach(f=>{const v=D.floors[f].viewBox;maxW=Math.max(maxW,v[0]);maxH=Math.max(maxH,v[1]);});
+  const stageW=Math.min(1060, (document.querySelector('.stage-col').clientWidth||980)-4);
+  FIT=(stageW-40)/maxW;
+  stage.style.width=stageW+'px';
+  stage.style.height=Math.round(maxH*FIT+40)+'px';
+  FLOORS.forEach(f=>{
+    const v=D.floors[f].viewBox;
+    const el=document.createElement('div');
+    el.className='layer';el.dataset.f=f;
+    el.style.width=(v[0]*FIT)+'px';el.style.height=(v[1]*FIT)+'px';
+    el.style.left='20px';el.style.top='20px';
+    el.innerHTML=recolor(D.floors[f].svg, COLORS[f]);
+    stage.appendChild(el);layers[f]=el;
+  });
+}
+
+let active='1F', opacity=0.6, vis={'1F':1,'2F':1,'3F':1,'4F':1};
+function applyOne(f){const c=calib[f];const el=layers[f];
+  el.style.transform=`translate(${c.dx*FIT}px,${c.dy*FIT}px) scale(${c.sx},${c.sy})`;
+  el.style.opacity = vis[f] ? (f===active?Math.min(1,opacity+0.25):opacity) : 0;
+  el.style.zIndex = (f===active?5:1);
+  el.classList.toggle('active', f===active && vis[f]);
+}
+function applyAll(){FLOORS.forEach(applyOne);updateOut();}
+
+function round(n,p){const m=Math.pow(10,p);return Math.round(n*m)/m;}
+function updateOut(){
+  const o={};FLOORS.forEach(f=>{const c=calib[f];o[f]={sx:round(c.sx,3),sy:round(c.sy,3),dx:round(c.dx,1),dy:round(c.dy,1)};});
+  document.getElementById('out').value='floorCalib: '+JSON.stringify(o);
+}
+
+// 컨트롤
+function selFloor(f){active=f;
+  [...document.querySelectorAll('#floorSeg button')].forEach(b=>{b.classList.toggle('on',b.dataset.f===f);b.style.background=b.dataset.f===f?COLORS[f]:'transparent';});
+  document.getElementById('sx').value=calib[f].sx;document.getElementById('sxV').textContent=calib[f].sx.toFixed(2);
+  document.getElementById('sy').value=calib[f].sy;document.getElementById('syV').textContent=calib[f].sy.toFixed(2);
+  applyAll();
+}
+document.getElementById('floorSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(b)selFloor(b.dataset.f);});
+function setSX(v){calib[active].sx=v;document.getElementById('sxV').textContent=v.toFixed(2);
+  if(document.getElementById('lockAR').checked){calib[active].sy=v;document.getElementById('sy').value=v;document.getElementById('syV').textContent=v.toFixed(2);}applyAll();}
+function setSY(v){calib[active].sy=v;document.getElementById('syV').textContent=v.toFixed(2);
+  if(document.getElementById('lockAR').checked){calib[active].sx=v;document.getElementById('sx').value=v;document.getElementById('sxV').textContent=v.toFixed(2);}applyAll();}
+document.getElementById('sx').addEventListener('input',e=>setSX(parseFloat(e.target.value)));
+document.getElementById('sy').addEventListener('input',e=>setSY(parseFloat(e.target.value)));
+document.getElementById('op').addEventListener('input',e=>{opacity=parseFloat(e.target.value);applyAll();});
+document.getElementById('resetFloor').addEventListener('click',()=>{calib[active]={sx:1,sy:1,dx:0,dy:0};selFloor(active);});
+document.getElementById('resetAll').addEventListener('click',()=>{FLOORS.forEach(f=>calib[f]={sx:1,sy:1,dx:0,dy:0});selFloor(active);});
+document.getElementById('copyBtn').addEventListener('click',()=>{const t=document.getElementById('out');t.select();
+  if(navigator.clipboard)navigator.clipboard.writeText(t.value);else document.execCommand('copy');
+  document.getElementById('saved').textContent='복사됨';});
+document.getElementById('applyBtn').addEventListener('click',()=>{
+  const o={};FLOORS.forEach(f=>{const c=calib[f];o[f]={sx:round(c.sx,4),sy:round(c.sy,4),dx:round(c.dx,2),dy:round(c.dy,2)};});
+  localStorage.setItem('kac_floorCalib',JSON.stringify(o));
+  document.getElementById('saved').innerHTML='저장됨 · <a href="test.html" style="color:#ff7a55">test.html 열기</a> 하면 3D에 적용됩니다.';});
+
+// 표시 층 토글
+const vl=document.getElementById('visList');
+FLOORS.forEach(f=>{const lab=document.createElement('label');
+  lab.innerHTML=`<input type="checkbox" data-f="${f}" checked><span class="sw" style="background:${COLORS[f]}"></span>${f}`;
+  vl.appendChild(lab);});
+vl.addEventListener('change',e=>{const cb=e.target;if(cb.dataset.f){vis[cb.dataset.f]=cb.checked?1:0;applyAll();}});
+
+// 드래그 이동 (활성 층)
+let drag=false,lx=0,ly=0;
+stage.addEventListener('pointerdown',e=>{drag=true;lx=e.clientX;ly=e.clientY;stage.setPointerCapture(e.pointerId);
+  if(layers[active])layers[active].style.cursor='grabbing';e.preventDefault();});
+stage.addEventListener('pointermove',e=>{if(!drag)return;
+  const dxp=e.clientX-lx,dyp=e.clientY-ly;lx=e.clientX;ly=e.clientY;
+  calib[active].dx+=dxp/FIT;calib[active].dy+=dyp/FIT;applyOne(active);updateOut();});
+function end(){drag=false;if(layers[active])layers[active].style.cursor='grab';}
+stage.addEventListener('pointerup',end);stage.addEventListener('pointercancel',end);
+
+// 에스컬레이터/엘리베이터 공유지점 기준 자동정렬(이동량 seed; 크기는 수동)
+const GROUPS=D.floor_links.transit_groups;
+function nodeById(id){const fk=id.split('-')[0];for(const n of D.vertical_nodes[fk])if(n.id===id){const o={...n};if(id==='2F-ESC-3')o.y=447;return o;}return null;}
+function autoAlign(){
+  FLOORS.forEach(f=>calib[f]={sx:calib[f].sx,sy:calib[f].sy,dx:0,dy:0}); // 크기 유지, 위치 리셋
+  const placed={'1F':true};let rem=new Set(['2F','3F','4F']),changed=true;
+  while(rem.size&&changed){changed=false;
+    for(const B of [...rem]){
+      for(const g of GROUPS){if(!g.connects.includes(B))continue;
+        const A=g.connects.find(f=>f!==B&&placed[f]);if(!A)continue;
+        const nb=nodeById(g.nodes.find(id=>id.startsWith(B))),na=nodeById(g.nodes.find(id=>id.startsWith(A)));
+        if(!nb||!na)continue;
+        calib[B].dx=(na.x+calib[A].dx)-nb.x; calib[B].dy=(na.y+calib[A].dy)-nb.y;
+        placed[B]=true;rem.delete(B);changed=true;break;}
+    }
+  }
+  selFloor(active);
+}
+document.getElementById('autoBtn').addEventListener('click',autoAlign);
+
+// init
+build();selFloor('1F');
+window.addEventListener('resize',()=>{/* FIT 고정 유지: 새로고침 시 재계산 */});
+</script>
+</body>
+</html>
