@@ -26,6 +26,8 @@
   .room { border:1px solid var(--line); border-radius:18px; padding:20px 22px; font-size:20px; font-weight:700;
     background:#fff; color:var(--fg); cursor:pointer; text-align:left; box-shadow:0 4px 14px rgba(0,0,0,.04); }
   .room:active { background:#f3f4f6; }
+  .room.off { opacity:.45; cursor:not-allowed; }
+  .room .tag { float:right; font-size:13px; font-weight:600; color:var(--muted); }
   #roomsEmpty { color:var(--muted); font-size:15px; }
   /* 시작 화면 */
   #startWrap { align-items:center; justify-content:center; }
@@ -214,6 +216,7 @@ function end(){
 }
 
 /* ---- 랜딩(세션 선택) ---- */
+let roomsPoll = null;
 async function loadRooms(){
   const box = $('rooms');
   try {
@@ -222,12 +225,21 @@ async function loadRooms(){
     if (!list.length) { box.innerHTML = '<div id="roomsEmpty">등록된 안내데스크가 없습니다.</div>'; return; }
     list.forEach(s => {
       const b = document.createElement('button');
-      b.className = 'room'; b.textContent = s.title;
-      b.addEventListener('click', () => { sessionId = s.id; const mf=$('manifest'); if(mf) mf.href='/desk.webmanifest?session='+encodeURIComponent(sessionId); goFullscreen(); show('startWrap'); });
+      // active=호스트(안내원) 대기 중일 때만 선택 가능
+      b.className = 'room' + (s.active ? '' : ' off');
+      b.innerHTML = esc(s.title) + (s.active ? '' : '<span class="tag">안내원 준비 중</span>');
+      if (s.active) {
+        b.addEventListener('click', () => {
+          if (roomsPoll) { clearInterval(roomsPoll); roomsPoll = null; }
+          sessionId = s.id; const mf=$('manifest'); if(mf) mf.href='/desk.webmanifest?session='+encodeURIComponent(sessionId);
+          goFullscreen(); show('startWrap');
+        });
+      } else b.disabled = true;
       box.appendChild(b);
     });
   } catch { box.innerHTML = '<div id="roomsEmpty">목록을 불러오지 못했습니다.</div>'; }
 }
+function esc(s){ return String(s).replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 
 /* ---- 종료 버튼 자동 숨김 ---- */
 let endTimer = null;
@@ -238,9 +250,9 @@ $('endBtn').addEventListener('click', end);
 $('stage').addEventListener('click', flashEnd);
 $('mapOverlay').addEventListener('click', hideWayfind); // 탭하면 바로 닫기
 
-// 진입: 세션이 지정돼 있으면 시작화면, 아니면 랜딩
+// 진입: 세션이 지정돼 있으면 시작화면, 아니면 랜딩(+호스트 활성 주기적 갱신)
 if (sessionId) show('startWrap');
-else { show('landing'); loadRooms(); }
+else { show('landing'); loadRooms(); roomsPoll = setInterval(loadRooms, 4000); }
 </script>
 </body>
 </html>

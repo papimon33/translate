@@ -216,6 +216,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
   const [micMuted, setMicMuted] = useState(false); // 발화 일시정지(세션 유지, 마이크만 off)
+  const [viewerActive, setViewerActive] = useState(false); // 데스크: 손님(뷰어)이 응대 화면에 들어왔는지
+  const deskAutoRef = useRef(false); // 데스크 자동 대기 시작 1회 가드
   const [level, setLevel] = useState(0);
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
@@ -286,6 +288,15 @@ export default function TranslateView({ session: initial, onBack }) {
     // eslint-disable-next-line
   }, [cfg.pipeline, initial.id]);
 
+  // 데스크: 시작 버튼 없이 마운트 시 자동으로 '대기(캡처)' 시작 (마이크 1회 허용 필요)
+  useEffect(() => {
+    if (cfg.pipeline !== 'desk' || deskAutoRef.current) return;
+    deskAutoRef.current = true;
+    const t = setTimeout(() => { start(); }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [cfg.pipeline]);
+
   // 연결/인식이 지나치게 지연되면 무한 스피너 대신 안내로 전환(특히 시스템 오디오)
   useEffect(() => {
     if (!connecting) return;
@@ -342,13 +353,14 @@ export default function TranslateView({ session: initial, onBack }) {
       setTimeout(() => setNotice(''), 6000);
       return;
     }
-    if (m.type === 'desk-reset') { // 데스크: 대화 종료 → 화면 초기화(다음 손님)
+    if (m.type === 'desk-reset') { // 데스크: 대화 종료 → 화면 초기화(다음 손님), 손님 대기상태로
       setMessages([]);
       setPartials({ left: '', right: '' });
+      setViewerActive(false);
       return;
     }
-    if (m.type === 'desk-remote-start') { // 뷰어(손님) 터치 → 호스트 마이크 캡처 시작
-      if (cfg.pipeline === 'desk') start();
+    if (m.type === 'desk-remote-start') { // 뷰어(손님) 응대 화면 진입 → 호스트 캡처 보장 + 응대중 표시
+      if (cfg.pipeline === 'desk') { setViewerActive(true); start(); }
       return;
     }
     if (m.type === 'partial' || m.type === 'sentence') setConnecting(false); // 첫 결과 도착 → 연결중 해제
@@ -809,48 +821,69 @@ export default function TranslateView({ session: initial, onBack }) {
             background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
           }}
         >
-          {recording && (
-            <Button
-              onClick={toggleMute}
-              disableElevation
-              startIcon={micMuted ? <MicOffIcon /> : <MicNoneIcon />}
-              variant="outlined"
-              color={micMuted ? 'inherit' : 'error'}
-              sx={{
-                pointerEvents: 'auto', px: 2.5, py: 1.25, borderRadius: 2.5, fontSize: 14, fontWeight: 700,
-                bgcolor: 'background.paper', boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-                color: micMuted ? 'text.secondary' : 'error.main',
-              }}
-            >
-              {micMuted ? '발화 시작' : '발화 멈춤'}
-            </Button>
+          {cfg.pipeline === 'desk' ? (
+            recording ? (
+              <>
+                <Chip
+                  label={viewerActive ? '● 손님 응대 중' : connecting ? '● 준비 중…' : '● 대기 중 (손님 없음)'}
+                  color={viewerActive ? 'error' : 'success'}
+                  variant="filled"
+                  sx={{ pointerEvents: 'auto', fontWeight: 800, fontSize: 14, py: 2, px: 1, boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
+                />
+                {viewerActive && (
+                  <Button onClick={() => recRef.current && recRef.current.deskReset && recRef.current.deskReset()} variant="outlined"
+                    sx={{ pointerEvents: 'auto', px: 2.5, py: 1.25, borderRadius: 2.5, fontSize: 14, fontWeight: 700, bgcolor: 'background.paper', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
+                    대기모드로
+                  </Button>
+                )}
+                <Button onClick={stop} variant="text" sx={{ pointerEvents: 'auto', color: 'text.secondary', fontWeight: 700 }}>정지</Button>
+              </>
+            ) : (
+              <Button onClick={start} variant="contained" disableElevation
+                sx={{ pointerEvents: 'auto', px: 3.5, py: 1.25, borderRadius: 2.5, fontSize: 15, fontWeight: 700, boxShadow: '0 8px 24px rgba(0,0,0,0.28)' }}>
+                마이크 허용하고 대기 시작
+              </Button>
+            )
+          ) : (
+            <>
+              {recording && (
+                <Button
+                  onClick={toggleMute}
+                  disableElevation
+                  startIcon={micMuted ? <MicOffIcon /> : <MicNoneIcon />}
+                  variant="outlined"
+                  color={micMuted ? 'inherit' : 'error'}
+                  sx={{
+                    pointerEvents: 'auto', px: 2.5, py: 1.25, borderRadius: 2.5, fontSize: 14, fontWeight: 700,
+                    bgcolor: 'background.paper', boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                    color: micMuted ? 'text.secondary' : 'error.main',
+                  }}
+                >
+                  {micMuted ? '발화 시작' : '발화 멈춤'}
+                </Button>
+              )}
+              <Button
+                onClick={recording ? stop : start}
+                disableElevation
+                startIcon={
+                  recording ? (
+                    <Box sx={{ width: 9, height: 9, borderRadius: '2px', bgcolor: '#ff5a5f', animation: `${pulse} 1.6s infinite` }} />
+                  ) : (
+                    <Box sx={{ width: 0, height: 0, borderStyle: 'solid', borderWidth: '5px 0 5px 8px', borderColor: (t) => `transparent transparent transparent ${t.palette.mode === 'dark' ? '#111' : '#fff'}` }} />
+                  )
+                }
+                sx={{
+                  pointerEvents: 'auto', px: 3.5, py: 1.25, borderRadius: 2.5, fontSize: 15, fontWeight: 700,
+                  color: (t) => (t.palette.mode === 'dark' ? '#111' : '#fff'),
+                  bgcolor: (t) => (t.palette.mode === 'dark' ? '#fff' : '#111'),
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
+                  '&:hover': { bgcolor: (t) => (t.palette.mode === 'dark' ? '#e8e8e8' : '#000') },
+                }}
+              >
+                {recording ? '중지' : '시작'}
+              </Button>
+            </>
           )}
-          <Button
-            onClick={recording ? stop : start}
-            disableElevation
-            startIcon={
-              recording ? (
-                <Box sx={{ width: 9, height: 9, borderRadius: '2px', bgcolor: '#ff5a5f', animation: `${pulse} 1.6s infinite` }} />
-              ) : (
-                // 다크모드: 흰 버튼 위 검은 삼각형 / 라이트모드: 검은 버튼 위 흰 삼각형
-                <Box sx={{ width: 0, height: 0, borderStyle: 'solid', borderWidth: '5px 0 5px 8px', borderColor: (t) => `transparent transparent transparent ${t.palette.mode === 'dark' ? '#111' : '#fff'}` }} />
-              )
-            }
-            sx={{
-              pointerEvents: 'auto',
-              px: 3.5,
-              py: 1.25,
-              borderRadius: 2.5,
-              fontSize: 15,
-              fontWeight: 700,
-              color: (t) => (t.palette.mode === 'dark' ? '#111' : '#fff'),
-              bgcolor: (t) => (t.palette.mode === 'dark' ? '#fff' : '#111'),
-              boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
-              '&:hover': { bgcolor: (t) => (t.palette.mode === 'dark' ? '#e8e8e8' : '#000') },
-            }}
-          >
-            {recording ? '중지' : '시작'}
-          </Button>
         </Box>
       </Box>
 

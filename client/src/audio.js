@@ -246,5 +246,8 @@ export async function startRecorder(opts) {
   // 발화 on/off (세션 유지). on=true 면 일시정지(무음), false 면 발화중
   function setMuted(on) { muted = !!on; }
 
-  return { stop, setAudioOut, setVolume, setMuted };
+  // 데스크: 호스트 수동 '대기모드로' — 현재 대화 종료(뷰어를 터치화면으로)
+  function deskReset() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-reset-now' })); } catch {} } }
+
+  return { stop, setAudioOut, setVolume, setMuted, deskReset };
 }

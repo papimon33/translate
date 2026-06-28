@@ -856,7 +856,8 @@ app.get('/api/desk-sessions', (req, res) => {
   const list = sessions
     .filter((s) => s.pipeline === 'desk')
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    .map((s) => ({ id: s.id, title: s.title || '안내데스크' }));
+    // active = 호스트(안내원)가 마이크 캡처 중(대기 가능). 비활성이면 손님이 선택 못 함.
+    .map((s) => ({ id: s.id, title: s.title || '안내데스크', active: !!(rooms.get(s.id) && rooms.get(s.id).hosts.size > 0) }));
   res.json(list);
 });
 
@@ -2109,6 +2110,7 @@ function handleHost(ws) {
       try {
         const m = JSON.parse(data.toString());
         if (m.type === 'stop') { closed = true; try { sx && sx.send(''); } catch {} try { sx && sx.close(); } catch {} }
+        else if (m.type === 'desk-reset-now') { endConversation(); } // 호스트 수동 '대기모드로' — 대화 종료·뷰어 터치화면 복귀
       } catch {}
     });
     ws.on('close', () => { closed = true; clearTimeout(foreignTimer); try { sx && sx.close(); } catch {} });
