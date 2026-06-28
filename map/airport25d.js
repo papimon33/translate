@@ -183,15 +183,17 @@ function create(opts){
   container.innerHTML='';
   const wrap=document.createElement('div');
   wrap.style.cssText='position:relative;width:100%;background:'+COL.bg+';border-radius:12px;overflow:hidden;';
+  const inner=document.createElement('div'); // 줌(경로 포커스) 대상 — cv+svg 를 함께 변형
+  inner.style.cssText='position:relative;width:100%;transform-origin:0 0;transition:transform .45s ease;will-change:transform;';
   const cv=document.createElement('canvas');cv.style.cssText='display:block;width:100%;height:auto;';
   const svg=E('svg',{});svg.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
-  wrap.appendChild(cv);wrap.appendChild(svg);container.appendChild(wrap);
+  inner.appendChild(cv);inner.appendChild(svg);wrap.appendChild(inner);container.appendChild(wrap);
   const ctx=cv.getContext('2d');
 
   const FL={};
   let LOGW=0,LOGH=0,layoutReady=false,usedGaps={};
   const listeners={};
-  const ST={route:null,routes:null,routeSpec:null,routeActive:false,desk:{floor:'1F',side:'S'}};
+  const ST={route:null,routes:null,routeSpec:null,routeActive:false,desk:{floor:'1F',side:'S'},focusFloors:null};
   const emit=(ev,p)=>{(listeners[ev]||[]).forEach(f=>f(p));};
 
   /* ---------- 래스터화 + 마스크(외곽 벽 제거) + 그리드 ---------- */
@@ -311,6 +313,30 @@ function create(opts){
     let a1=1e9,b1=1e9,a2=-1e9,b2=-1e9;cs.forEach(p=>{a1=Math.min(a1,p[0]);a2=Math.max(a2,p[0]);b1=Math.min(b1,p[1]);b2=Math.max(b2,p[1]);});
     return {minX:a1,minY:b1-WALL_H,maxX:a2,maxY:b2+THICK};}
 
+  // 경로 포커스: 경유층만 선명(나머지 흐림) + 경로 영역으로 줌(가시성 ↑)
+  function routeBBox(routes){
+    let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9,has=false;
+    const up=(q)=>{x1=Math.min(x1,q[0]);y1=Math.min(y1,q[1]);x2=Math.max(x2,q[0]);y2=Math.max(y2,q[1]);has=true;};
+    (routes||[]).forEach(r=>{if(!r||r.error||!r.legs)return;r.legs.forEach(leg=>{
+      leg.pts.forEach(p=>up(project(leg.floor,p[0],p[1])));
+      if(leg.exitTo)up(project(leg.exitTo.toFloor,leg.exitTo.nodeB.x,leg.exitTo.nodeB.y));
+      if(leg.arrive)up(project(leg.floor,leg.arrive.x,leg.arrive.y));
+      if(leg.desk)up(project(leg.floor,leg.desk[0],leg.desk[1]));});});
+    return has?{x1,y1,x2,y2}:null;}
+  function applyFocus(routes){
+    const rf=new Set();(routes||[]).forEach(r=>{if(r&&!r.error&&r.legs)r.legs.forEach(l=>{rf.add(l.floor);if(l.exitTo)rf.add(l.exitTo.toFloor);});});
+    ST.focusFloors=rf.size?rf:null; drawFloors();
+    const bb=routeBBox(routes); if(!bb){inner.style.transform='';return;}
+    let {x1,y1,x2,y2}=bb;
+    const padX=(x2-x1)*0.12+30, padY=(y2-y1)*0.12+40;
+    x1-=padX; x2+=padX; y1-=padY+26; y2+=padY;      // 위쪽은 핀/라벨 여유 더
+    const bw=Math.max(1,x2-x1), bh=Math.max(1,y2-y1);
+    let z=Math.min(LOGW/bw, LOGH/bh); z=Math.max(1,Math.min(z,3.2));   // 1~3.2x
+    const cx=(x1+x2)/2, cy=(y1+y2)/2;
+    const txp=(0.5 - z*cx/LOGW)*100, typ=(0.5 - z*cy/LOGH)*100;
+    inner.style.transform=`translate(${txp.toFixed(2)}%, ${typ.toFixed(2)}%) scale(${z.toFixed(3)})`;}
+  function clearFocus(){ST.focusFloors=null;drawFloors();inner.style.transform='';}
+
   /* ---------- 캔버스: 압출 바닥 ---------- */
   let wallTmp=null,wtx=null;
   function drawFloors(){
@@ -320,17 +346,18 @@ function create(opts){
       wallTmp=document.createElement('canvas');wallTmp.width=cv.width;wallTmp.height=cv.height;wtx=wallTmp.getContext('2d');}
     ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
     for(let i=0;i<=3;i++){const fk=FLOORS[i],fl=FL[fk],mk=fl.masks,m=calMat(fk);
+      const fa=(ST.focusFloors&&!ST.focusFloors.has(fk))?0.1:1;          // 경유층 아니면 흐리게(#7)
       const T=(dy)=>ctx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
-      for(let k=THICK;k>=1;k--){T(k);ctx.drawImage(mk.slab,0,0);           // 슬래브 두께
+      for(let k=THICK;k>=1;k--){T(k);ctx.globalAlpha=fa;ctx.drawImage(mk.slab,0,0);  // 슬래브 두께
         const a=SIDE_GRAD*k/THICK;                                        // 아래로 갈수록 진한 그림자(두께 강조)
-        if(a>0){ctx.globalAlpha=a;ctx.drawImage(mk.slabShade,0,0);ctx.globalAlpha=1;}}
-      T(0);ctx.drawImage(mk.top,0,0);                                      // 바닥 윗면
+        if(a>0){ctx.globalAlpha=a*fa;ctx.drawImage(mk.slabShade,0,0);}ctx.globalAlpha=1;}
+      T(0);ctx.globalAlpha=fa;ctx.drawImage(mk.top,0,0);ctx.globalAlpha=1;  // 바닥 윗면
       // 경계벽: 오프스크린에 불투명 압출 후 반투명으로 1회 합성(겹침 누적 방지)
       wtx.setTransform(1,0,0,1,0,0);wtx.clearRect(0,0,wallTmp.width,wallTmp.height);
       const WT=(dy)=>wtx.setTransform(m.a*dpr,m.b*dpr,m.c*dpr,m.d*dpr,m.e*dpr,(m.f+dy)*dpr);
       for(let k=0;k<WALL_H;k++){WT(-k);wtx.drawImage(mk.wallSide,0,0);}
       WT(-WALL_H);wtx.drawImage(mk.wallTop,0,0);
-      ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=O.wallOpacity;ctx.drawImage(wallTmp,0,0);ctx.globalAlpha=1;
+      ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=O.wallOpacity*fa;ctx.drawImage(wallTmp,0,0);ctx.globalAlpha=1;
     }
     ctx.setTransform(1,0,0,1,0,0);
   }
@@ -564,12 +591,12 @@ function create(opts){
       const routes=dests.map(d=>{const r=computeRoute(deskFloor,deskSide,d);r._dest=d;
         if(!r.error)r.summary=buildSummary(r,deskFloor,deskSide);return r;});
       ST.routes=routes;ST.route=routes[0];ST.routeSpec={deskFloor,deskSide,dest:(spec.dests!=null?spec.dests:spec.dest)};
-      ST.routeActive=routes.some(r=>!r.error);renderOverlay();
+      ST.routeActive=routes.some(r=>!r.error);renderOverlay();applyFocus(routes);
       const summaries=routes.map(r=>r.error?{error:r.error}:r.summary);
       const result={routes,summaries,summary:summaries.find(s=>!s.error)||summaries[0],error:ST.routeActive?null:(routes[0]&&routes[0].error)};
       emit('route',result);return result;
     },
-    clearRoute(){ST.routeActive=false;ST.route=null;ST.routes=null;renderOverlay();emit('route',null);},
+    clearRoute(){ST.routeActive=false;ST.route=null;ST.routes=null;clearFocus();renderOverlay();emit('route',null);},
     redraw(){computeLayout();drawFloors();renderOverlay();},
     destroy(){if(dotRAF)cancelAnimationFrame(dotRAF);container.innerHTML='';},
   };

@@ -170,11 +170,10 @@ function showWayfind(m){
       if (!mapApi && window.AirportMap25D && window.AIRPORT_DATA) mapApi = AirportMap25D.create({ container:'#map', data:window.AIRPORT_DATA, lang: curLang });
       if (!mapApi) return;
       try { mapApi.setLang(curLang); } catch {}
-      const res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests });
-      let cap = m.ko || '';
-      const sm = res && res.summaries && res.summaries[0];
-      if (sm) cap += ` · 약 ${sm.minutes}분 (${sm.meters}m)` + (sm.transfers ? ` · 환승 ${sm.transfers}회` : '');
-      $('mapCap').textContent = cap;
+      mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests });
+      // 경로만 안내(거리/시간 표시 안 함). 다른 층이면 'N층' 안내.
+      const floorKo = m.floor ? m.floor.replace('F','층') : '';
+      $('mapCap').textContent = (m.ko || '') + (m.sameFloor === false && floorKo ? ` · ${floorKo}` : '');
     } catch (e) {}
   });
   clearTimeout(mapTimer);

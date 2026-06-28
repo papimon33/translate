@@ -6,7 +6,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
-import { detectCategory } from './wayfind_dict.js';
+import { detectCategory, isLocationQuestion, CATEGORIES } from './wayfind_dict.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -1333,22 +1333,34 @@ function loadFacilities() {
   return _facilities;
 }
 const DESK_FLOORS = ['1F', '2F', '3F', '4F'];
-// 카테고리 → 목적지 배열. 데스크 층 우선(전부), 없으면 층번호상 가장 가까운 층. in_secure 는 가급적 제외.
-function resolveWayfind(koText, deskFloor) {
-  const cats = detectCategory(koText);
-  if (!cats.length) return null;
-  const cat = cats[0];
+const catById = (id) => CATEGORIES.find((c) => c.id === id);
+// 카테고리 ID → 목적지 배열. 보안구역(in_secure) 시설은 안내 대상에서 제외(일반구역만).
+// 데스크 층 우선(그 층 일반구역 시설 전부), 없으면 층번호상 가까운 층 순.
+function resolveCategoryDests(catId, deskFloor) {
+  const cat = catById(catId);
+  if (!cat) return null;
   const fac = loadFacilities();
-  const onFloor = (fk) => (fac[fk] || []).filter((f) => cat.match.some((m) => String(f.name).includes(m)));
-  const pick = (list) => { const open = list.filter((f) => !f.in_secure); return (open.length ? open : list).map((f) => ({ floor: f._fk, x: f.x, y: f.y, name: f.name })); };
-  // 층 우선순위: 데스크 층 → 가까운 층 순
-  const base = DESK_FLOORS.indexOf(deskFloor) >= 0 ? deskFloor : '1F';
+  const base = DESK_FLOORS.includes(deskFloor) ? deskFloor : '1F';
   const order = DESK_FLOORS.slice().sort((a, b) => Math.abs(DESK_FLOORS.indexOf(a) - DESK_FLOORS.indexOf(base)) - Math.abs(DESK_FLOORS.indexOf(b) - DESK_FLOORS.indexOf(base)));
   for (const fk of order) {
-    const list = onFloor(fk).map((f) => ({ ...f, _fk: fk }));
-    if (list.length) return { category: cat.id, ko: cat.ko, sameFloor: fk === base, floor: fk, dests: pick(list) };
+    const list = (fac[fk] || []).filter((f) => !f.in_secure && cat.match.some((m) => String(f.name).includes(m)));
+    if (list.length) return { category: cat.id, ko: cat.ko, floor: fk, sameFloor: fk === base, dests: list.map((f) => ({ floor: fk, x: f.x, y: f.y, name: f.name })) };
   }
-  return { category: cat.id, ko: cat.ko, dests: [] }; // 매칭은 됐지만 시설 없음
+  return null; // 일반구역에 해당 시설 없음 → 안내 안 함
+}
+// 직매칭 실패 + 위치 의도어 있을 때만 호출: gpt-5.4-mini 로 카테고리 분류(닫힌 집합)
+async function classifyFacility(koText) {
+  if (!OPENAI_API_KEY) return null;
+  const enumList = CATEGORIES.map((c) => `${c.id}(${c.ko})`).join(', ');
+  const sys = `사용자가 공항에서 찾는 시설을 아래 목록 중 하나의 id로만 분류한다.\n목록: ${enumList}\n해당 없으면 none. 출력은 JSON {"id":"..."} 하나만.`;
+  try {
+    const body = { model: 'gpt-5.4-mini', messages: [{ role: 'system', content: sys }, { role: 'user', content: koText }], max_completion_tokens: 20, response_format: { type: 'json_object' }, reasoning_effort: 'none' };
+    const r = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` }, body: JSON.stringify(body) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const id = (JSON.parse(d?.choices?.[0]?.message?.content || '{}').id || '').trim();
+    return catById(id) ? id : null;
+  } catch { return null; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1988,13 +2000,17 @@ function handleHost(ws) {
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null);
       // 길안내: 외국인 발화(→한국어 번역 out)에서 시설 질문 감지 → 목적지 전송
       if (src && src !== A) {
-        try {
-          const wf = resolveWayfind(out, (session && session.deskFloor) || '1F');
-          if (wf && wf.dests && wf.dests.length) {
-            const msg = { type: 'wayfind', category: wf.category, ko: wf.ko, floor: wf.floor, sameFloor: wf.sameFloor, dests: wf.dests, deskFloor: (session && session.deskFloor) || '1F', deskSide: (session && session.deskSide) || 'S' };
-            broadcast(sessionId, msg); toHost(msg);
-          }
-        } catch {}
+        const dfl = (session && session.deskFloor) || '1F';
+        const dsd = (session && session.deskSide) || 'S';
+        const fire = (catId) => {
+          try {
+            const wf = resolveCategoryDests(catId, dfl);
+            if (wf && wf.dests.length) { const msg = { type: 'wayfind', ...wf, deskFloor: dfl, deskSide: dsd }; broadcast(sessionId, msg); toHost(msg); }
+          } catch {}
+        };
+        const direct = detectCategory(out);            // 1) 사전 직매칭(무료)
+        if (direct.length) fire(direct[0].id);
+        else if (isLocationQuestion(out)) classifyFacility(out).then((id) => { if (id) fire(id); }).catch(() => {}); // 2) 의도어 있을 때만 gpt-5.4-mini
       }
     };
 
