@@ -18,6 +18,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Select from '@mui/material/Select';
 import Fab from '@mui/material/Fab';
 import Collapse from '@mui/material/Collapse';
 import { alpha } from '@mui/material/styles';
@@ -68,6 +69,8 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
   const [preset, setPreset] = useState('meeting'); // 통역 용도 프리셋
+  const [deskFloor, setDeskFloor] = useState('1F'); // 안내데스크 출발 층
+  const [deskSide, setDeskSide] = useState('S'); // 안내데스크 방향
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
   const [deskQr, setDeskQr] = useState(null); // 데스크 뷰어 랜딩 QR
@@ -94,7 +97,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
     const titles = (list || []).map((s) => s.title);
     const title = name.trim() || uniqueName(base, titles);
     const body = deskMode
-      ? { title, pipeline: 'desk', inLang: 'auto' }
+      ? { title, pipeline: 'desk', inLang: 'auto', deskFloor, deskSide }
       : { title, pipeline: 'soniox', preset, inLang: 'auto' };
     const s = await api.create(body);
     onOpen(s);
@@ -342,6 +345,29 @@ export default function SessionList({ onOpen, user, deskMode }) {
                     </Box>
                   );
                 })}
+              </Box>
+            </>
+          )}
+          {deskMode && (
+            <>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2.5, mb: 1 }}>안내데스크 위치 (길안내 출발점)</Typography>
+              <Box sx={{ display: 'flex', gap: 1.5 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>층</Typography>
+                  <Select size="small" fullWidth value={deskFloor} onChange={(e) => setDeskFloor(e.target.value)}>
+                    <MenuItem value="1F">1층</MenuItem>
+                    <MenuItem value="2F">2층</MenuItem>
+                  </Select>
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>방향</Typography>
+                  <Select size="small" fullWidth value={deskSide} onChange={(e) => setDeskSide(e.target.value)}>
+                    <MenuItem value="E">동</MenuItem>
+                    <MenuItem value="W">서</MenuItem>
+                    <MenuItem value="S">남</MenuItem>
+                    <MenuItem value="N">북</MenuItem>
+                  </Select>
+                </Box>
               </Box>
             </>
           )}
