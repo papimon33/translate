@@ -6,7 +6,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
-import { detectCategory, isLocationQuestion, CATEGORIES } from './wayfind_dict.js';
+import { detectCategory, isLocationAnswer, CATEGORIES } from './wayfind_dict.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -1999,8 +1999,10 @@ function handleHost(ws) {
       if (out && out === lastCommitText) return;
       lastCommitText = out;
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null);
-      // 길안내: 외국인 발화(→한국어 번역 out)에서 시설 질문 감지 → 목적지 전송
-      if (src && src !== A) {
+      // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
+      // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
+      // 기계번역이 아닌 원어민 한국어 원문(txt)에서 매칭하므로 정확도가 높다.
+      if (phase === 'locked' && src === A && txt) {
         const dfl = (session && session.deskFloor) || '1F';
         const dsd = (session && session.deskSide) || 'S';
         const fire = (catId) => {
@@ -2009,9 +2011,9 @@ function handleHost(ws) {
             if (wf && wf.dests.length) { const msg = { type: 'wayfind', ...wf, deskFloor: dfl, deskSide: dsd }; broadcast(sessionId, msg); toHost(msg); }
           } catch {}
         };
-        const direct = detectCategory(out);            // 1) 사전 직매칭(무료)
+        const direct = detectCategory(txt);            // 1) 사전 직매칭(원어민 한국어 → 신뢰도 높음, 무료)
         if (direct.length) fire(direct[0].id);
-        else if (isLocationQuestion(out)) classifyFacility(out).then((id) => { if (id) fire(id); }).catch(() => {}); // 2) 의도어 있을 때만 gpt-5.4-mini
+        else if (isLocationAnswer(txt)) classifyFacility(txt).then((id) => { if (id) fire(id); }).catch(() => {}); // 2) 방향·층 단서 있을 때만 gpt-5.4-mini
       }
     };
 

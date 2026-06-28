@@ -46,10 +46,19 @@ const CATEGORIES = [
   { id: 'stairs',     ko: '계단',       match: ['계단'],                   syn: ['계단', '층계'] },
 ];
 
-// 위치 의도어(번역문 기준). 직매칭 실패 시 이 신호가 있을 때만 LLM 폴백.
+// 위치 의도어(질문 기준). 외국인 질문에서 직매칭 실패 시 이 신호가 있을 때만 LLM 폴백.
 const INTENT_WORDS = [
   '어디', '어딨', '어느 쪽', '어느쪽', '가는 길', '가려면', '가고 싶', '가야', '가 보',
   '위치', '찾고', '찾아', '찾는', '어떻게 가', '로 가', '으로 가', '가까운', '근처', '있나요', '있어요',
+];
+
+// 위치 안내 단서(답변 기준). 안내원의 '한국어 답변'에서 직매칭 실패 시 이 신호가 있을 때만 LLM 폴백.
+// 직원이 길을 알려줄 때 쓰는 방향·층 표현. (질문형 어디/어딨 등은 답변엔 거의 없음)
+const ANSWER_WORDS = [
+  '층', '오른쪽', '왼쪽', '이쪽', '저쪽', '쪽으로', '쪽에',
+  '직진', '쭉', '끝', '코너', '모퉁이', '맞은편', '건너',
+  '가시면', '가세요', '가시고', '올라가', '내려가', '내려오', '걸어가', '가다 보면', '가다보면',
+  '지나', '보이', '나오', '방향', '이용하시', '이용 가능', '가능합니다',
 ];
 
 // 번역문에서 직매칭(AI 0회). 여러 개 걸리면 모두 반환(가장 먼저=주 후보).
@@ -67,5 +76,11 @@ function isLocationQuestion(koText) {
   const t = String(koText);
   return INTENT_WORDS.some((w) => t.includes(w));
 }
+// 안내원 답변이 '위치/길안내' 성격인지(직매칭 폴백 게이트). 방향·층 단서가 하나라도 있으면 true.
+function isLocationAnswer(koText) {
+  if (!koText) return false;
+  const t = String(koText);
+  return ANSWER_WORDS.some((w) => t.includes(w));
+}
 
-export { CATEGORIES, INTENT_WORDS, detectCategory, isLocationQuestion };
+export { CATEGORIES, INTENT_WORDS, ANSWER_WORDS, detectCategory, isLocationQuestion, isLocationAnswer };
