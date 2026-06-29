@@ -83,4 +83,26 @@ function isLocationAnswer(koText) {
   return ANSWER_WORDS.some((w) => t.includes(w));
 }
 
-export { CATEGORIES, INTENT_WORDS, ANSWER_WORDS, detectCategory, isLocationQuestion, isLocationAnswer };
+// 층 표기(데스크/맵과 동일 포맷). 지하층은 맵 데이터에 없어 미지원.
+const FLOORS = ['1F', '2F', '3F', '4F'];
+const KO_NUM = { 일: 1, 이: 2, 삼: 3, 사: 4 };
+// 안내원 답변에서 '목적지 층'을 추출 → 데스크 기본 층 우선순위를 덮어쓴다(직원이 다른 층을 지목하는 경우 반영).
+// 반환 '1F'~'4F' | null(못 찾음/지하 → 호출측이 deskFloor 로 폴백). deskFloor 는 상대표현(위/아래/같은 층) 해석용.
+function parseAnswerFloor(koText, deskFloor) {
+  if (!koText) return null;
+  const t = String(koText).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  if (/지하/.test(t)) return null; // 지하1층 등은 데이터 없음 → 기본 층 유지(숫자 오인식 방지 위해 먼저 처리)
+  let m = t.match(/([1-9])\s*층/); // 절대 층: "2층", "3 층"
+  if (m) { const d = +m[1]; if (d >= 1 && d <= FLOORS.length) return `${d}F`; }
+  m = t.match(/([일이삼사])\s*층/); // 한글 숫자 층: "이층"
+  if (m && KO_NUM[m[1]]) return `${KO_NUM[m[1]]}F`;
+  const di = FLOORS.indexOf(deskFloor); // 상대/동일 층 (deskFloor 기준)
+  if (di >= 0) {
+    if (/같은\s*층|이\s*층|현재\s*층/.test(t)) return FLOORS[di];
+    if (/윗\s*층|위\s*층|한\s*층\s*(위|올라)/.test(t)) return FLOORS[di + 1] || null;
+    if (/아랫\s*층|아래\s*층|밑\s*층|한\s*층\s*(아래|밑|내려)/.test(t)) return FLOORS[di - 1] || null;
+  }
+  return null;
+}
+
+export { CATEGORIES, INTENT_WORDS, ANSWER_WORDS, FLOORS, detectCategory, isLocationQuestion, isLocationAnswer, parseAnswerFloor };

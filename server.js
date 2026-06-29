@@ -6,7 +6,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
-import { detectCategory, isLocationAnswer, CATEGORIES } from './wayfind_dict.js';
+import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from './wayfind_dict.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -2005,9 +2005,11 @@ function handleHost(ws) {
       if (phase === 'locked' && src === A && txt) {
         const dfl = (session && session.deskFloor) || '1F';
         const dsd = (session && session.deskSide) || 'S';
+        // 답변에 '목적지 층'이 있으면(예: "1층으로 내려가세요") 데스크 기본 층 우선순위를 덮어씀(직원 현장판단 반영).
+        const destFloor = parseAnswerFloor(txt, dfl) || dfl;
         const fire = (catId) => {
           try {
-            const wf = resolveCategoryDests(catId, dfl);
+            const wf = resolveCategoryDests(catId, destFloor);
             if (wf && wf.dests.length) { const msg = { type: 'wayfind', ...wf, deskFloor: dfl, deskSide: dsd }; broadcast(sessionId, msg); toHost(msg); }
           } catch {}
         };
