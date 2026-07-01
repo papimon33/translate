@@ -11,55 +11,112 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="KAC Desk" />
 <style>
-  :root { --bg:#ffffff; --fg:#0a0e17; --muted:#64748b; --accent:#4f46e5; --line:#e5e7eb; }
+  :root {
+    --bg:#ffffff; --fg:#0a0e17; --muted:#64748b; --accent:#4f46e5; --line:#e5e7eb;
+    --card:#ffffff; --chip:#f1f5f9; --chipFg:#475569;
+    --bubStaff:#eef2ff; --bubStaffFg:#3730a3; --bubSelf:#f1f5f9; --bubSelfFg:#0a0e17;
+    --fs:1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0b0d12; --fg:#e8eaf0; --muted:#8b93a3; --accent:#7c9cff; --line:#242a36;
+      --card:#161a22; --chip:#1b2230; --chipFg:#aab2c5;
+      --bubStaff:#232a52; --bubStaffFg:#c7ccff; --bubSelf:#1b2230; --bubSelfFg:#e8eaf0;
+    }
+  }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
     -webkit-user-select:none; user-select:none; overscroll-behavior:none; }
   .screen { position:fixed; inset:0; display:none; }
   .screen.show { display:flex; }
+
   /* 랜딩(세션 선택) */
   #landing { flex-direction:column; align-items:center; justify-content:center; padding:8vh 6vw; gap:22px; }
   #landing h1 { font-size:clamp(22px,5vw,34px); font-weight:800; margin:0; }
   #landing .sub { color:var(--muted); font-size:15px; margin-top:-12px; }
   #rooms { width:100%; max-width:520px; display:flex; flex-direction:column; gap:12px; }
   .room { border:1px solid var(--line); border-radius:18px; padding:20px 22px; font-size:20px; font-weight:700;
-    background:#fff; color:var(--fg); cursor:pointer; text-align:left; box-shadow:0 4px 14px rgba(0,0,0,.04); }
-  .room:active { background:#f3f4f6; }
+    background:var(--card); color:var(--fg); cursor:pointer; text-align:left; box-shadow:0 4px 14px rgba(0,0,0,.04); }
+  .room:active { background:var(--chip); }
   .room.off { opacity:.45; cursor:not-allowed; }
   .room .tag { float:right; font-size:13px; font-weight:600; color:var(--muted); }
   #roomsEmpty { color:var(--muted); font-size:15px; }
-  /* 시작 화면 */
-  #startWrap { align-items:center; justify-content:center; }
-  #startBtn { border:none; cursor:pointer; color:#fff; font-weight:800;
-    background:linear-gradient(135deg,#6366f1,#7c9cff); border-radius:28px;
-    padding:34px 56px; font-size:30px; line-height:1.35; text-align:center;
-    box-shadow:0 16px 50px rgba(99,102,241,.4); }
-  #startBtn small { display:block; font-size:16px; font-weight:600; opacity:.92; margin-top:10px; }
+
+  /* 대기(attract) 화면: 브랜드 · 다국어 인사 회전 · 탭하여 시작 */
+  #startWrap { flex-direction:column; align-items:center; justify-content:space-between;
+    padding:7vh 6vw calc(7vh + env(safe-area-inset-bottom)); }
+  .brandRow { display:flex; align-items:center; gap:11px; }
+  .brandRow .bt { display:flex; flex-direction:column; line-height:1.18; }
+  .brandRow .bn { font-size:16px; font-weight:800; color:var(--fg); }
+  .brandRow .bs { font-size:12px; color:var(--muted); font-weight:600; letter-spacing:.02em; }
+  #greet { text-align:center; transition:opacity .28s ease; }
+  #greet .globe { color:var(--accent); }
+  #gHello { display:block; font-size:clamp(34px,8vw,68px); font-weight:800; color:var(--fg); margin-top:16px; word-break:keep-all; }
+  #gLang { display:block; font-size:15px; color:var(--muted); font-weight:600; margin-top:8px; letter-spacing:.03em; }
+  #startBtn { border:none; cursor:pointer; color:#fff; font-weight:800; background:#4f46e5; border-radius:30px;
+    padding:24px 42px; text-align:center; display:flex; flex-direction:column; align-items:center; gap:8px;
+    box-shadow:0 16px 44px rgba(79,70,229,.42); animation:ctaPulse 1.9s ease-in-out infinite; }
+  #startBtn .cta { display:inline-flex; align-items:center; gap:11px; font-size:clamp(22px,4.6vw,30px); line-height:1.25; }
+  #startBtn small { font-size:14px; font-weight:600; opacity:.9; }
+  @keyframes ctaPulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.035); } }
+
   /* 대화 흐름(transcript): 아래=최신(선명), 위로 갈수록 흐려짐(마스크) — 지도 포함 */
   #stage { flex-direction:column; justify-content:flex-end; align-items:stretch; overflow-y:auto;
-    padding:8vh 6vw calc(5vh + env(safe-area-inset-bottom));
+    padding:calc(9vh + env(safe-area-inset-top)) 6vw calc(5vh + env(safe-area-inset-bottom));
     -webkit-mask-image:linear-gradient(to top,#000 62%,transparent 100%);
     mask-image:linear-gradient(to top,#000 62%,transparent 100%); }
   #stage::-webkit-scrollbar { display:none; }
-  .item { margin-top:20px; }
-  .line { line-height:1.38; word-break:keep-all; overflow-wrap:anywhere; font-size:clamp(26px,5.6vw,58px); font-weight:800; }
-  .line.staff { color:var(--accent); }
-  .line.self  { color:var(--fg); }
-  .item.map { height:54vh; border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#fff; box-shadow:0 6px 22px rgba(0,0,0,.08); }
-  .item.map .mapHolder { width:100%; height:100%; overflow:hidden; }
-  /* 발화 대기(점) — 탭 직후 첫 발화 전 */
+  .turn { margin-top:22px; display:flex; flex-direction:column; }
+  .turn.staff { align-items:flex-start; }
+  .turn.self  { align-items:flex-end; }
+  .who { font-size:calc(13px * var(--fs)); color:var(--muted); font-weight:600; margin:0 8px 6px; }
+  .bub { max-width:88%; padding:.46em .64em; border-radius:20px; line-height:1.34; word-break:keep-all; overflow-wrap:anywhere;
+    font-size:calc(clamp(23px,4.6vw,44px) * var(--fs)); font-weight:700; }
+  .turn.staff .bub { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:7px; }
+  .turn.self  .bub { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:7px; }
+
+  /* 길안내 맵 (채팅 아래 인라인, 단일 인스턴스) */
+  .item.map { margin-top:22px; border:1px solid var(--line); border-radius:20px; overflow:hidden; background:var(--card);
+    box-shadow:0 6px 22px rgba(0,0,0,.08); display:flex; flex-direction:column; }
+  .mapHead { display:flex; align-items:center; gap:9px; padding:11px 14px; border-bottom:1px solid var(--line); }
+  .mapHead .mIco { color:var(--accent); display:inline-flex; flex:0 0 auto; }
+  .mapHead .mName { font-size:calc(16px * var(--fs)); font-weight:800; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mapHead .mChips { margin-left:auto; display:flex; gap:6px; flex:0 0 auto; }
+  .mapHead .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); color:var(--chipFg);
+    font-size:13px; font-weight:700; padding:4px 10px; border-radius:20px; white-space:nowrap; }
+  .mapHolder { height:50vh; overflow:hidden; }
+
+  /* 발화 대기(점) */
   #dots { position:absolute; inset:0; display:flex; gap:22px; align-items:center; justify-content:center; pointer-events:none; }
-  #dots span { width:24px; height:24px; border-radius:50%; background:var(--muted);
-    animation:bounce 1.2s infinite ease-in-out; }
+  #dots span { width:24px; height:24px; border-radius:50%; background:var(--muted); animation:bounce 1.2s infinite ease-in-out; }
   #dots span:nth-child(2){ animation-delay:.18s; }
   #dots span:nth-child(3){ animation-delay:.36s; }
   @keyframes bounce { 0%,80%,100%{ transform:translateY(0); opacity:.35; } 40%{ transform:translateY(-30px); opacity:1; } }
-  #endBtn { position:fixed; top:calc(env(safe-area-inset-top) + 12px); right:14px; z-index:11;
-    width:38px; height:38px; border-radius:12px; border:1px solid var(--line);
-    background:rgba(255,255,255,.85); color:var(--muted); font-size:18px;
-    display:flex; align-items:center; justify-content:center; cursor:pointer;
-    opacity:0; pointer-events:none; transition:opacity .25s; }
+
+  /* 상단 서비스 바(언어쌍 + 통역 중) */
+  #svcBar { position:fixed; top:calc(env(safe-area-inset-top) + 12px); left:50%; transform:translateX(-50%); z-index:11;
+    display:none; align-items:center; gap:11px; padding:7px 15px; border-radius:24px;
+    background:var(--card); border:1px solid var(--line); box-shadow:0 4px 16px rgba(0,0,0,.07); max-width:90vw; }
+  #svcBar.show { display:flex; }
+  #svcPair { font-size:14px; font-weight:800; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #svcLiveWrap { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); font-weight:600; flex:0 0 auto; }
+  #svcDot { width:8px; height:8px; border-radius:50%; background:#22c55e; animation:pulseDot 1.4s infinite ease-in-out; }
+  @keyframes pulseDot { 0%,100%{ opacity:1; transform:scale(1); } 50%{ opacity:.4; transform:scale(.75); } }
+
+  /* 글씨 크기(접근성) */
+  #a11y { position:fixed; left:14px; bottom:calc(env(safe-area-inset-bottom) + 14px); z-index:11; display:none; gap:7px; }
+  #a11y.show { display:flex; }
+  #a11y button { width:46px; height:46px; border-radius:13px; border:1px solid var(--line); background:var(--card); color:var(--fg);
+    font-weight:800; cursor:pointer; opacity:.5; display:flex; align-items:center; justify-content:center; }
+  #a11y button:active { background:var(--chip); opacity:1; }
+  #a11y .s { font-size:14px; } #a11y .l { font-size:20px; }
+
+  /* 종료(대기모드) 버튼 — 자동 숨김 */
+  #endBtn { position:fixed; top:calc(env(safe-area-inset-top) + 12px); right:14px; z-index:12;
+    width:40px; height:40px; border-radius:13px; border:1px solid var(--line);
+    background:var(--card); color:var(--muted); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; opacity:0; pointer-events:none; transition:opacity .25s; }
   #endBtn.show { opacity:1; pointer-events:auto; }
 </style>
 </head>
@@ -71,43 +128,104 @@
   </div>
 
   <div id="startWrap" class="screen">
+    <div class="brandRow">
+      <svg width="42" height="42" viewBox="0 0 42 42" aria-hidden="true"><rect width="42" height="42" rx="12" fill="#4f46e5"/><g fill="none" stroke="#fff" stroke-width="2"><circle cx="21" cy="21" r="9.5"/><path d="M11.5 21h19M21 11.5c3.2 3 3.2 16 0 19M21 11.5c-3.2 3-3.2 16 0 19"/></g></svg>
+      <span class="bt"><span class="bn" id="brandName">공항 안내 통역</span><span class="bs" id="brandSub">Airport Interpretation</span></span>
+    </div>
+    <div id="greet">
+      <svg class="globe" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c3 2.9 3 15.5 0 18.4M12 2.8c-3 2.9-3 15.5 0 18.4"/></svg>
+      <span id="gHello">안녕하세요</span>
+      <span id="gLang">한국어</span>
+    </div>
     <button id="startBtn">
-      Touch and say in your language
-      <small>請触摸并用您的语言说话 · タッチして話してください · Chạm và nói bằng ngôn ngữ của bạn</small>
+      <span class="cta">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        탭하여 시작
+      </span>
+      <small>Tap to start · タッチ · 触摸 · Chạm</small>
     </button>
   </div>
 
   <div id="stage" class="screen">
     <div id="dots"><span></span><span></span><span></span></div>
   </div>
-  <div id="endBtn">✕</div>
+
+  <div id="svcBar"><span id="svcPair"></span><span id="svcLiveWrap"><span id="svcDot"></span><span id="svcLive"></span></span></div>
+  <div id="a11y">
+    <button class="s" data-d="-1" aria-label="글씨 작게">A−</button>
+    <button class="l" data-d="1" aria-label="글씨 크게">A+</button>
+  </div>
+  <div id="endBtn" aria-label="대기모드로">✕</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 let sessionId = params.get('session') || '';
+
+/* 브랜드(플레이스홀더 — 운영 시 교체) */
+const BRAND = { name: '공항 안내 통역', sub: 'Airport Interpretation' };
+$('brandName').textContent = BRAND.name; $('brandSub').textContent = BRAND.sub;
+
 (function(){ const mf = $('manifest'); if (mf && sessionId) mf.href = '/desk.webmanifest?session=' + encodeURIComponent(sessionId); })();
 function isStandalone(){
   try { return window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; }
 }
-function show(id){ ['landing','startWrap','stage'].forEach(s => $(s).classList.toggle('show', s===id)); }
+function show(id){
+  ['landing','startWrap','stage'].forEach(s => $(s).classList.toggle('show', s===id));
+  const svc = (id === 'stage');
+  $('svcBar').classList.toggle('show', svc);
+  $('a11y').classList.toggle('show', svc);
+  if (id === 'startWrap') startGreet(); else stopGreet();
+}
 function esc(s){ return String(s).replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 
 let curLang = 'ko', started = false, ws = null;
-const cards = new Map();   // id -> { el, texts, source }
+const cards = new Map();   // id -> { el, who, bub, texts, source }
 let order = [];
+
+/* ---- 언어·문구 현지화(손님 언어 기준, en 폴백) ---- */
+const LANGNAME = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', vi:'Tiếng Việt', th:'ไทย', id:'Bahasa Indonesia', ru:'Русский', tl:'Filipino', ms:'Bahasa Melayu' };
+const UI = {
+  interpreting: { ko:'통역 중', en:'Interpreting', ja:'通訳中', zh:'翻译中', vi:'Đang dịch' },
+  detecting:    { ko:'언어 인식 중…', en:'Detecting language…', ja:'言語認識中…', zh:'识别语言中…', vi:'Đang nhận diện…' },
+  staff:        { ko:'안내원', en:'Staff', ja:'案内係', zh:'工作人员', vi:'Nhân viên' },
+  you:          { ko:'나', en:'You', ja:'あなた', zh:'您', vi:'Bạn' },
+  walk:         { ko:'도보', en:'Walk', ja:'徒歩', zh:'步行', vi:'Đi bộ' },
+  min:          { ko:'분', en:' min', ja:'分', zh:'分钟', vi:' phút' },
+};
+function t(k){ const d = UI[k] || {}; return d[curLang] || d.en || d.ko || k; }
+/* 시설 카테고리 → 손님 언어 라벨(ko/en, 그 외 en 폴백) */
+const CAT_EN = { restroom:'Restroom', smoking:'Smoking area', pharmacy:'Pharmacy', convenience:'Convenience store',
+  exchange:'Currency exchange', charging:'Charging station', lounge:'Lounge', nursing:'Nursing room', prayer:'Prayer room',
+  water:'Water fountain', security:'Security check', immigration:'Immigration', customs:'Customs', duty_free:'Duty free',
+  info_desk:'Information', baggage:'Baggage claim', gate:'Gate', food:'Restaurant', ticket:'Bus tickets',
+  wheelchair:'Wheelchair', stroller:'Stroller', aed:'AED', elevator:'Elevator', escalator:'Escalator', stairs:'Stairs' };
+function catLabel(m){ return (curLang === 'ko') ? (m.ko || '') : (CAT_EN[m.category] || m.ko || ''); }
+function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||''; return curLang==='ko' ? (n+'층') : (n+'F'); }
 
 /* ---- transcript 표시 ---- */
 function textOf(c){
-  if (c.texts && c.texts[curLang]) return { t:c.texts[curLang], staff:true };  // 안내원 답변(외국인 언어)
-  if (c.source) return { t:c.source, staff:false };                            // 외국인 자기 발화(원문)
+  if (c.texts && c.texts[curLang]) return { t:c.texts[curLang], staff:true };  // 안내원 답변(손님 언어)
+  if (c.source) return { t:c.source, staff:false };                            // 손님 자기 발화(원문)
   return { t:'', staff:false };
 }
 function scrollBottom(){ const s=$('stage'); s.scrollTop = s.scrollHeight; }
-function renderCard(c){ const r = textOf(c); c.el.textContent = r.t; c.el.className = 'item line ' + (r.staff ? 'staff' : 'self'); c.el.style.display = r.t ? '' : 'none'; }
+function renderCard(c){
+  const r = textOf(c);
+  c.who.textContent = r.staff ? t('staff') : (t('you') + ' · ' + String(curLang).toUpperCase());
+  c.bub.textContent = r.t;
+  c.el.className = 'item turn ' + (r.staff ? 'staff' : 'self');
+  c.el.style.display = r.t ? '' : 'none';
+}
 function upsert(item){
   let c = cards.get(item.id);
-  if (!c){ c = { el: document.createElement('div') }; cards.set(item.id, c); order.push(item.id); $('stage').appendChild(c.el); }
+  if (!c){
+    const el = document.createElement('div'); el.className = 'item turn';
+    const who = document.createElement('span'); who.className = 'who';
+    const bub = document.createElement('div'); bub.className = 'bub';
+    el.appendChild(who); el.appendChild(bub);
+    c = { el, who, bub }; cards.set(item.id, c); order.push(item.id); $('stage').appendChild(el);
+  }
   c.texts = item.texts || {}; c.source = item.source || '';
   renderCard(c);
   $('dots').style.display = order.length ? 'none' : 'flex';
@@ -120,7 +238,14 @@ function clearAll(){
   if (mapBlock) { try { mapBlock.remove(); } catch {} }
   $('dots').style.display = 'flex';
 }
-function applySxInfo(info){ if(!info) return; if(info.mode==='two') curLang = info.b || curLang; rerender(); try{ mapApi && mapApi.setLang(curLang); }catch{} }
+function applySxInfo(info){
+  if(!info) return;
+  if(info.mode === 'two'){ curLang = info.b || curLang; setSvcPair(); }
+  else { setSvcDetect(); }
+  rerender(); try { mapApi && mapApi.setLang(curLang); } catch {}
+}
+function setSvcPair(){ $('svcPair').textContent = '한국어 ↔ ' + (LANGNAME[curLang] || String(curLang).toUpperCase()); $('svcLive').textContent = t('interpreting'); $('svcDot').style.display = ''; }
+function setSvcDetect(){ $('svcPair').textContent = t('detecting'); $('svcLive').textContent = ''; $('svcDot').style.display = 'none'; }
 
 /* ---- 길안내 맵 (채팅 아래 인라인, 단일 인스턴스 — 새 안내 시 맨 아래로 이동) ---- */
 let mapApi = null, mapLoading = false, mapBlock = null;
@@ -136,9 +261,26 @@ function loadMapScripts(cb){
 function ensureMapBlock(){
   if (mapBlock) return mapBlock;
   mapBlock = document.createElement('div'); mapBlock.className = 'item map';
+  const head = document.createElement('div'); head.className = 'mapHead';
+  head.innerHTML = '<span class="mIco"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span><span class="mName"></span><span class="mChips"></span>';
   const holder = document.createElement('div'); holder.className = 'mapHolder';
-  mapBlock.appendChild(holder); mapBlock._holder = holder;
+  mapBlock.appendChild(head); mapBlock.appendChild(holder);
+  mapBlock._holder = holder; mapBlock._head = head;
   return mapBlock;
+}
+function fillMapHead(m, res){
+  if (!mapBlock) return;
+  mapBlock._head.querySelector('.mName').textContent = catLabel(m) + ' · ' + floorLbl(m.floor);
+  const chips = mapBlock._head.querySelector('.mChips'); chips.textContent = '';
+  const sums = (res && res.summaries) || [];
+  if (sums.length){
+    const best = sums.reduce((a,b) => (b && a && b.meters < a.meters ? b : a), sums[0]);
+    if (best){
+      let html = '<span class="chip">' + t('walk') + ' ' + Math.max(1, Math.round(best.minutes||0)) + t('min') + '</span>';
+      if (best.meters) html += '<span class="chip">' + Math.round(best.meters) + ' m</span>';
+      chips.innerHTML = html;
+    }
+  }
 }
 function showWayfind(m){
   if (!started) return;
@@ -146,7 +288,7 @@ function showWayfind(m){
     const block = ensureMapBlock();
     $('stage').appendChild(block);                  // 항상 맨 아래(채팅 아래)로
     scrollBottom();
-    const doRoute = () => { try { mapApi.setLang(curLang); mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests }); scrollBottom(); } catch (e) {} };
+    const doRoute = () => { try { mapApi.setLang(curLang); const res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests }); fillMapHead(m, res); scrollBottom(); } catch (e) {} };
     if (mapApi) { doRoute(); return; }
     if (!window.AirportMap25D || !window.AIRPORT_DATA) return;
     // 첫 생성: 층 래스터화(비동기) 끝난 뒤 경로 표시
@@ -166,7 +308,7 @@ function connect(){
     if (m.type === 'snapshot') (m.items||[]).forEach(upsert);
     else if (m.type === 'sentence') upsert(m);
     else if (m.type === 'meta') applySxInfo(m.sxInfo);
-    else if (m.type === 'wayfind') showWayfind(m);          // 시설 질문 → 채팅 아래 인라인 지도
+    else if (m.type === 'wayfind') showWayfind(m);          // 시설 안내 → 채팅 아래 인라인 지도
     else if (m.type === 'desk-reset') backToTouch();         // 대화 종료(무음/수동) → 터치 화면
   };
 }
@@ -191,6 +333,7 @@ function start(){
   started = true;
   goFullscreen();
   clearAll();
+  setSvcDetect();
   show('stage');
   connect();
 }
@@ -204,6 +347,22 @@ function end(){
   clearAll();
   show(params.get('session') ? 'startWrap' : 'landing');
 }
+
+/* ---- 다국어 인사 회전(attract) ---- */
+const GREETS = [['한국어','안녕하세요'],['English','Hello'],['日本語','こんにちは'],['中文','你好'],['Tiếng Việt','Xin chào'],['ไทย','สวัสดี'],['Bahasa','Halo'],['Русский','Здравствуйте']];
+let gI = 0, gTimer = null;
+function paintGreet(){ const g = GREETS[gI % GREETS.length]; $('gLang').textContent = g[0]; $('gHello').textContent = g[1]; }
+function startGreet(){ if (gTimer) return; gI = 0; paintGreet();
+  gTimer = setInterval(() => { const el = $('greet'); el.style.opacity = '0';
+    setTimeout(() => { gI++; paintGreet(); el.style.opacity = '1'; }, 280); }, 2600);
+}
+function stopGreet(){ if (gTimer) { clearInterval(gTimer); gTimer = null; } const el = $('greet'); if (el) el.style.opacity = '1'; }
+
+/* ---- 글씨 크기(접근성) ---- */
+let fs = parseFloat(localStorage.getItem('deskFs') || '1'); if (!(fs >= 0.8 && fs <= 1.6)) fs = 1;
+function applyFs(){ fs = Math.min(1.6, Math.max(0.8, Math.round(fs*10)/10)); document.documentElement.style.setProperty('--fs', fs); localStorage.setItem('deskFs', String(fs)); }
+applyFs();
+$('a11y').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; fs += (b.dataset.d === '1' ? 0.1 : -0.1); applyFs(); });
 
 /* ---- 랜딩(세션 선택) ---- */
 let roomsPoll = null;

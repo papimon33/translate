@@ -8,8 +8,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet" />
 <style>
-  :root { --bg:#0f1115; --panel:#181b22; --line:#272b35; --txt:#e8eaf0; --muted:#8b93a7; --accent:#4f8cff; --accent2:#36d399; --fs:19px; }
-  [data-theme="light"] { --bg:#fff; --panel:#f5f6f8; --line:#e1e4ea; --txt:#1a1d24; --muted:#6b7280; --accent:#2563eb; --accent2:#059669; }
+  :root { --bg:#0f1115; --panel:#181b22; --line:#272b35; --txt:#e8eaf0; --muted:#8b93a7; --accent:#4f8cff; --accent2:#36d399; --fs:19px;
+    --bubStaff:#232a52; --bubStaffFg:#c7ccff; --bubSelf:#232833; --bubSelfFg:#e8eaf0; }
+  [data-theme="light"] { --bg:#fff; --panel:#f5f6f8; --line:#e1e4ea; --txt:#1a1d24; --muted:#6b7280; --accent:#2563eb; --accent2:#059669;
+    --bubStaff:#eef2ff; --bubStaffFg:#3730a3; --bubSelf:#eef1f5; --bubSelfFg:#1a1d24; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:'Noto Sans KR',system-ui,'Segoe UI',sans-serif; background:var(--bg); color:var(--txt); }
   header { position:sticky; top:0; z-index:6; background:var(--bg); padding:12px 16px 8px; border-bottom:1px solid var(--line); }
@@ -82,12 +84,32 @@
   .qrbox img { width:230px; max-width:100%; background:#fff; border-radius:12px; padding:10px; }
   .qrbox input { width:100%; margin-top:16px; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--txt); font-size:13px; text-align:center; }
   .qrbox .copy { width:100%; margin-top:10px; padding:12px; border-radius:10px; border:none; background:var(--accent); color:#fff; font-weight:700; font-size:15px; cursor:pointer; }
+
+  /* 데스크 뷰어: 언어 pill(라이브 점) + 안내원/손님 말풍선 + 인라인 지도 */
+  #langLabel.pill { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:auto; margin:8px auto 0; padding:7px 15px; border-radius:22px; }
+  #langLabel .dot { width:7px; height:7px; border-radius:50%; background:var(--accent2); flex:0 0 auto; animation:pulseDot 1.4s infinite ease-in-out; }
+  @keyframes pulseDot { 0%,100%{ opacity:1; transform:scale(1); } 50%{ opacity:.4; transform:scale(.75); } }
+  .msg.turn { max-width:100%; display:flex; flex-direction:column; }
+  .msg.turn.staff { align-items:flex-start; }
+  .msg.turn.self  { align-items:flex-end; }
+  .msg.turn .who { font-size:calc(var(--fs) - 7px); color:var(--muted); font-weight:800; margin:0 5px 3px; }
+  .msg.turn .line { max-width:90%; padding:9px 13px; border-radius:16px; font-weight:700; line-height:1.4; }
+  .msg.turn.staff .line { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:5px; }
+  .msg.turn.self  .line { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:5px; }
+  .msg.turn.staff .line.pending, .msg.turn.self .line.pending { opacity:.6; font-style:normal; }
+  .mapCard { margin:12px 0 4px; border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel); }
+  .mapCard .mHead { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .mapCard .mHead .mIco { color:var(--accent); display:inline-flex; flex:0 0 auto; }
+  .mapCard .mHead .mName { font-weight:800; font-size:calc(var(--fs) - 3px); color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mapCard .mHead .mChips { margin-left:auto; display:flex; gap:6px; flex:0 0 auto; }
+  .mapCard .mHead .chip { background:var(--bg); border:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:700; padding:3px 9px; border-radius:14px; white-space:nowrap; }
+  .mapCard .mHolder { height:300px; overflow:hidden; }
 </style>
 </head>
 <body>
 <header>
   <div class="htop">
-    <div class="brand">KAC Translator</div>
+    <div class="brand" id="brand">KAC Translator</div>
     <button class="iconbtn" id="audioBtn" aria-label="음성 듣기" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path id="audioWave" d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
     </button>
@@ -162,6 +184,64 @@ let sessionOutLang = 'ko';
 let speakerNames = {}; // 화자번호 -> 지정이름
 function spkLabel(id){ return id ? (speakerNames[id] || ('화자 '+id)) : ''; }
 
+/* 브랜드(플레이스홀더 — 운영 시 교체) */
+const BRAND = { name: 'KAC Translator' };
+$('brand').textContent = BRAND.name;
+
+/* 데스크 길안내: 시설 라벨/문구 현지화(손님 언어, en 폴백) + 인라인 지도 */
+const isDesk = () => sessionPipeline === 'desk';
+const CAT_EN = { restroom:'Restroom', smoking:'Smoking area', pharmacy:'Pharmacy', convenience:'Convenience store', exchange:'Currency exchange', charging:'Charging station', lounge:'Lounge', nursing:'Nursing room', prayer:'Prayer room', water:'Water fountain', security:'Security check', immigration:'Immigration', customs:'Customs', duty_free:'Duty free', info_desk:'Information', baggage:'Baggage claim', gate:'Gate', food:'Restaurant', ticket:'Bus tickets', wheelchair:'Wheelchair', stroller:'Stroller', aed:'AED', elevator:'Elevator', escalator:'Escalator', stairs:'Stairs' };
+const DUI = {
+  interpreting:{ko:'통역 중',en:'Interpreting',ja:'通訳中',zh:'翻译中',vi:'Đang dịch'},
+  staff:{ko:'안내원',en:'Staff',ja:'案内係',zh:'工作人员',vi:'Nhân viên'},
+  you:{ko:'나',en:'You',ja:'あなた',zh:'您',vi:'Bạn'},
+  walk:{ko:'도보',en:'Walk',ja:'徒歩',zh:'步行',vi:'Đi bộ'},
+  min:{ko:'분',en:' min',ja:'分',zh:'分钟',vi:' phút'},
+};
+function dt(k){ const d = DUI[k] || {}; return d[curLang] || d.en || d.ko || k; }
+function catLabel(m){ return (curLang === 'ko') ? (m.ko||'') : (CAT_EN[m.category] || m.ko || ''); }
+function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||''; return curLang==='ko' ? (n+'층') : (n+'F'); }
+
+let mapApi = null, mapLoading = false, mapBlock = null;
+function loadMapScripts(cb){
+  if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
+  if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
+  mapLoading = true; let n = 0; const done = () => { if (++n >= 2) { mapLoading = false; cb(); } };
+  for (const src of ['/map/wayfinding_data.js','/map/airport25d.js']) { const s=document.createElement('script'); s.src=src; s.onload=done; s.onerror=done; document.head.appendChild(s); }
+}
+function ensureMapBlock(){
+  if (mapBlock) return mapBlock;
+  mapBlock = document.createElement('div'); mapBlock.className = 'mapCard';
+  const head = document.createElement('div'); head.className = 'mHead';
+  head.innerHTML = '<span class="mIco"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span><span class="mName"></span><span class="mChips"></span>';
+  const holder = document.createElement('div'); holder.className = 'mHolder';
+  mapBlock.appendChild(head); mapBlock.appendChild(holder); mapBlock._holder = holder; mapBlock._head = head;
+  return mapBlock;
+}
+function fillMapHead(m, res){
+  if (!mapBlock) return;
+  mapBlock._head.querySelector('.mName').textContent = catLabel(m) + ' · ' + floorLbl(m.floor);
+  const chips = mapBlock._head.querySelector('.mChips'); chips.textContent = '';
+  const sums = (res && res.summaries) || [];
+  if (sums.length){ const best = sums.reduce((a,b)=>(b&&a&&b.meters<a.meters?b:a), sums[0]);
+    if (best){ let html = '<span class="chip">'+dt('walk')+' '+Math.max(1,Math.round(best.minutes||0))+dt('min')+'</span>'; if(best.meters) html+='<span class="chip">'+Math.round(best.meters)+' m</span>'; chips.innerHTML = html; } }
+}
+function showWayfind(m){
+  loadMapScripts(() => {
+    const block = ensureMapBlock(); feed.appendChild(block); scrollDown();
+    const doRoute = () => { try { mapApi.setLang(curLang); const res = mapApi.showRoute({ deskFloor:m.deskFloor||'1F', deskSide:m.deskSide||'S', dest:m.dests }); fillMapHead(m,res); scrollDown(); } catch(e){} };
+    if (mapApi) { doRoute(); return; }
+    if (!window.AirportMap25D || !window.AIRPORT_DATA) return;
+    mapApi = AirportMap25D.create({ container: block._holder, data: window.AIRPORT_DATA, lang: curLang, onReady: doRoute });
+  });
+}
+function deskTextOf(c){
+  if (c.texts && c.texts[curLang]) return { t:c.texts[curLang], staff:true };  // 안내원 답변(손님 언어)
+  if (c.source) return { t:c.source, staff:false };                            // 손님 자기 발화(원문)
+  const k = c.texts && Object.keys(c.texts); if (k && k.length) return { t:c.texts[k[0]], staff:true };
+  return { t:'', staff:false };
+}
+
 /* ---- 설정 저장값 ---- */
 function applyTheme(t){ document.documentElement.setAttribute('data-theme', t); localStorage.setItem('kac-theme', t); $('darkToggle').checked = (t==='dark'); }
 const FS_BASE = 18; // 100% 기준 px
@@ -182,13 +262,14 @@ function applySxInfo(info){
   if (info.mode === 'two') {
     // 데스크 뷰어(외국인 태블릿)는 자기 언어(b)를 본다. 일반 soniox는 a(=ko).
     curLang = (sessionPipeline === 'desk') ? info.b : info.a;
-    el.textContent = (LABEL[info.a]||info.a) + ' ↔ ' + (LABEL[info.b]||info.b);
-  } else if (sessionPipeline === 'desk') {
-    curLang = 'ko'; el.textContent = '언어 감지 중… (말씀하세요)'; // detect 단계
+    el.classList.add('pill');
+    el.innerHTML = '<span class="dot"></span><span>' + (LABEL[info.a]||info.a) + ' ↔ ' + (LABEL[info.b]||info.b) + '</span>';
   } else {
-    curLang = info.target; el.textContent = '→ ' + (LABEL[info.target]||info.target);
+    el.classList.remove('pill');
+    if (sessionPipeline === 'desk') { curLang = 'ko'; el.textContent = '언어 감지 중… (말씀하세요)'; } // detect 단계
+    else { curLang = info.target; el.textContent = '→ ' + (LABEL[info.target]||info.target); }
   }
-  el.style.display = 'block';
+  el.style.display = el.classList.contains('pill') ? 'flex' : 'block';
   rerender();
 }
 async function loadSession(){
@@ -258,21 +339,34 @@ function upsert(item){
   renderSpk(card);
   renderLine(card);
   card.src.textContent = card.source;
-  card.src.style.display = (showSrc && card.source) ? 'block' : 'none';
+  card.src.style.display = (!isDesk() && showSrc && card.source) ? 'block' : 'none';
   if(stick) scrollDown();
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
-function renderSpk(c){ if(!c.spk) return; if(c.speaker){ c.spk.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>'+esc(spkLabel(c.speaker)); c.spk.style.display='inline-flex'; } else { c.spk.style.display='none'; } }
+function renderSpk(c){ if(!c.spk) return; if(isDesk()) return; if(c.speaker){ c.spk.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>'+esc(spkLabel(c.speaker)); c.spk.style.display='inline-flex'; } else { c.spk.style.display='none'; } }
 function rerenderSpk(){ cards.forEach(renderSpk); }
 // 선택 언어 번역이 아직 없으면 원문을 흐리게(placeholder)
 function renderLine(c){
+  if (isDesk()){
+    const r = deskTextOf(c);
+    c.el.classList.add('turn');
+    c.el.classList.toggle('staff', r.staff);
+    c.el.classList.toggle('self', !r.staff);
+    c.el.classList.remove('latest');
+    if (c.spk){ c.spk.className = 'who'; c.spk.style.display = r.t ? '' : 'none'; c.spk.textContent = r.staff ? dt('staff') : (dt('you') + ' · ' + String(curLang).toUpperCase()); }
+    c.line.className = 'line';
+    c.line.textContent = r.t;
+    if (c.src) c.src.style.display = 'none';
+    c.el.style.display = r.t ? '' : 'none';
+    return;
+  }
   const txt = pick(c.texts);
   c.line.classList.toggle('pending', !txt && !!c.source);
   c.line.textContent = txt || c.source || '';
 }
 function rerender(){ cards.forEach(renderLine); }
 // 데스크: 대화 종료 시 화면 초기화(다음 손님)
-function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); if(empty) empty.style.display=''; }
+function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); if(mapBlock){ try{ mapBlock.remove(); }catch{} } if(empty) empty.style.display=''; }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
 
 /* ---- 번역 음성 재생 (translate, 24kHz PCM16) ---- */
@@ -311,6 +405,7 @@ function connect(){
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
     else if(m.type==='audio'){ if(audioOn) playPcm24(m.b64); }
     else if(m.type==='meta'){ if(sessionPipeline==='soniox' || sessionPipeline==='desk') applySxInfo(m.sxInfo); }
+    else if(m.type==='wayfind'){ if(isDesk()) showWayfind(m); }
     else if(m.type==='desk-reset'){ clearAll(); }
     else if(m.type==='speakers'){ speakerNames = m.speakers || {}; rerenderSpk(); }
     else if(m.type==='host'){ setHostActive(m.active); }
