@@ -1626,6 +1626,7 @@ function handleViewer(ws) {
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
   if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
+  broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); // 뷰어 수(랜딩 표시)
   ws.on('message', (data, isBinary) => {
     if (isBinary) { if (talk) talk.feed(data); return; }
     try {
@@ -1642,7 +1643,7 @@ function handleViewer(ws) {
       }
     } catch {}
   });
-  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } });
+  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); });
 }
 
 /* ----------------------------- 호스트 ----------------------------- */
