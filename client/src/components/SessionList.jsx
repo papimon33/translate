@@ -43,17 +43,43 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
-// 새 세션 모달 — 상황 3종. Aurora 아이콘(paths) 인라인.
+// 모드 아이콘(첨부 SVG → currentColor. 배경색에 맞춰 색 상속). 1=스피커, 2=화면, 3=양방향.
+export function IconMode1(props) {
+  return (
+    <Box component="svg" viewBox="-0.5 0 25 25" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12.5493 4.50005C11.3193 4.04005 8.70926 5.49996 6.54926 7.40996H4.94922C3.88835 7.40996 2.87093 7.83145 2.12079 8.58159C1.37064 9.33174 0.949219 10.3491 0.949219 11.41V13.41C0.949219 14.4708 1.37064 15.4883 2.12079 16.2385C2.87093 16.9886 3.88835 17.41 4.94922 17.41H6.54926C8.65926 19.35 11.2693 20.78 12.5493 20.33C14.6493 19.55 14.9992 15.33 14.9992 12.41C14.9992 9.48996 14.6493 5.28005 12.5493 4.50005Z" />
+      <path d="M20.6602 6.71997C22.1593 8.22011 23.0015 10.2542 23.0015 12.375C23.0015 14.4958 22.1593 16.5299 20.6602 18.03" />
+      <path d="M18.5391 15.95C19.4764 15.0123 20.003 13.7407 20.003 12.4149C20.003 11.0891 19.4764 9.81764 18.5391 8.88" />
+    </Box>
+  );
+}
+export function IconMode2(props) {
+  return (
+    <Box component="svg" viewBox="0 0 32 32" fill="currentColor" {...props}>
+      <path d="M23,28L23,28c-1.1,0-2.1-0.7-2.5-1.8c0-0.1,0-0.2-0.1-0.2h-8.9c0,0.1,0,0.2-0.1,0.2C11.1,27.3,10.1,28,9,28h0 c-0.6,0-1,0.4-1,1s0.4,1,1,1h14c0.6,0,1-0.4,1-1S23.6,28,23,28z" />
+      <path d="M15.6,10.2c-0.3-0.2-0.7-0.3-1.1-0.1C14.2,10.3,14,10.6,14,11v5c0,0.4,0.2,0.7,0.6,0.9C14.7,17,14.9,17,15,17 c0.2,0,0.5-0.1,0.6-0.2l3-2.5c0.2-0.2,0.4-0.5,0.4-0.8s-0.1-0.6-0.4-0.8L15.6,10.2z" />
+      <path d="M27,3H5C3.3,3,2,4.3,2,6v15c0,1.7,1.3,3,3,3h6.9h8.1H27c1.7,0,3-1.3,3-3V6C30,4.3,28.7,3,27,3z M26,19c0,0.6-0.4,1-1,1H7 c-0.6,0-1-0.4-1-1V8c0-0.6,0.4-1,1-1h18c0.6,0,1,0.4,1,1V19z" />
+    </Box>
+  );
+}
+export function IconMode3(props) {
+  return (
+    <Box component="svg" viewBox="0 0 45.363 45.363" fill="currentColor" {...props}>
+      <path d="M1.788,16.945c0.388,0.385,0.913,0.601,1.459,0.601l27.493-0.035v3.831c0.003,0.836,0.556,1.586,1.329,1.904 c0.771,0.314,1.658,0.135,2.246-0.459l9.091-9.18c1.062-1.071,1.06-2.801-0.009-3.868l-9.137-9.134 c-0.59-0.591-1.479-0.768-2.25-0.446c-0.77,0.319-1.271,1.074-1.27,1.908L30.74,5.9L3.219,5.937 C2.08,5.94,1.161,6.864,1.163,8.004l0.018,7.483C1.182,16.034,1.401,16.56,1.788,16.945z" />
+      <path d="M42.146,27.901l-27.522-0.035l-0.001-3.834c0.002-0.835-0.5-1.587-1.27-1.907c-0.771-0.321-1.66-0.146-2.25,0.445 l-9.136,9.135c-1.067,1.064-1.071,2.796-0.009,3.866l9.09,9.181c0.588,0.596,1.475,0.772,2.247,0.458 c0.772-0.316,1.326-1.066,1.329-1.904v-3.83l27.493,0.035c0.547,0,1.072-0.216,1.459-0.602s0.605-0.91,0.607-1.456L44.2,29.97 C44.203,28.83,43.284,27.903,42.146,27.901z" />
+    </Box>
+  );
+}
+// 새 세션 모달 — 상황 3종.
 export const SITUATIONS = [
-  { v: 'live', title: '라이브 청취', badge: '강의·컨퍼런스', example: '스피커로 들어온 현장 음성을 지정한 언어로 번역',
-    paths: [<path key="1" d="M11 5L6 9H3v6h3l5 4V5z" />, <path key="2" d="M15.5 8.5a5 5 0 010 7" />] },
-  { v: 'oneway', title: '온라인 회의', badge: '줌 회의 등', example: 'PC 시스템 음성을 지정한 언어로 번역',
-    paths: [<path key="1" d="M4 12h14" />, <path key="2" d="M13 6l6 6-6 6" />] },
-  { v: 'twoway', title: '양방향 번역', badge: '온·오프라인 회의', example: '지정한 2개 언어를 서로의 언어로 번역',
-    paths: [<path key="1" d="M7 7l-4 4 4 4" />, <path key="2" d="M3 11h18" />, <path key="3" d="M17 17l4-4-4-4" />] },
+  { v: 'live', title: '라이브 청취', badge: '강의·컨퍼런스', example: '스피커로 들어온 현장 음성을 지정한 언어로 번역', Icon: IconMode1 },
+  { v: 'oneway', title: '온라인 회의', badge: '줌 회의 등', example: 'PC 시스템 음성을 지정한 언어로 번역', Icon: IconMode2 },
+  { v: 'twoway', title: '양방향 번역', badge: '온·오프라인 회의', example: '지정한 2개 언어를 서로의 언어로 번역', Icon: IconMode3 },
 ];
 // 세션 모드 표시명(라이브 헤더·목록 배지). 레거시(mobile/online/field/meeting) 매핑 포함.
 export const TYPE_NAME = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
+// 세션 모드 → 아이콘(목록·모달 공용)
+export const MODE_ICON = { live: IconMode1, oneway: IconMode2, twoway: IconMode3, mobile: IconMode3, online: IconMode2, field: IconMode3, meeting: IconMode3 };
 
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
@@ -203,7 +229,9 @@ export default function SessionList({ onOpen, user, deskMode }) {
             </Box>
           )}
 
-          {shown.map((s) => (
+          {shown.map((s) => {
+            const Ic = MODE_ICON[s.preset] || IconMode2;
+            return (
             <Card
               key={s.id}
               sx={{
@@ -218,9 +246,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                   variant="rounded"
                   sx={{ width: 46, height: 46, borderRadius: 3, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}
                 >
-                  <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" sx={{ width: 22, height: 22 }}>
-                    <path d="M4 5h11a3 3 0 013 3v6a3 3 0 01-3 3H9l-5 4V5z" />
-                  </Box>
+                  <Ic sx={{ width: 23, height: 23 }} />
                 </Avatar>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography sx={{ fontWeight: 600, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -238,7 +264,8 @@ export default function SessionList({ onOpen, user, deskMode }) {
                 <MoreVertIcon />
               </IconButton>
             </Card>
-          ))}
+            );
+          })}
         </Box>
       </Box>
 
@@ -288,13 +315,13 @@ export default function SessionList({ onOpen, user, deskMode }) {
               sx={{ mb: 1 }}
             />
           ) : (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-              <Typography sx={{ fontWeight: 800, fontSize: 20, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography sx={{ fontWeight: 800, fontSize: 20, minWidth: 0, maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {name}
               </Typography>
               <Tooltip title="제목 수정">
-                <IconButton size="small" onClick={() => setEditName(true)}>
-                  <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" sx={{ width: 17, height: 17, color: 'text.secondary' }}>
+                <IconButton onClick={() => setEditName(true)} sx={{ width: 32, height: 32, flex: 'none', borderRadius: '9px', border: 1, borderColor: 'divider', color: 'text.secondary' }}>
+                  <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" sx={{ width: 16, height: 16 }}>
                     <path d="M4 20h4L19 9l-4-4L4 16v4z" />
                   </Box>
                 </IconButton>
@@ -306,6 +333,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mt: 2 }}>
               {SITUATIONS.map((p) => {
                 const sel = preset === p.v;
+                const Ic = p.Icon;
                 return (
                   <Box
                     key={p.v}
@@ -320,7 +348,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                     }}
                   >
                     <Avatar variant="rounded" sx={{ width: 44, height: 44, borderRadius: 3, flex: 'none', bgcolor: (t) => (sel ? t.palette.primary.main : alpha(t.palette.primary.main, 0.12)), color: sel ? '#fff' : 'primary.main' }}>
-                      <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" sx={{ width: 22, height: 22 }}>{p.paths}</Box>
+                      <Ic sx={{ width: 23, height: 23 }} />
                     </Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>

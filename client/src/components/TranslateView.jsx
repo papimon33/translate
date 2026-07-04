@@ -13,7 +13,6 @@ import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
 import Collapse from '@mui/material/Collapse';
-import Drawer from '@mui/material/Drawer';
 import Divider from '@mui/material/Divider';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
@@ -151,8 +150,8 @@ function LockedValue({ label }) {
     </Box>
   );
 }
-// 토글 + (i) 설명 툴팁
-function InfoToggle({ label, hint, checked, disabled, onChange }) {
+// 토글 + (i) 설명 툴팁 (+ 선택적 note: 스위치 옆 작은 안내)
+function InfoToggle({ label, hint, checked, disabled, onChange, note }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
@@ -161,11 +160,38 @@ function InfoToggle({ label, hint, checked, disabled, onChange }) {
           <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'help' }} />
         </Tooltip>
       </Box>
-      <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ height: 37, display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Switch checked={checked} disabled={disabled} onChange={onChange} />
+        {note && <Typography sx={{ fontSize: 10.5, color: 'text.disabled', whiteSpace: 'nowrap' }}>{note}</Typography>}
       </Box>
     </Box>
   );
+}
+
+// 이어폰(외부 오디오 출력) 연결 감지 — 번역 음성은 이어폰 연결 시에만 활성화(스피커 피드백 방지)
+function useHeadphones() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const md = navigator.mediaDevices;
+    const check = async () => {
+      try {
+        const devs = await md.enumerateDevices();
+        const outs = devs.filter((d) => d.kind === 'audiooutput');
+        const kw = /head|ear|이어|헤드|airpod|buds?|bluetooth|헤드셋|handsfree/i;
+        const byLabel = outs.some((d) => kw.test(d.label || ''));
+        const real = outs.filter((d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+        const groups = new Set(real.map((d) => d.groupId));
+        if (alive) setOn(byLabel || groups.size >= 2 || real.length >= 2);
+      } catch { if (alive) setOn(false); }
+    };
+    if (md && md.enumerateDevices) {
+      check();
+      md.addEventListener && md.addEventListener('devicechange', check);
+    }
+    return () => { alive = false; md && md.removeEventListener && md.removeEventListener('devicechange', check); };
+  }, []);
+  return on;
 }
 
 function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange }) {
@@ -230,7 +256,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [ttsOn, setTtsOn] = useState(() => { const s = localStorage.getItem('kac-sx-tts'); return s === '1' ? true : s === '0' ? false : !onewayPreset; }); // 음성재생(TTS): 오프라인(대화) 기본 ON, 온라인 OFF
-  const [viewerPTT, setViewerPTT] = useState(!!initial.viewerPTT); // 참여자 PTT(휴대폰 누르고 말하기) — 기본 OFF
+  const [viewerPTT, setViewerPTT] = useState(!!initial.viewerPTT); // 참여자 발화(휴대폰 토글) — 기본 OFF
+  const headphones = useHeadphones(); // 이어폰 연결 여부 — 번역 음성 활성화 조건
   const [gender, setGender] = useState(() => localStorage.getItem('kac-sx-gender') || 'f'); // 음성 성별
   const [previewing, setPreviewing] = useState(false);
   const previewVoice = async () => {
@@ -279,6 +306,12 @@ export default function TranslateView({ session: initial, onBack }) {
     try { await navigator.clipboard.writeText(lines.join('\n')); setSumCopied(true); setTimeout(() => setSumCopied(false), 1500); } catch {}
   };
   const [copied, setCopied] = useState(false);
+  // 세션 제목(라이브 헤더에서 수정)
+  const [sessTitle, setSessTitle] = useState(initial.title);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameVal, setRenameVal] = useState('');
+  const openRename = () => { setRenameVal(sessTitle || ''); setRenameOpen(true); };
+  const saveRename = () => { const v = (renameVal || '').trim() || '제목 없음'; setSessTitle(v); setRenameOpen(false); api.patch(initial.id, { title: v }).catch(() => {}); };
   const [speakers, setSpeakers] = useState(initial.speakers || {}); // 화자번호 -> 지정이름(다운로드 표기용)
   const [notice, setNotice] = useState('');
   const [connecting, setConnecting] = useState(false);
@@ -440,8 +473,8 @@ export default function TranslateView({ session: initial, onBack }) {
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
         refine: true,
-        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn), // soniox: TTS 켜면 호스트가 상대(뷰어) 발화 청취
-        tts: cfg.pipeline === 'soniox' && ttsOn, // 음성재생 토글(기본 off)
+        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn && headphones), // 번역 음성은 이어폰 연결 시에만
+        tts: cfg.pipeline === 'soniox' && ttsOn && headphones, // 음성재생(이어폰 연결 시에만)
         gender,
         volume,
         endpointing,
@@ -503,11 +536,6 @@ export default function TranslateView({ session: initial, onBack }) {
   const showPartial = true;
   const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
   const pipeLabel = initial.preset ? PRESET_LABEL[initial.preset] : PIPES.find((p) => p.v === cfg.pipeline)?.label;
-  // 입출력 언어 표시(헤더). 단방향=입력→출력, 양방향=A↔B. (auto=모든 언어)
-  const inLabel = cfg.inLang === 'auto' || !cfg.inLang ? '모든 언어' : (LANG_LABEL[cfg.inLang] || cfg.inLang);
-  const langFlow = onewayPreset
-    ? `${inLabel} → ${LANG_LABEL[sxTarget] || sxTarget}`
-    : `${LANG_LABEL[sxA] || sxA} ↔ ${LANG_LABEL[sxB] || sxB}`;
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -518,14 +546,21 @@ export default function TranslateView({ session: initial, onBack }) {
         </IconButton>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {initial.title}
+            <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+              {sessTitle}
             </Typography>
+            {cfg.pipeline !== 'desk' && (
+              <Tooltip title="제목 수정">
+                <IconButton onClick={openRename} sx={{ width: 30, height: 30, flex: 'none', borderRadius: '9px', border: 1, borderColor: 'divider', color: 'text.secondary' }}>
+                  <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" sx={{ width: 15, height: 15 }}><path d="M4 20h4L19 9l-4-4L4 16v4z" /></Box>
+                </IconButton>
+              </Tooltip>
+            )}
             {cfg.pipeline !== 'desk' && (
               <Chip size="small" label={pipeLabel} sx={{ height: 22, fontSize: 11.5, fontWeight: 700, flex: 'none', bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
             )}
           </Box>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>{cfg.pipeline === 'desk' ? pipeLabel : langFlow}</Typography>
+          {cfg.pipeline === 'desk' && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>{pipeLabel}</Typography>}
         </Box>
         {recording && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.85, borderRadius: '9px', flex: 'none', bgcolor: (t) => alpha(t.palette.success.main, 0.14), color: 'success.main', fontSize: 13, fontWeight: 700 }}>
@@ -578,20 +613,27 @@ export default function TranslateView({ session: initial, onBack }) {
             </IconButton>
           </Tooltip>
         )}
-        <Tooltip title={optsOpen ? '옵션 숨기기' : '옵션 보기'}>
-          <IconButton onClick={() => setOptsOpen((o) => !o)} sx={{ border: 1, borderColor: 'divider' }}>
-            {optsOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-          </IconButton>
-        </Tooltip>
       </Box>
 
-      {/* 컨트롤 바 (옵션) — 접으면 번역 영역이 넓어짐 */}
-      <Collapse in={optsOpen}>
+      {/* 컨트롤 바 (옵션) — 우상단 토글로 접기/펼치기, 마이크 입력은 항상 표시 */}
       <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: 1.5 }}>
-        <Paper
-          variant="outlined"
-          sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
-        >
+        <Paper variant="outlined" sx={{ borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015), overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 1.5, py: 1 }}>
+            <Field label="마이크 입력">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 30 }}>
+                <MicNoneIcon fontSize="small" sx={{ color: level > 2 ? 'success.main' : 'text.disabled' }} />
+                <LinearProgress variant="determinate" value={level} color="success" sx={{ width: 90, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
+              </Box>
+            </Field>
+            <Box sx={{ flex: 1 }} />
+            <Tooltip title={optsOpen ? '옵션 접기' : '옵션 펼치기'}>
+              <IconButton size="small" onClick={() => setOptsOpen((o) => !o)} sx={{ border: 1, borderColor: 'divider', width: 28, height: 28, borderRadius: '8px' }}>
+                {optsOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+          <Collapse in={optsOpen}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', px: 1.5, pb: 1.5, pt: 0.5, borderTop: 1, borderColor: 'divider' }}>
           {cfg.pipeline !== 'desk' && cfg.pipeline !== 'soniox' && (
             <Field label="오디오 소스">
               <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
@@ -652,7 +694,7 @@ export default function TranslateView({ session: initial, onBack }) {
                   </Tooltip>
                 </Box>
                 <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 130 }}>
-                  <MenuItem value="auto">모든 언어 (자동)</MenuItem>
+                  <MenuItem value="auto">자동 감지</MenuItem>
                   {LANGS.filter((l) => l.code !== 'auto').map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
                 </Select>
               </Box>
@@ -668,6 +710,16 @@ export default function TranslateView({ session: initial, onBack }) {
                   checked={sourceMode === 'both'}
                   disabled={recording}
                   onChange={(e) => setSourceMode(e.target.checked ? 'both' : 'system')}
+                />
+              )}
+              {['oneway', 'online'].includes(initial.preset) && (
+                <InfoToggle
+                  label="음성 재생"
+                  hint="번역 결과를 음성(TTS)으로 재생합니다. 스피커로 틀면 시스템 소리에 다시 섞여 인식될 수 있어, 이어폰 연결 시에만 켤 수 있습니다."
+                  checked={ttsOn}
+                  disabled={recording || !headphones}
+                  note={!headphones ? '🎧 이어폰 연결 필요' : undefined}
+                  onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
                 />
               )}
             </>
@@ -686,9 +738,10 @@ export default function TranslateView({ session: initial, onBack }) {
               </Field>
               <InfoToggle
                 label="음성 재생"
-                hint="번역 결과를 스피커로 음성(TTS) 재생합니다."
+                hint="번역 결과를 음성(TTS)으로 재생합니다. 상대 음성이 다시 인식되는 것을 막기 위해 이어폰 연결 시에만 켤 수 있습니다."
                 checked={ttsOn}
-                disabled={recording}
+                disabled={recording || !headphones}
+                note={!headphones ? '🎧 이어폰 연결 필요' : undefined}
                 onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
               />
               {ttsOn && (
@@ -709,8 +762,8 @@ export default function TranslateView({ session: initial, onBack }) {
                 </Field>
               )}
               <InfoToggle
-                label="참여자 PTT"
-                hint="켜면 참여자가 휴대폰의 '누르고 말하기'(Push-To-Talk)로 직접 발화할 수 있습니다."
+                label="참여자 발화"
+                hint="켜면 참여자가 휴대폰에서 '발화' 버튼을 눌러(토글) 직접 말할 수 있습니다. (양방향 대화용)"
                 checked={viewerPTT}
                 disabled={recording}
                 onChange={(e) => { const v = e.target.checked; setViewerPTT(v); try { api.patch(initial.id, { viewerPTT: v }); } catch {} }}
@@ -794,22 +847,10 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
 
-          <Box sx={{ flex: 1 }} />
-
-          <Field label="마이크 입력">
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 37 }}>
-              <MicNoneIcon fontSize="small" sx={{ color: level > 2 ? 'success.main' : 'text.disabled' }} />
-              <LinearProgress
-                variant="determinate"
-                value={level}
-                color="success"
-                sx={{ width: 90, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }}
-              />
-            </Box>
-          </Field>
+          </Box>
+          </Collapse>
         </Paper>
       </Box>
-      </Collapse>
 
       {notice && (
         <Box sx={{ mx: { xs: 1.5, sm: 3 }, mb: 1, px: 1.75, py: 1, borderRadius: 2, fontSize: 13, bgcolor: (t) => alpha(t.palette.warning.main, 0.14), color: 'warning.main', border: 1, borderColor: (t) => alpha(t.palette.warning.main, 0.4) }}>
@@ -824,7 +865,8 @@ export default function TranslateView({ session: initial, onBack }) {
 
       <Divider />
 
-      {/* 채팅 */}
+      {/* 채팅 + AI 요약(인라인 고정 패널) */}
+      <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
       <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <Box ref={scrollRef} sx={{ position: 'absolute', inset: 0, overflowY: 'auto', px: { xs: 1.5, sm: 3 }, py: 3, pb: 16 }}>
           <Box sx={{ maxWidth: 880, mx: 'auto', display: 'flex', flexDirection: 'column', gap: '30px' }}>
@@ -925,6 +967,71 @@ export default function TranslateView({ session: initial, onBack }) {
         </Box>
       </Box>
 
+      {sumOpen && cfg.pipeline !== 'desk' && (
+        <Box sx={{ width: { xs: '100%', sm: 380 }, flex: 'none', borderLeft: 1, borderColor: 'divider', bgcolor: 'background.paper', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.75, borderBottom: 1, borderColor: 'divider', flex: 'none' }}>
+            <AutoAwesomeOutlinedIcon sx={{ color: 'primary.main' }} />
+            <Typography sx={{ fontWeight: 800, fontSize: 16, flex: 1 }}>AI 요약</Typography>
+            <IconButton size="small" onClick={() => setSumOpen(false)}><CloseIcon fontSize="small" /></IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+            {!sumData && !sumLoading && !sumErr && (
+              <Box sx={{ textAlign: 'center', mt: 5 }}>
+                <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mb: 3, lineHeight: 1.6 }}>지금까지의 확정된 대화를 핵심 요점과 주요 용어로 정리합니다.</Typography>
+                <Button variant="contained" startIcon={<AutoAwesomeOutlinedIcon />} onClick={generateSummary}>요약 생성</Button>
+              </Box>
+            )}
+            {sumLoading && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, mt: 6, color: 'text.secondary' }}>
+                <CircularProgress size={26} />
+                <Typography sx={{ fontSize: 13 }}>요약을 생성하고 있어요…</Typography>
+              </Box>
+            )}
+            {sumErr && !sumLoading && (
+              <Box sx={{ mt: 3 }}>
+                <Typography sx={{ fontSize: 13.5, color: 'error.main', mb: 2 }}>{sumErr}</Typography>
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={generateSummary}>다시 시도</Button>
+              </Box>
+            )}
+            {sumData && !sumLoading && (
+              (!(sumData.points && sumData.points.length) && !(sumData.terms && sumData.terms.length)) ? (
+                <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mt: 3, lineHeight: 1.6 }}>요약할 대화가 아직 없어요. 번역이 쌓인 뒤 다시 생성해 주세요.</Typography>
+              ) : (
+                <>
+                  {sumData.points && sumData.points.length > 0 && (
+                    <Box sx={{ mb: 3 }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', letterSpacing: '.04em', mb: 1 }}>핵심 요점</Typography>
+                      <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {sumData.points.map((p, i) => (<Typography key={i} component="li" sx={{ fontSize: 14.5, lineHeight: 1.55 }}>{p}</Typography>))}
+                      </Box>
+                    </Box>
+                  )}
+                  {sumData.terms && sumData.terms.length > 0 && (
+                    <Box sx={{ mb: 1 }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', letterSpacing: '.04em', mb: 1 }}>주요 용어</Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {sumData.terms.map((t, i) => (
+                          <Box key={i} sx={{ fontSize: 13, fontWeight: 500, px: 1.25, py: 0.75, borderRadius: '8px', border: 1, borderColor: 'divider', bgcolor: (th) => alpha(th.palette.text.primary, 0.02) }}>
+                            {t.src}{t.ko ? ` · ${t.ko}` : ''}
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                </>
+              )
+            )}
+          </Box>
+          {sumData && !sumLoading && (
+            <Box sx={{ display: 'flex', gap: 1, p: 2, borderTop: 1, borderColor: 'divider', flex: 'none' }}>
+              <Button fullWidth variant="outlined" startIcon={sumCopied ? <CheckIcon /> : <ContentCopyIcon />} onClick={copySummary} sx={{ borderColor: 'divider', color: sumCopied ? 'success.main' : 'text.primary' }}>{sumCopied ? '복사됨' : '복사'}</Button>
+              <Button fullWidth variant="contained" startIcon={<RefreshIcon />} onClick={generateSummary}>다시 생성</Button>
+            </Box>
+          )}
+        </Box>
+      )}
+      </Box>
+
       <Dialog open={sxSettingsOpen} onClose={() => setSxSettingsOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
         <DialogTitle sx={{ fontWeight: 800 }}>고급 설정</DialogTitle>
         <DialogContent>
@@ -987,73 +1094,16 @@ export default function TranslateView({ session: initial, onBack }) {
         </DialogContent>
       </Dialog>
 
-      {/* AI 요약 — 우측 슬라이드 패널(세션 내) */}
-      <Drawer anchor="right" open={sumOpen} onClose={() => setSumOpen(false)} PaperProps={{ sx: { width: 380, maxWidth: '100%' } }}>
-        <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <AutoAwesomeOutlinedIcon sx={{ color: 'primary.main' }} />
-            <Typography sx={{ fontWeight: 800, fontSize: 17, flex: 1 }}>AI 요약</Typography>
-            <IconButton size="small" onClick={() => setSumOpen(false)}><CloseIcon fontSize="small" /></IconButton>
-          </Box>
-
-          <Box sx={{ flex: 1, overflowY: 'auto' }}>
-            {!sumData && !sumLoading && !sumErr && (
-              <Box sx={{ textAlign: 'center', mt: 6 }}>
-                <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mb: 3, lineHeight: 1.6 }}>지금까지의 확정된 대화를 핵심 요점과 주요 용어로 정리합니다.</Typography>
-                <Button variant="contained" startIcon={<AutoAwesomeOutlinedIcon />} onClick={generateSummary}>요약 생성</Button>
-              </Box>
-            )}
-            {sumLoading && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, mt: 8, color: 'text.secondary' }}>
-                <CircularProgress size={26} />
-                <Typography sx={{ fontSize: 13 }}>요약을 생성하고 있어요…</Typography>
-              </Box>
-            )}
-            {sumErr && !sumLoading && (
-              <Box sx={{ mt: 4 }}>
-                <Typography sx={{ fontSize: 13.5, color: 'error.main', mb: 2 }}>{sumErr}</Typography>
-                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={generateSummary}>다시 시도</Button>
-              </Box>
-            )}
-            {sumData && !sumLoading && (
-              (!(sumData.points && sumData.points.length) && !(sumData.terms && sumData.terms.length)) ? (
-                <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mt: 4, lineHeight: 1.6 }}>요약할 대화가 아직 없어요. 번역이 쌓인 뒤 다시 생성해 주세요.</Typography>
-              ) : (
-                <>
-                  {sumData.points && sumData.points.length > 0 && (
-                    <Box sx={{ mb: 3 }}>
-                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', letterSpacing: '.04em', mb: 1 }}>핵심 요점</Typography>
-                      <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        {sumData.points.map((p, i) => (<Typography key={i} component="li" sx={{ fontSize: 14.5, lineHeight: 1.55 }}>{p}</Typography>))}
-                      </Box>
-                    </Box>
-                  )}
-                  {sumData.terms && sumData.terms.length > 0 && (
-                    <Box sx={{ mb: 3 }}>
-                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', letterSpacing: '.04em', mb: 1 }}>주요 용어</Typography>
-                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                        {sumData.terms.map((t, i) => (
-                          <Box key={i} sx={{ display: 'flex', alignItems: 'baseline', gap: 1, py: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}>
-                            <Typography sx={{ fontSize: 14, fontWeight: 700 }}>{t.src}</Typography>
-                            {t.ko && <Typography sx={{ fontSize: 13.5, color: 'text.secondary' }}>{t.ko}</Typography>}
-                          </Box>
-                        ))}
-                      </Box>
-                    </Box>
-                  )}
-                </>
-              )
-            )}
-          </Box>
-
-          {sumData && !sumLoading && (
-            <Box sx={{ display: 'flex', gap: 1, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-              <Button fullWidth variant="outlined" startIcon={sumCopied ? <CheckIcon /> : <ContentCopyIcon />} onClick={copySummary} sx={{ borderColor: 'divider', color: sumCopied ? 'success.main' : 'text.primary' }}>{sumCopied ? '복사됨' : '복사'}</Button>
-              <Button fullWidth variant="contained" startIcon={<RefreshIcon />} onClick={generateSummary}>다시 생성</Button>
-            </Box>
-          )}
-        </Box>
-      </Drawer>
+      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>제목 변경</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth size="small" value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRename(); }} sx={{ mt: 1 }} />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setRenameOpen(false)}>취소</Button>
+          <Button variant="contained" onClick={saveRename}>저장</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
