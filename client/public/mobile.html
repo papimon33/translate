@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="dark">
+<html lang="ko" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet" />
 <style>
-  :root { --bg:#0f1115; --panel:#181b22; --line:#272b35; --txt:#e8eaf0; --muted:#8b93a7; --accent:#4f8cff; --accent2:#36d399; --fs:19px;
+  :root { --bg:#0f1115; --panel:#181b22; --line:#272b35; --txt:#e8eaf0; --muted:#8b93a7; --accent:#4f8cff; --accent2:#36d399; --fs:20px;
     --bubStaff:#232a52; --bubStaffFg:#c7ccff; --bubSelf:#232833; --bubSelfFg:#e8eaf0; }
   [data-theme="light"] { --bg:#fff; --panel:#f5f6f8; --line:#e1e4ea; --txt:#1a1d24; --muted:#6b7280; --accent:#2563eb; --accent2:#059669;
     --bubStaff:#eef2ff; --bubStaffFg:#3730a3; --bubSelf:#eef1f5; --bubSelfFg:#1a1d24; }
@@ -48,6 +48,9 @@
   .msg .line.pending { color:var(--muted); font-style:italic; }
   .msg.latest .line { color:var(--accent); font-weight:700; }
   .msg.latest .line.pending { color:var(--muted); font-weight:400; }
+  /* 양방향: 언어1 발화=액센트 / 언어2 발화=무채색(검정/흰색) (최신 강조보다 우선) */
+  .msg.dirA .line:not(.pending) { color:var(--accent); }
+  .msg.dirB .line:not(.pending) { color:var(--txt); }
   .msg .src { font-size:calc(var(--fs) - 5px); color:var(--muted); line-height:1.4; margin-top:2px; }
   #partial { padding:4px 16px 28px; }
   #partial .line { font-size:var(--fs); color:var(--muted); font-style:italic; line-height:1.4; }
@@ -136,6 +139,9 @@
     <button class="iconbtn" id="audioBtn" aria-label="음성 듣기" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path id="audioWave" d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
     </button>
+    <button class="iconbtn" id="fullBtn" aria-label="전체화면">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+    </button>
     <button class="iconbtn" id="settingsBtn" aria-label="설정">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -162,10 +168,6 @@
   </div>
   <div class="srow click" id="rowQr">
     <span class="lbl">QR코드 보기</span>
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><polyline points="9 18 15 12 9 6"/></svg>
-  </div>
-  <div class="srow click" id="rowFull">
-    <span class="lbl">전체화면</span>
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><polyline points="9 18 15 12 9 6"/></svg>
   </div>
   <div class="srow click" id="rowSrc">
@@ -203,6 +205,7 @@ let curLang = 'ko';
 let sessionPipeline = 'whisper';
 let sessionOutLang = 'ko';
 let sessionViewerPTT = false; // 참여자 PTT 허용 여부(호스트 토글) — 켜졌을 때만 '누르고 말하기' 노출
+let sxTwo = false, sxAlang = null, sxBlang = null; // 양방향 번역(언어1↔언어2) — 방향별 색상
 let speakerNames = {}; // 화자번호 -> 지정이름
 function spkLabel(id){ return id ? (speakerNames[id] || ('화자 '+id)) : ''; }
 
@@ -274,14 +277,14 @@ function deskTextOf(c){
 
 /* ---- 설정 저장값 ---- */
 function applyTheme(t){ document.documentElement.setAttribute('data-theme', t); localStorage.setItem('kac-theme', t); $('darkToggle').checked = (t==='dark'); }
-const FS_BASE = 18; // 100% 기준 px
+const FS_BASE = 20; // 100% 기준 px
 let fsPct = parseInt(localStorage.getItem('kac-mfs')||'100',10);
 if(!(fsPct>=50 && fsPct<=200)) fsPct = 100; // 옛 px 저장값 보정
 function applyFs(){ document.documentElement.style.setProperty('--fs', Math.round(FS_BASE*fsPct/100)+'px'); $('fsVal').textContent = fsPct+'%'; localStorage.setItem('kac-mfs', fsPct); }
-let showSrc = localStorage.getItem('kac-msrc') === '1';
+let showSrc = localStorage.getItem('kac-msrc') !== '0'; // 원문 동시 보기 기본 ON
 function applySrc(){ $('srcToggle').checked = showSrc; cards.forEach(c => { c.src.style.display = (showSrc && c.source) ? 'block':'none'; }); }
 
-applyTheme(localStorage.getItem('kac-theme') || 'dark');
+applyTheme(localStorage.getItem('kac-theme') || 'light');
 applyFs();
 
 /* ---- 언어 select ---- */
@@ -289,8 +292,14 @@ applyFs();
 function applySxInfo(info){
   // 언어쌍 문구 표시는 제거 — 표시할 언어(curLang)만 갱신
   if (!info) { rerender(); return; }
-  if (info.mode === 'two') curLang = (sessionPipeline === 'desk') ? info.b : info.a; // 데스크 뷰어=b, 일반=a
-  else curLang = (sessionPipeline === 'desk') ? 'ko' : info.target;
+  if (info.mode === 'two') {
+    curLang = (sessionPipeline === 'desk') ? info.b : info.a; // 데스크 뷰어=b, 일반=a
+    // 일반 양방향: 발화 방향별 색상 구분(데스크 제외)
+    if (sessionPipeline !== 'desk') { sxTwo = true; sxAlang = info.a; sxBlang = info.b; }
+  } else {
+    curLang = (sessionPipeline === 'desk') ? 'ko' : info.target;
+    sxTwo = false;
+  }
   rerender();
 }
 async function loadSession(){
@@ -383,6 +392,13 @@ function renderLine(c){
   const txt = pick(c.texts);
   c.line.classList.toggle('pending', !txt && !!c.source);
   c.line.textContent = txt || c.source || '';
+  // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
+  c.el.classList.remove('dirA', 'dirB');
+  if (sxTwo && c.texts) {
+    const tk = Object.keys(c.texts)[0];
+    if (tk === sxBlang) c.el.classList.add('dirA');      // 타깃=언어2 → 언어1 발화
+    else if (tk === sxAlang) c.el.classList.add('dirB'); // 타깃=언어1 → 언어2 발화
+  }
 }
 function rerender(){ cards.forEach(renderLine); }
 // 데스크: 대화 종료 시 화면 초기화(다음 손님)
@@ -452,8 +468,8 @@ $('fsUp').onclick = (e) => { e.stopPropagation(); fsPct = Math.min(200, fsPct+10
 $('fsDown').onclick = (e) => { e.stopPropagation(); fsPct = Math.max(50, fsPct-10); applyFs(); };
 // QR / 원문 / 다크모드: 행 전체 클릭으로 동작
 $('rowQr').onclick = () => { closeSheet(); $('qrModal').classList.add('show'); };
-$('rowFull').onclick = () => {
-  closeSheet();
+// 전체화면: 헤더 버튼(설정 시트에서 이동). 진입/해제 토글
+$('fullBtn').onclick = () => {
   const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
   if (fsEl) { (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document); return; }
   const el = document.documentElement;
@@ -461,21 +477,7 @@ $('rowFull').onclick = () => {
   if (fn) { try { fn.call(el); } catch {} }
 };
 $('rowSrc').onclick = () => { showSrc = !showSrc; $('srcToggle').checked = showSrc; localStorage.setItem('kac-msrc', showSrc?'1':'0'); applySrc(); };
-// 이어폰 연결 감지 — 음성 재생은 이어폰 착용 시에만(스피커로 들으면 마이크에 다시 잡힘)
-async function hasHeadphones(){
-  try{
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    const outs = devs.filter(d=>d.kind==='audiooutput');
-    const kw=/head|ear|이어|헤드|airpod|buds?|bluetooth|헤드셋|handsfree/i;
-    if(outs.some(d=>kw.test(d.label||''))) return true;
-    const real = outs.filter(d=>d.deviceId && d.deviceId!=='default' && d.deviceId!=='communications');
-    return new Set(real.map(d=>d.groupId)).size>=2 || real.length>=2;
-  }catch{ return false; }
-}
-$('audioBtn').onclick = async () => {
-  if(!audioOn){
-    if(!(await hasHeadphones())){ alert('🎧 이어폰을 연결해 주세요.\n스피커로 들으면 마이크에 소리가 다시 잡혀 번역이 방해될 수 있어요.'); return; }
-  }
+$('audioBtn').onclick = () => {
   audioOn = !audioOn; $('audioBtn').classList.toggle('on', audioOn); if(audioOn) enableAudio(); sendAudioSub(audioOn);
 };
 $('rowDark').onclick = () => { applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); };

@@ -168,32 +168,6 @@ function InfoToggle({ label, hint, checked, disabled, onChange, note }) {
   );
 }
 
-// 이어폰(외부 오디오 출력) 연결 감지 — 번역 음성은 이어폰 연결 시에만 활성화(스피커 피드백 방지)
-function useHeadphones() {
-  const [on, setOn] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    const md = navigator.mediaDevices;
-    const check = async () => {
-      try {
-        const devs = await md.enumerateDevices();
-        const outs = devs.filter((d) => d.kind === 'audiooutput');
-        const kw = /head|ear|이어|헤드|airpod|buds?|bluetooth|헤드셋|handsfree/i;
-        const byLabel = outs.some((d) => kw.test(d.label || ''));
-        const real = outs.filter((d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
-        const groups = new Set(real.map((d) => d.groupId));
-        if (alive) setOn(byLabel || groups.size >= 2 || real.length >= 2);
-      } catch { if (alive) setOn(false); }
-    };
-    if (md && md.enumerateDevices) {
-      check();
-      md.addEventListener && md.addEventListener('devicechange', check);
-    }
-    return () => { alive = false; md && md.removeEventListener && md.removeEventListener('devicechange', check); };
-  }, []);
-  return on;
-}
-
 function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange }) {
   return (
     <Box sx={{ mb: 3 }}>
@@ -257,7 +231,6 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [ttsOn, setTtsOn] = useState(() => { const s = localStorage.getItem('kac-sx-tts'); return s === '1' ? true : s === '0' ? false : !onewayPreset; }); // 음성재생(TTS): 오프라인(대화) 기본 ON, 온라인 OFF
   const [viewerPTT, setViewerPTT] = useState(!!initial.viewerPTT); // 참여자 발화(휴대폰 토글) — 기본 OFF
-  const headphones = useHeadphones(); // 이어폰 연결 여부 — 번역 음성 활성화 조건
   const [gender, setGender] = useState(() => localStorage.getItem('kac-sx-gender') || 'f'); // 음성 성별
   const [previewing, setPreviewing] = useState(false);
   const previewVoice = async () => {
@@ -473,8 +446,8 @@ export default function TranslateView({ session: initial, onBack }) {
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
         refine: true,
-        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn && headphones), // 번역 음성은 이어폰 연결 시에만
-        tts: cfg.pipeline === 'soniox' && ttsOn && headphones, // 음성재생(이어폰 연결 시에만)
+        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn),
+        tts: cfg.pipeline === 'soniox' && ttsOn, // 음성재생(TTS)
         gender,
         volume,
         endpointing,
@@ -534,6 +507,7 @@ export default function TranslateView({ session: initial, onBack }) {
   // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
   const showSource = cfg.pipeline === 'desk' ? true : (cfg.pipeline !== 'translate' && srcVisible);
   const showPartial = true;
+  const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
   const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
   const pipeLabel = initial.preset ? PRESET_LABEL[initial.preset] : PIPES.find((p) => p.v === cfg.pipeline)?.label;
 
@@ -715,10 +689,9 @@ export default function TranslateView({ session: initial, onBack }) {
               {['oneway', 'online'].includes(initial.preset) && (
                 <InfoToggle
                   label="음성 재생"
-                  hint="번역 결과를 음성(TTS)으로 재생합니다. 스피커로 틀면 시스템 소리에 다시 섞여 인식될 수 있어, 이어폰 연결 시에만 켤 수 있습니다."
+                  hint="번역 결과를 음성(TTS)으로 재생합니다. 스피커로 틀면 시스템 소리에 다시 섞여 인식될 수 있으니 이어폰 사용을 권장합니다."
                   checked={ttsOn}
-                  disabled={recording || !headphones}
-                  note={!headphones ? '🎧 이어폰 연결 필요' : undefined}
+                  disabled={recording}
                   onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
                 />
               )}
@@ -738,10 +711,9 @@ export default function TranslateView({ session: initial, onBack }) {
               </Field>
               <InfoToggle
                 label="음성 재생"
-                hint="번역 결과를 음성(TTS)으로 재생합니다. 상대 음성이 다시 인식되는 것을 막기 위해 이어폰 연결 시에만 켤 수 있습니다."
+                hint="번역 결과를 음성(TTS)으로 재생합니다. 상대 음성이 다시 인식되는 것을 막기 위해 이어폰 사용을 권장합니다."
                 checked={ttsOn}
-                disabled={recording || !headphones}
-                note={!headphones ? '🎧 이어폰 연결 필요' : undefined}
+                disabled={recording}
                 onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
               />
               {ttsOn && (
@@ -885,7 +857,13 @@ export default function TranslateView({ session: initial, onBack }) {
                 const keys = Object.keys(m.texts);
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
-              return <Row key={m.id} side={m.side} text={t} source={m.source} />;
+              // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
+              let dir = null;
+              if (twoway && m.texts) {
+                const tk = Object.keys(m.texts)[0];
+                if (tk) dir = tk === sxA ? 'b' : 'a'; // 타깃이 언어1 → 언어2가 말함(b), 타깃이 언어2 → 언어1이 말함(a)
+              }
+              return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
@@ -1150,10 +1128,17 @@ function PartialLine({ side, text }) {
 }
 
 // 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
-function Row({ side, text, source }) {
+// 양방향(dir): 언어1 발화='a'(보라 액센트) · 언어2 발화='b'(무채색=검정/흰색) 로 방향 구분.
+function Row({ side, text, source, dir }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
+  const mainColor = (t) => {
+    if (pending) return t.palette.text.secondary;
+    if (dir === 'a') return t.palette.primary.main; // 언어1 발화(액센트)
+    if (dir === 'b') return t.palette.text.primary; // 언어2 발화(무채색)
+    return isMic ? t.palette.primary.main : t.palette.text.primary;
+  };
   return (
     // 카드/박스 없이 라인 구분선(하단)만. 번역문(큰 글씨) 위 · 원어(작은 회색) 아래. 원어 항상 표시.
     <Box sx={{ pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
@@ -1164,7 +1149,7 @@ function Row({ side, text, source }) {
           fontWeight: 500,
           wordBreak: 'keep-all', // 띄어쓰기 없는 단어 중간에서 줄바꿈 금지
           overflowWrap: 'anywhere',
-          color: pending ? 'text.secondary' : isMic ? 'primary.main' : 'text.primary',
+          color: mainColor,
           fontStyle: pending ? 'italic' : 'normal',
         }}
       >

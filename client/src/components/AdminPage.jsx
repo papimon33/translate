@@ -169,17 +169,11 @@ export default function AdminPage({ user }) {
 
   return (
     <>
-      {/* 헤더 + 서브탭 */}
-      <Box sx={{ px: { xs: 2, sm: 4 }, pt: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-          <Typography variant="h6">관리자</Typography>
-          <Box sx={{ flex: 1 }} />
-          {tab === 'accounts' && (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>사용자 추가</Button>
-          )}
-        </Box>
-        <Tabs value={tab} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto"
-          sx={{ minHeight: 40, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 700, fontSize: 14 } }}>
+      {/* 헤더(제목 가운데) + 서브탭(가운데) */}
+      <Box sx={{ px: { xs: 2, sm: 4 }, pt: { xs: 2, sm: 4.5 }, borderBottom: 1, borderColor: 'divider' }}>
+        <Typography sx={{ textAlign: 'center', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mb: { xs: 2, sm: 2.5 } }}>관리자</Typography>
+        <Tabs value={tab} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile
+          sx={{ minHeight: 40, '& .MuiTabs-flexContainer': { justifyContent: 'center' }, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 700, fontSize: 14 } }}>
           {TABS.map((t) => <Tab key={t.v} value={t.v} label={t.label} />)}
         </Tabs>
       </Box>
@@ -219,6 +213,10 @@ export default function AdminPage({ user }) {
 
           {/* ── 계정 관리 ── */}
           {tab === 'accounts' && (
+            <>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>사용자 추가</Button>
+            </Box>
             <Paper variant="outlined" sx={{ borderRadius: 3, overflowX: 'auto' }}>
               <Table sx={{ minWidth: 520 }}>
                 <TableHead>
@@ -262,6 +260,7 @@ export default function AdminPage({ user }) {
                 </TableBody>
               </Table>
             </Paper>
+            </>
           )}
 
           {/* ── 용어 설정 (이관) ── */}

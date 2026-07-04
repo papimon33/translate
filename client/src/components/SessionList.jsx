@@ -166,13 +166,12 @@ export default function SessionList({ onOpen, user, deskMode }) {
 
   return (
     <>
-      {/* 헤더 */}
-      <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Typography variant="h6">{deskMode ? '데스크 안내' : '실시간 번역'}</Typography>
-      </Box>
-
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
+          {/* 페이지 제목 — 가운데 정렬(상단 여백) */}
+          <Typography sx={{ textAlign: 'center', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mt: { xs: 2, sm: 5 }, mb: { xs: 3, sm: 4.5 } }}>
+            {deskMode ? '데스크 안내' : '실시간 번역'}
+          </Typography>
           {/* 상단 툴바: (데스크) QR 토글 + 새 세션 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
             <Box sx={{ flex: 1 }} />
