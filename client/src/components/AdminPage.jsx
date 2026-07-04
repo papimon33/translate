@@ -10,6 +10,8 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import Paper from '@mui/material/Paper';
 import Chip from '@mui/material/Chip';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -23,6 +25,13 @@ import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import LockResetIcon from '@mui/icons-material/LockReset';
+import PeopleAltOutlinedIcon from '@mui/icons-material/PeopleAltOutlined';
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
+import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
+import PaidOutlinedIcon from '@mui/icons-material/PaidOutlined';
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
+import TermsConfigPage from './TermsConfigPage.jsx';
 import { api } from '../api.js';
 
 function fmtDuration(ms) {
@@ -84,7 +93,39 @@ function UsageChart({ data, kind }) {
   );
 }
 
-export default function AdminPage() {
+function StatCard({ icon, label, value, sub }) {
+  return (
+    <Box sx={{ flex: '1 1 180px', minWidth: 160, bgcolor: (t) => alpha(t.palette.text.primary, 0.02), border: 1, borderColor: 'divider', borderRadius: 3, p: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary', mb: 1 }}>
+        <Box sx={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 2, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>{icon}</Box>
+        <Typography sx={{ fontSize: 12.5, fontWeight: 700 }}>{label}</Typography>
+      </Box>
+      <Typography sx={{ fontSize: 26, fontWeight: 800, lineHeight: 1.2 }}>{value}</Typography>
+      {sub && <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>{sub}</Typography>}
+    </Box>
+  );
+}
+
+function EmptyTab({ icon, title, desc }) {
+  return (
+    <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
+      <Box sx={{ display: 'grid', placeItems: 'center', width: 72, height: 72, mx: 'auto', mb: 2, borderRadius: '50%', bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }}>{icon}</Box>
+      <Typography sx={{ fontSize: 18, fontWeight: 800, color: 'text.primary' }}>{title}</Typography>
+      <Typography sx={{ fontSize: 14, mt: 0.75 }}>{desc}</Typography>
+    </Box>
+  );
+}
+
+const TABS = [
+  { v: 'usage', label: '사용량' },
+  { v: 'accounts', label: '계정 관리' },
+  { v: 'terms', label: '용어 설정' },
+  { v: 'logs', label: '접속 기록' },
+  { v: 'alerts', label: '알림 설정' },
+];
+
+export default function AdminPage({ user }) {
+  const [tab, setTab] = useState('usage');
   const [list, setList] = useState(null);
   const [usage, setUsage] = useState(null);
   const [dlg, setDlg] = useState(false);
@@ -100,48 +141,25 @@ export default function AdminPage() {
     api.adminUsers().then(setList).catch(() => setList([]));
     api.adminUsage().then(setUsage).catch(() => setUsage(null));
   };
-  useEffect(() => {
-    reload();
-  }, []);
+  useEffect(() => { reload(); }, []);
 
-  const openDlg = () => {
-    setForm({ id: '', username: '', password: '' });
-    setErr('');
-    setDlg(true);
-  };
-  const openPwDlg = (target) => {
-    setPwVal('');
-    setPwErr('');
-    setPwDlg(target);
-  };
+  const totalSessions = (list || []).reduce((a, u) => a + (u.sessionCount || 0), 0);
+
+  const openDlg = () => { setForm({ id: '', username: '', password: '' }); setErr(''); setDlg(true); };
+  const openPwDlg = (target) => { setPwVal(''); setPwErr(''); setPwDlg(target); };
   const resetPw = async () => {
-    if (!pwVal) {
-      setPwErr('새 비밀번호를 입력하세요.');
-      return;
-    }
-    try {
-      await api.adminResetPassword(pwDlg.id, pwVal);
-      setPwDlg(null);
-    } catch (e) {
-      setPwErr(e.message || '재설정 실패');
-    }
+    if (!pwVal) { setPwErr('새 비밀번호를 입력하세요.'); return; }
+    try { await api.adminResetPassword(pwDlg.id, pwVal); setPwDlg(null); }
+    catch (e) { setPwErr(e.message || '재설정 실패'); }
   };
   const create = async () => {
-    if (!form.id.trim() || !form.password) {
-      setErr('ID와 비밀번호는 필수입니다.');
-      return;
-    }
-    setBusy(true);
-    setErr('');
+    if (!form.id.trim() || !form.password) { setErr('ID와 비밀번호는 필수입니다.'); return; }
+    setBusy(true); setErr('');
     try {
       await api.adminCreateUser({ id: form.id.trim(), username: form.username.trim(), password: form.password });
-      setDlg(false);
-      reload();
-    } catch (e) {
-      setErr(e.message || '생성 실패');
-    } finally {
-      setBusy(false);
-    }
+      setDlg(false); reload();
+    } catch (e) { setErr(e.message || '생성 실패'); }
+    finally { setBusy(false); }
   };
   const remove = async (u) => {
     if (!confirm(`'${u.username || u.id}' 사용자와 해당 사용자의 모든 세션을 삭제할까요?`)) return;
@@ -151,104 +169,113 @@ export default function AdminPage() {
 
   return (
     <>
-      <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Box>
-          <Typography variant="h6">관리자 · 사용자 관리</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
-            사용자를 생성하고 사용량을 확인합니다.
-          </Typography>
+      {/* 헤더 + 서브탭 */}
+      <Box sx={{ px: { xs: 2, sm: 4 }, pt: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+          <Typography variant="h6">관리자</Typography>
+          <Box sx={{ flex: 1 }} />
+          {tab === 'accounts' && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>사용자 추가</Button>
+          )}
         </Box>
-        <Box sx={{ flex: 1 }} />
-        <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
-          사용자 추가
-        </Button>
+        <Tabs value={tab} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto"
+          sx={{ minHeight: 40, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 700, fontSize: 14 } }}>
+          {TABS.map((t) => <Tab key={t.v} value={t.v} label={t.label} />)}
+        </Tabs>
       </Box>
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
-        <Box sx={{ maxWidth: 920, mx: 'auto' }}>
-          {/* 토큰 사용 비용 대시보드 */}
-          <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
-              <Box>
-                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>총 사용 비용</Typography>
-                <Typography sx={{ fontSize: 32, fontWeight: 800, color: 'primary.main', lineHeight: 1.2 }}>
-                  {usage ? fmtCost(usage.totalCost) : '—'}
-                </Typography>
-                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                  {usage ? `총 ${fmtMin(usage.totalMinutes)}` : ''}
-                </Typography>
+        <Box sx={{ maxWidth: 960, mx: 'auto' }}>
+          {/* ── 사용량 ── */}
+          {tab === 'usage' && (
+            <>
+              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
+                <StatCard icon={<PeopleAltOutlinedIcon fontSize="small" />} label="사용자" value={list ? list.length : '—'} />
+                <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="총 세션" value={list ? totalSessions : '—'} />
+                <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="총 사용 시간" value={usage ? fmtMin(usage.totalMinutes) : '—'} />
+                <StatCard icon={<PaidOutlinedIcon fontSize="small" />} label="총 사용 비용" value={usage ? fmtCost(usage.totalCost) : '—'} />
               </Box>
-              <Box sx={{ flex: 1, minWidth: 280 }}>
+
+              <Paper variant="outlined" sx={{ borderRadius: 3, p: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
+                  <Typography sx={{ fontSize: 13, fontWeight: 800 }}>
                     {usageView === 'hourly' ? '시간대별 사용 비용 (최근 24시간)' : '일별 사용 비용 (최근 14일)'}
                   </Typography>
                   <Box sx={{ flex: 1 }} />
-                  <ToggleButtonGroup
-                    size="small"
-                    exclusive
-                    value={usageView}
-                    onChange={(e, v) => v && setUsageView(v)}
-                  >
+                  <ToggleButtonGroup size="small" exclusive value={usageView} onChange={(e, v) => v && setUsageView(v)}>
                     <ToggleButton value="daily" sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>일별</ToggleButton>
                     <ToggleButton value="hourly" sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>시간별</ToggleButton>
                   </ToggleButtonGroup>
                 </Box>
                 <UsageChart data={usageView === 'hourly' ? usage?.hourly : usage?.daily} kind={usageView} />
-              </Box>
-            </Box>
-            {usage && (
-              <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 2 }}>
-                ※ 호스트 사용 시간 기준 — 실시간 번역 ${usage.rateTranslate}/분 · 다국어 번역 ${usage.rateWhisper}/분.
-              </Typography>
-            )}
-          </Paper>
-
-          <Paper variant="outlined" sx={{ borderRadius: 3, overflowX: 'auto' }}>
-            <Table sx={{ minWidth: 520 }}>
-              <TableHead>
-                <TableRow sx={{ '& th': { fontWeight: 800, fontSize: 13 } }}>
-                  <TableCell>사용자명</TableCell>
-                  <TableCell>ID</TableCell>
-                  <TableCell align="right">세션 수</TableCell>
-                  <TableCell align="right">총 이용 시간</TableCell>
-                  <TableCell align="right">관리</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {list && list.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ color: 'text.secondary', py: 5 }}>
-                      아직 생성된 사용자가 없습니다.
-                    </TableCell>
-                  </TableRow>
+                {usage && (
+                  <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 2 }}>
+                    ※ 호스트 사용 시간 기준 — 실시간 번역 ${usage.rateTranslate}/분 · 다국어 번역 ${usage.rateWhisper}/분.
+                  </Typography>
                 )}
-                {(list || []).map((u) => (
-                  <TableRow key={u.id} hover>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {u.username || u.id}
-                      {u.role === 'admin' && <Chip size="small" label="관리자" color="primary" sx={{ ml: 1, height: 20, fontSize: 11 }} />}
-                    </TableCell>
-                    <TableCell sx={{ color: 'text.secondary' }}>{u.id}</TableCell>
-                    <TableCell align="right">{u.sessionCount}</TableCell>
-                    <TableCell align="right">{fmtDuration(u.usageMs)}</TableCell>
-                    <TableCell align="right">
-                      {u.role !== 'admin' && (
-                        <Tooltip title="비밀번호 재설정">
-                          <IconButton size="small" onClick={() => openPwDlg({ id: u.id, name: u.username || u.id })}>
-                            <LockResetIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      <IconButton size="small" onClick={() => remove(u)} sx={{ color: 'error.main' }}>
-                        <DeleteOutlineIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
+              </Paper>
+            </>
+          )}
+
+          {/* ── 계정 관리 ── */}
+          {tab === 'accounts' && (
+            <Paper variant="outlined" sx={{ borderRadius: 3, overflowX: 'auto' }}>
+              <Table sx={{ minWidth: 520 }}>
+                <TableHead>
+                  <TableRow sx={{ '& th': { fontWeight: 800, fontSize: 13 } }}>
+                    <TableCell>사용자명</TableCell>
+                    <TableCell>ID</TableCell>
+                    <TableCell align="right">세션 수</TableCell>
+                    <TableCell align="right">총 이용 시간</TableCell>
+                    <TableCell align="right">관리</TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Paper>
+                </TableHead>
+                <TableBody>
+                  {list && list.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} align="center" sx={{ color: 'text.secondary', py: 5 }}>아직 생성된 사용자가 없습니다.</TableCell>
+                    </TableRow>
+                  )}
+                  {(list || []).map((u) => (
+                    <TableRow key={u.id} hover>
+                      <TableCell sx={{ fontWeight: 700 }}>
+                        {u.username || u.id}
+                        {u.role === 'admin' && <Chip size="small" label="관리자" color="primary" sx={{ ml: 1, height: 20, fontSize: 11 }} />}
+                      </TableCell>
+                      <TableCell sx={{ color: 'text.secondary' }}>{u.id}</TableCell>
+                      <TableCell align="right">{u.sessionCount}</TableCell>
+                      <TableCell align="right">{fmtDuration(u.usageMs)}</TableCell>
+                      <TableCell align="right">
+                        {u.role !== 'admin' && (
+                          <Tooltip title="비밀번호 재설정">
+                            <IconButton size="small" onClick={() => openPwDlg({ id: u.id, name: u.username || u.id })}>
+                              <LockResetIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <IconButton size="small" onClick={() => remove(u)} sx={{ color: 'error.main' }}>
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
+          )}
+
+          {/* ── 용어 설정 (이관) ── */}
+          {tab === 'terms' && <TermsConfigPage user={user} embedded />}
+
+          {/* ── 접속 기록 ── */}
+          {tab === 'logs' && (
+            <EmptyTab icon={<HistoryOutlinedIcon sx={{ fontSize: 34 }} />} title="접속 기록" desc="로그인·주요 액션 감사 로그입니다. 백엔드 연동 후 표시됩니다." />
+          )}
+
+          {/* ── 알림 설정 ── */}
+          {tab === 'alerts' && (
+            <EmptyTab icon={<NotificationsOutlinedIcon sx={{ fontSize: 34 }} />} title="알림 설정" desc="시스템 알림·사용량 임계치 알림을 설정합니다. 백엔드 연동 후 제공됩니다." />
+          )}
         </Box>
       </Box>
 
@@ -256,42 +283,22 @@ export default function AdminPage() {
         <DialogTitle sx={{ fontWeight: 800 }}>사용자 추가</DialogTitle>
         <DialogContent>
           {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-          <TextField
-            autoFocus fullWidth label="ID" value={form.id}
-            onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            fullWidth label="사용자명" value={form.username}
-            onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            fullWidth type="password" label="비밀번호" value={form.password}
-            onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-            onKeyDown={(e) => e.key === 'Enter' && create()}
-          />
+          <TextField autoFocus fullWidth label="ID" value={form.id} onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))} sx={{ mb: 2 }} />
+          <TextField fullWidth label="사용자명" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} sx={{ mb: 2 }} />
+          <TextField fullWidth type="password" label="비밀번호" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && create()} />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setDlg(false)}>취소</Button>
-          <Button variant="contained" onClick={create} disabled={busy}>
-            만들기
-          </Button>
+          <Button variant="contained" onClick={create} disabled={busy}>만들기</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={!!pwDlg} onClose={() => setPwDlg(null)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
         <DialogTitle sx={{ fontWeight: 800 }}>비밀번호 재설정</DialogTitle>
         <DialogContent>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
-            <b>{pwDlg?.name}</b> 사용자의 새 비밀번호를 입력하세요.
-          </Typography>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}><b>{pwDlg?.name}</b> 사용자의 새 비밀번호를 입력하세요.</Typography>
           {pwErr && <Alert severity="error" sx={{ mb: 2 }}>{pwErr}</Alert>}
-          <TextField
-            autoFocus fullWidth type="password" label="새 비밀번호" value={pwVal}
-            onChange={(e) => setPwVal(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && resetPw()}
-          />
+          <TextField autoFocus fullWidth type="password" label="새 비밀번호" value={pwVal} onChange={(e) => setPwVal(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && resetPw()} />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setPwDlg(null)}>취소</Button>

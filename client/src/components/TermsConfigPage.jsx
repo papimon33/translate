@@ -17,7 +17,7 @@ import { api } from '../api.js';
 
 // 고유명사(terms) + 번역 설정(translation_terms). 세션(Soniox) 연결 시 context로 주입.
 // 전원 열람, 관리자만 수정.
-export default function TermsConfigPage({ user }) {
+export default function TermsConfigPage({ user, embedded }) {
   const isAdmin = user?.role === 'admin';
   const [loading, setLoading] = useState(true);
   const [terms, setTerms] = useState([]);
@@ -76,23 +76,38 @@ export default function TermsConfigPage({ user }) {
 
   return (
     <>
-      <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h6">용어 설정</Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
-            세션 시작 시 음성인식·번역에 반영됩니다{isAdmin ? '' : ' · 수정은 관리자만 가능'}
-          </Typography>
+      {!embedded && (
+        <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h6">용어 설정</Typography>
+            <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
+              세션 시작 시 음성인식·번역에 반영됩니다{isAdmin ? '' : ' · 수정은 관리자만 가능'}
+            </Typography>
+          </Box>
+          <Box sx={{ flex: 1 }} />
+          {isAdmin && (
+            <Button variant="contained" startIcon={<SaveIcon />} onClick={save} disabled={saving || !dirty}>
+              {saving ? '저장 중…' : '저장'}
+            </Button>
+          )}
         </Box>
-        <Box sx={{ flex: 1 }} />
-        {isAdmin && (
-          <Button variant="contained" startIcon={<SaveIcon />} onClick={save} disabled={saving || !dirty}>
-            {saving ? '저장 중…' : '저장'}
-          </Button>
-        )}
-      </Box>
+      )}
 
-      <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 2, sm: 4 } }}>
-        <Box sx={{ maxWidth: 880, mx: 'auto' }}>
+      <Box sx={{ flex: embedded ? 'none' : 1, minHeight: 0, overflow: embedded ? 'visible' : 'auto', p: embedded ? 0 : { xs: 2, sm: 4 } }}>
+        <Box sx={{ maxWidth: embedded ? '100%' : 880, mx: 'auto' }}>
+          {embedded && (
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
+                세션 시작 시 음성인식·번역에 반영됩니다{isAdmin ? '' : ' · 수정은 관리자만 가능'}
+              </Typography>
+              <Box sx={{ flex: 1 }} />
+              {isAdmin && (
+                <Button variant="contained" size="small" startIcon={<SaveIcon />} onClick={save} disabled={saving || !dirty}>
+                  {saving ? '저장 중…' : '저장'}
+                </Button>
+              )}
+            </Box>
+          )}
           {okMsg && <Alert severity="success" sx={{ mb: 2 }}>{okMsg}</Alert>}
           {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 

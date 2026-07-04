@@ -20,8 +20,6 @@ import { api } from './api.js';
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
 const TranslateView = lazy(() => import('./components/TranslateView.jsx'));
 const AdminPage = lazy(() => import('./components/AdminPage.jsx'));
-const SummaryPage = lazy(() => import('./components/SummaryPage.jsx'));
-const TermsConfigPage = lazy(() => import('./components/TermsConfigPage.jsx'));
 
 export default function App() {
   const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'dark');
@@ -111,14 +109,10 @@ export default function App() {
   const main =
     session ? (
       <TranslateView session={session} onBack={() => window.history.back()} />
-    ) : view === 'summaries' ? (
-      <SummaryPage />
-    ) : view === 'terms' ? (
-      <TermsConfigPage user={user} />
     ) : view === 'desk' ? (
       <SessionList onOpen={openSession} user={user} deskMode />
     ) : view === 'admin' && user.role === 'admin' ? (
-      <AdminPage />
+      <AdminPage user={user} />
     ) : (
       <SessionList onOpen={openSession} user={user} />
     );
@@ -145,8 +139,6 @@ export default function App() {
       view={session ? (session.pipeline === 'desk' ? 'desk' : 'sessions') : view}
       onHome={() => navTo({ view: 'sessions' })}
       onDesk={() => navTo({ view: 'desk' })}
-      onSummaries={() => navTo({ view: 'summaries' })}
-      onTerms={() => navTo({ view: 'terms' })}
       onAdmin={() => navTo({ view: 'admin' })}
       onLogout={logout}
       onUserUpdate={(u) => setUser(u)}
