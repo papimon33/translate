@@ -16,7 +16,6 @@ import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
 import { alpha } from '@mui/material/styles';
-import ViewSidebarOutlinedIcon from '@mui/icons-material/ViewSidebarOutlined';
 import TranslateIcon from '@mui/icons-material/Translate';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -75,7 +74,10 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         {!mobile && (
           <Tooltip title={collapsed ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
             <IconButton onClick={onToggleCollapsed} sx={{ flex: 'none' }}>
-              <ViewSidebarOutlinedIcon fontSize="small" sx={{ transform: collapsed ? 'scaleX(-1)' : 'none' }} />
+              <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" sx={{ width: 20, height: 20, color: 'text.secondary' }}>
+                <rect x="3" y="4" width="18" height="16" rx="2.5" />
+                <path d="M9 4v16" />
+              </Box>
             </IconButton>
           </Tooltip>
         )}
@@ -86,7 +88,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           메뉴
         </Typography>
       )}
-      <NavItem collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="통역" active={view === 'sessions'} onClick={onHome} />
+      <NavItem collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="실시간 번역" active={view === 'sessions'} onClick={onHome} />
       <NavItem collapsed={collapsed} icon={<RecordVoiceOverIcon fontSize="small" />} label="데스크 안내" active={view === 'desk'} onClick={onDesk} />
       {isAdmin && (
         <NavItem collapsed={collapsed} icon={<AdminPanelSettingsOutlinedIcon fontSize="small" />} label="관리자" active={view === 'admin'} onClick={onAdmin} />

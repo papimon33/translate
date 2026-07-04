@@ -22,7 +22,7 @@ const TranslateView = lazy(() => import('./components/TranslateView.jsx'));
 const AdminPage = lazy(() => import('./components/AdminPage.jsx'));
 
 export default function App() {
-  const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'dark');
+  const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'light');
   const [collapsed, setCollapsed] = useState(localStorage.getItem('kac-nav') === '1');
   const [session, setSession] = useState(null); // 열린 세션(null=목록)
   const [view, setView] = useState('sessions'); // 'sessions' | 'admin'

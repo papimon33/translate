@@ -842,7 +842,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice()); // whisper·deepgram 다국어
   // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
-  const preset = ['oneway', 'twoway', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
+  const preset = ['live', 'oneway', 'twoway', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
   // 데스크 안내: 출발 안내데스크 층/방향(길안내 출발점)
   const deskFloor = pipeline === 'desk' ? (['1F', '2F', '3F', '4F'].includes(b.deskFloor) ? b.deskFloor : '1F') : undefined;
   const deskSide = pipeline === 'desk' ? (['E', 'W', 'S', 'N'].includes(b.deskSide) ? b.deskSide : 'S') : undefined;

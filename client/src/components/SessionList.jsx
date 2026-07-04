@@ -25,14 +25,11 @@ import { alpha } from '@mui/material/styles';
 import Snackbar from '@mui/material/Snackbar';
 import MuiAlert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
-import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
-import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import { api } from '../api.js';
 
@@ -46,13 +43,17 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
-// 새 세션 모달 — 회의 '상황' 2종. 내부 세션 타입(preset)과 매핑.
+// 새 세션 모달 — 상황 3종. Aurora 아이콘(paths) 인라인.
 export const SITUATIONS = [
-  { v: 'oneway', title: '온라인 회의', typeName: '발표 번역', flow: '모든 언어 → 한국어', example: '화상회의·발표의 외국어를 실시간 한국어로 청취', Icon: VideocamOutlinedIcon },
-  { v: 'twoway', title: '오프라인 회의', typeName: '대화 번역', flow: '한국어 ⇄ 지정 언어', example: '마주 앉은 다국적 회의에서 서로 번갈아 대화', Icon: ForumOutlinedIcon },
+  { v: 'live', title: '라이브 청취', badge: '강의·컨퍼런스', example: '스피커로 들어온 현장 음성을 지정한 언어로 번역',
+    paths: [<path key="1" d="M11 5L6 9H3v6h3l5 4V5z" />, <path key="2" d="M15.5 8.5a5 5 0 010 7" />] },
+  { v: 'oneway', title: '온라인 회의', badge: '줌 회의 등', example: 'PC 시스템 음성을 지정한 언어로 번역',
+    paths: [<path key="1" d="M4 12h14" />, <path key="2" d="M13 6l6 6-6 6" />] },
+  { v: 'twoway', title: '양방향 번역', badge: '온·오프라인 회의', example: '지정한 2개 언어를 서로의 언어로 번역',
+    paths: [<path key="1" d="M7 7l-4 4 4 4" />, <path key="2" d="M3 11h18" />, <path key="3" d="M17 17l4-4-4-4" />] },
 ];
-// 세션 타입 → 표시명(라이브 헤더 등). 레거시(mobile/meeting/online/field) 포함.
-export const TYPE_NAME = { oneway: '발표 번역', twoway: '대화 번역', mobile: '대화 번역', meeting: '대화 번역', online: '발표 번역', field: '대화 번역' };
+// 세션 모드 표시명(라이브 헤더·목록 배지). 레거시(mobile/online/field/meeting) 매핑 포함.
+export const TYPE_NAME = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
 
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
@@ -68,7 +69,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
-  const [preset, setPreset] = useState('oneway'); // 세션 타입(온라인=oneway / 오프라인=twoway)
+  const [preset, setPreset] = useState('live'); // 세션 모드(live=라이브 청취 / oneway=온라인 회의 / twoway=양방향)
   const [deskFloor, setDeskFloor] = useState('1F'); // 안내데스크 출발 층
   const [deskSide, setDeskSide] = useState('S'); // 안내데스크 방향
   const [menu, setMenu] = useState(null);
@@ -88,7 +89,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
     const titles = (list || []).map((s) => s.title);
     setName(uniqueName(base, titles));
     setEditName(false);
-    setPreset('oneway');
+    setPreset('live');
     setDlg(true);
   };
 
@@ -141,7 +142,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
     <>
       {/* 헤더 */}
       <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Typography variant="h6">{deskMode ? '데스크 안내' : '통역'}</Typography>
+        <Typography variant="h6">{deskMode ? '데스크 안내' : '실시간 번역'}</Typography>
       </Box>
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
@@ -212,22 +213,25 @@ export default function SessionList({ onOpen, user, deskMode }) {
                 '&:hover': { transform: 'translateY(-2px)', boxShadow: 6, borderColor: 'primary.main' },
               }}
             >
-              <CardActionArea onClick={() => onOpen(s)} sx={{ px: 2, py: 1.75, display: 'flex', justifyContent: 'flex-start', gap: 1.75 }}>
+              <CardActionArea onClick={() => onOpen(s)} sx={{ px: 2, py: 1.75, display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
                 <Avatar
                   variant="rounded"
-                  sx={{
-                    width: 44, height: 44,
-                    bgcolor: (t) => alpha(t.palette.primary.main, 0.14),
-                    color: 'primary.main',
-                  }}
+                  sx={{ width: 46, height: 46, borderRadius: 3, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}
                 >
-                  <ForumOutlinedIcon />
+                  <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" sx={{ width: 22, height: 22 }}>
+                    <path d="M4 5h11a3 3 0 013 3v6a3 3 0 01-3 3H9l-5 4V5z" />
+                  </Box>
                 </Avatar>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography sx={{ fontWeight: 700, fontSize: 15.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Typography sx={{ fontWeight: 600, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.title || '(제목 없음)'}
                   </Typography>
-                  <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.5 }}>{rel(s.updatedAt)}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.6 }}>
+                    {s.preset && TYPE_NAME[s.preset] && (
+                      <Chip size="small" label={TYPE_NAME[s.preset]} sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
+                    )}
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{rel(s.updatedAt)}</Typography>
+                  </Box>
                 </Box>
               </CardActionArea>
               <IconButton sx={{ mr: 1 }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
@@ -290,7 +294,9 @@ export default function SessionList({ onOpen, user, deskMode }) {
               </Typography>
               <Tooltip title="제목 수정">
                 <IconButton size="small" onClick={() => setEditName(true)}>
-                  <EditIcon fontSize="small" />
+                  <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" sx={{ width: 17, height: 17, color: 'text.secondary' }}>
+                    <path d="M4 20h4L19 9l-4-4L4 16v4z" />
+                  </Box>
                 </IconButton>
               </Tooltip>
             </Box>
@@ -300,31 +306,32 @@ export default function SessionList({ onOpen, user, deskMode }) {
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mt: 2 }}>
               {SITUATIONS.map((p) => {
                 const sel = preset === p.v;
-                const Ic = p.Icon;
                 return (
                   <Box
                     key={p.v}
                     onClick={() => setPreset(p.v)}
                     role="button"
                     sx={{
-                      cursor: 'pointer', borderRadius: 2.5, p: 1.75,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2, borderRadius: 3.5, p: 1.75,
                       border: 2, borderColor: sel ? 'primary.main' : 'divider',
                       bgcolor: (t) => (sel ? alpha(t.palette.primary.main, 0.08) : 'transparent'),
                       transition: 'border-color .12s, background .12s',
                       '&:hover': { borderColor: sel ? 'primary.main' : 'text.disabled' },
                     }}
                   >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                      <Avatar variant="rounded" sx={{ width: 38, height: 38, flex: 'none', bgcolor: (t) => alpha(t.palette.primary.main, sel ? 0.18 : 0.12), color: 'primary.main' }}>
-                        <Ic fontSize="small" />
-                      </Avatar>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography sx={{ fontWeight: 800, fontSize: 15.5, lineHeight: 1.25 }}>{p.title}</Typography>
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.2, lineHeight: 1.35 }}>{p.example}</Typography>
+                    <Avatar variant="rounded" sx={{ width: 44, height: 44, borderRadius: 3, flex: 'none', bgcolor: (t) => (sel ? t.palette.primary.main : alpha(t.palette.primary.main, 0.12)), color: sel ? '#fff' : 'primary.main' }}>
+                      <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" sx={{ width: 22, height: 22 }}>{p.paths}</Box>
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <Typography sx={{ fontWeight: 800, fontSize: 16 }}>{p.title}</Typography>
+                        <Chip size="small" label={p.badge} sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
                       </Box>
-                      <Chip size="small" label={p.typeName} color="primary" variant={sel ? 'filled' : 'outlined'} sx={{ height: 22, fontSize: 11, flex: 'none' }} />
+                      <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.4 }}>{p.example}</Typography>
                     </Box>
-                    <Chip size="small" label={p.flow} sx={{ mt: 1.25, height: 22, fontSize: 11.5, fontWeight: 600, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
+                    <Box sx={{ width: 22, height: 22, flex: 'none', borderRadius: '50%', border: 2, borderColor: sel ? 'primary.main' : 'divider', bgcolor: sel ? 'primary.main' : 'transparent', display: 'grid', placeItems: 'center' }}>
+                      {sel && <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" sx={{ width: 12, height: 12 }}><path d="M5 13l4 4 10-11" /></Box>}
+                    </Box>
                   </Box>
                 );
               })}

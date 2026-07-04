@@ -11,9 +11,9 @@ export const GRAD = {
 export function buildTheme(mode) {
   const dark = mode === 'dark';
   const primary = dark ? ACCENT.dark : ACCENT.light;
-  const bgDefault = dark ? '#0c0d13' : '#f6f6fb';
-  const bgPaper = dark ? '#15161e' : '#ffffff';
-  const divider = dark ? 'rgba(255,255,255,0.08)' : 'rgba(20,18,40,0.08)';
+  const bgDefault = dark ? '#0e0f15' : '#f4f5f9';
+  const bgPaper = dark ? '#191c27' : '#ffffff';
+  const divider = dark ? 'rgba(255,255,255,0.07)' : 'rgba(18,22,45,0.09)';
 
   return createTheme({
     palette: {
@@ -26,10 +26,10 @@ export function buildTheme(mode) {
       background: { default: bgDefault, paper: bgPaper },
       // 명도 상향(가독성): 본문/보조 대비 강화
       text: dark
-        ? { primary: '#eef0f6', secondary: '#a2a8ba' }
-        : { primary: '#141225', secondary: '#585868' },
+        ? { primary: '#f3f4f8', secondary: '#a3a9bb' }
+        : { primary: '#161922', secondary: '#5b6175' },
     },
-    shape: { borderRadius: 14 },
+    shape: { borderRadius: 12 },
     typography: {
       fontFamily: "'Pretendard', 'Noto Sans KR', system-ui, 'Segoe UI', sans-serif",
       h5: { fontWeight: 800, letterSpacing: '-0.02em' },
@@ -41,12 +41,7 @@ export function buildTheme(mode) {
     components: {
       MuiCssBaseline: {
         styleOverrides: {
-          body: {
-            backgroundImage: dark
-              ? `radial-gradient(1100px 560px at 88% -12%, ${alpha(primary, 0.16)}, transparent 60%)`
-              : `radial-gradient(1100px 560px at 88% -12%, ${alpha(primary, 0.10)}, transparent 62%)`,
-            backgroundAttachment: 'fixed',
-          },
+          body: { backgroundColor: bgDefault },
           '*::-webkit-scrollbar': { width: 10, height: 10 },
           '*::-webkit-scrollbar-thumb': {
             background: alpha(dark ? '#fff' : '#000', 0.14),
@@ -59,7 +54,7 @@ export function buildTheme(mode) {
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
-          root: { textTransform: 'none', borderRadius: 11, paddingInline: 16 },
+          root: { textTransform: 'none', borderRadius: 12, paddingInline: 16 },
           containedPrimary: {
             background: `linear-gradient(135deg, ${GRAD[mode][0]}, ${GRAD[mode][1]})`,
             boxShadow: `0 8px 22px ${alpha(primary, 0.38)}`,
@@ -69,17 +64,17 @@ export function buildTheme(mode) {
       MuiCard: {
         styleOverrides: {
           root: {
-            borderRadius: 18,
+            borderRadius: 14,
             border: `1px solid ${divider}`,
             backgroundImage: 'none',
             transition: 'transform .15s ease, box-shadow .15s ease, border-color .15s ease',
           },
         },
       },
-      MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 11 } } },
+      MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 10 } } },
       MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
-      MuiMenu: { styleOverrides: { paper: { borderRadius: 14, border: `1px solid ${divider}`, marginTop: 6 } } },
-      MuiDialog: { styleOverrides: { paper: { borderRadius: 22 } } },
+      MuiMenu: { styleOverrides: { paper: { borderRadius: 12, border: `1px solid ${divider}`, marginTop: 6 } } },
+      MuiDialog: { styleOverrides: { paper: { borderRadius: 20 } } },
       MuiTooltip: {
         styleOverrides: {
           tooltip: { borderRadius: 9, fontSize: 12, fontWeight: 600, paddingBlock: 7, paddingInline: 11, maxWidth: 260, lineHeight: 1.5 },
