@@ -22,8 +22,6 @@ import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
-import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
-import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import { api } from '../api.js';
@@ -90,8 +88,6 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
       )}
       <NavItem collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="통역" active={view === 'sessions'} onClick={onHome} />
       <NavItem collapsed={collapsed} icon={<RecordVoiceOverIcon fontSize="small" />} label="데스크 안내" active={view === 'desk'} onClick={onDesk} />
-      <NavItem collapsed={collapsed} icon={<AutoAwesomeOutlinedIcon fontSize="small" />} label="AI 요약" active={view === 'summaries'} onClick={onSummaries} />
-      <NavItem collapsed={collapsed} icon={<MenuBookOutlinedIcon fontSize="small" />} label="용어 설정" active={view === 'terms'} onClick={onTerms} />
       {isAdmin && (
         <NavItem collapsed={collapsed} icon={<AdminPanelSettingsOutlinedIcon fontSize="small" />} label="관리자" active={view === 'admin'} onClick={onAdmin} />
       )}
@@ -110,7 +106,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           <Avatar
             sx={{
               width: 32, height: 32, flex: 'none', fontWeight: 800, fontSize: 14, color: '#fff',
-              background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b87ff' : '#6366f1'})`,
+              background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b8cff' : '#8b7cff'})`,
             }}
           >
             {initial}

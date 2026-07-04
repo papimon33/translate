@@ -168,7 +168,7 @@ export default function App() {
               <Box
                 sx={{
                   width: 30, height: 30, borderRadius: 2, display: 'grid', placeItems: 'center', color: '#fff',
-                  background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b87ff' : '#6366f1'})`,
+                  background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b8cff' : '#8b7cff'})`,
                 }}
               >
                 <GraphicEqIcon sx={{ fontSize: 18 }} />

@@ -1,11 +1,19 @@
 import { createTheme, alpha } from '@mui/material/styles';
 
+// 액센트: 보라 (Aurora) — 다크 #7c6df2 / 라이트 #6d5ef0
+export const ACCENT = { dark: '#7c6df2', light: '#6d5ef0' };
+// 그라데이션(로고·버튼·아바타) 보조 스톱
+export const GRAD = {
+  dark: ['#8b7cff', '#6354e0'],
+  light: ['#8b7cff', '#6d5ef0'],
+};
+
 export function buildTheme(mode) {
   const dark = mode === 'dark';
-  const primary = dark ? '#7c9cff' : '#4f46e5';
-  const bgDefault = dark ? '#0b0d12' : '#f6f7f9';
-  const bgPaper = dark ? '#14171f' : '#ffffff';
-  const divider = dark ? 'rgba(255,255,255,0.09)' : 'rgba(15,23,42,0.08)';
+  const primary = dark ? ACCENT.dark : ACCENT.light;
+  const bgDefault = dark ? '#0c0d13' : '#f6f6fb';
+  const bgPaper = dark ? '#15161e' : '#ffffff';
+  const divider = dark ? 'rgba(255,255,255,0.08)' : 'rgba(20,18,40,0.08)';
 
   return createTheme({
     palette: {
@@ -16,14 +24,16 @@ export function buildTheme(mode) {
       warning: { main: '#fbbf24' },
       divider,
       background: { default: bgDefault, paper: bgPaper },
+      // 명도 상향(가독성): 본문/보조 대비 강화
       text: dark
-        ? { primary: '#e8eaf0', secondary: '#9aa3b2' }
-        : { primary: '#0a0e17', secondary: '#475569' },
+        ? { primary: '#eef0f6', secondary: '#a2a8ba' }
+        : { primary: '#141225', secondary: '#585868' },
     },
     shape: { borderRadius: 14 },
     typography: {
-      fontFamily: "'Noto Sans KR', system-ui, 'Segoe UI', sans-serif",
-      h6: { fontWeight: 800, letterSpacing: '-0.01em' },
+      fontFamily: "'Pretendard', 'Noto Sans KR', system-ui, 'Segoe UI', sans-serif",
+      h5: { fontWeight: 800, letterSpacing: '-0.02em' },
+      h6: { fontWeight: 800, letterSpacing: '-0.02em' },
       subtitle1: { fontWeight: 700 },
       subtitle2: { fontWeight: 700 },
       button: { fontWeight: 700 },
@@ -33,8 +43,8 @@ export function buildTheme(mode) {
         styleOverrides: {
           body: {
             backgroundImage: dark
-              ? `radial-gradient(1200px 600px at 100% -10%, ${alpha(primary, 0.10)}, transparent 60%)`
-              : `radial-gradient(1200px 600px at 100% -10%, ${alpha(primary, 0.07)}, transparent 60%)`,
+              ? `radial-gradient(1100px 560px at 88% -12%, ${alpha(primary, 0.16)}, transparent 60%)`
+              : `radial-gradient(1100px 560px at 88% -12%, ${alpha(primary, 0.10)}, transparent 62%)`,
             backgroundAttachment: 'fixed',
           },
           '*::-webkit-scrollbar': { width: 10, height: 10 },
@@ -49,30 +59,30 @@ export function buildTheme(mode) {
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
-          root: { textTransform: 'none', borderRadius: 10, paddingInline: 16 },
+          root: { textTransform: 'none', borderRadius: 11, paddingInline: 16 },
           containedPrimary: {
-            background: `linear-gradient(135deg, ${primary}, ${dark ? '#9b87ff' : '#6366f1'})`,
-            boxShadow: `0 6px 18px ${alpha(primary, 0.35)}`,
+            background: `linear-gradient(135deg, ${GRAD[mode][0]}, ${GRAD[mode][1]})`,
+            boxShadow: `0 8px 22px ${alpha(primary, 0.38)}`,
           },
         },
       },
       MuiCard: {
         styleOverrides: {
           root: {
-            borderRadius: 16,
+            borderRadius: 18,
             border: `1px solid ${divider}`,
             backgroundImage: 'none',
             transition: 'transform .15s ease, box-shadow .15s ease, border-color .15s ease',
           },
         },
       },
-      MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 10 } } },
+      MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 11 } } },
       MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
       MuiMenu: { styleOverrides: { paper: { borderRadius: 14, border: `1px solid ${divider}`, marginTop: 6 } } },
-      MuiDialog: { styleOverrides: { paper: { borderRadius: 20 } } },
+      MuiDialog: { styleOverrides: { paper: { borderRadius: 22 } } },
       MuiTooltip: {
         styleOverrides: {
-          tooltip: { borderRadius: 8, fontSize: 12, fontWeight: 600, paddingBlock: 6, paddingInline: 10 },
+          tooltip: { borderRadius: 9, fontSize: 12, fontWeight: 600, paddingBlock: 7, paddingInline: 11, maxWidth: 260, lineHeight: 1.5 },
         },
       },
       MuiChip: { styleOverrides: { root: { fontWeight: 700 } } },

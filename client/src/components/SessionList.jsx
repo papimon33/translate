@@ -28,11 +28,11 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
+import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import { api } from '../api.js';
 
@@ -46,13 +46,13 @@ function rel(ts) {
   return new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
-// 통역 프리셋 — 카드로 선택, soniox 엔진 공통. 순서: 단방향 → 양방향 → 모바일
-export const PRESETS = [
-  { v: 'oneway', icon: '🎯', label: '단방향 번역', desc: '입력값을 단일 언어로 번역\n발표 번역 · 온라인 회의 추천' },
-  { v: 'twoway', icon: '🗣️', label: '양방향 번역', desc: '각자 언어로 양방향 대화\n오프라인 회의 추천' },
-  { v: 'mobile', icon: '📱', label: '모바일 모드', desc: '버튼을 눌러 대화 on/off\n현장 사용 추천' },
+// 새 세션 모달 — 회의 '상황' 2종. 내부 세션 타입(preset)과 매핑.
+export const SITUATIONS = [
+  { v: 'oneway', title: '온라인 회의', typeName: '발표 번역', flow: '모든 언어 → 한국어', example: '화상회의·발표의 외국어를 실시간 한국어로 청취', Icon: VideocamOutlinedIcon },
+  { v: 'twoway', title: '오프라인 회의', typeName: '대화 번역', flow: '한국어 ⇄ 지정 언어', example: '마주 앉은 다국적 회의에서 서로 번갈아 대화', Icon: ForumOutlinedIcon },
 ];
-const PRESET_LABEL = { oneway: '단방향 번역', twoway: '양방향 번역', mobile: '모바일 모드', meeting: '양방향 번역', online: '단방향 번역', field: '모바일 모드' };
+// 세션 타입 → 표시명(라이브 헤더 등). 레거시(mobile/meeting/online/field) 포함.
+export const TYPE_NAME = { oneway: '발표 번역', twoway: '대화 번역', mobile: '대화 번역', meeting: '대화 번역', online: '발표 번역', field: '대화 번역' };
 
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
@@ -68,7 +68,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
-  const [preset, setPreset] = useState('meeting'); // 통역 용도 프리셋
+  const [preset, setPreset] = useState('oneway'); // 세션 타입(온라인=oneway / 오프라인=twoway)
   const [deskFloor, setDeskFloor] = useState('1F'); // 안내데스크 출발 층
   const [deskSide, setDeskSide] = useState('S'); // 안내데스크 방향
   const [menu, setMenu] = useState(null);
@@ -133,17 +133,6 @@ export default function SessionList({ onOpen, user, deskMode }) {
     await api.patch(id, { title: (val || '').trim() || '제목 없음' });
     reload();
   };
-  const summarize = async () => {
-    const s = menu.session;
-    setMenu(null);
-    try {
-      await api.createSummary(s.id);
-      setSnack({ ok: true, msg: 'AI 요약을 시작했습니다. ‘AI 요약’ 메뉴에서 진행 상태를 확인하세요.' });
-    } catch (e) {
-      setSnack({ ok: false, msg: e.message || '요약 시작 실패' });
-    }
-  };
-
   // 데스크 메뉴는 desk 세션만, 실시간 번역 메뉴는 desk 외 세션만
   const shown = (list || []).filter((s) => (deskMode ? s.pipeline === 'desk' : s.pipeline !== 'desk'));
   const empty = list && shown.length === 0;
@@ -238,17 +227,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                   <Typography sx={{ fontWeight: 700, fontSize: 15.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.title || '(제목 없음)'}
                   </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
-                    <Chip
-                      size="small"
-                      label={s.pipeline === 'desk' ? '데스크 안내' : s.preset ? PRESET_LABEL[s.preset] : s.pipeline === 'translate' ? '실시간 통역' : s.pipeline === 'deepgram' ? '다국어 (Deepgram)' : '다국어 번역'}
-                      color="primary"
-                      variant="outlined"
-                      sx={{ height: 20, fontSize: 11 }}
-                    />
-                    <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{rel(s.updatedAt)}</Typography>
-                    <Chip size="small" label={`${s.count}문장`} sx={{ height: 20, fontSize: 11 }} />
-                  </Box>
+                  <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.5 }}>{rel(s.updatedAt)}</Typography>
                 </Box>
               </CardActionArea>
               <IconButton sx={{ mr: 1 }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
@@ -275,12 +254,6 @@ export default function SessionList({ onOpen, user, deskMode }) {
             <EditOutlinedIcon fontSize="small" />
           </ListItemIcon>
           제목 변경
-        </MenuItem>
-        <MenuItem onClick={summarize}>
-          <ListItemIcon>
-            <AutoAwesomeIcon fontSize="small" />
-          </ListItemIcon>
-          AI 요약
         </MenuItem>
         <MenuItem onClick={exportSession}>
           <ListItemIcon>
@@ -324,29 +297,38 @@ export default function SessionList({ onOpen, user, deskMode }) {
           )}
 
           {!deskMode && (
-            <>
-              {/* 데스크톱: 가로 3열 / 모바일: 세로 스택 */}
-              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1, mt: 2 }}>
-                {PRESETS.map((p) => {
-                  const sel = preset === p.v;
-                  return (
-                    <Box
-                      key={p.v}
-                      onClick={() => setPreset(p.v)}
-                      sx={{
-                        flex: 1, cursor: 'pointer', borderRadius: 2, p: 1.5,
-                        border: 2, borderColor: sel ? 'primary.main' : 'divider',
-                        bgcolor: (t) => (sel ? alpha(t.palette.primary.main, 0.08) : 'transparent'),
-                        transition: 'border-color .12s, background .12s',
-                      }}
-                    >
-                      <Typography sx={{ fontWeight: 800, fontSize: 14 }}>{p.icon} {p.label}</Typography>
-                      <Typography sx={{ fontSize: 11.5, color: 'text.secondary', mt: 0.3, lineHeight: 1.35, whiteSpace: 'pre-line' }}>{p.desc}</Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mt: 2 }}>
+              {SITUATIONS.map((p) => {
+                const sel = preset === p.v;
+                const Ic = p.Icon;
+                return (
+                  <Box
+                    key={p.v}
+                    onClick={() => setPreset(p.v)}
+                    role="button"
+                    sx={{
+                      cursor: 'pointer', borderRadius: 2.5, p: 1.75,
+                      border: 2, borderColor: sel ? 'primary.main' : 'divider',
+                      bgcolor: (t) => (sel ? alpha(t.palette.primary.main, 0.08) : 'transparent'),
+                      transition: 'border-color .12s, background .12s',
+                      '&:hover': { borderColor: sel ? 'primary.main' : 'text.disabled' },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                      <Avatar variant="rounded" sx={{ width: 38, height: 38, flex: 'none', bgcolor: (t) => alpha(t.palette.primary.main, sel ? 0.18 : 0.12), color: 'primary.main' }}>
+                        <Ic fontSize="small" />
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ fontWeight: 800, fontSize: 15.5, lineHeight: 1.25 }}>{p.title}</Typography>
+                        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.2, lineHeight: 1.35 }}>{p.example}</Typography>
+                      </Box>
+                      <Chip size="small" label={p.typeName} color="primary" variant={sel ? 'filled' : 'outlined'} sx={{ height: 22, fontSize: 11, flex: 'none' }} />
                     </Box>
-                  );
-                })}
-              </Box>
-            </>
+                    <Chip size="small" label={p.flow} sx={{ mt: 1.25, height: 22, fontSize: 11.5, fontWeight: 600, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
+                  </Box>
+                );
+              })}
+            </Box>
           )}
           {deskMode && (
             <>

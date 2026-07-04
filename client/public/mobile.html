@@ -181,6 +181,7 @@ let latestId = null;
 let curLang = 'ko';
 let sessionPipeline = 'whisper';
 let sessionOutLang = 'ko';
+let sessionViewerPTT = false; // 참여자 PTT 허용 여부(호스트 토글) — 켜졌을 때만 '누르고 말하기' 노출
 let speakerNames = {}; // 화자번호 -> 지정이름
 function spkLabel(id){ return id ? (speakerNames[id] || ('화자 '+id)) : ''; }
 
@@ -274,7 +275,7 @@ function applySxInfo(info){
 }
 async function loadSession(){
   let title = 'KAC Translator', sxInfo = null;
-  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; } } catch {}
+  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; sessionViewerPTT = !!s.viewerPTT; } } catch {}
   titleEl.textContent = title;
   langSel.style.display='none'; $('langLabel').style.display='none';
   if (sessionPipeline === 'translate') {
@@ -285,7 +286,7 @@ async function loadSession(){
   } else if (sessionPipeline === 'soniox') {
     // 다국어 번역: 방향 라벨 표시(선택 불가) + 음성 듣기 + 누르고 말하기
     applySxInfo(sxInfo);
-    $('audioBtn').style.display = 'flex'; $('pttBtn').style.display = 'flex';
+    $('audioBtn').style.display = 'flex'; $('pttBtn').style.display = sessionViewerPTT ? 'flex' : 'none'; // 참여자 PTT 켜졌을 때만
   } else if (sessionPipeline === 'desk') {
     // 데스크 안내: 외국인 자기 언어 자동 표시(입력은 호스트 마이크, 뷰어는 표시 전용)
     applySxInfo(sxInfo);
@@ -409,6 +410,7 @@ function connect(){
     else if(m.type==='desk-reset'){ clearAll(); }
     else if(m.type==='speakers'){ speakerNames = m.speakers || {}; rerenderSpk(); }
     else if(m.type==='host'){ setHostActive(m.active); }
+    else if(m.type==='viewerPTT'){ sessionViewerPTT = !!m.on; const pb=$('pttBtn'); if(sessionViewerPTT){ if(sessionPipeline==='soniox') pb.style.display='flex'; } else { pb.style.display='none'; if(pttActive) pttStop(); } }
   };
 }
 // 호스트(번역) 활성/중지 → 배너 + 누르고말하기 버튼 활성/비활성

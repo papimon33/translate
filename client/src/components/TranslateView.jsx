@@ -40,6 +40,8 @@ import StopIcon from '@mui/icons-material/Stop';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import VolumeDownIcon from '@mui/icons-material/VolumeDown';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { api } from '../api.js';
 
 function VolumeIcon({ level }) {
@@ -120,6 +122,12 @@ const pulse = keyframes`
   70% { box-shadow: 0 0 0 16px rgba(244,63,94,0); }
   100% { box-shadow: 0 0 0 0 rgba(244,63,94,0); }
 `;
+// 진행 중 자막 커서 깜빡임
+const blink = keyframes`
+  0%, 45% { opacity: 1; }
+  50%, 95% { opacity: 0.15; }
+  100% { opacity: 1; }
+`;
 
 function Field({ label, children }) {
   return (
@@ -131,6 +139,32 @@ function Field({ label, children }) {
 }
 
 const selSx = { '& .MuiSelect-select': { py: 0.85 }, bgcolor: 'background.paper' };
+
+// 읽기 전용(잠금) 값 표시 — 오디오 소스·출력 언어 등
+function LockedValue({ label }) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, height: 37, px: 1.25, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+      <LockOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled' }} />
+      <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.primary' }}>{label}</Typography>
+    </Box>
+  );
+}
+// 토글 + (i) 설명 툴팁
+function InfoToggle({ label, hint, checked, disabled, onChange }) {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
+        <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.02em' }}>{label}</Typography>
+        <Tooltip title={hint} arrow>
+          <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'help' }} />
+        </Tooltip>
+      </Box>
+      <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
+        <Switch checked={checked} disabled={disabled} onChange={onChange} />
+      </Box>
+    </Box>
+  );
+}
 
 function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange }) {
   return (
@@ -192,7 +226,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxTarget, setSxTarget] = useState(() => (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
-  const [ttsOn, setTtsOn] = useState(localStorage.getItem('kac-sx-tts') === '1'); // Cartesia TTS 음성 출력
+  const [ttsOn, setTtsOn] = useState(() => { const s = localStorage.getItem('kac-sx-tts'); return s === '1' ? true : s === '0' ? false : !onewayPreset; }); // 음성재생(TTS): 오프라인(대화) 기본 ON, 온라인 OFF
+  const [viewerPTT, setViewerPTT] = useState(!!initial.viewerPTT); // 참여자 PTT(휴대폰 누르고 말하기) — 기본 OFF
   const [diar, setDiar] = useState(localStorage.getItem('kac-sx-diar') !== '0'); // 화자 구분(기본 ON)
   const [gender, setGender] = useState(() => localStorage.getItem('kac-sx-gender') || 'f'); // 음성 성별
   const [previewing, setPreviewing] = useState(false);
@@ -462,7 +497,7 @@ export default function TranslateView({ session: initial, onBack }) {
   // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
   const showSource = cfg.pipeline === 'desk' ? true : (cfg.pipeline !== 'translate' && srcVisible);
   const showPartial = true;
-  const PRESET_LABEL = { oneway: '단방향 번역', twoway: '양방향 번역', mobile: '모바일 모드', meeting: '양방향 번역', online: '단방향 번역', field: '모바일 모드' };
+  const PRESET_LABEL = { oneway: '발표 번역', twoway: '대화 번역', mobile: '대화 번역', meeting: '대화 번역', online: '발표 번역', field: '대화 번역' };
   const pipeLabel = initial.preset ? PRESET_LABEL[initial.preset] : PIPES.find((p) => p.v === cfg.pipeline)?.label;
 
   return (
@@ -536,7 +571,12 @@ export default function TranslateView({ session: initial, onBack }) {
           variant="outlined"
           sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015) }}
         >
-          {cfg.pipeline !== 'desk' && (
+          {cfg.pipeline === 'soniox' && (
+            <Field label="오디오 소스">
+              <LockedValue label={onewayPreset ? '시스템' : '오프라인'} />
+            </Field>
+          )}
+          {cfg.pipeline !== 'desk' && cfg.pipeline !== 'soniox' && (
             <Field label="오디오 소스">
               <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
                 {SRC.map((s) => (
@@ -586,77 +626,43 @@ export default function TranslateView({ session: initial, onBack }) {
               </Select>
             </Field>
           )}
-          {cfg.pipeline === 'soniox' && (
+          {cfg.pipeline === 'soniox' && onewayPreset && (
             <>
-              <Field label="번역 방향">
-                <Select
-                  size="small"
-                  value={sxMode}
-                  disabled={recording}
-                  onChange={(e) => { setSxMode(e.target.value); localStorage.setItem('kac-sx-mode', e.target.value); }}
-                  sx={{ ...selSx, minWidth: 110 }}
-                >
-                  <MenuItem value="one">단방향</MenuItem>
-                  <MenuItem value="two">양방향</MenuItem>
+              <Field label="출력 언어">
+                <LockedValue label="한국어" />
+              </Field>
+              <InfoToggle
+                label="내 음성 인식"
+                hint="켜면 시스템 오디오와 함께 내 마이크(스피커)로 말한 것도 인식합니다."
+                checked={sourceMode === 'both'}
+                disabled={recording}
+                onChange={(e) => setSourceMode(e.target.checked ? 'both' : 'system')}
+              />
+            </>
+          )}
+          {cfg.pipeline === 'soniox' && !onewayPreset && (
+            <>
+              <Field label="언어 1">
+                <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} sx={{ ...selSx, minWidth: 110 }}>
+                  {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
                 </Select>
               </Field>
-              {sxMode === 'one' ? (
-                <Field label="출력 언어">
-                  <Select
-                    size="small"
-                    value={sxTarget}
-                    disabled={recording}
-                    onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }}
-                    sx={{ ...selSx, minWidth: 120 }}
-                  >
-                    {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                  </Select>
-                </Field>
-              ) : (
-                <>
-                  <Field label="언어 A">
-                    <Select
-                      size="small"
-                      value={sxA}
-                      disabled={recording}
-                      onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }}
-                      sx={{ ...selSx, minWidth: 110 }}
-                    >
-                      {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                    </Select>
-                  </Field>
-                  <Field label="언어 B">
-                    <Select
-                      size="small"
-                      value={sxB}
-                      disabled={recording}
-                      onChange={(e) => { setSxB(e.target.value); localStorage.setItem('kac-sx-b', e.target.value); }}
-                      sx={{ ...selSx, minWidth: 110 }}
-                    >
-                      {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                    </Select>
-                  </Field>
-                </>
-              )}
-              <Field label="음성재생(TTS)">
-                <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
-                  <Switch
-                    checked={ttsOn}
-                    disabled={recording}
-                    onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
-                  />
-                </Box>
+              <Field label="언어 2">
+                <Select size="small" value={sxB} disabled={recording} onChange={(e) => { setSxB(e.target.value); localStorage.setItem('kac-sx-b', e.target.value); }} sx={{ ...selSx, minWidth: 110 }}>
+                  {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                </Select>
               </Field>
+              <InfoToggle
+                label="음성 재생"
+                hint="번역 결과를 스피커로 음성(TTS) 재생합니다."
+                checked={ttsOn}
+                disabled={recording}
+                onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
+              />
               {ttsOn && (
                 <Field label="음성(성별)">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Select
-                      size="small"
-                      value={gender}
-                      disabled={recording}
-                      onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }}
-                      sx={{ ...selSx, minWidth: 90 }}
-                    >
+                    <Select size="small" value={gender} disabled={recording} onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }} sx={{ ...selSx, minWidth: 90 }}>
                       <MenuItem value="f">여성</MenuItem>
                       <MenuItem value="m">남성</MenuItem>
                     </Select>
@@ -670,6 +676,13 @@ export default function TranslateView({ session: initial, onBack }) {
                   </Box>
                 </Field>
               )}
+              <InfoToggle
+                label="참여자 PTT"
+                hint="켜면 참여자가 휴대폰의 '누르고 말하기'(Push-To-Talk)로 직접 발화할 수 있습니다."
+                checked={viewerPTT}
+                disabled={recording}
+                onChange={(e) => { const v = e.target.checked; setViewerPTT(v); try { api.patch(initial.id, { viewerPTT: v }); } catch {} }}
+              />
             </>
           )}
           {cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
@@ -692,13 +705,6 @@ export default function TranslateView({ session: initial, onBack }) {
                   <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>
                 ))}
               </Select>
-            </Field>
-          )}
-          {cfg.pipeline !== 'desk' && (
-            <Field label="원어 표시">
-              <Box sx={{ height: 37, display: 'flex', alignItems: 'center' }}>
-                <Switch checked={srcVisible} onChange={(e) => toggleSrc(e.target.checked)} />
-              </Box>
             </Field>
           )}
           {cfg.pipeline === 'translate' && (
@@ -805,7 +811,7 @@ export default function TranslateView({ session: initial, onBack }) {
                 const keys = Object.keys(m.texts);
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
-              return <Row key={m.id} side={m.side} text={t} source={m.source} showSource={showSource} speaker={m.speaker} speakerName={speakerName(m.speaker)} onSpeakerClick={openSpeakerEdit} />;
+              return <Row key={m.id} side={m.side} text={t} source={m.source} speaker={m.speaker} speakerName={speakerName(m.speaker)} onSpeakerClick={openSpeakerEdit} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
@@ -1009,82 +1015,59 @@ function oneLineReset(text) {
 // 진행 중 원어/번역: 항상 한 줄, 넘치면 비우고 처음부터
 function PartialLine({ side, text }) {
   if (!text) return null;
-  const isMic = side === 'right';
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
-      <Box
-        sx={{
-          width: '100%',
-          minWidth: 0,
-          textAlign: 'left',
-          pl: 1.75,
-          opacity: 0.6,
-          overflow: 'hidden',
-          borderLeft: '3px solid',
-          borderColor: isMic ? 'primary.main' : 'divider',
-        }}
+    // 진행 중(interim): 액센트 색 + 깜빡이는 커서로 구분
+    <Box sx={{ pb: 0.5 }}>
+      <Typography
+        noWrap
+        sx={{ fontSize: { xs: 21, sm: 24 }, lineHeight: 1.5, fontWeight: 500, color: 'primary.main', overflow: 'hidden' }}
       >
-        <Typography
-          noWrap
-          sx={{ fontSize: 18, lineHeight: 1.6, fontStyle: 'italic', color: 'text.secondary', overflow: 'hidden' }}
-        >
-          {oneLineReset(text)}
-        </Typography>
-      </Box>
+        {oneLineReset(text)}
+        <Box
+          component="span"
+          sx={{ display: 'inline-block', width: '3px', height: '1em', ml: '4px', borderRadius: '1px', bgcolor: 'primary.main', verticalAlign: '-0.15em', animation: `${blink} 1s steps(1, end) infinite` }}
+        />
+      </Typography>
     </Box>
   );
 }
 
 // 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
-function Row({ side, text, source, showSource, speaker, speakerName, onSpeakerClick }) {
+function Row({ side, text, source, speaker, speakerName, onSpeakerClick }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
-  const subSource = showSource ? source : null;
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-      <Box
+    // 카드/박스 없이 라인 구분선(하단)만. 번역문(큰 글씨) 위 · 원어(작은 회색) 아래. 원어 항상 표시.
+    <Box sx={{ pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+      {speaker && (
+        <Tooltip title="클릭해 화자 이름 지정">
+          <Box
+            onClick={() => onSpeakerClick && onSpeakerClick(speaker)}
+            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, mb: 0.5, px: 0.75, py: 0.1, borderRadius: 5, cursor: 'pointer', bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main', '&:hover': { bgcolor: (t) => alpha(t.palette.primary.main, 0.22) } }}
+          >
+            <PersonIcon sx={{ fontSize: 14 }} />
+            <Typography component="span" sx={{ fontSize: 11, fontWeight: 800, lineHeight: 1.6 }}>{speakerName || speaker}</Typography>
+          </Box>
+        </Tooltip>
+      )}
+      <Typography
         sx={{
-          width: '100%',
-          textAlign: 'left',
-          pl: 1.75,
-          borderLeft: '3px solid',
-          borderColor: isMic ? 'primary.main' : 'divider',
+          fontSize: { xs: 21, sm: 24 },
+          lineHeight: 1.5,
+          fontWeight: 500,
+          wordBreak: 'keep-all', // 띄어쓰기 없는 단어 중간에서 줄바꿈 금지
+          overflowWrap: 'anywhere',
+          color: pending ? 'text.secondary' : isMic ? 'primary.main' : 'text.primary',
+          fontStyle: pending ? 'italic' : 'normal',
         }}
       >
-        {speaker && (
-          <Tooltip title="클릭해 화자 이름 지정">
-            <Box
-              onClick={() => onSpeakerClick && onSpeakerClick(speaker)}
-              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, mb: 0.4, px: 0.75, py: 0.1, borderRadius: 5, cursor: 'pointer', bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main', '&:hover': { bgcolor: (t) => alpha(t.palette.primary.main, 0.22) } }}
-            >
-              <PersonIcon sx={{ fontSize: 14 }} />
-              <Typography component="span" sx={{ fontSize: 11, fontWeight: 800, lineHeight: 1.6 }}>{speakerName || speaker}</Typography>
-            </Box>
-          </Tooltip>
-        )}
-        <Typography
-          sx={{
-            fontSize: 18,
-            lineHeight: 1.55,
-            fontWeight: 300,
-            wordBreak: 'keep-all', // 띄어쓰기 없는 단어 중간에서 줄바꿈 금지
-            overflowWrap: 'anywhere',
-            color: pending
-              ? 'text.secondary'
-              : isMic
-              ? 'primary.main'
-              : (t) => (t.palette.mode === 'dark' ? t.palette.text.primary : '#000'),
-            fontStyle: pending ? 'italic' : 'normal',
-          }}
-        >
-          {mainText}
-        </Typography>
-        {pending && <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
-        {subSource && !pending && (
-          <Typography sx={{ fontSize: 13, color: 'text.disabled', lineHeight: 1.45, mt: 0.5, wordBreak: 'keep-all' }}>{source}</Typography>
-        )}
-      </Box>
+        {mainText}
+      </Typography>
+      {pending && <Typography sx={{ fontSize: 12.5, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
+      {!pending && source && (
+        <Typography sx={{ fontSize: 14.5, color: 'text.secondary', lineHeight: 1.5, mt: 0.6, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{source}</Typography>
+      )}
     </Box>
   );
 }

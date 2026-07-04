@@ -848,7 +848,8 @@ app.post('/api/sessions', requireAuth, (req, res) => {
 app.get('/api/sessions/:id', (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
-  res.json(s);
+  // 마이그레이션: 레거시 'mobile' 세션 → 참여자 PTT 기본 on (viewerPTT 미지정 시 preset==='mobile'이면 true)
+  res.json({ ...s, viewerPTT: typeof s.viewerPTT === 'boolean' ? s.viewerPTT : s.preset === 'mobile' });
 });
 
 // 데스크 뷰어 랜딩(공개): 안내데스크 세션 목록(id·제목만) — 뷰어가 방을 선택해 접속
@@ -886,6 +887,8 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
     s.speakers = clean;
     broadcast(req.params.id, { type: 'speakers', speakers: clean }); // 뷰어(모바일) 실시간 반영
   }
+  // 참여자 PTT(휴대폰 누르고 말하기) on/off — 뷰어에 실시간 반영
+  if (typeof b.viewerPTT === 'boolean') { s.viewerPTT = b.viewerPTT; broadcast(req.params.id, { type: 'viewerPTT', on: b.viewerPTT }); }
   s.updatedAt = Date.now();
   saveSessions();
   res.json(s);
