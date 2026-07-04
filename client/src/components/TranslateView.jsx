@@ -13,6 +13,7 @@ import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
 import Collapse from '@mui/material/Collapse';
+import Drawer from '@mui/material/Drawer';
 import Divider from '@mui/material/Divider';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
@@ -42,6 +43,9 @@ import VolumeDownIcon from '@mui/icons-material/VolumeDown';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
+import CloseIcon from '@mui/icons-material/Close';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { api } from '../api.js';
 
 function VolumeIcon({ level }) {
@@ -257,6 +261,25 @@ export default function TranslateView({ session: initial, onBack }) {
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [sxSettingsOpen, setSxSettingsOpen] = useState(false);
+  // AI 요약(세션 내 패널)
+  const [sumOpen, setSumOpen] = useState(false);
+  const [sumLoading, setSumLoading] = useState(false);
+  const [sumData, setSumData] = useState(null); // { points:[], terms:[{src,ko}] }
+  const [sumErr, setSumErr] = useState('');
+  const [sumCopied, setSumCopied] = useState(false);
+  const generateSummary = async () => {
+    setSumLoading(true); setSumErr('');
+    try { const d = await api.sessionSummary(initial.id); setSumData(d); }
+    catch (e) { setSumErr(e.message || '요약 실패'); }
+    finally { setSumLoading(false); }
+  };
+  const copySummary = async () => {
+    if (!sumData) return;
+    const lines = [];
+    if (sumData.points && sumData.points.length) { lines.push('[핵심 요점]'); sumData.points.forEach((p) => lines.push('• ' + p)); }
+    if (sumData.terms && sumData.terms.length) { lines.push('', '[주요 용어]'); sumData.terms.forEach((t) => lines.push('- ' + t.src + (t.ko ? ' → ' + t.ko : ''))); }
+    try { await navigator.clipboard.writeText(lines.join('\n')); setSumCopied(true); setTimeout(() => setSumCopied(false), 1500); } catch {}
+  };
   const [copied, setCopied] = useState(false);
   const [speakers, setSpeakers] = useState(initial.speakers || {}); // 화자번호 -> 지정이름
   const [speakerEdit, setSpeakerEdit] = useState(null); // 편집 중인 화자 번호
@@ -527,6 +550,16 @@ export default function TranslateView({ session: initial, onBack }) {
               <PictureInPictureAltIcon />
             </IconButton>
           </Tooltip>
+        )}
+        {cfg.pipeline !== 'desk' && (
+          <Button
+            onClick={() => setSumOpen(true)}
+            startIcon={<AutoAwesomeOutlinedIcon />}
+            variant="outlined"
+            sx={{ borderColor: 'divider', color: 'text.primary', fontWeight: 700, display: { xs: 'none', sm: 'inline-flex' } }}
+          >
+            AI 요약
+          </Button>
         )}
         <Tooltip title="전문 다운로드(.txt)">
           <span>
@@ -987,6 +1020,74 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* AI 요약 — 우측 슬라이드 패널(세션 내) */}
+      <Drawer anchor="right" open={sumOpen} onClose={() => setSumOpen(false)} PaperProps={{ sx: { width: { xs: '100%', sm: 400 }, maxWidth: '100%' } }}>
+        <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <AutoAwesomeOutlinedIcon sx={{ color: 'primary.main' }} />
+            <Typography sx={{ fontWeight: 800, fontSize: 17, flex: 1 }}>AI 요약</Typography>
+            <IconButton size="small" onClick={() => setSumOpen(false)}><CloseIcon fontSize="small" /></IconButton>
+          </Box>
+
+          <Box sx={{ flex: 1, overflowY: 'auto' }}>
+            {!sumData && !sumLoading && !sumErr && (
+              <Box sx={{ textAlign: 'center', mt: 6 }}>
+                <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mb: 3, lineHeight: 1.6 }}>지금까지의 확정된 대화를 핵심 요점과 주요 용어로 정리합니다.</Typography>
+                <Button variant="contained" startIcon={<AutoAwesomeOutlinedIcon />} onClick={generateSummary}>요약 생성</Button>
+              </Box>
+            )}
+            {sumLoading && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, mt: 8, color: 'text.secondary' }}>
+                <CircularProgress size={26} />
+                <Typography sx={{ fontSize: 13 }}>요약을 생성하고 있어요…</Typography>
+              </Box>
+            )}
+            {sumErr && !sumLoading && (
+              <Box sx={{ mt: 4 }}>
+                <Typography sx={{ fontSize: 13.5, color: 'error.main', mb: 2 }}>{sumErr}</Typography>
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={generateSummary}>다시 시도</Button>
+              </Box>
+            )}
+            {sumData && !sumLoading && (
+              (!(sumData.points && sumData.points.length) && !(sumData.terms && sumData.terms.length)) ? (
+                <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mt: 4, lineHeight: 1.6 }}>요약할 대화가 아직 없어요. 번역이 쌓인 뒤 다시 생성해 주세요.</Typography>
+              ) : (
+                <>
+                  {sumData.points && sumData.points.length > 0 && (
+                    <Box sx={{ mb: 3 }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', letterSpacing: '.04em', mb: 1 }}>핵심 요점</Typography>
+                      <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {sumData.points.map((p, i) => (<Typography key={i} component="li" sx={{ fontSize: 14.5, lineHeight: 1.55 }}>{p}</Typography>))}
+                      </Box>
+                    </Box>
+                  )}
+                  {sumData.terms && sumData.terms.length > 0 && (
+                    <Box sx={{ mb: 3 }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', letterSpacing: '.04em', mb: 1 }}>주요 용어</Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        {sumData.terms.map((t, i) => (
+                          <Box key={i} sx={{ display: 'flex', alignItems: 'baseline', gap: 1, py: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}>
+                            <Typography sx={{ fontSize: 14, fontWeight: 700 }}>{t.src}</Typography>
+                            {t.ko && <Typography sx={{ fontSize: 13.5, color: 'text.secondary' }}>{t.ko}</Typography>}
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                </>
+              )
+            )}
+          </Box>
+
+          {sumData && !sumLoading && (
+            <Box sx={{ display: 'flex', gap: 1, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Button fullWidth variant="outlined" startIcon={sumCopied ? <CheckIcon /> : <ContentCopyIcon />} onClick={copySummary} sx={{ borderColor: 'divider', color: sumCopied ? 'success.main' : 'text.primary' }}>{sumCopied ? '복사됨' : '복사'}</Button>
+              <Button fullWidth variant="contained" startIcon={<RefreshIcon />} onClick={generateSummary}>다시 생성</Button>
+            </Box>
+          )}
+        </Box>
+      </Drawer>
     </Box>
   );
 }

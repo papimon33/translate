@@ -64,6 +64,12 @@ export const api = {
 
   summaries: () => fetch('/api/summaries').then(json),
   summary: (id) => fetch('/api/summaries/' + id).then(json),
+  // 세션 내 즉시 요약(구조화: points/terms) — 확정 자막 기준
+  sessionSummary: (id) =>
+    fetch('/api/sessions/' + id + '/summary', { method: 'POST' }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '요약 실패');
+      return r.json();
+    }),
   createSummary: (sessionId) =>
     fetch('/api/summaries', {
       method: 'POST',

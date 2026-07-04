@@ -769,6 +769,26 @@ app.get('/api/summaries/:id', requireAuth, (req, res) => {
   if (!s || s.owner !== req.user.id) return res.status(404).json({ error: 'not found' });
   res.json(pubSummary(s, true));
 });
+// 세션 내 즉시 AI 요약(구조화: 핵심 요점 + 주요 용어 원어·한국어). 확정 자막 기준.
+app.post('/api/sessions/:id/summary', requireAuth, async (req, res) => {
+  const s = getSession(req.params.id);
+  if (!s) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' });
+  if (s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const transcript = sessionTranscript(s);
+  if (!transcript.trim()) return res.json({ points: [], terms: [] });
+  try {
+    const sys = '너는 회의·대화 전문을 분석하는 도우미다. 반드시 JSON 하나만 출력한다(코드펜스·설명 금지). 형식: {"points": string[], "terms": {"src": string, "ko": string}[]}. points=핵심 요점 5~8개(한국어, 각 한 문장). terms=등장한 전문용어·고유명사의 원어(src)와 한국어 대응(ko) 최대 8개(없으면 []).';
+    let raw = await chatComplete(sys, `전문:\n\n${transcript.slice(0, SUMMARY_MAX_INPUT)}`, 1500);
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    let obj = {}; try { obj = JSON.parse(raw); } catch { obj = {}; }
+    const points = Array.isArray(obj.points) ? obj.points.filter((x) => typeof x === 'string' && x.trim()).slice(0, 10) : [];
+    const terms = Array.isArray(obj.terms) ? obj.terms.filter((t) => t && t.src).map((t) => ({ src: String(t.src), ko: String(t.ko || '') })).slice(0, 12) : [];
+    res.json({ points, terms });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) ? String(e.message).slice(0, 200) : '요약 실패' });
+  }
+});
+
 app.post('/api/summaries', requireAuth, (req, res) => {
   const sessionId = String((req.body && req.body.sessionId) || '');
   const session = getSession(sessionId);
