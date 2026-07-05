@@ -168,8 +168,8 @@ export default function SessionList({ onOpen, user, deskMode }) {
     <>
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
-          {/* 페이지 제목 — 가운데 정렬(상단 여백) */}
-          <Typography sx={{ textAlign: 'center', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mt: { xs: 2, sm: 5 }, mb: { xs: 3, sm: 4.5 } }}>
+          {/* 페이지 제목 — 좌측 정렬(상단 여백) */}
+          <Typography sx={{ textAlign: 'left', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mt: { xs: 2, sm: 5 }, mb: { xs: 3, sm: 4.5 } }}>
             {deskMode ? '데스크 안내' : '실시간 번역'}
           </Typography>
           {/* 상단 툴바: (데스크) QR 토글 + 새 세션 */}
@@ -196,7 +196,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
                   <Box sx={{ minWidth: 0 }}>
                     <Typography sx={{ fontWeight: 800, fontSize: 15 }}>뷰어 접속 QR (안내데스크 선택 화면)</Typography>
                     <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
-                      손님 태블릿으로 스캔 → 안내데스크 선택 → 시작 화면(전체화면).
+                      손님 태블릿으로 스캔 → 안내데스크 선택 → 입장(전체화면). 데스크별 QR은 세션 안에서 제공됩니다.
                     </Typography>
                     <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.5, wordBreak: 'break-all' }}>{deskQr.url}</Typography>
                   </Box>

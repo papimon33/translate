@@ -248,6 +248,8 @@ export async function startRecorder(opts) {
 
   // 데스크: 호스트 수동 '대기모드로' — 현재 대화 종료(뷰어를 터치화면으로)
   function deskReset() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-reset-now' })); } catch {} } }
+  // 데스크: 호스트 수동 통역 시작(손님 언어 지정) — soniox 세션이 이때 열림
+  function deskStart(lang) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-start', lang })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, deskReset };
+  return { stop, setAudioOut, setVolume, setMuted, deskReset, deskStart };
 }
