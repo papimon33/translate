@@ -90,6 +90,41 @@ export async function startRecorder(opts) {
   const outGain = audioCtx.createGain();
   outGain.gain.value = typeof volume === 'number' ? volume : 1;
   outGain.connect(audioCtx.destination);
+
+  // TTS 재생을 WebRTC 루프백으로 우회 — 브라우저 AEC(echoCancellation)가 이 재생음을 참조 신호로 잡아
+  // 마이크 입력에서 제거하므로, 재생음이 다시 인식되는 피드백 루프를 마이크를 끄지 않고 막는다.
+  // (Web Audio 직접 재생은 AEC 참조 경로 밖이라 에코로 인식되지 않음)
+  let aecActive = false;
+  let aecParts = null;
+  async function setupAecLoopback() {
+    try {
+      const dest = audioCtx.createMediaStreamDestination();
+      const pc1 = new RTCPeerConnection();
+      const pc2 = new RTCPeerConnection();
+      pc1.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate).catch(() => {}); };
+      pc2.onicecandidate = (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate).catch(() => {}); };
+      const audioEl = new Audio();
+      audioEl.autoplay = true;
+      pc2.ontrack = (e) => { audioEl.srcObject = e.streams[0]; audioEl.play().catch(() => {}); };
+      dest.stream.getTracks().forEach((t) => pc1.addTrack(t, dest.stream));
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(offer);
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+      outGain.disconnect();
+      outGain.connect(dest); // 이후 TTS 는 WebRTC 경로로 재생(AEC 참조 대상)
+      aecParts = { pc1, pc2, audioEl };
+      aecActive = true;
+    } catch {
+      // 실패 시 기존 직접 재생 유지(+ 재생 중 자동 음소거 폴백)
+      try { outGain.disconnect(); } catch {}
+      try { outGain.connect(audioCtx.destination); } catch {}
+      aecActive = false;
+    }
+  }
+  if (audioOut || opts.tts) setupAecLoopback();
   const playPcm24 = (b64) => {
     try {
       const bin = atob(b64);
@@ -160,8 +195,9 @@ export async function startRecorder(opts) {
       }
       if (src === 'mic' && onMeter) onMeter(Math.sqrt(sum / input.length), peak);
 
-      // 발화 일시정지(mute) 또는 TTS 재생 중 자동 음소거: 무음 전송 + keepalive
-      if (muted || audioCtx.currentTime < ttsMutedUntil) {
+      // 발화 일시정지(mute), 또는 (AEC 미지원 폴백일 때만) TTS 재생 중 자동 음소거: 무음 전송 + keepalive
+      // AEC 루프백이 켜져 있으면 재생음이 마이크에서 제거되므로 TTS 중에도 발화 가능(음소거 안 함)
+      if (muted || (!aecActive && audioCtx.currentTime < ttsMutedUntil)) {
         if (ws.readyState === WebSocket.OPEN) {
           const ds = downsampleTo24k(input, inRate);
           ws.send(new ArrayBuffer(ds.length * 2));
@@ -220,6 +256,7 @@ export async function startRecorder(opts) {
       if (p.proc) p.proc.onaudioprocess = null;
     }
     streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    if (aecParts) { try { aecParts.audioEl.pause(); } catch {} try { aecParts.pc1.close(); } catch {} try { aecParts.pc2.close(); } catch {} aecParts = null; }
     if (audioCtx) audioCtx.close();
     // 마지막 발화 결과가 도착하도록 잠시 후 닫기
     setTimeout(() => closing.forEach((p) => {
@@ -250,6 +287,9 @@ export async function startRecorder(opts) {
   function deskReset() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-reset-now' })); } catch {} } }
   // 데스크: 호스트 수동 통역 시작(손님 언어 지정) — soniox 세션이 이때 열림
   function deskStart(lang) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-start', lang })); } catch {} } }
+  // 데스크: 길안내 제안 승인(뷰어에 지도 표시) / 무시
+  function wayfindShow() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-show' })); } catch {} } }
+  function wayfindDismiss() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-dismiss' })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, deskReset, deskStart };
+  return { stop, setAudioOut, setVolume, setMuted, deskReset, deskStart, wayfindShow, wayfindDismiss };
 }

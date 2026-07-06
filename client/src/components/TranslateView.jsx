@@ -108,11 +108,15 @@ const ENDPOINTS = [
   { v: 1200, label: '1200ms' },
 ];
 
-// 데스크: 손님 언어 선택지(호스트용 — 한국어 표기, ko 제외)
+// 데스크: 손님 언어 선택지(호스트용 — 한국어 표기, ko 제외. soniox two_way 지원 언어)
 const DESK_LANGS = [
   { code: 'en', label: '영어' },
   { code: 'ja', label: '일본어' },
   { code: 'zh', label: '중국어' },
+  { code: 'vi', label: '베트남어' },
+  { code: 'th', label: '태국어' },
+  { code: 'id', label: '인도네시아어' },
+  { code: 'ru', label: '러시아어' },
 ];
 // 데스크: 무음 자동종료(대기 복귀) 시간 — 기본 30초
 const DESK_IDLE = [
@@ -227,7 +231,8 @@ export default function TranslateView({ session: initial, onBack }) {
   });
   const [optsOpen, setOptsOpen] = useState(true); // 옵션(컨트롤) 바 접기 — 접으면 번역영역 넓어짐
   const [micSens, setMicSens] = useState(() => {
-    const v = Number(localStorage.getItem('kac-mic-sens'));
+    const s = localStorage.getItem('kac-mic-sens'); // 미저장 시 Number(null)=0 으로 오인되지 않게 원문 확인
+    const v = s == null ? NaN : Number(s);
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100; // 마이크 음성인식 민감도 0~100 (100=가장 민감, 낮출수록 큰 소리만). 기기 저장
   });
   // 프리셋: 단방향=one→ko, 양방향/모바일=two. (없으면 기존 localStorage)
@@ -263,6 +268,13 @@ export default function TranslateView({ session: initial, onBack }) {
   const [deskGuestLang, setDeskGuestLang] = useState(null); // 데스크: 현재 응대 중인 손님 언어
   const [hostLang, setHostLang] = useState('en'); // 데스크: 호스트 수동 시작용 손님 언어
   const deskAutoRef = useRef(false); // 데스크 자동 캡처 시작 1회 가드
+  const [wayfindSug, setWayfindSug] = useState(null); // 데스크: 길안내 제안(호스트 승인 대기)
+  const sugTimerRef = useRef(null); // 제안 자동 소멸 타이머
+  const [mapAuto, setMapAuto] = useState(() => localStorage.getItem('kac-desk-map-auto') === '1'); // 지도 자동 표시(승인 생략)
+  const [fontScale, setFontScale] = useState(() => { // 번역 텍스트 크기(고급설정, 기기 저장)
+    const v = Number(localStorage.getItem('kac-font-scale'));
+    return Number.isFinite(v) && v >= 0.8 && v <= 1.6 ? v : 1;
+  });
   const [level, setLevel] = useState(0);
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
@@ -412,10 +424,19 @@ export default function TranslateView({ session: initial, onBack }) {
       setPartials({ left: '', right: '' });
       setViewerActive(false);
       setDeskGuestLang(null);
+      setWayfindSug(null);
       return;
     }
     if (m.type === 'desk-active') { // 통역 시작됨(손님 언어 선택 또는 호스트 수동 시작)
       if (cfg.pipeline === 'desk') { setViewerActive(true); if (m.lang) setDeskGuestLang(m.lang); }
+      return;
+    }
+    if (m.type === 'wayfind-suggest') { // 길안내 감지 → 호스트 승인 대기(자동 표시 설정 시 즉시 승인)
+      if (cfg.pipeline !== 'desk') return;
+      if (localStorage.getItem('kac-desk-map-auto') === '1') { if (recRef.current && recRef.current.wayfindShow) recRef.current.wayfindShow(); return; }
+      setWayfindSug(m);
+      clearTimeout(sugTimerRef.current);
+      sugTimerRef.current = setTimeout(() => setWayfindSug(null), 20000); // 20초 방치 시 제안 소멸(맥락 지난 지도 방지)
       return;
     }
     if (m.type === 'partial' || m.type === 'sentence') setConnecting(false); // 첫 결과 도착 → 연결중 해제
@@ -609,8 +630,8 @@ export default function TranslateView({ session: initial, onBack }) {
         )}
       </Box>
 
-      {/* 컨트롤 바 (옵션) — 숨기면 박스 전체가 접혀 올라가고 숨김 버튼만 제자리에 남음 */}
-      <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: 1.5, position: 'relative', minHeight: 52 }}>
+      {/* 컨트롤 바 (옵션) — 숨기면 박스 전체가 접혀 번역 영역이 그만큼 올라옴. 토글 버튼은 공간을 차지하지 않는 플로팅 */}
+      <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: optsOpen ? 1.5 : 0, position: 'relative' }}>
         <Collapse in={optsOpen}>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015), overflow: 'hidden' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', px: 1.5, py: 1, pr: 7 }}>
@@ -863,7 +884,7 @@ export default function TranslateView({ session: initial, onBack }) {
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
       <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <Box ref={scrollRef} sx={{ position: 'absolute', inset: 0, overflowY: 'auto', px: { xs: 1.5, sm: 3 }, py: 3, pb: 16 }}>
-          <Box sx={{ maxWidth: 880, mx: 'auto', display: 'flex', flexDirection: 'column', gap: '30px' }}>
+          <Box sx={{ maxWidth: 880, mx: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {messages.map((m) => {
               // 선택 언어만 표시(다른 언어로 대체하지 않음). 아직 없으면 원문을 placeholder 로.
               // translate 는 항목당 1개 언어만 저장 → 출력언어 변경 시 기존 메시지가 사라지지
@@ -877,7 +898,7 @@ export default function TranslateView({ session: initial, onBack }) {
               // 데스크: 안내원(한국어) 발화는 texts 에 ko 가 없음 → 원문을 본문으로('번역 중…' 표시 없이)
               if (cfg.pipeline === 'desk' && !t) {
                 if (!m.source) return null;
-                return <Row key={m.id} side={m.side} text={m.source} source={null} dir={null} />;
+                return <Row key={m.id} side={m.side} text={m.source} source={null} dir={null} scale={fontScale} />;
               }
               // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
               let dir = null;
@@ -885,10 +906,10 @@ export default function TranslateView({ session: initial, onBack }) {
                 const tk = Object.keys(m.texts)[0];
                 if (tk) dir = tk === sxA ? 'b' : 'a'; // 타깃이 언어1 → 언어2가 말함(b), 타깃이 언어2 → 언어1이 말함(a)
               }
-              return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} />;
+              return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} scale={fontScale} />;
             })}
-            {showPartial && partials.left && <PartialLine side="left" text={partials.left} />}
-            {showPartial && partials.right && <PartialLine side="right" text={partials.right} />}
+            {showPartial && partials.left && <PartialLine side="left" text={partials.left} scale={fontScale} />}
+            {showPartial && partials.right && <PartialLine side="right" text={partials.right} scale={fontScale} />}
           </Box>
         </Box>
 
@@ -908,6 +929,18 @@ export default function TranslateView({ session: initial, onBack }) {
             background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
           }}
         >
+          {/* 길안내 제안(호스트 승인) — 오탐 지도가 손님 화면에 바로 뜨지 않도록 확인 단계 */}
+          {cfg.pipeline === 'desk' && wayfindSug && (
+            <Paper sx={{ position: 'absolute', bottom: 106, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 1, px: 1.75, py: 0.9, borderRadius: 3, border: 1, borderColor: 'divider', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                지도 표시: {wayfindSug.ko} · {String(wayfindSug.floor || '').replace('F', '')}층
+              </Typography>
+              <Button size="small" variant="contained" disableElevation
+                onClick={() => { if (recRef.current && recRef.current.wayfindShow) recRef.current.wayfindShow(); setWayfindSug(null); }}>표시</Button>
+              <Button size="small" variant="text" sx={{ color: 'text.secondary' }}
+                onClick={() => { if (recRef.current && recRef.current.wayfindDismiss) recRef.current.wayfindDismiss(); setWayfindSug(null); }}>무시</Button>
+            </Paper>
+          )}
           {cfg.pipeline === 'desk' ? (
             viewerActive ? (
               <>
@@ -1046,9 +1079,21 @@ export default function TranslateView({ session: initial, onBack }) {
         <DialogTitle sx={{ fontWeight: 800 }}>고급 설정</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>이 설정은 이 기기에 저장됩니다.</Typography>
+          <SxSlider label="텍스트 크기" hint="번역 텍스트 표시 크기 (80~160%)" value={fontScale} min={0.8} max={1.6} step={0.1} disabled={false}
+            fmt={(v) => Math.round(v * 100) + '%'}
+            onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
           <SxSlider label="마이크 음성인식 민감도" hint="100=가장 민감(모든 소리), 낮출수록 큰 소리에만 반응(주변 소음 무시)" value={micSens} min={0} max={100} step={1} disabled={recording}
             fmt={(v) => String(v)}
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); }} />
+          {cfg.pipeline === 'desk' && (
+            <InfoToggle
+              label="지도 자동 표시"
+              hint="켜면 길안내 감지 시 확인 없이 바로 손님 화면에 지도를 표시합니다. 끄면 하단 제안에서 '표시'를 눌러야 표시됩니다."
+              checked={mapAuto}
+              disabled={false}
+              onChange={(e) => { setMapAuto(e.target.checked); localStorage.setItem('kac-desk-map-auto', e.target.checked ? '1' : '0'); }}
+            />
+          )}
           {cfg.pipeline === 'soniox' && (
             <>
               <SxSlider label="종료 민감도" hint="높을수록 더 자주/빨리 끊김" value={sxSens} min={-1} max={1} step={0.1} disabled={recording}
@@ -1142,14 +1187,14 @@ function oneLineReset(text) {
 }
 
 // 진행 중 원어/번역: 항상 한 줄, 넘치면 비우고 처음부터
-function PartialLine({ side, text }) {
+function PartialLine({ side, text, scale = 1 }) {
   if (!text) return null;
   return (
     // 진행 중(interim): 액센트 색 + 깜빡이는 커서로 구분
     <Box sx={{ pb: 0.5 }}>
       <Typography
         noWrap
-        sx={{ fontSize: { xs: 21, sm: 24 }, lineHeight: 1.5, fontWeight: 500, color: 'primary.main', overflow: 'hidden' }}
+        sx={{ fontSize: { xs: Math.round(21 * scale), sm: Math.round(24 * scale) }, lineHeight: 1.5, fontWeight: 500, color: 'primary.main', overflow: 'hidden' }}
       >
         {oneLineReset(text)}
         <Box
@@ -1163,7 +1208,7 @@ function PartialLine({ side, text }) {
 
 // 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
 // 양방향(dir): 언어1 발화='a'(보라 액센트) · 언어2 발화='b'(무채색=검정/흰색) 로 방향 구분.
-function Row({ side, text, source, dir }) {
+function Row({ side, text, source, dir, scale = 1 }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
@@ -1175,10 +1220,10 @@ function Row({ side, text, source, dir }) {
   };
   return (
     // 카드/박스 없이 라인 구분선(하단)만. 번역문(큰 글씨) 위 · 원어(작은 회색) 아래. 원어 항상 표시.
-    <Box sx={{ pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+    <Box sx={{ pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
       <Typography
         sx={{
-          fontSize: { xs: 21, sm: 24 },
+          fontSize: { xs: Math.round(21 * scale), sm: Math.round(24 * scale) },
           lineHeight: 1.5,
           fontWeight: 500,
           wordBreak: 'keep-all', // 띄어쓰기 없는 단어 중간에서 줄바꿈 금지
@@ -1191,7 +1236,7 @@ function Row({ side, text, source, dir }) {
       </Typography>
       {pending && <Typography sx={{ fontSize: 12.5, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
       {!pending && source && (
-        <Typography sx={{ fontSize: 14.5, color: 'text.secondary', lineHeight: 1.5, mt: 0.6, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{source}</Typography>
+        <Typography sx={{ fontSize: Math.round(14.5 * scale), color: 'text.secondary', lineHeight: 1.5, mt: 0.6, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{source}</Typography>
       )}
     </Box>
   );

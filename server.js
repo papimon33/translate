@@ -1374,12 +1374,14 @@ function resolveCategoryDests(catId, deskFloor) {
   return null; // 일반구역에 해당 시설 없음 → 안내 안 함
 }
 // 직매칭 실패 + 위치 의도어 있을 때만 호출: gpt-5.4-mini 로 카테고리 분류(닫힌 집합)
-async function classifyFacility(koText) {
+// questionKo(직전 손님 질문의 한국어 번역)를 함께 주면 "저쪽 끝에 있어요"류 시설명 생략 답변도 분류 가능.
+async function classifyFacility(koText, questionKo) {
   if (!OPENAI_API_KEY) return null;
   const enumList = CATEGORIES.map((c) => `${c.id}(${c.ko})`).join(', ');
-  const sys = `사용자가 공항에서 찾는 시설을 아래 목록 중 하나의 id로만 분류한다.\n목록: ${enumList}\n해당 없으면 none. 출력은 JSON {"id":"..."} 하나만.`;
+  const sys = `공항 안내 대화에서 언급된 시설을 아래 목록 중 하나의 id로만 분류한다.\n목록: ${enumList}\n부정("없다", "~말고")된 시설이나 해당 없음이면 none. 출력은 JSON {"id":"..."} 하나만.`;
+  const user = questionKo ? `손님 질문: ${questionKo}\n안내원 답변: ${koText}` : koText;
   try {
-    const body = { model: 'gpt-5.4-mini', messages: [{ role: 'system', content: sys }, { role: 'user', content: koText }], max_completion_tokens: 20, response_format: { type: 'json_object' }, reasoning_effort: 'none' };
+    const body = { model: 'gpt-5.4-mini', messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], max_completion_tokens: 20, response_format: { type: 'json_object' }, reasoning_effort: 'none' };
     const r = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` }, body: JSON.stringify(body) });
     if (!r.ok) return null;
     const d = await r.json();
@@ -1529,6 +1531,10 @@ function handleViewer(ws) {
         // 데스크: 손님 화면의 종료(✕) — 대화 종료 후 대기 모드로
         const ctrl = deskCtrl.get(ws._session);
         if (ctrl) ctrl.end();
+      } else if (m.type === 'desk-keepalive') {
+        // 데스크: 종료 예고 배너 터치 → 무음 타이머 연장
+        const ctrl = deskCtrl.get(ws._session);
+        if (ctrl && ctrl.keepalive) ctrl.keepalive();
       }
     } catch {}
   });
@@ -1868,7 +1874,7 @@ function handleHost(ws) {
     const SX_MAX_CHARS = 200;
     const sens = Number(ws._sxSens), maxDelay = Number(ws._sxMaxDelay), latency = Number(ws._sxLatency);
     const A = 'ko'; // 안내원 언어(고정)
-    const GUEST_LANGS = ['en', 'ja', 'zh']; // 손님(또는 호스트)이 고르는 언어(한국어 제외)
+    const GUEST_LANGS = ['en', 'ja', 'zh', 'vi', 'th', 'id', 'ru']; // 손님(또는 호스트)이 고르는 언어(soniox two_way 지원, 한국어 제외)
     const deskIdleMs = Math.min(120000, Math.max(5000, Number(ws._deskIdle) || 30000)); // 무음 → 대화 종료(기본 30초)
 
     let phase = 'idle';     // 'idle'(대기, soniox 없음) | 'active'(통역 중)
@@ -1877,6 +1883,8 @@ function handleHost(ws) {
     let closed = false;     // 호스트 중지/종료 — 자동 재연결 금지 플래그
     let pending = [];
     let foreignTimer = null;
+    let warnTimer = null;       // 무음 종료 10초 전 예고
+    let pendingWayfind = null;  // 호스트 승인 대기 중인 길안내 제안
 
     const baseConfig = () => ({
       api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
@@ -1921,25 +1929,50 @@ function handleHost(ws) {
         const dsd = (session && session.deskSide) || 'S';
         // 답변에 '목적지 층'이 있으면(예: "1층으로 내려가세요") 데스크 기본 층 우선순위를 덮어씀(직원 현장판단 반영).
         const destFloor = parseAnswerFloor(txt, dfl) || dfl;
-        const fire = (catId) => {
+        // 오탐 방지: 즉시 뷰어에 쏘지 않고 호스트에 '제안'만 → 호스트가 표시/무시(또는 자동 표시 설정).
+        const fire = (catId, via) => {
           try {
             const wf = resolveCategoryDests(catId, destFloor);
-            if (wf && wf.dests.length) { const msg = { type: 'wayfind', ...wf, deskFloor: dfl, deskSide: dsd }; broadcast(sessionId, msg); toHost(msg); }
+            if (wf && wf.dests.length) {
+              pendingWayfind = { type: 'wayfind', ...wf, deskFloor: dfl, deskSide: dsd };
+              toHost({ ...pendingWayfind, type: 'wayfind-suggest' });
+              if (session) { // 운영 로그: 감지 발화·경로(직매칭/GPT)·표시 여부 — 사전·프롬프트 튜닝용
+                session.wayfindLog = session.wayfindLog || [];
+                session.wayfindLog.push({ at: Date.now(), catId, via, txt: txt.slice(0, 80), shown: false });
+                if (session.wayfindLog.length > 200) session.wayfindLog = session.wayfindLog.slice(-200);
+                saveSessions();
+              }
+            }
           } catch {}
         };
+        // 직전 손님 질문(한국어 번역) — 시설명이 답변에 없어도 질문에서 분류할 수 있게 컨텍스트로 전달
+        const lastGuestQ = session && Array.isArray(session.items)
+          ? [...session.items].reverse().find((it) => it.lang && it.lang !== A && it.texts && it.texts[A])
+          : null;
+        const NEG = /없|말고|아니/; // 부정·비교 표지 → 직매칭 신뢰 불가, GPT 분류로
         const direct = detectCategory(txt);            // 1) 사전 직매칭(원어민 한국어 → 신뢰도 높음, 무료)
-        if (direct.length) fire(direct[0].id);
-        else if (isLocationAnswer(txt)) classifyFacility(txt).then((id) => { if (id) fire(id); }).catch(() => {}); // 2) 방향·층 단서 있을 때만 gpt-5.4-mini
+        if (direct.length && !NEG.test(txt)) fire(direct[0].id, 'direct');
+        else if (direct.length || isLocationAnswer(txt) || (lastGuestQ && isLocationAnswer(lastGuestQ.texts[A]))) {
+          classifyFacility(txt, lastGuestQ ? lastGuestQ.texts[A] : null).then((id) => { if (id) fire(id, 'gpt'); }).catch(() => {}); // 2) gpt-5.4-mini
+        }
       }
     };
 
     // 무음 자동종료: 발화가 들릴 때마다 리셋 → deskIdleMs 동안 '아무 말도' 없으면 대화 종료 → 대기(idle)
+    // 종료 10초 전 예고(desk-idle-warn) — 뷰어가 카운트다운을 보여주고 터치(keepalive)로 연장 가능
     const armForeignTimer = () => {
       clearTimeout(foreignTimer);
+      clearTimeout(warnTimer);
       foreignTimer = setTimeout(() => { if (phase === 'active') endConversation(); }, deskIdleMs);
+      const warnAt = deskIdleMs - 10000;
+      if (warnAt > 2000) warnTimer = setTimeout(() => {
+        if (phase === 'active') { const w = { type: 'desk-idle-warn', secondsLeft: 10 }; broadcast(sessionId, w); toHost(w); }
+      }, warnAt);
     };
     const endConversation = () => {
       clearTimeout(foreignTimer);
+      clearTimeout(warnTimer);
+      pendingWayfind = null;
       commit();
       if (session) {
         if (Array.isArray(session.items) && session.items.length) {
@@ -2037,22 +2070,31 @@ function handleHost(ws) {
       }
       try {
         const m = JSON.parse(data.toString());
-        if (m.type === 'stop') { closed = true; clearTimeout(foreignTimer); closeSx(); }
+        if (m.type === 'stop') { closed = true; clearTimeout(foreignTimer); clearTimeout(warnTimer); closeSx(); }
         else if (m.type === 'desk-start') { startConversation(String(m.lang || '').toLowerCase()); } // 호스트 수동 시작(언어 선택)
         else if (m.type === 'desk-reset-now') { endConversation(); } // 호스트 수동 '대기모드로' — 대화 종료·뷰어 터치화면 복귀
+        else if (m.type === 'wayfind-show') { // 호스트가 길안내 제안 승인 → 뷰어에 지도 표시
+          if (pendingWayfind) {
+            broadcast(sessionId, pendingWayfind);
+            if (session && Array.isArray(session.wayfindLog) && session.wayfindLog.length) { session.wayfindLog[session.wayfindLog.length - 1].shown = true; saveSessions(); }
+            pendingWayfind = null;
+          }
+        }
+        else if (m.type === 'wayfind-dismiss') { pendingWayfind = null; } // 제안 무시
       } catch {}
     });
     ws.on('close', () => {
       const wasActive = phase === 'active';
       closed = true;
       clearTimeout(foreignTimer);
+      clearTimeout(warnTimer);
       if (deskCtrl.get(sessionId) === ctrl) deskCtrl.delete(sessionId);
       if (wasActive) endConversation(); // 응대 중 호스트 이탈 → 기록 보존 + 뷰어를 터치 화면으로
       else closeSx();
     });
 
-    // 뷰어(손님)의 통역 시작/종료 요청을 이 파이프라인으로 전달받기 위한 컨트롤러 등록
-    const ctrl = { start: startConversation, end: endConversation };
+    // 뷰어(손님)의 통역 시작/종료/연장 요청을 이 파이프라인으로 전달받기 위한 컨트롤러 등록
+    const ctrl = { start: startConversation, end: endConversation, keepalive: () => { if (phase === 'active') armForeignTimer(); } };
     deskCtrl.set(sessionId, ctrl);
 
     setMeta();

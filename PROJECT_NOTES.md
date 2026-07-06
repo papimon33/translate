@@ -35,7 +35,10 @@
 - 데스크(국제선 1층/2층 등)마다 세션 1개. 호스트가 세션에 들어가면 **자동으로 마이크 캡처**(별도 대기 버튼 없음, 권한 거부 시 인앱 배너). 캡처 중에도 **soniox 세션은 열지 않음**(서버가 오디오 버림 — 비용 0), 60초 idle-stop 도 데스크는 제외(무기한 대기).
 - 호스트 하단 컨트롤: 대기 시엔 [언어 셀렉터(영어/일본어/중국어 — 한국어 표기)]+[통역 시작]만, 응대 중엔 [응대 중 칩]+[대기모드로]. 호스트 발화(ko)는 texts에 ko가 없으므로 원문을 본문으로 표시('번역 중…' 없음). 전체화면 버튼은 토글(재클릭 시 해제).
 - 세션 내 QR('뷰어 연결') = `desk.html?session=ID`(해당 데스크 전용 뷰어). 데스크 목록 화면의 랜딩 QR은 제거됨(랜딩 `desk.html` 자체는 유지).
-- 뷰어 플로우: **입장 화면**(안내데스크명 + 입장) → 전체화면 + **상시 WS 연결** → **터치 대기 화면**("Touch the screen to start translation" 세로 중앙, 영어) → **언어 선택**(English/日本語/中文, 좌상단 뒤로가기, 영어 제목, 20초 방치 복귀) → soniox two_way(ko↔선택언어) → 번역 텍스트 화면. 전체화면이 풀리면 다음 터치에서 자동 복귀.
+- 뷰어 플로우: **입장 화면**(안내데스크명 + 입장) → 전체화면 + **상시 WS 연결** → **대기 화면**("Touch your language to start translation" 세로 중앙 + 언어 버튼 원탭 시작: English/日本語/中文 + More languages(vi/th/id/ru)) → soniox two_way(ko↔선택언어) → 번역 텍스트 화면(발화 유도 "Please speak" 손님 언어). 전체화면이 풀리면 다음 터치에서 자동 복귀.
+- 뷰어 CX: 무음 종료 10초 전 `desk-idle-warn` 배너(카운트다운, 터치 시 `desk-keepalive`로 연장) / 대화 종료 시 "Thank you" 1.5초 후 대기 화면 / 고급설정에 텍스트 크기(80~160%, `kac-font-scale`).
+- 길안내는 **호스트 승인제**: 감지 시 `wayfind-suggest`(호스트 전용) → 하단 제안 칩 [표시/무시](20초 방치 소멸) → 승인 시 `wayfind-show`로 뷰어 브로드캐스트. 고급설정 '지도 자동 표시'(`kac-desk-map-auto`)면 즉시 승인. 부정어(없/말고/아니) 직매칭 차단→GPT 분류, 분류에 직전 손님 질문(ko 번역) 컨텍스트 동봉. `session.wayfindLog`(최근 200)에 감지·표시 기록. 뷰어 지도: ✕ 닫기, 헤더 탭 접기/펼치기, 새 발화 시 자동 축소, 시설 라벨 ko/en/ja/zh.
+- TTS 재입력 방지: `audio.js` — TTS 재생을 **WebRTC 루프백(RTCPeerConnection 쌍)** 경로로 우회해 브라우저 AEC 가 재생음을 마이크에서 제거(마이크 음소거 없이 겹쳐 말하기 가능). 실패 시 기존 직접 재생 + 재생 중 자동 음소거 폴백(`aecActive`).
 - 통역 시작/종료 프로토콜: 뷰어/호스트 `{type:'desk-start', lang}` → 서버 `deskCtrl`(sessionId→start/end) → `startConversation` → 모두에게 `{type:'desk-active', lang}` — **뷰어는 상시 연결이라 호스트가 시작해도 즉시 통역 화면으로 전환**. 종료(무음 deskIdle **기본 30초**·뷰어 ✕ `desk-end`·호스트 '대기모드로' `desk-reset-now`·호스트 이탈) → items 를 deskLog 에 보존 후 `desk-reset` → 뷰어는 터치 화면 복귀(WS 유지). 호스트 수동 시작은 `audio.js deskStart(lang)`.
 - desk sentence 메시지에 **`lang`(발화 원문 언어)** 포함 — 뷰어가 말풍선 좌우(안내원 ko=좌 / 손님=우)를 번역 도착 전에 확정(방향 튐 방지). 화자 라벨(안내원/나)은 표시 안 함(정렬만 유지). 안내원 발화는 번역 도착 전까지 뷰어에서 숨김.
 - 호스트 미준비 상태에서 뷰어가 시작하면 status 안내 토스트 후 터치 화면 복귀.

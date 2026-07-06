@@ -59,28 +59,37 @@
     animation:ctaPulse 1.9s ease-in-out infinite; }
   @keyframes ctaPulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.035); } }
 
-  /* 대기(터치) 화면: 안내 문구 세로 중앙 · 화면 전체 터치로 시작 */
-  #touchWrap { flex-direction:column; align-items:center; justify-content:center; cursor:pointer;
-    padding:9vh 6vw calc(9vh + env(safe-area-inset-bottom)); }
-  .touchHint { text-align:center; animation:ctaPulse 1.9s ease-in-out infinite; }
-  .touchHint .globe { color:var(--accent); margin-bottom:18px; }
-  .touchHint .tMain { font-size:clamp(30px,6.4vw,54px); font-weight:800; color:var(--fg); line-height:1.25; word-break:keep-all; }
-  .touchHint .tSub { font-size:15px; color:var(--muted); font-weight:600; margin-top:16px; }
-
-  /* 언어 선택 화면 */
-  #langWrap { flex-direction:column; align-items:center; justify-content:center; gap:34px; padding:6vh 6vw; }
-  #langBack { position:fixed; top:calc(env(safe-area-inset-top) + 14px); left:14px; z-index:12;
-    width:46px; height:46px; border-radius:14px; border:1px solid var(--line); background:var(--card); color:var(--fg);
-    display:flex; align-items:center; justify-content:center; cursor:pointer; }
-  #langBack:active { background:var(--chip); }
-  .langTitle { text-align:center; margin:0; }
-  .langTitle .lt { display:block; font-size:clamp(24px,5.4vw,40px); font-weight:800; }
-  .langTitle .ls { display:block; font-size:15px; color:var(--muted); font-weight:600; margin-top:10px; }
-  #langBtns { display:grid; grid-template-columns:1fr; gap:16px; width:100%; max-width:480px; }
-  #langBtns button { border:1px solid var(--line); border-radius:22px; background:var(--card); color:var(--fg);
-    font-size:clamp(22px,4.6vw,32px); font-weight:800; padding:26px 10px; cursor:pointer;
+  /* 대기 화면: 안내 문구 + 언어 버튼(원탭 시작) 세로 중앙 */
+  #touchWrap { flex-direction:column; align-items:center; justify-content:center;
+    padding:6vh 6vw calc(6vh + env(safe-area-inset-bottom)); }
+  .touchInner { display:flex; flex-direction:column; align-items:center; text-align:center; width:100%; max-width:640px; }
+  .touchInner .globe { color:var(--accent); margin-bottom:16px; animation:ctaPulse 1.9s ease-in-out infinite; }
+  .touchInner .tMain { font-size:clamp(26px,5.4vw,44px); font-weight:800; color:var(--fg); line-height:1.25; word-break:keep-all; }
+  .touchInner .tSub { font-size:14px; color:var(--muted); font-weight:600; margin-top:12px; }
+  #langBtns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; width:100%; margin-top:34px; }
+  #langBtns button { border:1px solid var(--line); border-radius:20px; background:var(--card); color:var(--fg);
+    font-size:clamp(19px,3.8vw,26px); font-weight:800; padding:26px 6px; cursor:pointer;
     box-shadow:0 6px 20px rgba(0,0,0,.06); }
   #langBtns button:active { background:var(--chip); }
+  #moreBtn { border:none; background:transparent; color:var(--muted); font-size:15px; font-weight:700; margin-top:18px; cursor:pointer; padding:8px 14px; }
+  #langMore { display:none; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; width:100%; margin-top:12px; }
+  #langMore.show { display:grid; }
+  #langMore button { border:1px solid var(--line); border-radius:16px; background:var(--card); color:var(--fg);
+    font-size:17px; font-weight:700; padding:16px 6px; cursor:pointer; }
+  #langMore button:active { background:var(--chip); }
+
+  /* 무음 종료 예고 배너(터치로 연장) */
+  #idleWarn { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 30px); transform:translateX(-50%); z-index:15;
+    display:none; align-items:center; background:var(--accent); color:#fff; font-size:15px; font-weight:700;
+    padding:13px 22px; border-radius:18px; cursor:pointer; box-shadow:0 10px 30px rgba(79,70,229,.4); max-width:88vw; text-align:center; }
+  #idleWarn.show { display:flex; }
+
+  /* 응대 종료 인사(잠깐 표시 후 대기 화면) */
+  #thanks { position:fixed; inset:0; z-index:30; display:none; flex-direction:column; align-items:center; justify-content:center;
+    gap:12px; background:var(--bg); }
+  #thanks.show { display:flex; }
+  #thanks .big { font-size:clamp(34px,7vw,60px); font-weight:800; color:var(--fg); }
+  #thanks .small { font-size:16px; color:var(--muted); font-weight:600; }
 
   /* 토스트(안내원 미준비 등) */
   #toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 34px); transform:translateX(-50%);
@@ -111,14 +120,20 @@
   .mapHead .mChips { margin-left:auto; display:flex; gap:6px; flex:0 0 auto; }
   .mapHead .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); color:var(--chipFg);
     font-size:13px; font-weight:700; padding:4px 10px; border-radius:20px; white-space:nowrap; }
+  .mapHead .mClose { border:none; background:transparent; color:var(--muted); font-size:17px; font-weight:700;
+    cursor:pointer; padding:4px 8px; margin-left:2px; flex:0 0 auto; }
   .mapHolder { height:50vh; overflow:hidden; }
+  .item.map.mini .mapHolder { display:none; } /* 새 발화가 오면 자동 축소 — 헤더 탭으로 다시 펼침 */
 
-  /* 발화 대기(점) */
-  #dots { position:absolute; inset:0; display:flex; gap:22px; align-items:center; justify-content:center; pointer-events:none; }
-  #dots span { width:24px; height:24px; border-radius:50%; background:var(--muted); animation:bounce 1.2s infinite ease-in-out; }
-  #dots span:nth-child(2){ animation-delay:.18s; }
-  #dots span:nth-child(3){ animation-delay:.36s; }
-  @keyframes bounce { 0%,80%,100%{ transform:translateY(0); opacity:.35; } 40%{ transform:translateY(-30px); opacity:1; } }
+  /* 발화 대기: 마이크 + '말씀하세요'(손님 언어) + 점 애니메이션 */
+  #dots { position:absolute; inset:0; display:flex; flex-direction:column; gap:20px; align-items:center; justify-content:center; pointer-events:none; }
+  #dots .mic { color:var(--accent); animation:ctaPulse 1.6s ease-in-out infinite; }
+  #dots .stxt { font-size:clamp(22px,4.4vw,32px); font-weight:800; color:var(--fg); }
+  #dots .drow { display:flex; gap:16px; }
+  #dots .drow span { width:16px; height:16px; border-radius:50%; background:var(--muted); animation:bounce 1.2s infinite ease-in-out; }
+  #dots .drow span:nth-child(2){ animation-delay:.18s; }
+  #dots .drow span:nth-child(3){ animation-delay:.36s; }
+  @keyframes bounce { 0%,80%,100%{ transform:translateY(0); opacity:.35; } 40%{ transform:translateY(-20px); opacity:1; } }
 
   /* 상단 서비스 바(언어쌍 + 통역 중) */
   #svcBar { position:fixed; top:calc(env(safe-area-inset-top) + 12px); left:50%; transform:translateX(-50%); z-index:11;
@@ -166,28 +181,39 @@
     <button id="enterBtn">입장</button>
   </div>
 
-  <!-- 대기(터치): 화면 어디든 터치하면 언어 선택으로 -->
+  <!-- 대기: 언어 버튼을 첫 화면에 바로 노출 — 원탭으로 통역 시작 -->
   <div id="touchWrap" class="screen">
-    <div class="touchHint">
+    <div class="touchInner">
       <svg class="globe" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4M12 2.8c3 2.9 3 15.5 0 18.4M12 2.8c-3 2.9-3 15.5 0 18.4"/></svg>
-      <div class="tMain">Touch the screen<br/>to start translation</div>
-      <div class="tSub">画面をタッチして通訳を開始 · 触摸屏幕开始翻译</div>
+      <div class="tMain">Touch your language<br/>to start translation</div>
+      <div class="tSub">言語をタッチして通訳を開始 · 触摸您的语言开始翻译</div>
+      <div id="langBtns">
+        <button data-lang="en">English</button>
+        <button data-lang="ja">日本語</button>
+        <button data-lang="zh">中文</button>
+      </div>
+      <button id="moreBtn">+ More languages</button>
+      <div id="langMore">
+        <button data-lang="vi">Tiếng Việt</button>
+        <button data-lang="th">ไทย</button>
+        <button data-lang="id">Bahasa Indonesia</button>
+        <button data-lang="ru">Русский</button>
+      </div>
     </div>
   </div>
 
-  <!-- 언어 선택 -->
-  <div id="langWrap" class="screen">
-    <button id="langBack" aria-label="Back"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
-    <h2 class="langTitle"><span class="lt">Select your language</span><span class="ls">言語を選択してください · 请选择语言</span></h2>
-    <div id="langBtns">
-      <button data-lang="en">English</button>
-      <button data-lang="ja">日本語</button>
-      <button data-lang="zh">中文</button>
-    </div>
-  </div>
+  <!-- 무음 종료 예고(터치로 연장) -->
+  <div id="idleWarn"><span id="warnTxt"></span>&nbsp;<b id="warnCnt"></b></div>
+
+  <!-- 응대 종료 인사 -->
+  <div id="thanks"><div class="big">Thank you</div><div class="small">감사합니다 · ありがとうございました · 谢谢</div></div>
 
   <div id="stage" class="screen">
-    <div id="dots"><span></span><span></span><span></span></div>
+    <div id="dots">
+      <svg class="mic" width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      <span class="stxt" id="speakTxt">Please speak</span>
+      <div class="drow"><span></span><span></span><span></span></div>
+    </div>
   </div>
 
   <div id="svcBar"><span id="svcPair"></span><span id="svcLiveWrap"><span id="svcDot"></span><span id="svcLive"></span></span></div>
@@ -212,7 +238,7 @@ function isStandalone(){
   try { return window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; }
 }
 function show(id){
-  ['landing','enterWrap','touchWrap','langWrap','stage'].forEach(s => $(s).classList.toggle('show', s===id));
+  ['landing','enterWrap','touchWrap','stage'].forEach(s => $(s).classList.toggle('show', s===id));
   const svc = (id === 'stage');
   $('svcBar').classList.toggle('show', svc);
   $('a11y').classList.toggle('show', svc);
@@ -234,20 +260,36 @@ const LANGNAME = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', vi
 const UI = {
   interpreting: { ko:'통역 중', en:'Interpreting', ja:'通訳中', zh:'翻译中', vi:'Đang dịch' },
   connecting:   { ko:'연결 중…', en:'Connecting…', ja:'接続中…', zh:'连接中…', vi:'Đang kết nối…' },
-  staff:        { ko:'안내원', en:'Staff', ja:'案内係', zh:'工作人员', vi:'Nhân viên' },
-  you:          { ko:'나', en:'You', ja:'あなた', zh:'您', vi:'Bạn' },
+  speak:        { ko:'말씀하세요', en:'Please speak', ja:'お話しください', zh:'请讲话', vi:'Xin hãy nói', th:'กรุณาพูด', id:'Silakan bicara', ru:'Говорите' },
+  warn:         { ko:'곧 종료됩니다 — 계속하려면 터치하거나 말씀하세요', en:'Ending soon — tap or speak to continue', ja:'まもなく終了します — 続けるにはタッチ', zh:'即将结束 — 触摸或讲话以继续', vi:'Sắp kết thúc — chạm để tiếp tục', th:'ใกล้สิ้นสุด — แตะเพื่อดำเนินการต่อ', id:'Segera berakhir — ketuk untuk lanjut', ru:'Скоро завершится — коснитесь экрана' },
   walk:         { ko:'도보', en:'Walk', ja:'徒歩', zh:'步行', vi:'Đi bộ' },
   min:          { ko:'분', en:' min', ja:'分', zh:'分钟', vi:' phút' },
 };
 function t(k){ const d = UI[k] || {}; return d[curLang] || d.en || d.ko || k; }
-/* 시설 카테고리 → 손님 언어 라벨(ko/en, 그 외 en 폴백) */
+/* 시설 카테고리 → 손님 언어 라벨(ko/en/ja/zh, 그 외 en 폴백) */
 const CAT_EN = { restroom:'Restroom', smoking:'Smoking area', pharmacy:'Pharmacy', convenience:'Convenience store',
   exchange:'Currency exchange', charging:'Charging station', lounge:'Lounge', nursing:'Nursing room', prayer:'Prayer room',
   water:'Water fountain', security:'Security check', immigration:'Immigration', customs:'Customs', duty_free:'Duty free',
   info_desk:'Information', baggage:'Baggage claim', gate:'Gate', food:'Restaurant', ticket:'Bus tickets',
   wheelchair:'Wheelchair', stroller:'Stroller', aed:'AED', elevator:'Elevator', escalator:'Escalator', stairs:'Stairs' };
-function catLabel(m){ return (curLang === 'ko') ? (m.ko || '') : (CAT_EN[m.category] || m.ko || ''); }
-function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||''; return curLang==='ko' ? (n+'층') : (n+'F'); }
+const CAT_JA = { restroom:'トイレ', smoking:'喫煙所', pharmacy:'薬局', convenience:'コンビニ',
+  exchange:'両替所', charging:'充電スペース', lounge:'ラウンジ', nursing:'授乳室', prayer:'祈祷室',
+  water:'給水機', security:'保安検査場', immigration:'出入国審査', customs:'税関', duty_free:'免税店',
+  info_desk:'案内所', baggage:'手荷物受取所', gate:'搭乗ゲート', food:'レストラン', ticket:'バス乗車券',
+  wheelchair:'車椅子', stroller:'ベビーカー', aed:'AED', elevator:'エレベーター', escalator:'エスカレーター', stairs:'階段' };
+const CAT_ZH = { restroom:'洗手间', smoking:'吸烟区', pharmacy:'药店', convenience:'便利店',
+  exchange:'货币兑换', charging:'充电站', lounge:'休息室', nursing:'母婴室', prayer:'祈祷室',
+  water:'饮水机', security:'安检', immigration:'边检', customs:'海关', duty_free:'免税店',
+  info_desk:'问询处', baggage:'行李提取处', gate:'登机口', food:'餐厅', ticket:'巴士车票',
+  wheelchair:'轮椅', stroller:'婴儿车', aed:'AED', elevator:'电梯', escalator:'自动扶梯', stairs:'楼梯' };
+function catLabel(m){
+  if (curLang === 'ko') return m.ko || '';
+  if (curLang === 'ja') return CAT_JA[m.category] || CAT_EN[m.category] || m.ko || '';
+  if (curLang === 'zh') return CAT_ZH[m.category] || CAT_EN[m.category] || m.ko || '';
+  return CAT_EN[m.category] || m.ko || '';
+}
+function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||'';
+  return curLang==='ko' ? (n+'층') : curLang==='ja' ? (n+'階') : curLang==='zh' ? (n+'层') : (n+'F'); }
 
 /* ---- transcript 표시 ----
    발화 언어(lang) 기준으로 안내원(ko)/손님을 판별 — 번역이 늦게 도착해도 말풍선 방향이 바뀌지 않음.
@@ -271,10 +313,12 @@ function upsert(item){
     const bub = document.createElement('div'); bub.className = 'bub';
     el.appendChild(bub);
     c = { el, bub }; cards.set(item.id, c); order.push(item.id); $('stage').appendChild(el);
+    collapseMapMini(); // 새 발화 시작 → 지도 자동 축소(대화 흐름 우선)
   }
   c.texts = item.texts || {}; c.source = item.source || '';
   if (item.lang) c.lang = item.lang;
   renderCard(c);
+  hideIdleWarn(); // 발화가 이어지면 종료 예고 해제(서버 타이머도 리셋됨)
   $('dots').style.display = order.length ? 'none' : 'flex';
   scrollBottom();
 }
@@ -309,12 +353,17 @@ function ensureMapBlock(){
   if (mapBlock) return mapBlock;
   mapBlock = document.createElement('div'); mapBlock.className = 'item map';
   const head = document.createElement('div'); head.className = 'mapHead';
-  head.innerHTML = '<span class="mIco"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span><span class="mName"></span><span class="mChips"></span>';
+  head.innerHTML = '<span class="mIco"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span><span class="mName"></span><span class="mChips"></span><button class="mClose" aria-label="Close">✕</button>';
   const holder = document.createElement('div'); holder.className = 'mapHolder';
   mapBlock.appendChild(head); mapBlock.appendChild(holder);
   mapBlock._holder = holder; mapBlock._head = head;
+  // 헤더 탭 = 접기/펼치기, ✕ = 지도 제거
+  head.addEventListener('click', () => { if (mapBlock) { mapBlock.classList.toggle('mini'); scrollBottom(); } });
+  head.querySelector('.mClose').addEventListener('click', (e) => { e.stopPropagation(); removeMap(); });
   return mapBlock;
 }
+function removeMap(){ if (mapBlock) { try { mapBlock.remove(); } catch {} } mapBlock = null; mapApi = null; }
+function collapseMapMini(){ if (mapBlock && mapBlock.isConnected && !mapBlock.classList.contains('mini')) mapBlock.classList.add('mini'); }
 function fillMapHead(m, res){
   if (!mapBlock) return;
   mapBlock._head.querySelector('.mName').textContent = catLabel(m) + ' · ' + floorLbl(m.floor);
@@ -333,6 +382,7 @@ function showWayfind(m){
   if (!started) return;
   loadMapScripts(() => {
     const block = ensureMapBlock();
+    block.classList.remove('mini');                 // 새 안내는 펼친 상태로
     $('stage').appendChild(block);                  // 항상 맨 아래(채팅 아래)로
     scrollBottom();
     const doRoute = () => { try { mapApi.setLang(curLang); const res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests }); fillMapHead(m, res); scrollBottom(); } catch (e) {} };
@@ -359,8 +409,9 @@ function ensureWs(){
     else if (m.type === 'host') hostActive = !!m.active;
     else if (m.type === 'meta') applySxInfo(m.sxInfo);
     else if (m.type === 'desk-active') enterStage(m.lang);   // 통역 시작(손님 선택 또는 호스트 시작)
-    else if (m.type === 'wayfind') showWayfind(m);           // 시설 안내 → 채팅 아래 인라인 지도
-    else if (m.type === 'desk-reset') { if (started || pendingStart) backToTouch(); } // 대화 종료(무음/수동) → 터치 화면
+    else if (m.type === 'wayfind') showWayfind(m);           // 시설 안내(호스트 승인 후) → 채팅 아래 인라인 지도
+    else if (m.type === 'desk-idle-warn') showIdleWarn(m.secondsLeft || 10); // 무음 종료 예고(터치로 연장)
+    else if (m.type === 'desk-reset') { if (started || pendingStart) backToTouch(started); } // 대화 종료 → (인사 후) 터치 화면
     else if (m.type === 'status' && pendingStart && !gotActive && m.message) { toast(m.message); backToTouch(); } // 안내원 미준비 등
   };
 }
@@ -368,21 +419,42 @@ function sendStart(){ try { ws && ws.send(JSON.stringify({ type:'desk-start', la
 
 // 통역 화면 진입 — 서버의 desk-active 확인 시(언어 선택 직후 또는 호스트 측 시작)
 function enterStage(lang){
-  clearTimeout(activeGuard); clearTimeout(langBackTimer);
+  clearTimeout(activeGuard);
   pendingStart = false; gotActive = true; started = true;
   if (lang) curLang = lang;
+  $('speakTxt').textContent = t('speak'); // 발화 유도(손님 언어)
   setSvcPair(); rerender();
   try { mapApi && mapApi.setLang(curLang); } catch {}
   show('stage');
 }
 
-// 대화 종료: 대기(터치) 화면으로 복귀(전체화면·WS 연결 유지)
-function backToTouch(){
+// 대화 종료: (응대했던 경우 감사 인사 잠깐) → 대기(터치) 화면 복귀(전체화면·WS 연결 유지)
+function backToTouch(withThanks){
   started = false; gotActive = false; pendingStart = false;
   clearTimeout(activeGuard);
+  hideIdleWarn();
   clearAll();
-  show('touchWrap');
+  if (withThanks) {
+    $('thanks').classList.add('show');
+    setTimeout(() => { $('thanks').classList.remove('show'); show('touchWrap'); }, 1500);
+  } else {
+    show('touchWrap');
+  }
 }
+
+/* ---- 무음 종료 예고 배너: 카운트다운 + 터치로 연장(desk-keepalive) ---- */
+let warnIv = null;
+function showIdleWarn(secs){
+  if (!started) return;
+  $('warnTxt').textContent = t('warn');
+  let left = secs;
+  $('warnCnt').textContent = left + 's';
+  $('idleWarn').classList.add('show');
+  clearInterval(warnIv);
+  warnIv = setInterval(() => { left--; if (left <= 0) hideIdleWarn(); else $('warnCnt').textContent = left + 's'; }, 1000);
+}
+function hideIdleWarn(){ clearInterval(warnIv); warnIv = null; $('idleWarn').classList.remove('show'); }
+$('idleWarn').addEventListener('click', () => { try { ws && ws.send(JSON.stringify({ type:'desk-keepalive' })); } catch {} hideIdleWarn(); });
 
 /* ---- 전체화면 ---- */
 function goFullscreen(){
@@ -406,7 +478,7 @@ function startWithLang(lang){
 }
 function end(){
   try { ws && ws.send(JSON.stringify({ type:'desk-end' })); } catch {} // 서버 대화 종료(기록 보존) 요청
-  backToTouch();
+  backToTouch(started);
 }
 
 /* ---- 글씨 크기(접근성) ---- */
@@ -445,19 +517,12 @@ let endTimer = null;
 function flashEnd(){ $('endBtn').classList.add('show'); clearTimeout(endTimer); endTimer = setTimeout(() => $('endBtn').classList.remove('show'), 3000); }
 
 /* ---- 화면 전환 이벤트 ---- */
-let langBackTimer = null; // 언어 선택 화면을 방치하면 터치 화면으로 복귀
 $('enterBtn').addEventListener('click', () => { entered = true; goFullscreen(); ensureWs(); show('touchWrap'); });
-$('touchWrap').addEventListener('click', () => {
-  show('langWrap');
-  clearTimeout(langBackTimer);
-  langBackTimer = setTimeout(() => { if ($('langWrap').classList.contains('show')) show('touchWrap'); }, 20000);
-});
-$('langBack').addEventListener('click', (e) => { e.stopPropagation(); clearTimeout(langBackTimer); show('touchWrap'); });
-$('langBtns').addEventListener('click', (e) => {
-  const b = e.target.closest('button'); if (!b) return;
-  clearTimeout(langBackTimer);
-  startWithLang(b.dataset.lang);
-});
+// 대기 화면: 언어 버튼 원탭으로 바로 시작
+const pickLang = (e) => { const b = e.target.closest('button[data-lang]'); if (!b) return; startWithLang(b.dataset.lang); };
+$('langBtns').addEventListener('click', pickLang);
+$('langMore').addEventListener('click', pickLang);
+$('moreBtn').addEventListener('click', (e) => { e.stopPropagation(); $('langMore').classList.toggle('show'); });
 $('endBtn').addEventListener('click', end);
 $('stage').addEventListener('click', flashEnd);
 // 전체화면이 풀렸으면(ESC·시스템 제스처) 다음 터치에서 자동으로 전체화면 복귀
