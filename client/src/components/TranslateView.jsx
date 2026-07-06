@@ -12,6 +12,7 @@ import Fab from '@mui/material/Fab';
 import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
+import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
@@ -107,6 +108,12 @@ const ENDPOINTS = [
   { v: 1200, label: '1200ms' },
 ];
 
+// 데스크: 손님 언어 선택지(호스트용 — 한국어 표기, ko 제외)
+const DESK_LANGS = [
+  { code: 'en', label: '영어' },
+  { code: 'ja', label: '일본어' },
+  { code: 'zh', label: '중국어' },
+];
 // 데스크: 무음 자동종료(대기 복귀) 시간 — 기본 30초
 const DESK_IDLE = [
   { v: 10, label: '10초' },
@@ -255,6 +262,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [viewerActive, setViewerActive] = useState(false); // 데스크: 통역(응대) 진행 중인지
   const [deskGuestLang, setDeskGuestLang] = useState(null); // 데스크: 현재 응대 중인 손님 언어
   const [hostLang, setHostLang] = useState('en'); // 데스크: 호스트 수동 시작용 손님 언어
+  const deskAutoRef = useRef(false); // 데스크 자동 캡처 시작 1회 가드
   const [level, setLevel] = useState(0);
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
@@ -347,6 +355,15 @@ export default function TranslateView({ session: initial, onBack }) {
     return () => { closed = true; try { ws && ws.close(); } catch {} };
     // eslint-disable-next-line
   }, [cfg.pipeline, initial.id]);
+
+  // 데스크: 별도 대기 버튼 없이 마운트 시 자동으로 마이크 캡처 시작(권한 1회 허용 필요, STT는 통역 시작 시)
+  useEffect(() => {
+    if (cfg.pipeline !== 'desk' || deskAutoRef.current) return;
+    deskAutoRef.current = true;
+    const t = setTimeout(() => { start(); }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [cfg.pipeline]);
 
   // 연결/인식이 지나치게 지연되면 무한 스피너 대신 안내로 전환(특히 시스템 오디오)
   useEffect(() => {
@@ -470,7 +487,9 @@ export default function TranslateView({ session: initial, onBack }) {
       setMicMuted(false); // 시작 시 발화 on
       setConnecting(cfg.pipeline !== 'desk'); // 엔진 연결~첫 결과까지 표시 (데스크는 대기 모드라 제외)
     } catch (e) {
-      alert(e.message);
+      // 데스크는 진입 직후 자동 시작이라 alert(블로킹) 대신 인앱 안내로
+      if (cfg.pipeline === 'desk') { setNotice('마이크를 사용할 수 없습니다. 권한을 허용한 뒤 통역 시작을 눌러 주세요. (' + (e.message || e) + ')'); }
+      else alert(e.message);
     } finally {
       startingRef.current = false;
     }
@@ -484,6 +503,11 @@ export default function TranslateView({ session: initial, onBack }) {
     setConnecting(false);
     setLevel(0);
     setPartials({ left: '', right: '' });
+  };
+  // 데스크: 호스트 수동 통역 시작 — 캡처가 아직 없으면(권한 거부 등) 먼저 시작
+  const deskManualStart = async () => {
+    if (!recRef.current) await start();
+    if (recRef.current && recRef.current.deskStart) recRef.current.deskStart(hostLang);
   };
   // 발화 on/off (세션은 유지) — 다시 켜도 재연결 지연 없음
   const toggleMute = () => {
@@ -563,9 +587,13 @@ export default function TranslateView({ session: initial, onBack }) {
           </IconButton>
         </Tooltip>
         {cfg.pipeline === 'desk' && (
-          <Tooltip title="전체화면">
+          <Tooltip title="전체화면 전환">
             <IconButton
-              onClick={() => { const el = document.documentElement; const fn = el.requestFullscreen || el.webkitRequestFullscreen; if (fn) try { fn.call(el); } catch {} }}
+              onClick={() => {
+                const cur = document.fullscreenElement || document.webkitFullscreenElement;
+                if (cur) { try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch {} }
+                else { const el = document.documentElement; const fn = el.requestFullscreen || el.webkitRequestFullscreen; if (fn) try { fn.call(el); } catch {} }
+              }}
               sx={{ border: 1, borderColor: 'divider' }}
             >
               <FullscreenIcon />
@@ -581,12 +609,11 @@ export default function TranslateView({ session: initial, onBack }) {
         )}
       </Box>
 
-      {/* 컨트롤 바 (옵션) — 한 줄: 옵션(좌) · 마이크 입력(우) · 숨김 버튼(최우측) */}
-      <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: 1.5 }}>
+      {/* 컨트롤 바 (옵션) — 숨기면 박스 전체가 접혀 올라가고 숨김 버튼만 제자리에 남음 */}
+      <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: 1.5, position: 'relative', minHeight: 52 }}>
+        <Collapse in={optsOpen}>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015), overflow: 'hidden' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', px: 1.5, py: 1 }}>
-          {optsOpen && (
-          <>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', px: 1.5, py: 1, pr: 7 }}>
           {cfg.pipeline !== 'desk' && cfg.pipeline !== 'soniox' && (
             <Field label="오디오 소스">
               <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
@@ -797,8 +824,6 @@ export default function TranslateView({ session: initial, onBack }) {
               </Select>
             </Field>
           )}
-          </>
-          )}
 
           <Box sx={{ flex: 1 }} />
           <Field label="마이크 입력">
@@ -807,13 +832,18 @@ export default function TranslateView({ session: initial, onBack }) {
               <LinearProgress variant="determinate" value={level} color="success" sx={{ width: 90, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
             </Box>
           </Field>
-          <Tooltip title={optsOpen ? '옵션 숨기기' : '옵션 펼치기'}>
-            <IconButton size="small" onClick={() => setOptsOpen((o) => !o)} sx={{ border: 1, borderColor: 'divider', width: 28, height: 28, borderRadius: '8px', flex: 'none' }}>
-              {optsOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
           </Box>
         </Paper>
+        </Collapse>
+        <Tooltip title={optsOpen ? '옵션 숨기기' : '옵션 펼치기'}>
+          <IconButton
+            size="small"
+            onClick={() => setOptsOpen((o) => !o)}
+            sx={{ position: 'absolute', top: 13, right: { xs: 24, sm: 36 }, zIndex: 2, border: 1, borderColor: 'divider', width: 28, height: 28, borderRadius: '8px', bgcolor: 'background.paper', '&:hover': { bgcolor: 'background.paper' } }}
+          >
+            {optsOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {notice && (
@@ -843,6 +873,11 @@ export default function TranslateView({ session: initial, onBack }) {
               if (!t && (cfg.pipeline === 'translate' || cfg.pipeline === 'soniox') && m.texts) {
                 const keys = Object.keys(m.texts);
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
+              }
+              // 데스크: 안내원(한국어) 발화는 texts 에 ko 가 없음 → 원문을 본문으로('번역 중…' 표시 없이)
+              if (cfg.pipeline === 'desk' && !t) {
+                if (!m.source) return null;
+                return <Row key={m.id} side={m.side} text={m.source} source={null} dir={null} />;
               }
               // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
               let dir = null;
@@ -874,39 +909,30 @@ export default function TranslateView({ session: initial, onBack }) {
           }}
         >
           {cfg.pipeline === 'desk' ? (
-            recording ? (
+            viewerActive ? (
               <>
                 <Chip
-                  label={viewerActive ? `● 손님 응대 중${deskGuestLang ? ` (${OUT4.find((l) => l.code === deskGuestLang)?.label || deskGuestLang})` : ''}` : '● 대기 중'}
-                  color={viewerActive ? 'error' : 'success'}
+                  label={`● 손님 응대 중${deskGuestLang ? ` (${DESK_LANGS.find((l) => l.code === deskGuestLang)?.label || deskGuestLang})` : ''}`}
+                  color="error"
                   variant="filled"
                   sx={{ pointerEvents: 'auto', fontWeight: 800, fontSize: 14, py: 2, px: 1, boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
                 />
-                {!viewerActive && (
-                  <>
-                    <Select size="small" value={hostLang} onChange={(e) => setHostLang(e.target.value)}
-                      sx={{ pointerEvents: 'auto', bgcolor: 'background.paper', borderRadius: 2, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', '& .MuiSelect-select': { py: 1 } }}>
-                      {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                    </Select>
-                    <Button onClick={() => recRef.current && recRef.current.deskStart && recRef.current.deskStart(hostLang)} variant="contained" disableElevation
-                      sx={{ pointerEvents: 'auto', px: 2.5, py: 1.25, borderRadius: 2.5, fontSize: 14, fontWeight: 700, boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
-                      통역 시작
-                    </Button>
-                  </>
-                )}
-                {viewerActive && (
-                  <Button onClick={() => recRef.current && recRef.current.deskReset && recRef.current.deskReset()} variant="outlined"
-                    sx={{ pointerEvents: 'auto', px: 2.5, py: 1.25, borderRadius: 2.5, fontSize: 14, fontWeight: 700, bgcolor: 'background.paper', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
-                    대기모드로
-                  </Button>
-                )}
-                <Button onClick={stop} variant="text" sx={{ pointerEvents: 'auto', color: 'text.secondary', fontWeight: 700 }}>정지</Button>
+                <Button onClick={() => recRef.current && recRef.current.deskReset && recRef.current.deskReset()} variant="outlined"
+                  sx={{ pointerEvents: 'auto', px: 2.5, py: 1.25, borderRadius: 2.5, fontSize: 14, fontWeight: 700, bgcolor: 'background.paper', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
+                  대기모드로
+                </Button>
               </>
             ) : (
-              <Button onClick={start} variant="contained" disableElevation
-                sx={{ pointerEvents: 'auto', px: 3.5, py: 1.25, borderRadius: 2.5, fontSize: 15, fontWeight: 700, boxShadow: '0 8px 24px rgba(0,0,0,0.28)' }}>
-                마이크 허용하고 대기 시작
-              </Button>
+              <>
+                <Select size="small" value={hostLang} onChange={(e) => setHostLang(e.target.value)}
+                  sx={{ pointerEvents: 'auto', bgcolor: 'background.paper', borderRadius: 2, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', '& .MuiSelect-select': { py: 1 } }}>
+                  {DESK_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                </Select>
+                <Button onClick={deskManualStart} variant="contained" disableElevation
+                  sx={{ pointerEvents: 'auto', px: 3, py: 1.25, borderRadius: 2.5, fontSize: 15, fontWeight: 700, boxShadow: '0 8px 24px rgba(0,0,0,0.28)' }}>
+                  통역 시작
+                </Button>
+              </>
             )
           ) : (
             <>

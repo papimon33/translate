@@ -1600,15 +1600,16 @@ function handleHost(ws) {
     broadcast(sessionId, p);
   };
   // 문장 항목: texts = { 언어코드: 번역문 }. 같은 id 로 여러 번 호출하면 언어별로 병합됨.
-  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, speaker: item.speaker || null });
+  // lang = 발화(원문) 언어 — 데스크 뷰어가 말풍선 좌우(안내원/손님)를 번역 도착 전에 판단하는 데 사용.
+  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, speaker: item.speaker || null, ...(item.lang ? { lang: item.lang } : {}) });
   // 화면에만 보냄(저장 안 함) — translate 스트리밍/whisper 진행표시용
-  const liveSend = (id, langTexts, source, speaker) => {
-    const m = { type: 'sentence', id, side, source: source || null, texts: langTexts, speaker: speaker || null };
+  const liveSend = (id, langTexts, source, speaker, lang) => {
+    const m = { type: 'sentence', id, side, source: source || null, texts: langTexts, speaker: speaker || null, ...(lang ? { lang } : {}) };
     toHost(m);
     broadcast(sessionId, m);
   };
   // 확정: 세션 저장 + 전송. 언어별로 병합.
-  const upsertItem = (id, langTexts, source, speaker) => {
+  const upsertItem = (id, langTexts, source, speaker, lang) => {
     let item;
     if (session) {
       item = session.items.find((x) => x.id === id);
@@ -1616,8 +1617,9 @@ function handleHost(ws) {
         item.texts = { ...(item.texts || {}), ...langTexts };
         if (source) item.source = source;
         if (speaker) item.speaker = speaker;
+        if (lang) item.lang = lang;
       } else {
-        item = { id, side, source: source || null, texts: { ...langTexts }, speaker: speaker || null };
+        item = { id, side, source: source || null, texts: { ...langTexts }, speaker: speaker || null, ...(lang ? { lang } : {}) };
         session.items.push(item);
       }
       if (session.title === '새 세션' && session.items.length === 1) {
@@ -1866,7 +1868,7 @@ function handleHost(ws) {
     const SX_MAX_CHARS = 200;
     const sens = Number(ws._sxSens), maxDelay = Number(ws._sxMaxDelay), latency = Number(ws._sxLatency);
     const A = 'ko'; // 안내원 언어(고정)
-    const GUEST_LANGS = ['ko', 'en', 'ja', 'zh']; // 손님(또는 호스트)이 고르는 언어
+    const GUEST_LANGS = ['en', 'ja', 'zh']; // 손님(또는 호스트)이 고르는 언어(한국어 제외)
     const deskIdleMs = Math.min(120000, Math.max(5000, Number(ws._deskIdle) || 30000)); // 무음 → 대화 종료(기본 30초)
 
     let phase = 'idle';     // 'idle'(대기, soniox 없음) | 'active'(통역 중)
@@ -1910,7 +1912,7 @@ function handleHost(ws) {
       const out = tgt || txt;
       if (out && out === lastCommitText) return;
       lastCommitText = out;
-      upsertItem(id, { [targetKeyFor(src)]: out }, txt, null);
+      upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null);
       // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
       // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
       // 기계번역이 아닌 원어민 한국어 원문(txt)에서 매칭하므로 정확도가 높다.
@@ -2022,7 +2024,7 @@ function handleHost(ws) {
       const shownTgt = (finalTrans + nonFinalTrans).trim();
       if (shownTgt) lastTrans = shownTgt;
       if (!curId && (shownSrc || shownTgt)) curId = newId();
-      if (curId) liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, null);
+      if (curId) liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, null, curSrc || null);
       if (endHit || finalText.length >= SX_MAX_CHARS) commit();
     }
 

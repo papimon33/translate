@@ -20,13 +20,11 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Select from '@mui/material/Select';
 import Fab from '@mui/material/Fab';
-import Collapse from '@mui/material/Collapse';
 import { alpha } from '@mui/material/styles';
 import Snackbar from '@mui/material/Snackbar';
 import MuiAlert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
-import QrCode2Icon from '@mui/icons-material/QrCode2';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
@@ -100,15 +98,10 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [deskSide, setDeskSide] = useState('S'); // 안내데스크 방향
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
-  const [deskQr, setDeskQr] = useState(null); // 데스크 뷰어 랜딩 QR
-  const [qrOpen, setQrOpen] = useState(false); // QR 기본 숨김
   const [rename, setRename] = useState(null); // { id, val } 제목 변경
 
   const reload = () => api.list().then(setList);
   useEffect(() => { reload(); }, []);
-  useEffect(() => {
-    if (deskMode) api.deskLandingQr().then(setDeskQr).catch(() => {});
-  }, [deskMode]);
 
   const base = deskMode ? '안내데스크' : '새 세션';
   const openDlg = () => {
@@ -172,38 +165,13 @@ export default function SessionList({ onOpen, user, deskMode }) {
           <Typography sx={{ textAlign: 'left', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mt: { xs: 2, sm: 5 }, mb: { xs: 3, sm: 4.5 } }}>
             {deskMode ? '데스크 안내' : '실시간 번역'}
           </Typography>
-          {/* 상단 툴바: (데스크) QR 토글 + 새 세션 */}
+          {/* 상단 툴바: 새 세션 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
             <Box sx={{ flex: 1 }} />
-            {deskMode && (
-              <Tooltip title="뷰어 접속 QR">
-                <IconButton onClick={() => setQrOpen((o) => !o)} color={qrOpen ? 'primary' : 'default'} sx={{ border: 1, borderColor: 'divider' }}>
-                  <QrCode2Icon />
-                </IconButton>
-              </Tooltip>
-            )}
             <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
               새 세션
             </Button>
           </Box>
-
-          {/* 데스크 뷰어 접속용 랜딩 QR (기본 숨김) */}
-          {deskMode && (
-            <Collapse in={qrOpen && !!deskQr}>
-              {deskQr && (
-                <Card sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2, mb: 2 }}>
-                  <Box component="img" src={deskQr.qr} alt="뷰어 QR" sx={{ width: 96, height: 96, bgcolor: '#fff', borderRadius: 2, p: 0.5, flex: 'none' }} />
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 800, fontSize: 15 }}>뷰어 접속 QR (안내데스크 선택 화면)</Typography>
-                    <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
-                      손님 태블릿으로 스캔 → 안내데스크 선택 → 입장(전체화면). 데스크별 QR은 세션 안에서 제공됩니다.
-                    </Typography>
-                    <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.5, wordBreak: 'break-all' }}>{deskQr.url}</Typography>
-                  </Box>
-                </Card>
-              )}
-            </Collapse>
-          )}
 
           {empty && (
             <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
