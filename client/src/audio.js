@@ -124,7 +124,8 @@ export async function startRecorder(opts) {
       aecActive = false;
     }
   }
-  if (audioOut || opts.tts) setupAecLoopback();
+  // TTS 를 나중에 켤 수도 있으므로(녹음 중 토글) 음성 재생 가능 파이프라인이면 미리 준비
+  if (audioOut || opts.tts || pipeline === 'soniox' || pipeline === 'translate') setupAecLoopback();
   const playPcm24 = (b64) => {
     try {
       const bin = atob(b64);
@@ -148,8 +149,19 @@ export async function startRecorder(opts) {
     } catch {}
   };
 
+  // 유휴 신호 전역화: 어느 소스(마이크/시스템)든 소리가 있으면 모든 연결에 activity 전송.
+  // 소스별로 따로 보내면 '모두' 모드에서 조용한 쪽 연결이 1분 유휴로 세션 전체를 끊는 문제가 생긴다.
+  let lastActivityAll = 0;
+  const notifyActivityAll = () => {
+    const t = Date.now();
+    if (t - lastActivityAll < 2000) return;
+    lastActivityAll = t;
+    for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'activity' })); } catch {} }
+  };
+
   for (const { src, stream } of sources) {
     streams.push(stream);
+    const isAudioPipe = pipes.length === 0; // 서버 TTS 음성은 첫 연결에서만 재생(모두 모드 이중 재생 방지)
     const ws = new WebSocket(`${proto}://${location.host}/ws/host?src=${src}&${q}`);
     ws.binaryType = 'arraybuffer';
     await new Promise((res, rej) => {
@@ -161,7 +173,7 @@ export async function startRecorder(opts) {
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
       if (m.type === 'audio') {
-        if (audioOutOn) playPcm24(m.b64);
+        if (audioOutOn && isAudioPipe) playPcm24(m.b64);
         return;
       }
       onMessage(m);
@@ -202,7 +214,7 @@ export async function startRecorder(opts) {
           const ds = downsampleTo24k(input, inRate);
           ws.send(new ArrayBuffer(ds.length * 2));
           const t = Date.now();
-          if (t - lastActivitySent > 5000) { lastActivitySent = t; try { ws.send(JSON.stringify({ type: 'activity' })); } catch {} }
+          if (t - lastActivitySent > 5000) { lastActivitySent = t; notifyActivityAll(); }
         }
         return;
       }
@@ -218,14 +230,8 @@ export async function startRecorder(opts) {
         ws.send(gated ? new ArrayBuffer(ds.length * 2) : floatTo16BitPCM(ds));
       }
 
-      // 소리(시스템 오디오 포함)가 들리면 유휴 자동종료 방지 신호(2초마다 1회)
-      if (peak > TH && ws.readyState === WebSocket.OPEN) {
-        const t = Date.now();
-        if (t - lastActivitySent > 2000) {
-          lastActivitySent = t;
-          try { ws.send(JSON.stringify({ type: 'activity' })); } catch {}
-        }
-      }
+      // 소리(시스템 오디오 포함)가 들리면 유휴 자동종료 방지 신호 — 모든 연결에 전송(전역)
+      if (peak > TH) notifyActivityAll();
 
       vad.since++;
       if (peak > TH) {
@@ -280,8 +286,18 @@ export async function startRecorder(opts) {
     try { outGain.gain.value = Math.max(0, v); } catch {}
   }
 
-  // 발화 on/off (세션 유지). on=true 면 일시정지(무음), false 면 발화중
-  function setMuted(on) { muted = !!on; }
+  // 발화 on/off (세션 유지). on=true 면 일시정지(무음), false 면 발화중.
+  // 서버에도 알림 → 발화 배타 락(호스트가 멈추면 뷰어가 발화 가능)
+  function setMuted(on) {
+    muted = !!on;
+    for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'micState', muted: !!on })); } catch {} }
+  }
+
+  // 녹음 중 TTS(음성 재생) 토글 — 로컬 재생 + 서버 합성/호스트 전송 on/off
+  function setTts(on, genderSel) {
+    audioOutOn = !!on;
+    for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'tts', on: !!on, ...(genderSel ? { gender: genderSel } : {}) })); } catch {} }
+  }
 
   // 데스크: 호스트 수동 '대기모드로' — 현재 대화 종료(뷰어를 터치화면으로)
   function deskReset() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-reset-now' })); } catch {} } }
@@ -291,5 +307,5 @@ export async function startRecorder(opts) {
   function wayfindShow() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-show' })); } catch {} } }
   function wayfindDismiss() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-dismiss' })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, deskReset, deskStart, wayfindShow, wayfindDismiss };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss };
 }

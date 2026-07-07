@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
 import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from './wayfind_dict.js';
+import { b32encode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from './security_util.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -53,6 +54,17 @@ if (!OPENAI_API_KEY) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1); // Render 등 프록시 뒤 — req.ip / x-forwarded-* 신뢰
+
+// FORCE_HTTPS=1: http 접속을 https 로 301 리다이렉트(프록시 뒤에선 x-forwarded-proto 기준).
+// Render 등 관리형 호스팅은 자체적으로 https 를 강제하므로 자가 호스팅에서만 필요.
+if (process.env.FORCE_HTTPS === '1') {
+  app.use((req, res, next) => {
+    if (isHttps(req)) return next();
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    if (!host || /^(localhost|127\.)/.test(host)) return next(); // 로컬 개발은 예외
+    return res.redirect(301, `https://${host}${req.originalUrl}`);
+  });
+}
 
 // 보안 헤더
 app.use((req, res, next) => {
@@ -106,6 +118,20 @@ const server = http.createServer(app);
 /*          { id, side:'left'|'right', text } ] }                      */
 /* ================================================================== */
 const DATA_DIR = path.join(__dirname, 'data');
+
+/* ---- 저장 데이터 암호화(파일 모드): DATA_KEY 설정 시 AES-256-GCM ----
+   DATA_KEY(임의의 긴 문자열)를 scrypt 로 32바이트 키로 파생해 data/*.json 을 암호화 저장.
+   기존 평문 파일은 그대로 읽히고, 다음 저장부터 암호문으로 바뀐다(점진 마이그레이션).
+   Mongo 사용 시에는 Atlas 저장소 암호화(기본 제공)를 사용 — SECURITY_GUIDE.md 참고. */
+const DATA_KEY_RAW = process.env.DATA_KEY || '';
+const dataKey = DATA_KEY_RAW ? deriveDataKey(DATA_KEY_RAW) : null;
+function writeDataFile(file, jsonStr) {
+  fs.writeFileSync(file, dataKey ? encryptData(dataKey, jsonStr) : jsonStr);
+}
+function readDataFile(file) {
+  return decryptData(dataKey, fs.readFileSync(file, 'utf8')); // 평문(기존 데이터)은 그대로 — 다음 저장 시 암호화됨
+}
+
 const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
@@ -179,27 +205,27 @@ async function loadStore() {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (fs.existsSync(DATA_FILE)) {
-      sessions = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      sessions = JSON.parse(readDataFile(DATA_FILE));
       if (!Array.isArray(sessions)) sessions = [];
     }
     if (fs.existsSync(USERS_FILE)) {
-      users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+      users = JSON.parse(readDataFile(USERS_FILE));
       if (!Array.isArray(users)) users = [];
     }
     if (fs.existsSync(USAGE_FILE)) {
-      const u = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8'));
+      const u = JSON.parse(readDataFile(USAGE_FILE));
       if (u && typeof u === 'object') usageDaily = u;
     }
     if (fs.existsSync(USAGE_HOURLY_FILE)) {
-      const h = JSON.parse(fs.readFileSync(USAGE_HOURLY_FILE, 'utf8'));
+      const h = JSON.parse(readDataFile(USAGE_HOURLY_FILE));
       if (h && typeof h === 'object') usageHourly = h;
     }
     if (fs.existsSync(TERMS_FILE)) {
-      const t = JSON.parse(fs.readFileSync(TERMS_FILE, 'utf8'));
+      const t = JSON.parse(readDataFile(TERMS_FILE));
       if (t && typeof t === 'object') termsConfig = { terms: t.terms || [], translationTerms: t.translationTerms || [], updatedAt: t.updatedAt || 0 };
     }
     if (fs.existsSync(SUMMARIES_FILE)) {
-      const s = JSON.parse(fs.readFileSync(SUMMARIES_FILE, 'utf8'));
+      const s = JSON.parse(readDataFile(SUMMARIES_FILE));
       if (Array.isArray(s)) summaries = s;
     }
   } catch (e) {
@@ -223,7 +249,7 @@ async function flushSessions() {
     }));
     await col.bulkWrite(ops, { ordered: false });
   } else {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(sessions, null, 2));
+    writeDataFile(DATA_FILE, JSON.stringify(sessions, null, 2));
   }
 }
 // 삭제는 flush(=upsert)로 반영되지 않으므로 별도 처리(Mongo 모드 한정).
@@ -255,7 +281,7 @@ async function flushUsers() {
     }));
     await usersCol.bulkWrite(ops, { ordered: false });
   } else {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    writeDataFile(USERS_FILE, JSON.stringify(users, null, 2));
   }
 }
 async function deleteUserStore(id) {
@@ -314,8 +340,8 @@ async function flushUsage() {
       if (hops.length) await usageHourlyCol.bulkWrite(hops, { ordered: false });
     }
   } else {
-    fs.writeFileSync(USAGE_FILE, JSON.stringify(usageDaily, null, 2));
-    fs.writeFileSync(USAGE_HOURLY_FILE, JSON.stringify(usageHourly, null, 2));
+    writeDataFile(USAGE_FILE, JSON.stringify(usageDaily, null, 2));
+    writeDataFile(USAGE_HOURLY_FILE, JSON.stringify(usageHourly, null, 2));
   }
 }
 
@@ -356,7 +382,7 @@ async function flushSummaries() {
     const ops = summaries.map((s) => ({ replaceOne: { filter: { id: s.id }, replacement: s, upsert: true } }));
     await summariesCol.bulkWrite(ops, { ordered: false });
   } else {
-    fs.writeFileSync(SUMMARIES_FILE, JSON.stringify(summaries, null, 2));
+    writeDataFile(SUMMARIES_FILE, JSON.stringify(summaries, null, 2));
   }
 }
 async function deleteSummaryStore(id) {
@@ -380,7 +406,7 @@ async function persistTermsConfig() {
   if (termsConfigCol) {
     await termsConfigCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...termsConfig }, { upsert: true });
   } else {
-    fs.writeFileSync(TERMS_FILE, JSON.stringify(termsConfig, null, 2));
+    writeDataFile(TERMS_FILE, JSON.stringify(termsConfig, null, 2));
   }
 }
 // Soniox 세션 context: terms(고유명사) + translation_terms(번역 쌍). 비어 있으면 null.
@@ -521,6 +547,157 @@ app.patch('/api/me', requireAuth, (req, res) => {
   saveUsers();
   res.json({ user: { id: stored.id, username: stored.username, role: stored.role } });
 });
+/* ---- 경량 모니터링: 프로세스 상태 + 최근 오류(서버·클라이언트) ---- */
+const metrics = { startedAt: Date.now(), errors: [], clientErrors: [] };
+function logErr(scope, err) {
+  const e = { at: Date.now(), scope, msg: String((err && err.message) || err).slice(0, 300) };
+  metrics.errors.push(e);
+  if (metrics.errors.length > 100) metrics.errors.shift();
+  console.error(`[${scope}]`, (err && err.stack) || err);
+}
+process.on('uncaughtException', (e) => logErr('uncaught', e));
+process.on('unhandledRejection', (e) => logErr('unhandledRejection', e));
+app.get('/api/admin/health', requireAdmin, (req, res) => {
+  const rms = [...rooms.values()];
+  res.json({
+    uptimeSec: Math.floor((Date.now() - metrics.startedAt) / 1000),
+    memoryMB: Math.round(process.memoryUsage().rss / 1048576),
+    node: process.version,
+    sessions: sessions.length,
+    liveHosts: rms.reduce((a, r) => a + r.hosts.size, 0),
+    liveViewers: rms.reduce((a, r) => a + r.viewers.size, 0),
+    dataEncrypted: !!dataKey,
+    twoFaEnabled: !!adminTotpSecret(),
+    forceHttps: process.env.FORCE_HTTPS === '1',
+    recentErrors: metrics.errors.slice(-20).reverse(),
+    clientErrors: metrics.clientErrors.slice(-20).reverse(),
+  });
+});
+// 브라우저 오류 수집(window.onerror) — 관리자 시스템 상태에서 확인
+app.post('/api/client-log', (req, res) => {
+  const b = req.body || {};
+  const e = { at: Date.now(), ua: String(req.headers['user-agent'] || '').slice(0, 80), msg: String(b.msg || '').slice(0, 300), src: String(b.src || '').slice(0, 120) };
+  metrics.clientErrors.push(e);
+  if (metrics.clientErrors.length > 100) metrics.clientErrors.shift();
+  res.json({ ok: true });
+});
+
+/* ---- 관리자: 데스크 통계(응대 건수·언어 분포·평균 응대 시간·일별) — 대화 내용은 노출하지 않음 ---- */
+app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
+  const out = sessions.filter((s) => s.pipeline === 'desk').map((s) => {
+    const log = Array.isArray(s.deskLog) ? s.deskLog : [];
+    const langs = {};
+    let durSum = 0, durN = 0;
+    const daily = {};
+    for (const e of log) {
+      const lang = e.lang || 'unknown';
+      langs[lang] = (langs[lang] || 0) + 1;
+      if (e.startedAt && e.endedAt) { durSum += e.endedAt - e.startedAt; durN++; }
+      const d = new Date(e.endedAt || Date.now()).toISOString().slice(0, 10);
+      daily[d] = (daily[d] || 0) + 1;
+    }
+    const wl = Array.isArray(s.wayfindLog) ? s.wayfindLog : [];
+    return {
+      id: s.id, title: s.title || '안내데스크', owner: s.owner || null,
+      count: log.length, langs, avgMs: durN ? Math.round(durSum / durN) : 0,
+      wayfindDetected: wl.length, wayfindShown: wl.filter((w) => w.shown).length,
+      daily: Object.entries(daily).sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-14).map(([date, count]) => ({ date, count })),
+    };
+  });
+  res.json(out);
+});
+
+/* ---- 관리자: 오번역 검사 — 최근 대화의 원문·번역 쌍을 GPT 로 검수해 용어 후보 추천 ----
+   고유명사·시설명·전문용어의 오역/비일관 번역만 찾아 용어 설정(translation_terms) 후보로 반환. */
+app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
+  if (!OPENAI_API_KEY) return res.status(400).json({ error: 'OPENAI_API_KEY 미설정' });
+  const pairs = [];
+  const sorted = [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  for (const s of sorted) {
+    const items = [
+      ...(Array.isArray(s.items) ? s.items : []),
+      ...(Array.isArray(s.deskLog) ? s.deskLog.flatMap((e) => e.items || []) : []), // 데스크 응대 기록 포함
+    ];
+    for (const it of items) {
+      if (!it || !it.source || !it.texts) continue;
+      const tx = Object.entries(it.texts).find(([, v]) => v && v !== it.source);
+      if (!tx) continue;
+      pairs.push(`[${tx[0]}] ${String(it.source).slice(0, 180)} => ${String(tx[1]).slice(0, 180)}`);
+      if (pairs.length >= 200) break;
+    }
+    if (pairs.length >= 200) break;
+  }
+  if (pairs.length < 3) return res.json({ checked: pairs.length, suggestions: [] });
+  const existing = (termsConfig.translationTerms || []).map((t) => `${t.source}→${t.target}`).join(', ');
+  const sys =
+    '너는 공항 안내 통역 품질 검수자다. 아래 "원문 => 기계번역" 쌍 목록에서 잘못 번역되었거나 쌍마다 다르게 번역된 고유명사·시설명·전문용어만 찾아라. ' +
+    '일반 문장의 어색함은 무시한다. 반드시 JSON 하나만 출력한다: ' +
+    '{"suggestions":[{"source":"원문 표기","target":"권장 번역","wrong":"현재 잘못된 번역","reason":"짧은 이유"}]} ' +
+    '확실한 것만 최대 12개. 이미 등록된 용어는 제외: ' + (existing || '없음');
+  try {
+    const body = {
+      model: REFINE_MODEL,
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: pairs.join('\n').slice(0, 14000) }],
+      max_completion_tokens: 900,
+      response_format: { type: 'json_object' },
+    };
+    const re = reasoningEffort(REFINE_MODEL);
+    if (re) body.reasoning_effort = re;
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return res.status(500).json({ error: '검사 호출 실패: HTTP ' + r.status });
+    const d = await r.json();
+    const obj = JSON.parse(d?.choices?.[0]?.message?.content || '{}');
+    const suggestions = (Array.isArray(obj.suggestions) ? obj.suggestions : [])
+      .filter((x) => x && x.source && x.target)
+      .slice(0, 12)
+      .map((x) => ({ source: String(x.source).slice(0, 80), target: String(x.target).slice(0, 80), wrong: String(x.wrong || '').slice(0, 80), reason: String(x.reason || '').slice(0, 120) }));
+    res.json({ checked: pairs.length, suggestions });
+  } catch (e) {
+    logErr('terms-suggest', e);
+    res.status(500).json({ error: '검사 실패' });
+  }
+});
+
+/* ---- 관리자 2FA(TOTP, RFC 6238) ----
+   Google Authenticator 등 표준 OTP 앱 호환. 시크릿은 env ADMIN_TOTP_SECRET(우선) 또는
+   data/security.json(관리자 페이지에서 설정, DATA_KEY 설정 시 암호화 저장). */
+const SECURITY_FILE = path.join(DATA_DIR, 'security.json');
+let securityCfg = { adminTotpSecret: '' };
+try { if (fs.existsSync(SECURITY_FILE)) securityCfg = { ...securityCfg, ...JSON.parse(readDataFile(SECURITY_FILE)) }; } catch (e) { console.error('[2fa] security.json 로드 실패', e.message); }
+function saveSecurityCfg() { try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); writeDataFile(SECURITY_FILE, JSON.stringify(securityCfg, null, 2)); } catch (e) { console.error('[2fa] 저장 실패', e); } }
+const adminTotpSecret = () => process.env.ADMIN_TOTP_SECRET || securityCfg.adminTotpSecret || '';
+let pending2faSecret = ''; // 설정 진행 중 시크릿(코드 확인 후 저장)
+app.get('/api/admin/2fa', requireAdmin, (req, res) => res.json({ enabled: !!adminTotpSecret(), viaEnv: !!process.env.ADMIN_TOTP_SECRET }));
+app.post('/api/admin/2fa/setup', requireAdmin, async (req, res) => {
+  if (process.env.ADMIN_TOTP_SECRET) return res.status(400).json({ error: '2FA 시크릿이 환경변수로 관리되고 있습니다.' });
+  pending2faSecret = b32encode(crypto.randomBytes(20));
+  const label = encodeURIComponent(`KAC Translator:${req.user.id}`);
+  const url = `otpauth://totp/${label}?secret=${pending2faSecret}&issuer=${encodeURIComponent('KAC Translator')}`;
+  try { res.json({ secret: pending2faSecret, qr: await QRCode.toDataURL(url, { width: 240, margin: 1 }) }); }
+  catch (e) { res.status(500).json({ error: String(e) }); }
+});
+app.post('/api/admin/2fa/verify', requireAdmin, (req, res) => {
+  if (!pending2faSecret) return res.status(400).json({ error: '먼저 2FA 설정을 시작하세요.' });
+  if (!totpVerify(pending2faSecret, (req.body || {}).code)) return res.status(400).json({ error: '인증 코드가 올바르지 않습니다. 앱의 6자리 코드를 다시 확인하세요.' });
+  securityCfg.adminTotpSecret = pending2faSecret;
+  pending2faSecret = '';
+  saveSecurityCfg();
+  console.log('[2fa] 관리자 2FA 활성화됨');
+  res.json({ ok: true });
+});
+app.post('/api/admin/2fa/disable', requireAdmin, (req, res) => {
+  if (process.env.ADMIN_TOTP_SECRET) return res.status(400).json({ error: '2FA 시크릿이 환경변수로 관리되고 있습니다.' });
+  if (!totpVerify(adminTotpSecret(), (req.body || {}).code)) return res.status(400).json({ error: '인증 코드가 올바르지 않습니다.' });
+  securityCfg.adminTotpSecret = '';
+  saveSecurityCfg();
+  console.log('[2fa] 관리자 2FA 해제됨');
+  res.json({ ok: true });
+});
+
 // 로그인 무차별 대입 방어: IP당 15분 내 8회 실패 시 15분 잠금
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAIL = 8;
@@ -556,6 +733,18 @@ app.post('/api/login', (req, res) => {
     loginFails.set(key, rec);
     console.warn(`[auth] 로그인 실패 id=${id} ip=${key} (${rec.count}회)`);
     return res.status(401).json({ error: 'ID 또는 비밀번호가 올바르지 않습니다.' });
+  }
+  // 관리자 2FA: 비밀번호 통과 후 OTP 코드 확인(활성화된 경우)
+  if (user.role === 'admin' && adminTotpSecret()) {
+    if (!b.otp) return res.status(401).json({ need2fa: true, error: '인증 앱의 6자리 코드를 입력하세요.' });
+    if (!totpVerify(adminTotpSecret(), b.otp)) {
+      rec = rec || { count: 0, first: now, lockUntil: 0 };
+      rec.count++;
+      if (rec.count >= LOGIN_MAX_FAIL) rec.lockUntil = now + LOGIN_WINDOW_MS;
+      loginFails.set(key, rec);
+      console.warn(`[auth] 2FA 코드 불일치 id=${id} ip=${key}`);
+      return res.status(401).json({ need2fa: true, error: '인증 코드가 올바르지 않습니다.' });
+    }
   }
   loginFails.delete(key); // 성공 시 초기화
   console.log(`[auth] 로그인 성공 id=${user.id} role=${user.role} ip=${key}`);
@@ -673,13 +862,15 @@ app.put('/api/terms-config', requireAdmin, async (req, res) => {
 /* ================================================================== */
 const SUMMARY_MODEL = 'gpt-5-nano';
 const SUMMARY_SYS =
-  `너는 회의·대화 기록 요약 전문가다. 주어진 전사/번역 전문을 바탕으로 한국어로 체계적이고 자세한 요약을 작성한다.\n` +
+  `너는 회의·대화 기록 요약 전문가다. 주어진 전사/번역 전문을 바탕으로 체계적이고 자세한 요약을 작성한다.\n` +
   `규칙:\n` +
+  `- 전문이 어떤 언어이든 요약은 반드시 한국어로만 작성한다.\n` +
   `- 요약 본문만 출력한다. "다음은 요약입니다" 같은 머리말·맺음말·메타발언을 절대 넣지 않는다.\n` +
-  `- 소제목(## )과 불릿(- )으로 체계적으로 정리한다. 핵심 주제, 주요 논의·결정사항, 수치·일정·담당자 등 구체 정보, (있다면) 후속 조치를 빠짐없이 담는다.\n` +
+  `- 맨 위에 "## 한눈에 보기"로 전체를 3줄 이내로 압축한 뒤, 아래에 상세 요약을 이어간다.\n` +
+  `- 소제목(## )과 불릿(- )으로 체계적으로 정리한다. 핵심 주제, 주요 논의·결정사항, 수치·일정·담당자·고유명사 등 구체 정보, 후속 조치를 담는다.\n` +
+  `- 전문에 등장한 논의 항목은 사소해 보여도 빠뜨리지 말고 모두 포함한다. 축약하더라도 언급 자체를 누락하지 않는다.\n` +
   `- 전문이 "* [화자] : 발언" 형식이면 각 발언이 누구 것인지 구분해, 발언자별 입장·주장·담당 사항을 명확히 반영한다.\n` +
-  `- 전문에 없는 내용을 지어내지 않는다. 불확실한 건 추정하지 않는다.\n` +
-  `- 자세하되 군더더기 없이 정보 밀도 높게 작성한다.`;
+  `- 전문에 없는 내용을 지어내지 않는다. 불확실한 건 추정하지 않는다.`;
 const SUMMARY_MAX_INPUT = 16000; // 단일 호출 입력 문자 한도
 const SUMMARY_CHUNK = 12000;
 
@@ -777,11 +968,11 @@ app.post('/api/sessions/:id/summary', requireAuth, async (req, res) => {
   const transcript = sessionTranscript(s);
   if (!transcript.trim()) return res.json({ points: [], terms: [] });
   try {
-    const sys = '너는 회의·대화 전문을 분석하는 도우미다. 반드시 JSON 하나만 출력한다(코드펜스·설명 금지). 형식: {"points": string[], "terms": {"src": string, "ko": string}[]}. points=핵심 요점 5~8개(한국어, 각 한 문장). terms=등장한 전문용어·고유명사의 원어(src)와 한국어 대응(ko) 최대 8개(없으면 []).';
+    const sys = '너는 회의·대화 전문을 분석하는 도우미다. 반드시 JSON 하나만 출력한다. 코드펜스와 설명을 금지한다. 형식: {"points": string[], "terms": {"src": string, "ko": string}[]}. points=대화 전체를 빠짐없이 포괄하는 요점 목록으로, 전문이 어떤 언어이든 반드시 한국어로 작성하고, 언급된 주제는 사소해도 누락하지 않으며 필요한 만큼(보통 8~15개) 각 한두 문장으로 구체적으로 쓴다. terms=등장한 전문용어·고유명사의 원어(src)와 한국어 대응(ko) 최대 12개(없으면 []).';
     let raw = await chatComplete(sys, `전문:\n\n${transcript.slice(0, SUMMARY_MAX_INPUT)}`, 1500);
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     let obj = {}; try { obj = JSON.parse(raw); } catch { obj = {}; }
-    const points = Array.isArray(obj.points) ? obj.points.filter((x) => typeof x === 'string' && x.trim()).slice(0, 10) : [];
+    const points = Array.isArray(obj.points) ? obj.points.filter((x) => typeof x === 'string' && x.trim()).slice(0, 20) : [];
     const terms = Array.isArray(obj.terms) ? obj.terms.filter((t) => t && t.src).map((t) => ({ src: String(t.src), ko: String(t.ko || '') })).slice(0, 12) : [];
     res.json({ points, terms });
   } catch (e) {
@@ -868,8 +1059,9 @@ app.post('/api/sessions', requireAuth, (req, res) => {
 app.get('/api/sessions/:id', (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
-  // 마이그레이션: 레거시 'mobile' 세션 → 참여자 PTT 기본 on (viewerPTT 미지정 시 preset==='mobile'이면 true)
-  res.json({ ...s, viewerPTT: typeof s.viewerPTT === 'boolean' ? s.viewerPTT : s.preset === 'mobile' });
+  // 참여자 발화(PTT)는 양방향 모드의 기본 기능(토글 폐지) — 양방향 계열 preset 에서만 제공
+  const twoway = (s.pipeline === 'soniox') && ['twoway', 'mobile', 'field', 'meeting'].includes(s.preset || '');
+  res.json({ ...s, viewerPTT: twoway });
 });
 
 // 데스크 뷰어 랜딩(공개): 안내데스크 세션 목록(id·제목만) — 뷰어가 방을 선택해 접속
@@ -890,6 +1082,10 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   const b = req.body || {};
   if (typeof b.title === 'string') s.title = b.title;
   if (typeof b.inLang === 'string') s.inLang = b.inLang;
+  // 모드(preset) 변경: 번역 이력이 없는 soniox 세션만 허용
+  if (typeof b.preset === 'string' && ['live', 'oneway', 'twoway'].includes(b.preset) && s.pipeline === 'soniox' && (!Array.isArray(s.items) || s.items.length === 0)) {
+    s.preset = b.preset;
+  }
   if (s.pipeline === 'desk') { // 데스크 출발 층/방향
     if (['1F', '2F', '3F', '4F'].includes(b.deskFloor)) s.deskFloor = b.deskFloor;
     if (['E', 'W', 'S', 'N'].includes(b.deskSide)) s.deskSide = b.deskSide;
@@ -932,7 +1128,7 @@ const rooms = new Map(); // sessionId -> { viewers:Set<ws>, hosts:Set<ws> }
 const roomCfg = new Map(); // sessionId -> 호스트가 시작한 soniox 설정(폰 PTT가 재사용)
 const deskCtrl = new Map(); // sessionId -> { start(lang), end() } — 데스크: 뷰어(손님)의 통역 시작/종료를 호스트 파이프라인에 전달
 function getRoom(sessionId) {
-  if (!rooms.has(sessionId)) rooms.set(sessionId, { viewers: new Set(), hosts: new Set() });
+  if (!rooms.has(sessionId)) rooms.set(sessionId, { viewers: new Set(), hosts: new Set(), speaking: null, hostTalking: false });
   return rooms.get(sessionId);
 }
 function broadcast(sessionId, payload) {
@@ -988,6 +1184,40 @@ function sendAudioToHosts(sessionId, b64) {
   for (const h of room.hosts) {
     if (h.readyState === WebSocket.OPEN) h.send(msg);
   }
+}
+
+/* ---- TTS 자기음성(에코) 텍스트 필터 ----
+   우리가 방금 합성해 내보낸 문장이 스피커→마이크(기기 간)·시스템 오디오 캡처(온라인 회의)로
+   되돌아와 다시 인식되는 것을 텍스트 수준에서 차단. 브라우저 AEC 가 못 막는 경로의 안전망. */
+const recentTts = new Map(); // sessionId -> [{ n(정규화), at }]
+function noteTts(sessionId, text) {
+  const n = echoNorm(text);
+  if (n.length < 4) return;
+  const arr = recentTts.get(sessionId) || [];
+  arr.push({ n, at: Date.now() });
+  while (arr.length > 16) arr.shift();
+  recentTts.set(sessionId, arr);
+}
+function isSelfEcho(sessionId, text) {
+  const n = echoNorm(text);
+  if (n.length < 6) return false;
+  const arr = recentTts.get(sessionId);
+  if (!arr || !arr.length) return false;
+  const now = Date.now();
+  for (const e of arr) {
+    if (now - e.at > 20000) continue;
+    if (echoMatch(n, e.n)) return true;
+  }
+  return false;
+}
+
+/* ---- 발화 배타(PTT 락): 호스트가 발화 중이거나 다른 뷰어가 발화 중이면 새 발화 불가 ---- */
+function pttBusy(room) { return !!(room && (room.hostTalking || room.speaking)); }
+function broadcastPttState(sessionId) {
+  const room = rooms.get(sessionId);
+  if (!room) return;
+  const msg = JSON.stringify({ type: 'ptt-state', busy: pttBusy(room) });
+  for (const v of room.viewers) if (v.readyState === WebSocket.OPEN) v.send(msg);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1465,6 +1695,8 @@ function startTalkPipeline(sessionId, side) {
     const id = curId, txt = finalText.trim(), src = curSrc, tgt = (finalTrans.trim() || lastTrans).trim();
     curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
     if (!id || !txt) return;
+    // TTS 자기음성 재입력(에코) → 버리고 화면에서도 제거
+    if (isSelfEcho(sessionId, txt)) { const m0 = { type: 'sentence', id, side, source: null, texts: {} }; broadcast(sessionId, m0); sendToHosts(sessionId, m0); return; }
     const out = tgt || txt;
     if (out === lastCommit) return;
     lastCommit = out;
@@ -1473,6 +1705,7 @@ function startTalkPipeline(sessionId, side) {
     broadcast(sessionId, msg); sendToHosts(sessionId, msg);
     if (cfg.ttsOn) {
       const voiceId = cartesiaVoiceId(target, cfg.gender || 'f');
+      noteTts(sessionId, out); // 에코 필터 등록
       // 뷰어(폰 PTT) 발화 번역 → 호스트로 음성 전달(+다른 뷰어). 호스트가 상대 말을 듣게 함.
       cartesiaTTSStream(out, voiceId, target, (b64) => { sendAudioToHosts(sessionId, b64); broadcastAudio(sessionId, b64); }).catch(() => {});
     }
@@ -1510,6 +1743,7 @@ function handleViewer(ws) {
   const s = getSession(ws._session);
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
+  ws.send(JSON.stringify({ type: 'ptt-state', busy: pttBusy(room) })); // 발화 가능 여부(배타 락)
   if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
   broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); // 뷰어 수(랜딩 표시)
   ws.on('message', (data, isBinary) => {
@@ -1518,10 +1752,18 @@ function handleViewer(ws) {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
       else if (m.type === 'ptt') {
+        const r = getRoom(ws._session);
         if (m.on) {
+          // 발화 배타: 호스트가 말하는 중이거나 다른 뷰어가 발화 중이면 거절
+          if (r.hostTalking || (r.speaking && r.speaking !== ws)) { ws.send(JSON.stringify({ type: 'ptt-denied' })); return; }
+          r.speaking = ws;
+          broadcastPttState(ws._session);
           if (!talk) talk = startTalkPipeline(ws._session, 'right');
           if (!talk) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
-        } else if (talk) { talk.stop(); talk = null; }
+        } else {
+          if (r.speaking === ws) { r.speaking = null; broadcastPttState(ws._session); }
+          if (talk) { talk.stop(); talk = null; }
+        }
       } else if (m.type === 'desk-start') {
         // 데스크: 손님이 태블릿에서 언어 선택 → 호스트 파이프라인에서 soniox 양방향 통역 시작
         const ctrl = deskCtrl.get(ws._session);
@@ -1538,7 +1780,12 @@ function handleViewer(ws) {
       }
     } catch {}
   });
-  ws.on('close', () => { room.viewers.delete(ws); if (talk) { talk.stop(); talk = null; } broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); });
+  ws.on('close', () => {
+    room.viewers.delete(ws);
+    if (talk) { talk.stop(); talk = null; }
+    if (room.speaking === ws) { room.speaking = null; broadcastPttState(ws._session); } // 발화 중 이탈 → 락 해제
+    broadcast(ws._session, { type: 'viewers', count: room.viewers.size });
+  });
 }
 
 /* ----------------------------- 호스트 ----------------------------- */
@@ -1551,7 +1798,16 @@ function handleHost(ws) {
   // 폰 PTT 결과를 이 호스트 화면에도 보내기 위해 room.hosts 에 등록 + 활성 신호
   getRoom(sessionId).hosts.add(ws);
   broadcast(sessionId, { type: 'host', active: true });
-  ws.on('close', () => { const r = rooms.get(sessionId); if (r) { r.hosts.delete(ws); if (r.hosts.size === 0) broadcast(sessionId, { type: 'host', active: false }); } });
+  // 마이크 캡처 연결 = 호스트 발화 상태(발화 배타 락). '발화 멈춤' 토글은 micState 메시지로 갱신.
+  if (side === 'right') { getRoom(sessionId).hostTalking = true; broadcastPttState(sessionId); }
+  ws.on('close', () => {
+    const r = rooms.get(sessionId);
+    if (r) {
+      r.hosts.delete(ws);
+      if (side === 'right') { r.hostTalking = false; broadcastPttState(sessionId); }
+      if (r.hosts.size === 0) broadcast(sessionId, { type: 'host', active: false });
+    }
+  });
   // 사용량 집계: 호스트 WS 연결 시간 → 사용자별 누적 + 파이프라인별 일별 비용.
   const usageStart = Date.now();
   ws.on('close', () => {
@@ -1666,8 +1922,8 @@ function handleHost(ws) {
     const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
     const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
     const sxB = okL(ws._sxB) ? ws._sxB : 'en';
-    const ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY; // 확정 문장마다 Cartesia TTS 음성 출력
-    const gender = ws._gender === 'm' ? 'm' : 'f'; // 음성 성별(출력언어별 보이스 자동 선택)
+    let ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY; // 확정 문장마다 Cartesia TTS 음성 출력(녹음 중 토글 가능)
+    let gender = ws._gender === 'm' ? 'm' : 'f'; // 음성 성별(출력언어별 보이스 자동 선택)
     const diar = ws._diar === '1'; // 화자 구분(speaker diarization)
     if (ws._tts === '1' && !CARTESIA_API_KEY) {
       toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 출력(TTS) 비활성. 서버 환경변수를 확인하세요.' });
@@ -1731,7 +1987,12 @@ function handleHost(ws) {
       if (!/[\p{L}\p{N}]/u.test(tx)) return; // 문장부호만 있으면 스킵(Cartesia 400 방지)
       const lang = ttsLang;                  // 호출 시점 타깃 언어 고정
       const voiceId = cartesiaVoiceId(lang, gender);
-      ttsChain = ttsChain.then(() => cartesiaTTSStream(tx, voiceId, lang, (b64) => { broadcastAudio(sessionId, b64); }).catch(() => {}));
+      noteTts(sessionId, tx); // 자기음성(에코) 필터에 등록 — 재입력 시 인식 결과를 버림
+      // 뷰어(음성 듣기 구독자) + 호스트(TTS 켠 경우)에게 재생. 재입력은 AEC + 에코 필터로 차단.
+      ttsChain = ttsChain.then(() => cartesiaTTSStream(tx, voiceId, lang, (b64) => {
+        broadcastAudio(sessionId, b64);
+        if (ws._audioOut) sendAudioToHosts(sessionId, b64);
+      }).catch(() => {}));
     };
     const flushTtsSentences = () => {
       if (!ttsOn) return;
@@ -1771,6 +2032,8 @@ function handleHost(ws) {
       // 화자 구분 켰는데 엔진이 화자 정보를 한 번도 안 줬으면 1회 안내(진단)
       if (diar && !sawSpeaker && !noSpkWarned) { noSpkWarned = true; toHost({ type: 'status', message: '화자 구분: 엔진이 화자 정보를 반환하지 않음(번역/엔드포인트와 동시 사용 시 발생 가능)' }); }
       if (!id || !txt) return;
+      // TTS 자기음성 재입력(에코) → 확정하지 않고 화면 표시도 제거
+      if (isSelfEcho(sessionId, txt)) { liveSend(id, {}, null, null); return; }
       const out = tgt || txt;
       // 직전 카드와 완전히 동일한 내용이면 중복으로 보고 스킵(반복/에코 방지)
       if (out && out === lastCommitText) return;
@@ -1778,7 +2041,7 @@ function handleHost(ws) {
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt, spkLabel(spk));
       // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
-      //  호스트(시스템 오디오 캡처) 스피커로는 재생하지 않음 → TTS 재캡처 피드백 루프 원천 차단.
+      //  재입력은 브라우저 AEC(마이크 경로) + 서버 에코 텍스트 필터(시스템 캡처·기기 간 경로)로 차단.
       if (ttsOn) {
         ttsLang = target;
         const tl = tail.trim();
@@ -1858,6 +2121,18 @@ function handleHost(ws) {
         if (m.type === 'stop') {
           try { sx.send(''); } catch {} // 빈 프레임 = graceful end
           try { sx.close(); } catch {}
+        } else if (m.type === 'tts') {
+          // 녹음 중 TTS 토글: 호스트 재생 여부 + 합성 on/off
+          ws._audioOut = !!m.on;
+          ttsOn = !!m.on && !!CARTESIA_API_KEY;
+          if (m.gender === 'm' || m.gender === 'f') gender = m.gender;
+          if (!!m.on && !CARTESIA_API_KEY) toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 재생을 사용할 수 없습니다.' });
+          if (ttsOn) { const wLang = sxMode === 'two' ? 'ko' : sxTarget; cartesiaWarmup(cartesiaVoiceId(wLang, gender), wLang).then(() => {}).catch(() => {}); }
+        } else if (m.type === 'micState') {
+          // 호스트 발화/멈춤 → 발화 배타 락 갱신(뷰어 발화 버튼 활성/비활성)
+          const r = getRoom(sessionId);
+          r.hostTalking = !m.muted;
+          broadcastPttState(sessionId);
         }
       } catch {}
     });
@@ -1885,6 +2160,7 @@ function handleHost(ws) {
     let foreignTimer = null;
     let warnTimer = null;       // 무음 종료 10초 전 예고
     let pendingWayfind = null;  // 호스트 승인 대기 중인 길안내 제안
+    let convStartedAt = 0;      // 현재 응대 시작 시각(통계용)
 
     const baseConfig = () => ({
       api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
@@ -1977,7 +2253,7 @@ function handleHost(ws) {
       if (session) {
         if (Array.isArray(session.items) && session.items.length) {
           session.deskLog = session.deskLog || [];
-          session.deskLog.push({ endedAt: Date.now(), lang: lockedB, items: session.items });
+          session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: lockedB, items: session.items });
           if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200); // 보존 상한
           session.items = [];
         }
@@ -1999,6 +2275,7 @@ function handleHost(ws) {
       if (closed) return;
       const lang = GUEST_LANGS.includes(B) ? B : 'en';
       if (phase === 'active' && lang === lockedB) return;
+      if (phase !== 'active') convStartedAt = Date.now(); // 응대 시작 시각(통계용)
       phase = 'active'; lockedB = lang; lastCommitText = ''; resetUtterance();
       pending = [];
       setMeta();

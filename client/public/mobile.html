@@ -30,14 +30,16 @@
     font-size:13px; font-weight:700; color:#fff; background:#ef4444; }
   /* 폰 PTT(누르고 말하기) — 녹음 아이콘 버튼 */
   body { padding-bottom:100px; }
-  #pttBtn { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:25; display:none;
+  #pttBtn { position:fixed; right:18px; bottom:calc(env(safe-area-inset-bottom) + 18px); z-index:25; display:none;
     width:68px; height:68px; border-radius:50%; border:none; background:var(--accent); color:#fff;
     box-shadow:0 8px 24px rgba(0,0,0,.35); cursor:pointer; touch-action:none; user-select:none;
     -webkit-user-select:none; -webkit-tap-highlight-color:transparent; align-items:center; justify-content:center; }
   #pttBtn svg { width:30px; height:30px; }
-  #pttBtn.rec { background:#ef4444; transform:translateX(-50%) scale(1.08);
+  #pttBtn.rec { background:#ef4444; transform:scale(1.08);
     box-shadow:0 0 0 10px rgba(239,68,68,.25), 0 8px 24px rgba(0,0,0,.35); }
   #pttBtn.disabled { opacity:0.35; pointer-events:none; }
+  #pttBtn.deny { animation:pttShake .4s; }
+  @keyframes pttShake { 0%,100%{ transform:translateX(0);} 25%{ transform:translateX(-6px);} 75%{ transform:translateX(6px);} }
   select#langSel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--txt); font-size:15px; font-family:inherit; }
 
   #feed { display:flex; flex-direction:column; gap:8px; padding:14px 14px 4px; }
@@ -447,16 +449,21 @@ function connect(){
     else if(m.type==='host'){ setHostActive(m.active); }
     else if(m.type==='viewers'){ const lv=$('lViewers'); if(lv) lv.textContent = (m.count||0) + '명 시청 중'; }
     else if(m.type==='viewerPTT'){ sessionViewerPTT = !!m.on; const pb=$('pttBtn'); if(sessionViewerPTT){ if(sessionPipeline==='soniox') pb.style.display='flex'; } else { pb.style.display='none'; if(pttActive) pttStop(); } }
+    else if(m.type==='ptt-state'){ pttBusyState = !!m.busy; updatePttBtn(); } // 다른 사람(호스트 포함) 발화 중이면 버튼 비활성
+    else if(m.type==='ptt-denied'){ pttStop(); const pb=$('pttBtn'); pb.classList.add('deny'); setTimeout(()=>pb.classList.remove('deny'), 450); }
   };
 }
+// 발화 버튼 활성 조건: 호스트 진행 중 + (아무도 발화 중이 아니거나 내가 발화 중)
+let pttBusyState = false, hostOn = false;
+function updatePttBtn(){ const pb=$('pttBtn'); const usable = hostOn && (!pttBusyState || pttActive); pb.classList.toggle('disabled', !usable); }
 // 호스트(번역) 활성/중지 → 상태 표시등(초록/회색) + 랜딩 + 발화 버튼 활성/비활성
 function setHostActive(active){
+  hostOn = !!active;
   $('liveDot').classList.toggle('on', active); $('liveDot').title = active ? '번역 진행 중' : '대기 중';
   const ld = $('lLiveDot'); if(ld) ld.classList.toggle('on', active);
   const ll = $('lLive'); if(ll) ll.textContent = active ? '진행 중' : '대기 중';
-  const pb = $('pttBtn');
-  if(active){ pb.classList.remove('disabled'); }
-  else { if(pttActive) pttStop(); pb.classList.add('disabled'); }
+  if(!active && pttActive) pttStop();
+  updatePttBtn();
 }
 
 /* ---- 설정 UI ---- */
@@ -497,8 +504,8 @@ async function pttStart(){
   if(pttActive) return;
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
-  catch(e){ alert('마이크 권한이 필요합니다. (HTTPS에서만 동작해요)'); return; }
-  pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec');
+  catch(e){ alert('마이크 권한이 필요합니다. 브라우저 주소가 https 인지 확인해 주세요.'); return; }
+  pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec'); updatePttBtn();
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
   pttCtx = new (window.AudioContext||window.webkitAudioContext)();
   const rate = pttCtx.sampleRate;
@@ -515,9 +522,21 @@ function pttStop(){
   try { pttStream.getTracks().forEach(t=>t.stop()); } catch {}
   try { pttCtx.close(); } catch {}
   pttStream=pttCtx=pttProc=null;
+  updatePttBtn();
 }
 // 참여자 발화: 누르고 있기(PTT)가 아니라 탭 토글(한 번 탭 시작, 다시 탭 중지)
 $('pttBtn').addEventListener('click', () => { if(pttActive) pttStop(); else pttStart(); });
+
+// 화면 복귀(휴대폰 절전·앱 전환) 시 즉시 재접속 시도 — 재시도 타이머보다 빠르게 복구
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && (!ws || ws.readyState === 3)) { try { connect(); } catch {} }
+});
+// 브라우저 오류 보고(관리자 시스템 상태) — 60초 스로틀
+let __errAt = 0;
+window.addEventListener('error', (e) => {
+  const t = Date.now(); if (t - __errAt < 60000) return; __errAt = t;
+  try { fetch('/api/client-log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ msg: 'mobile: ' + e.message, src: (e.filename||'') + ':' + (e.lineno||0) }) }); } catch {}
+});
 
 applySrc();
 loadSession();

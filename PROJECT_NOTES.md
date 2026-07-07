@@ -38,7 +38,22 @@
 - 뷰어 플로우: **입장 화면**(안내데스크명 + 입장) → 전체화면 + **상시 WS 연결** → **대기 화면**("Touch your language to start translation" 세로 중앙 + 언어 버튼 원탭 시작: English/日本語/中文 + More languages(vi/th/id/ru)) → soniox two_way(ko↔선택언어) → 번역 텍스트 화면(발화 유도 "Please speak" 손님 언어). 전체화면이 풀리면 다음 터치에서 자동 복귀.
 - 뷰어 CX: 무음 종료 10초 전 `desk-idle-warn` 배너(카운트다운, 터치 시 `desk-keepalive`로 연장) / 대화 종료 시 "Thank you" 1.5초 후 대기 화면 / 고급설정에 텍스트 크기(80~160%, `kac-font-scale`).
 - 길안내는 **호스트 승인제**: 감지 시 `wayfind-suggest`(호스트 전용) → 하단 제안 칩 [표시/무시](20초 방치 소멸) → 승인 시 `wayfind-show`로 뷰어 브로드캐스트. 고급설정 '지도 자동 표시'(`kac-desk-map-auto`)면 즉시 승인. 부정어(없/말고/아니) 직매칭 차단→GPT 분류, 분류에 직전 손님 질문(ko 번역) 컨텍스트 동봉. `session.wayfindLog`(최근 200)에 감지·표시 기록. 뷰어 지도: ✕ 닫기, 헤더 탭 접기/펼치기, 새 발화 시 자동 축소, 시설 라벨 ko/en/ja/zh.
-- TTS 재입력 방지: `audio.js` — TTS 재생을 **WebRTC 루프백(RTCPeerConnection 쌍)** 경로로 우회해 브라우저 AEC 가 재생음을 마이크에서 제거(마이크 음소거 없이 겹쳐 말하기 가능). 실패 시 기존 직접 재생 + 재생 중 자동 음소거 폴백(`aecActive`).
+- TTS 재입력 방지(2중): ① `audio.js` — TTS 재생을 **WebRTC 루프백(RTCPeerConnection 쌍)** 경로로 우회해 브라우저 AEC 가 재생음을 마이크에서 제거(실패 시 재생 중 자동 음소거 폴백 `aecActive`). ② 서버 **자기음성 텍스트 필터**(`security_util.js echoMatch` + server `recentTts`/`noteTts`/`isSelfEcho`) — 시스템 오디오 캡처·기기 간 경로로 되돌아온 TTS 문장을 20초 내 유사도 매칭으로 버림(runSoniox·폰 PTT commit 에서 확인, 화면 카드도 제거).
+
+## 실시간 번역(soniox) 최근 사양
+- TTS(라벨 'TTS')는 **3모드 전부** 제공, 녹음 중 토글 가능(`audio.js setTts` → 서버 `{type:'tts',on,gender}`), 호스트도 재생(`ws._audioOut` 시 `sendAudioToHosts`; 클라는 첫 파이프만 재생해 이중재생 방지). 음성(성별) 라벨은 '음성'.
+- 참여자 발화(PTT)는 **양방향 모드 기본 기능**(토글 삭제, GET 세션이 preset 기준으로 viewerPTT 계산). 뷰어 발화 버튼은 mobile.html **우하단**.
+- **발화 배타 락**: room.hostTalking(마이크 연결=true, '발화 멈춤' 토글 시 `micState` 로 갱신) + room.speaking(뷰어). 점유 중 `ptt-denied`, 상태는 `ptt-state{busy}` 브로드캐스트 — 호스트가 발화 멈춤을 눌러야 뷰어가 발화 가능.
+- **모드 변경**: 번역 이력 없는 세션은 옵션바 '모드' 셀렉터로 live/oneway/twoway 전환(PATCH preset, 모드별 기본값 리셋).
+- 유휴(1분) 자동중지는 **전체 소스 기준**(audio.js `notifyActivityAll` — 어느 소스든 소리가 있으면 모든 host WS 에 activity).
+- 옵션 숨김 토글: 콘텐츠 중앙·헤더 밀착 탭(공간 미차지, 숨김 시 opacity 0.4). 텍스트 크기 슬라이더(고급설정, `kac-font-scale`). AI 요약은 항상 한국어·누락 없이 상세(+맨 위 '한눈에 보기' 3줄).
+
+## 운영/보안 (SECURITY_GUIDE.md 참고)
+- `FORCE_HTTPS=1` http→https 리다이렉트. 관리자 **2FA(TOTP)**: env `ADMIN_TOTP_SECRET` 우선, 아니면 관리자>시스템·보안에서 설정(data/security.json). 로그인 시 `need2fa` 응답 → Login.jsx 코드 입력. `DATA_KEY` 설정 시 data/*.json **AES-256-GCM 암호화**(평문 하위호환, security_util.js).
+- 관리자 탭: **데스크 통계**(GET /api/admin/desk-stats — deskLog 기반 응대수·언어분포·평균시간(deskLog.startedAt)·일별, 대화 내용 미노출) / **시스템·보안**(GET /api/admin/health — 가동시간·연결수·보안상태·최근 서버/브라우저 오류, POST /api/client-log 수집).
+- **오번역 검사**: 관리자>용어 설정 '검사 실행' → POST /api/admin/terms-suggest (최근 대화 원문·번역 200쌍을 GPT 검수 → 용어 후보 추천 → '추가'로 translationTerms 반영).
+- 테스트: `npm test` = smoke + `test/security.test.mjs`(base32/TOTP RFC 벡터/암호화 라운드트립·변조감지/에코 매칭).
+- 데스크톱 설치파일: `desktop/` electron-builder — `npm run dist:win`(NSIS 설치 마법사 exe) / `npm run dist:mac`(dmg). macOS 시스템 오디오는 BlackHole 필요(desktop/README.md).
 - 통역 시작/종료 프로토콜: 뷰어/호스트 `{type:'desk-start', lang}` → 서버 `deskCtrl`(sessionId→start/end) → `startConversation` → 모두에게 `{type:'desk-active', lang}` — **뷰어는 상시 연결이라 호스트가 시작해도 즉시 통역 화면으로 전환**. 종료(무음 deskIdle **기본 30초**·뷰어 ✕ `desk-end`·호스트 '대기모드로' `desk-reset-now`·호스트 이탈) → items 를 deskLog 에 보존 후 `desk-reset` → 뷰어는 터치 화면 복귀(WS 유지). 호스트 수동 시작은 `audio.js deskStart(lang)`.
 - desk sentence 메시지에 **`lang`(발화 원문 언어)** 포함 — 뷰어가 말풍선 좌우(안내원 ko=좌 / 손님=우)를 번역 도착 전에 확정(방향 튐 방지). 화자 라벨(안내원/나)은 표시 안 함(정렬만 유지). 안내원 발화는 번역 도착 전까지 뷰어에서 숨김.
 - 호스트 미준비 상태에서 뷰어가 시작하면 status 안내 토스트 후 터치 화면 복귀.

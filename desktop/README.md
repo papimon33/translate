@@ -34,20 +34,38 @@ npm start
 
 오버레이 상단 바를 드래그해 이동하고, 바의 버튼으로 표시 언어·글자 크기·배경 농도·원문·닫기를 조절합니다. **잠금(클릭 통과) 상태에선 클릭이 통과되므로, 위치·설정을 바꾸려면 먼저 잠금을 해제하세요.**
 
-## 배포 파일(.exe) 만들기
+## 설치파일 만들기 (Windows 설치 마법사 + macOS)
+
+electron-builder 로 **파일 하나짜리 설치본**을 만듭니다.
+
 ```bash
 cd desktop
 npm install
-npm run dist
+
+# Windows 설치파일(NSIS 설치 마법사, 설치 경로 선택·바로가기 생성)
+npm run dist:win     # → dist/KAC-Translator-Setup-1.0.0.exe
+
+# macOS 설치파일(dmg — Apple Silicon + Intel)
+npm run dist:mac     # → dist/KAC-Translator-1.0.0-arm64.dmg 등
 ```
-`dist/KAC-Translator-Overlay-win32-x64/` 폴더가 생성되고, 그 안의
-`KAC-Translator-Overlay.exe` 를 실행하면 됩니다.
 
-> **폴더째로 보관/전달하세요.** exe 단독이 아니라 같은 폴더의 dll·리소스가
-> 함께 있어야 실행됩니다. 다른 PC에 줄 땐 폴더 전체를 zip 으로 압축해 전달.
+- **Windows**: 생성된 `KAC-Translator-Setup-*.exe` 하나만 전달하면 됩니다. 실행하면
+  설치 마법사가 뜨고(경로 선택 가능), 바탕화면·시작 메뉴 바로가기가 생깁니다.
+  제거는 Windows 앱 설정에서 일반 프로그램처럼 제거.
+- **macOS**: `*.dmg` 를 열어 앱을 Applications 로 드래그. 서명(코드사인) 없이 빌드하면
+  첫 실행 시 우클릭 → 열기 로 Gatekeeper 를 통과해야 합니다. 조직 배포용이면
+  Apple Developer 인증서로 서명·공증(notarize)을 권장.
+- Windows 설치파일은 Windows 에서, macOS dmg 는 macOS 에서 빌드하는 것이 가장 확실합니다.
+  (macOS 에서 `npm run dist:win` 도 대체로 동작하지만 서명 옵션에 따라 실패할 수 있음)
 
-(electron-packager 사용 — Windows 개발자 모드 없이도 빌드됩니다. 단일 설치파일/
-포터블 1개 파일이 필요하면 Windows 개발자 모드를 켠 뒤 electron-builder 로 빌드.)
+### macOS 사용 시 주의
+- **마이크 모드**(양방향·라이브 청취)는 그대로 동작합니다. 첫 실행 시 마이크·화면 기록 권한을 허용하세요
+  (시스템 설정 → 개인정보 보호 및 보안).
+- **시스템 오디오 캡처**(온라인 회의 모드)는 macOS 가 기본 제공하지 않습니다.
+  [BlackHole](https://existential.audio/blackhole/) 같은 가상 오디오 드라이버를 설치하고
+  멀티 출력 장치를 구성해야 시스템 소리를 잡을 수 있습니다. 그 외 기능은 동일.
+
+(참고: 예전 방식의 폴더형 포터블 빌드는 `npm run dist:portable` 로 여전히 가능)
 
 ## 참고
 - 메인 창의 오버레이 버튼·투명도 슬라이더는 **Electron 앱에서만** 보입니다(일반 브라우저에선 자동 숨김).

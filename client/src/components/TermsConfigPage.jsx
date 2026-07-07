@@ -58,6 +58,21 @@ export default function TermsConfigPage({ user, embedded }) {
   const setPair = (i, k, v) => { setPairs((arr) => arr.map((p, j) => (j === i ? { ...p, [k]: v } : p))); mark(); };
   const removePair = (i) => { setPairs((arr) => arr.filter((_, j) => j !== i)); mark(); };
 
+  // 오번역 검사: 최근 대화의 원문·번역을 AI 로 검수해 용어 후보 추천(관리자)
+  const [sugBusy, setSugBusy] = useState(false);
+  const [sugResult, setSugResult] = useState(null); // { checked, suggestions: [{source,target,wrong,reason}] }
+  const runSuggest = async () => {
+    setSugBusy(true); setErr('');
+    try { setSugResult(await api.adminTermsSuggest()); }
+    catch (e) { setErr(e.message || '오번역 검사 실패'); }
+    finally { setSugBusy(false); }
+  };
+  const adoptSuggestion = (s) => {
+    setPairs((arr) => (arr.some((p) => p.source === s.source) ? arr : [...arr, { source: s.source, target: s.target }]));
+    setSugResult((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
+    mark();
+  };
+
   const save = async () => {
     setSaving(true); setErr(''); setOkMsg('');
     try {
@@ -193,6 +208,45 @@ export default function TermsConfigPage({ user, embedded }) {
                   ))}
                 </Box>
               </Paper>
+
+              {/* 오번역 검사(관리자): 최근 대화 원문·번역을 AI 로 검수 → 용어 추천 */}
+              {isAdmin && (
+                <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mt: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography sx={{ fontWeight: 800, fontSize: 15 }}>오번역 검사</Typography>
+                      <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>
+                        최근 대화의 원문과 번역을 AI 가 검수해 잘못 번역된 고유명사·시설명을 찾고 용어 후보로 추천합니다.
+                      </Typography>
+                    </Box>
+                    <Button size="small" variant="outlined" onClick={runSuggest} disabled={sugBusy}>
+                      {sugBusy ? '검사 중…' : '검사 실행'}
+                    </Button>
+                  </Box>
+                  {sugResult && sugResult.suggestions.length === 0 && (
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+                      최근 대화 {sugResult.checked}건을 확인했지만 추천할 오번역을 찾지 못했습니다.
+                    </Typography>
+                  )}
+                  {sugResult && sugResult.suggestions.length > 0 && (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      {sugResult.suggestions.map((s, i) => (
+                        <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.25, borderRadius: 2, border: 1, borderColor: 'divider' }}>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography sx={{ fontSize: 14, fontWeight: 700 }}>
+                              {s.source} → {s.target}
+                              {s.wrong && <Box component="span" sx={{ fontWeight: 500, color: 'error.main', fontSize: 12.5, ml: 1 }}>현재: {s.wrong}</Box>}
+                            </Typography>
+                            {s.reason && <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{s.reason}</Typography>}
+                          </Box>
+                          <Button size="small" variant="contained" disableElevation onClick={() => adoptSuggestion(s)}>추가</Button>
+                        </Box>
+                      ))}
+                      <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>추가한 항목은 위 번역 설정에 들어갑니다 — 저장을 눌러야 반영됩니다.</Typography>
+                    </Box>
+                  )}
+                </Paper>
+              )}
             </>
           )}
         </Box>

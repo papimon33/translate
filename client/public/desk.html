@@ -539,6 +539,28 @@ async function loadTitle(){
   } catch {}
 }
 
+// 화면 복귀(태블릿 절전 등) 시 즉시 재접속 — 1.5초 재시도 타이머보다 빠르게 복구
+document.addEventListener('visibilitychange', () => { if (!document.hidden && entered) ensureWs(); });
+
+// iPad/iOS Safari 는 전체화면 API 가 없어 '홈 화면에 추가'(PWA)로 실행해야 전체화면 유지 가능 — 입장 화면에 안내
+(function(){
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && !isStandalone()) {
+    const el = document.createElement('div');
+    el.style.cssText = 'margin-top:14px;font-size:13px;color:var(--muted);text-align:center;max-width:420px;line-height:1.5;';
+    el.textContent = 'iPad에서는 사파리 공유 버튼 → "홈 화면에 추가"로 설치한 뒤 실행하면 전체화면으로 동작합니다.';
+    const mid = document.querySelector('#enterWrap .enterMid');
+    if (mid) mid.appendChild(el);
+  }
+})();
+
+// 브라우저 오류 보고(관리자 시스템 상태) — 60초 스로틀
+let __errAt = 0;
+window.addEventListener('error', (e) => {
+  const t = Date.now(); if (t - __errAt < 60000) return; __errAt = t;
+  try { fetch('/api/client-log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ msg: 'desk: ' + e.message, src: (e.filename||'') + ':' + (e.lineno||0) }) }); } catch {}
+});
+
 // 진입: 세션 지정(QR) 시 해당 데스크 입장 화면, 아니면 랜딩(안내데스크 선택, 4초 갱신)
 if (sessionId) { loadTitle(); show('enterWrap'); }
 else { show('landing'); loadRooms(); roomsPoll = setInterval(loadRooms, 4000); }

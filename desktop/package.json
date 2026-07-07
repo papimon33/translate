@@ -1,16 +1,44 @@
 {
-  "name": "kac-translator-overlay",
+  "name": "kac-translator-desktop",
   "version": "1.0.0",
-  "description": "KAC Translator 줌 오버레이 (투명·항상위 자막 창)",
+  "description": "KAC Translator 데스크톱 앱 (웹앱 통합 + 줌 오버레이 자막 창)",
   "main": "main.js",
+  "author": "KAC",
   "scripts": {
     "start": "electron .",
     "icon": "node build-icon.mjs",
-    "dist": "electron-packager . KAC-Translator-Overlay --platform=win32 --arch=x64 --icon=icon.ico --overwrite --out=dist"
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac dmg",
+    "dist:portable": "electron-packager . KAC-Translator --platform=win32 --arch=x64 --icon=icon.ico --overwrite --out=dist"
+  },
+  "build": {
+    "appId": "kr.co.kac.translator",
+    "productName": "KAC Translator",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "icon.ico"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "KAC Translator",
+      "artifactName": "KAC-Translator-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "category": "public.app-category.productivity",
+      "artifactName": "KAC-Translator-${version}-${arch}.${ext}"
+    }
   },
   "devDependencies": {
     "@electron/packager": "^18.3.6",
     "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.35.2"
   }

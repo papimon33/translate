@@ -99,6 +99,8 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
   const [rename, setRename] = useState(null); // { id, val } 제목 변경
+  const [showOnboard, setShowOnboard] = useState(() => localStorage.getItem('kac-onboard-v1') !== '1'); // 첫 사용 안내
+  const dismissOnboard = () => { setShowOnboard(false); localStorage.setItem('kac-onboard-v1', '1'); };
 
   const reload = () => api.list().then(setList);
   useEffect(() => { reload(); }, []);
@@ -172,6 +174,27 @@ export default function SessionList({ onOpen, user, deskMode }) {
               새 세션
             </Button>
           </Box>
+
+          {/* 첫 사용 온보딩: 모드 3종 안내(1회 표시) */}
+          {!deskMode && showOnboard && (
+            <Card sx={{ p: 2.5, mb: 2.5, border: 1, borderColor: 'divider' }}>
+              <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1 }}>처음이신가요? 상황에 맞는 모드를 고르세요</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, mb: 1.5 }}>
+                {SITUATIONS.map((p) => (
+                  <Typography key={p.v} sx={{ fontSize: 13.5, color: 'text.secondary' }}>
+                    <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{p.title}</Box> — {p.example}
+                  </Typography>
+                ))}
+              </Box>
+              <Typography sx={{ fontSize: 12.5, color: 'text.disabled', mb: 1.5 }}>
+                모드는 세션을 만든 뒤에도 번역을 시작하기 전이라면 세션 안에서 바꿀 수 있습니다.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button size="small" variant="contained" onClick={() => { dismissOnboard(); openDlg(); }}>첫 세션 만들기</Button>
+                <Button size="small" onClick={dismissOnboard} sx={{ color: 'text.secondary' }}>닫기</Button>
+              </Box>
+            </Card>
+          )}
 
           {empty && (
             <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>

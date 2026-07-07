@@ -201,7 +201,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [dispLang, setDispLang] = useState(initial.outLang || 'ko'); // 화면에 표시할 언어
   // 통역 프리셋: 소스/방향 기본값 (단방향=시스템·one→ko, 양방향/모바일=마이크·two)
   // 단방향 모드: 라이브 청취(live)·온라인 회의(oneway/online). 소스: 온라인만 시스템, 나머지 마이크.
-  const onewayPreset = ['live', 'oneway', 'online'].includes(initial.preset);
+  const [preset, setPreset] = useState(initial.preset || null); // 번역 이력이 없으면 세션 안에서 변경 가능
+  const onewayPreset = ['live', 'oneway', 'online'].includes(preset);
   const [sourceMode, setSourceMode] = useState(['oneway', 'online'].includes(initial.preset) ? 'system' : 'mic');
   const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
   const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
@@ -241,7 +242,6 @@ export default function TranslateView({ session: initial, onBack }) {
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   const [ttsOn, setTtsOn] = useState(() => { const s = localStorage.getItem('kac-sx-tts'); return s === '1' ? true : s === '0' ? false : !onewayPreset; }); // 음성재생(TTS): 오프라인(대화) 기본 ON, 온라인 OFF
-  const [viewerPTT, setViewerPTT] = useState(!!initial.viewerPTT); // 참여자 발화(휴대폰 토글) — 기본 OFF
   const [gender, setGender] = useState(() => localStorage.getItem('kac-sx-gender') || 'f'); // 음성 성별
   const [previewing, setPreviewing] = useState(false);
   const previewVoice = async () => {
@@ -376,6 +376,14 @@ export default function TranslateView({ session: initial, onBack }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line
   }, [cfg.pipeline]);
+
+  // 녹음 중 실수로 페이지를 닫거나 새로고침하면 번역이 중단됨 — 이탈 전 확인
+  useEffect(() => {
+    if (!recording) return;
+    const h = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [recording]);
 
   // 연결/인식이 지나치게 지연되면 무한 스피너 대신 안내로 전환(특히 시스템 오디오)
   useEffect(() => {
@@ -546,7 +554,17 @@ export default function TranslateView({ session: initial, onBack }) {
   const showPartial = true;
   const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
   const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
-  const pipeLabel = initial.preset ? PRESET_LABEL[initial.preset] : PIPES.find((p) => p.v === cfg.pipeline)?.label;
+  const pipeLabel = preset ? PRESET_LABEL[preset] : PIPES.find((p) => p.v === cfg.pipeline)?.label;
+  // 모드 변경(번역 이력 없을 때만): 프리셋 + 모드별 기본값(소스·방향·TTS)을 함께 리셋
+  const presetGroup = preset ? (preset === 'live' ? 'live' : onewayPreset ? 'oneway' : 'twoway') : null;
+  const changeMode = (v) => {
+    setPreset(v);
+    api.patch(initial.id, { preset: v }).catch(() => {});
+    setSourceMode(v === 'oneway' ? 'system' : 'mic');
+    setSxMode(v === 'twoway' ? 'two' : 'one');
+    if (v !== 'twoway') setSxTarget('ko');
+    setTtsOn(v === 'twoway');
+  };
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -595,7 +613,7 @@ export default function TranslateView({ session: initial, onBack }) {
             AI 요약
           </Button>
         )}
-        <Tooltip title="전문 다운로드(.txt)">
+        <Tooltip title="지금까지의 번역 전문을 텍스트 파일로 저장합니다">
           <span>
             <IconButton onClick={downloadTranscript} disabled={messages.length === 0} sx={{ border: 1, borderColor: 'divider' }}>
               <FileDownloadOutlinedIcon />
@@ -685,12 +703,21 @@ export default function TranslateView({ session: initial, onBack }) {
               </Select>
             </Field>
           )}
+          {cfg.pipeline === 'soniox' && preset && messages.length === 0 && (
+            <Field label="모드">
+              <Select size="small" value={presetGroup} disabled={recording} onChange={(e) => changeMode(e.target.value)} sx={{ ...selSx, minWidth: 125 }}>
+                <MenuItem value="live">라이브 청취</MenuItem>
+                <MenuItem value="oneway">온라인 회의</MenuItem>
+                <MenuItem value="twoway">양방향 번역</MenuItem>
+              </Select>
+            </Field>
+          )}
           {cfg.pipeline === 'soniox' && onewayPreset && (
             <>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
                   <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.02em' }}>입력 언어</Typography>
-                  <Tooltip title="언어를 선택하면 더 정확하게 번역할 수 있습니다. (모든 언어 = 자동 감지)" arrow>
+                  <Tooltip title="말하는 언어를 지정하면 더 정확하게 인식합니다. 자동 감지를 고르면 여러 언어를 자동으로 알아듣습니다." arrow>
                     <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'help' }} />
                   </Tooltip>
                 </Box>
@@ -704,23 +731,37 @@ export default function TranslateView({ session: initial, onBack }) {
                   {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
                 </Select>
               </Field>
-              {['oneway', 'online'].includes(initial.preset) && (
+              {['oneway', 'online'].includes(preset) && (
                 <InfoToggle
                   label="내 음성 인식"
-                  hint="켜면 시스템 오디오와 함께 내 마이크(스피커)로 말한 것도 인식합니다."
+                  hint="시스템 소리에 더해 내 마이크로 말한 내용도 함께 인식해 번역합니다."
                   checked={sourceMode === 'both'}
                   disabled={recording}
                   onChange={(e) => setSourceMode(e.target.checked ? 'both' : 'system')}
                 />
               )}
-              {['oneway', 'online'].includes(initial.preset) && (
-                <InfoToggle
-                  label="음성 재생"
-                  hint="번역 결과를 음성(TTS)으로 재생합니다. 스피커로 틀면 시스템 소리에 다시 섞여 인식될 수 있으니 이어폰 사용을 권장합니다."
-                  checked={ttsOn}
-                  disabled={recording}
-                  onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
-                />
+              <InfoToggle
+                label="TTS"
+                hint="번역된 문장을 음성으로 읽어줍니다. 스피커로 크게 틀면 그 소리가 다시 인식될 수 있으니 이어폰 사용을 권장합니다. 번역 중에도 켜고 끌 수 있습니다."
+                checked={ttsOn}
+                onChange={(e) => { const v = e.target.checked; setTtsOn(v); localStorage.setItem('kac-sx-tts', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender); }}
+              />
+              {ttsOn && (
+                <Field label="음성">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Select size="small" value={gender} disabled={recording} onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }} sx={{ ...selSx, minWidth: 90 }}>
+                      <MenuItem value="f">여성</MenuItem>
+                      <MenuItem value="m">남성</MenuItem>
+                    </Select>
+                    <Tooltip title="선택한 음성을 미리 들어봅니다">
+                      <span>
+                        <IconButton size="small" onClick={previewVoice} disabled={previewing} sx={{ border: 1, borderColor: 'divider' }}>
+                          <VolumeUpIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
+                </Field>
               )}
             </>
           )}
@@ -737,20 +778,19 @@ export default function TranslateView({ session: initial, onBack }) {
                 </Select>
               </Field>
               <InfoToggle
-                label="음성 재생"
-                hint="번역 결과를 음성(TTS)으로 재생합니다. 상대 음성이 다시 인식되는 것을 막기 위해 이어폰 사용을 권장합니다."
+                label="TTS"
+                hint="번역된 문장을 음성으로 읽어줍니다. 나와 상대 기기에서 함께 켜면 소리가 겹칠 수 있으니 이어폰 사용을 권장합니다. 번역 중에도 켜고 끌 수 있습니다."
                 checked={ttsOn}
-                disabled={recording}
-                onChange={(e) => { setTtsOn(e.target.checked); localStorage.setItem('kac-sx-tts', e.target.checked ? '1' : '0'); }}
+                onChange={(e) => { const v = e.target.checked; setTtsOn(v); localStorage.setItem('kac-sx-tts', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender); }}
               />
               {ttsOn && (
-                <Field label="음성(성별)">
+                <Field label="음성">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <Select size="small" value={gender} disabled={recording} onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }} sx={{ ...selSx, minWidth: 90 }}>
                       <MenuItem value="f">여성</MenuItem>
                       <MenuItem value="m">남성</MenuItem>
                     </Select>
-                    <Tooltip title="미리듣기(출력 언어)">
+                    <Tooltip title="선택한 음성을 미리 들어봅니다">
                       <span>
                         <IconButton size="small" onClick={previewVoice} disabled={previewing} sx={{ border: 1, borderColor: 'divider' }}>
                           <VolumeUpIcon fontSize="small" />
@@ -760,13 +800,6 @@ export default function TranslateView({ session: initial, onBack }) {
                   </Box>
                 </Field>
               )}
-              <InfoToggle
-                label="참여자 발화"
-                hint="켜면 참여자가 휴대폰에서 '발화' 버튼을 눌러(토글) 직접 말할 수 있습니다. (양방향 대화용)"
-                checked={viewerPTT}
-                disabled={recording}
-                onChange={(e) => { const v = e.target.checked; setViewerPTT(v); try { api.patch(initial.id, { viewerPTT: v }); } catch {} }}
-              />
             </>
           )}
           {cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
@@ -856,11 +889,18 @@ export default function TranslateView({ session: initial, onBack }) {
           </Box>
         </Paper>
         </Collapse>
+        {/* 펼치기/숨기기 토글 — 콘텐츠 중앙, 헤더에 밀착한 탭 모양. 공간을 차지하지 않고, 숨김 상태에선 반투명 */}
         <Tooltip title={optsOpen ? '옵션 숨기기' : '옵션 펼치기'}>
           <IconButton
             size="small"
             onClick={() => setOptsOpen((o) => !o)}
-            sx={{ position: 'absolute', top: 13, right: { xs: 24, sm: 36 }, zIndex: 2, border: 1, borderColor: 'divider', width: 28, height: 28, borderRadius: '8px', bgcolor: 'background.paper', '&:hover': { bgcolor: 'background.paper' } }}
+            sx={{
+              position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', zIndex: 3,
+              width: 44, height: 22, borderRadius: '0 0 12px 12px',
+              border: 1, borderTop: 0, borderColor: 'divider', bgcolor: 'background.paper',
+              opacity: optsOpen ? 1 : 0.4, transition: 'opacity .15s',
+              '&:hover': { opacity: 1, bgcolor: 'background.paper' },
+            }}
           >
             {optsOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
           </IconButton>

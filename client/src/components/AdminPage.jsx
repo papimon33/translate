@@ -29,8 +29,6 @@ import PeopleAltOutlinedIcon from '@mui/icons-material/PeopleAltOutlined';
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import PaidOutlinedIcon from '@mui/icons-material/PaidOutlined';
-import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
-import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import TermsConfigPage from './TermsConfigPage.jsx';
 import { api } from '../api.js';
 
@@ -118,11 +116,147 @@ function EmptyTab({ icon, title, desc }) {
 
 const TABS = [
   { v: 'usage', label: '사용량' },
+  { v: 'desk', label: '데스크 통계' },
   { v: 'accounts', label: '계정 관리' },
   { v: 'terms', label: '용어 설정' },
-  { v: 'logs', label: '접속 기록' },
-  { v: 'alerts', label: '알림 설정' },
+  { v: 'system', label: '시스템·보안' },
 ];
+
+const LANG_KO = { en: '영어', ja: '일본어', zh: '중국어', vi: '베트남어', th: '태국어', id: '인도네시아어', ru: '러시아어', ko: '한국어', unknown: '미상' };
+
+// 데스크 통계: 데스크별 응대 건수·언어 분포·평균 응대 시간·일별 추이 (대화 내용은 조회하지 않음)
+function DeskStats() {
+  const [stats, setStats] = useState(null);
+  useEffect(() => { api.adminDeskStats().then(setStats).catch(() => setStats([])); }, []);
+  if (!stats) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
+  if (!stats.length) return <EmptyTab icon={<ForumOutlinedIcon sx={{ fontSize: 34 }} />} title="데스크 통계" desc="안내데스크 세션이 아직 없습니다. 데스크 안내에서 세션을 만들면 응대 통계가 집계됩니다." />;
+  const total = stats.reduce((a, d) => a + d.count, 0);
+  return (
+    <>
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
+        <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="총 응대 건수" value={total} />
+        <StatCard icon={<PeopleAltOutlinedIcon fontSize="small" />} label="안내데스크 수" value={stats.length} />
+        <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="평균 응대 시간" value={fmtDuration(stats.reduce((a, d) => a + d.avgMs * d.count, 0) / Math.max(1, total))} />
+      </Box>
+      {stats.map((d) => {
+        const langEntries = Object.entries(d.langs || {}).sort((a, b) => b[1] - a[1]);
+        const maxDay = Math.max(1, ...(d.daily || []).map((x) => x.count));
+        return (
+          <Paper key={d.id} variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
+              <Typography sx={{ fontWeight: 800, fontSize: 16 }}>{d.title}</Typography>
+              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+                응대 {d.count}건 · 평균 {fmtDuration(d.avgMs)} · 길안내 감지 {d.wayfindDetected}건 중 표시 {d.wayfindShown}건
+              </Typography>
+            </Box>
+            {langEntries.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
+                {langEntries.map(([lang, n]) => (
+                  <Chip key={lang} size="small" label={`${LANG_KO[lang] || lang} ${n}건`} sx={{ height: 22, fontSize: 12, fontWeight: 700 }} />
+                ))}
+              </Box>
+            )}
+            {(d.daily || []).length > 0 && (
+              <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 70 }}>
+                {d.daily.map((x) => (
+                  <Tooltip key={x.date} title={`${x.date} · ${x.count}건`}>
+                    <Box sx={{ flex: 1, maxWidth: 46, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.4 }}>
+                      <Box sx={{ width: '65%', height: `${Math.max(3, (x.count / maxDay) * 46)}px`, borderRadius: 0.75, bgcolor: 'primary.main', opacity: 0.75 }} />
+                      <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{x.date.slice(5)}</Typography>
+                    </Box>
+                  </Tooltip>
+                ))}
+              </Box>
+            )}
+          </Paper>
+        );
+      })}
+    </>
+  );
+}
+
+// 시스템 상태 + 관리자 2FA 설정
+function SystemPanel() {
+  const [health, setHealth] = useState(null);
+  const [tfa, setTfa] = useState(null); // { enabled, viaEnv }
+  const [setup, setSetup] = useState(null); // { secret, qr }
+  const [code, setCode] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = () => {
+    api.adminHealth().then(setHealth).catch(() => {});
+    api.admin2fa().then(setTfa).catch(() => {});
+  };
+  useEffect(() => { load(); }, []);
+  const beginSetup = async () => { setMsg(''); try { setSetup(await api.admin2faSetup()); setCode(''); } catch (e) { setMsg(e.message); } };
+  const confirmSetup = async () => { setMsg(''); try { await api.admin2faVerify(code); setSetup(null); setCode(''); load(); setMsg('2FA가 활성화되었습니다. 다음 로그인부터 인증 코드가 필요합니다.'); } catch (e) { setMsg(e.message); } };
+  const disable = async () => { setMsg(''); try { await api.admin2faDisable(code); setCode(''); load(); setMsg('2FA가 해제되었습니다.'); } catch (e) { setMsg(e.message); } };
+  const fmtUp = (s) => (s >= 86400 ? `${Math.floor(s / 86400)}일 ` : '') + `${Math.floor((s % 86400) / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`;
+  return (
+    <>
+      <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 2 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1.5 }}>시스템 상태</Typography>
+        {!health ? <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>불러오는 중…</Typography> : (
+          <>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+              <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="가동 시간" value={fmtUp(health.uptimeSec)} sub={`메모리 ${health.memoryMB}MB · ${health.node}`} />
+              <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="실시간 연결" value={`${health.liveHosts} 호스트`} sub={`${health.liveViewers} 뷰어 · 세션 ${health.sessions}개`} />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1 }}>
+              <Chip size="small" color={health.dataEncrypted ? 'success' : 'default'} label={health.dataEncrypted ? '저장 데이터 암호화 켜짐' : '저장 데이터 암호화 꺼짐 — DATA_KEY 미설정'} />
+              <Chip size="small" color={health.twoFaEnabled ? 'success' : 'default'} label={health.twoFaEnabled ? '관리자 2FA 켜짐' : '관리자 2FA 꺼짐'} />
+              <Chip size="small" color={health.forceHttps ? 'success' : 'default'} label={health.forceHttps ? 'HTTPS 강제 켜짐' : 'HTTPS 강제 꺼짐 — FORCE_HTTPS 미설정'} />
+            </Box>
+            {(health.recentErrors.length > 0 || health.clientErrors.length > 0) && (
+              <Box sx={{ mt: 2 }}>
+                <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: 'text.secondary', mb: 0.75 }}>최근 오류</Typography>
+                {[...health.recentErrors.map((e) => ({ ...e, from: '서버' })), ...health.clientErrors.map((e) => ({ ...e, from: '브라우저' }))]
+                  .sort((a, b) => b.at - a.at).slice(0, 10).map((e, i) => (
+                    <Typography key={i} sx={{ fontSize: 12, color: 'text.secondary', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      [{new Date(e.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}] {e.from} · {e.msg}
+                    </Typography>
+                  ))}
+              </Box>
+            )}
+            {health.recentErrors.length === 0 && health.clientErrors.length === 0 && (
+              <Typography sx={{ fontSize: 12.5, color: 'success.main', mt: 1 }}>최근 기록된 오류가 없습니다.</Typography>
+            )}
+          </>
+        )}
+      </Paper>
+
+      <Paper variant="outlined" sx={{ borderRadius: 3, p: 3 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 0.5 }}>관리자 2단계 인증</Typography>
+        <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
+          Google Authenticator 같은 인증 앱을 등록하면 관리자 로그인 시 비밀번호에 더해 6자리 코드를 요구합니다.
+        </Typography>
+        {msg && <Alert severity={msg.includes('활성화') || msg.includes('해제') ? 'success' : 'error'} sx={{ mb: 2 }}>{msg}</Alert>}
+        {tfa && tfa.viaEnv && <Alert severity="info" sx={{ mb: 2 }}>2FA 시크릿이 서버 환경변수 ADMIN_TOTP_SECRET 으로 관리되고 있어 여기서 변경할 수 없습니다.</Alert>}
+        {tfa && !tfa.enabled && !setup && (
+          <Button variant="contained" onClick={beginSetup}>2FA 설정 시작</Button>
+        )}
+        {setup && (
+          <Box>
+            <Typography sx={{ fontSize: 13.5, mb: 1 }}>1. 인증 앱에서 아래 QR을 스캔하세요.</Typography>
+            <Box component="img" src={setup.qr} alt="2FA QR" sx={{ width: 180, bgcolor: '#fff', borderRadius: 2, p: 1, display: 'block', mb: 1 }} />
+            <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 2, wordBreak: 'break-all' }}>수동 입력 키: {setup.secret}</Typography>
+            <Typography sx={{ fontSize: 13.5, mb: 1 }}>2. 앱에 표시된 6자리 코드를 입력해 활성화를 완료하세요.</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField size="small" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6자리 코드" sx={{ width: 140 }} />
+              <Button variant="contained" onClick={confirmSetup} disabled={code.length !== 6}>활성화</Button>
+              <Button onClick={() => { setSetup(null); setCode(''); }}>취소</Button>
+            </Box>
+          </Box>
+        )}
+        {tfa && tfa.enabled && !tfa.viaEnv && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <TextField size="small" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6자리 코드" sx={{ width: 140 }} />
+            <Button variant="outlined" color="error" onClick={disable} disabled={code.length !== 6}>2FA 해제</Button>
+          </Box>
+        )}
+      </Paper>
+    </>
+  );
+}
 
 export default function AdminPage({ user }) {
   const [tab, setTab] = useState('usage');
@@ -263,18 +397,14 @@ export default function AdminPage({ user }) {
             </>
           )}
 
+          {/* ── 데스크 통계 ── */}
+          {tab === 'desk' && <DeskStats />}
+
           {/* ── 용어 설정 (이관) ── */}
           {tab === 'terms' && <TermsConfigPage user={user} embedded />}
 
-          {/* ── 접속 기록 ── */}
-          {tab === 'logs' && (
-            <EmptyTab icon={<HistoryOutlinedIcon sx={{ fontSize: 34 }} />} title="접속 기록" desc="로그인·주요 액션 감사 로그입니다. 백엔드 연동 후 표시됩니다." />
-          )}
-
-          {/* ── 알림 설정 ── */}
-          {tab === 'alerts' && (
-            <EmptyTab icon={<NotificationsOutlinedIcon sx={{ fontSize: 34 }} />} title="알림 설정" desc="시스템 알림·사용량 임계치 알림을 설정합니다. 백엔드 연동 후 제공됩니다." />
-          )}
+          {/* ── 시스템 상태 + 보안(2FA) ── */}
+          {tab === 'system' && <SystemPanel />}
         </Box>
       </Box>
 
