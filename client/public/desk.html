@@ -399,8 +399,12 @@ function ensureWs(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}`);
   ws.binaryType = 'arraybuffer';
-  // (재)접속 시 시작 대기/진행 중이면 시작 요청 재전송 — 같은 언어로 이미 진행 중이면 서버가 무시
-  ws.onopen = () => { if (pendingStart || started) sendStart(); };
+  // (재)접속 시 시작 대기/진행 중이면 시작 요청 재전송 — 같은 언어로 이미 진행 중이면 서버가 무시.
+  // 여객 마이크 캡처 중이면 채널도 재등록(새 소켓은 서버가 desk-mic 상태를 모름).
+  ws.onopen = () => {
+    if (pendingStart || started) sendStart();
+    if (gm) { try { ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {} }
+  };
   ws.onclose = () => { ws = null; if (entered) setTimeout(ensureWs, 1500); };
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
@@ -426,12 +430,14 @@ function enterStage(lang){
   setSvcPair(); rerender();
   try { mapApi && mapApi.setLang(curLang); } catch {}
   show('stage');
+  guestMicStart(); // 2채널: 여객 태블릿 마이크 상시 캡처 시작(실패 시 데스크 마이크 단일 채널로 동작)
 }
 
 // 대화 종료: (응대했던 경우 감사 인사 잠깐) → 대기(터치) 화면 복귀(전체화면·WS 연결 유지)
 function backToTouch(withThanks){
   started = false; gotActive = false; pendingStart = false;
   clearTimeout(activeGuard);
+  guestMicStop();
   hideIdleWarn();
   clearAll();
   if (withThanks) {
@@ -440,6 +446,48 @@ function backToTouch(withThanks){
   } else {
     show('touchWrap');
   }
+}
+
+/* ---- 여객 마이크(2채널 화자 귀속): 통역 중 상시 캡처 → 서버 여객 채널로 전송 ----
+   근접 게이트: 여객 입은 태블릿에서 ~30cm, 안내원·주변음은 멀어서 작게 잡힘 →
+   임계(GM_GATE) 미만이면 무음을 보내 누화·안내방송을 차단(무음 전송은 엔드포인트 판정 유지용). */
+const GM_GATE = 0.04;
+let gm = null; // { stream, ctx, proc }
+function f32to16(f32){ const b = new ArrayBuffer(f32.length * 2), v = new DataView(b); for (let i = 0; i < f32.length; i++){ let s = Math.max(-1, Math.min(1, f32[i])); s = s < 0 ? s * 0x8000 : s * 0x7fff; v.setInt16(i * 2, s, true); } return b; }
+function ds24(f32, rate){ if (rate === 24000) return f32; const r = rate / 24000, n = Math.round(f32.length / r), o = new Float32Array(n); for (let i = 0; i < n; i++){ const idx = i * r, i0 = Math.floor(idx), i1 = Math.min(i0 + 1, f32.length - 1); o[i] = f32[i0] * (1 - (idx - i0)) + f32[i1] * (idx - i0); } return o; }
+async function guestMicStart(){
+  if (gm) { try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {} return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch { toast('태블릿 마이크를 사용할 수 없어 안내데스크 마이크로만 인식합니다.'); return; }
+  if (!started) { try { stream.getTracks().forEach((t) => t.stop()); } catch {} return; } // 권한 대기 중 종료된 경우
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try { ctx.resume(); } catch {}
+  const rate = ctx.sampleRate;
+  const node = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  node.connect(proc);
+  const g = ctx.createGain(); g.gain.value = 0; proc.connect(g); g.connect(ctx.destination);
+  let openUntil = 0;
+  proc.onaudioprocess = (e) => {
+    if (!gm || !ws || ws.readyState !== 1 || !started) return;
+    const input = e.inputBuffer.getChannelData(0);
+    let peak = 0;
+    for (let i = 0; i < input.length; i++) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
+    if (peak >= GM_GATE) openUntil = Date.now() + 300; // 큰 소리 감지 → 300ms 홀드
+    const ds = ds24(input, rate);
+    ws.send(Date.now() < openUntil ? f32to16(ds) : new ArrayBuffer(ds.length * 2));
+  };
+  gm = { stream, ctx, proc };
+  try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {}
+}
+function guestMicStop(){
+  if (!gm) return;
+  try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'desk-mic', on: false })); } catch {}
+  try { gm.proc.onaudioprocess = null; } catch {}
+  try { gm.stream.getTracks().forEach((t) => t.stop()); } catch {}
+  try { gm.ctx.close(); } catch {}
+  gm = null;
 }
 
 /* ---- 무음 종료 예고 배너: 카운트다운 + 터치로 연장(desk-keepalive) ---- */

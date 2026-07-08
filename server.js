@@ -1747,7 +1747,12 @@ function handleViewer(ws) {
   if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
   broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); // 뷰어 수(랜딩 표시)
   ws.on('message', (data, isBinary) => {
-    if (isBinary) { if (talk) talk.feed(data); return; }
+    if (isBinary) {
+      // 데스크 여객 태블릿 마이크(2채널) — desk-mic on 을 보낸 뷰어의 오디오는 여객 채널로
+      if (ws._deskMic) { const dc = deskCtrl.get(ws._session); if (dc && dc.feedGuest) { dc.feedGuest(data); return; } }
+      if (talk) talk.feed(data);
+      return;
+    }
     try {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
@@ -1777,6 +1782,11 @@ function handleViewer(ws) {
         // 데스크: 종료 예고 배너 터치 → 무음 타이머 연장
         const ctrl = deskCtrl.get(ws._session);
         if (ctrl && ctrl.keepalive) ctrl.keepalive();
+      } else if (m.type === 'desk-mic') {
+        // 데스크: 여객 태블릿 마이크 채널 on/off — 2채널 화자 귀속
+        ws._deskMic = !!m.on;
+        const ctrl = deskCtrl.get(ws._session);
+        if (ctrl && ctrl.guestMic) ctrl.guestMic(!!m.on, ws);
       }
     } catch {}
   });
@@ -1784,6 +1794,7 @@ function handleViewer(ws) {
     room.viewers.delete(ws);
     if (talk) { talk.stop(); talk = null; }
     if (room.speaking === ws) { room.speaking = null; broadcastPttState(ws._session); } // 발화 중 이탈 → 락 해제
+    if (ws._deskMic) { const dc = deskCtrl.get(ws._session); if (dc && dc.guestMic) dc.guestMic(false, ws); } // 여객 마이크 이탈 → 단일 채널 폴백
     broadcast(ws._session, { type: 'viewers', count: room.viewers.size });
   });
 }
@@ -1863,15 +1874,16 @@ function handleHost(ws) {
   };
   // 문장 항목: texts = { 언어코드: 번역문 }. 같은 id 로 여러 번 호출하면 언어별로 병합됨.
   // lang = 발화(원문) 언어 — 데스크 뷰어가 말풍선 좌우(안내원/손님)를 번역 도착 전에 판단하는 데 사용.
-  const buildMsg = (id, item) => ({ type: 'sentence', id, side, source: item.source || null, texts: item.texts, speaker: item.speaker || null, ...(item.lang ? { lang: item.lang } : {}) });
+  // sideOv = 채널별 side 오버라이드(데스크 여객 마이크 채널='left', 기본은 이 연결의 소스 기준).
+  const buildMsg = (id, item) => ({ type: 'sentence', id, side: item.side || side, source: item.source || null, texts: item.texts, speaker: item.speaker || null, ...(item.lang ? { lang: item.lang } : {}) });
   // 화면에만 보냄(저장 안 함) — translate 스트리밍/whisper 진행표시용
-  const liveSend = (id, langTexts, source, speaker, lang) => {
-    const m = { type: 'sentence', id, side, source: source || null, texts: langTexts, speaker: speaker || null, ...(lang ? { lang } : {}) };
+  const liveSend = (id, langTexts, source, speaker, lang, sideOv) => {
+    const m = { type: 'sentence', id, side: sideOv || side, source: source || null, texts: langTexts, speaker: speaker || null, ...(lang ? { lang } : {}) };
     toHost(m);
     broadcast(sessionId, m);
   };
   // 확정: 세션 저장 + 전송. 언어별로 병합.
-  const upsertItem = (id, langTexts, source, speaker, lang) => {
+  const upsertItem = (id, langTexts, source, speaker, lang, sideOv) => {
     let item;
     if (session) {
       item = session.items.find((x) => x.id === id);
@@ -1881,7 +1893,7 @@ function handleHost(ws) {
         if (speaker) item.speaker = speaker;
         if (lang) item.lang = lang;
       } else {
-        item = { id, side, source: source || null, texts: { ...langTexts }, speaker: speaker || null, ...(lang ? { lang } : {}) };
+        item = { id, side: sideOv || side, source: source || null, texts: { ...langTexts }, speaker: speaker || null, ...(lang ? { lang } : {}) };
         session.items.push(item);
       }
       if (session.title === '새 세션' && session.items.length === 1) {
@@ -2162,6 +2174,27 @@ function handleHost(ws) {
     let pendingWayfind = null;  // 호스트 승인 대기 중인 길안내 제안
     let convStartedAt = 0;      // 현재 응대 시작 시각(통계용)
 
+    // ---- 여객(뷰어 태블릿) 마이크 채널 — 2채널 화자 귀속 프로토타입 ----
+    // 뷰어가 desk-mic on 을 보내고 바이너리 오디오를 올리면 별도 soniox one_way(선택언어→ko)로 처리.
+    // 채널 자체가 화자 귀속이므로 언어 추정이 필요 없고, 동시 발화도 채널별로 독립 인식된다.
+    let guestMicOn = false;
+    let gsx = null, gsxReady = false;
+    let gPending = [];
+    let gCurId = null, gFinalText = '', gFinalTrans = '', gLastTrans = '', gLastCommitText = '';
+    const recentCommits = [];   // 교차 중복(누화) 필터: [{ n, at, ch }]
+    const chStats = { staff: 0, guest: 0, crossDrops: 0 }; // 누화율 측정용(deskLog 에 저장)
+
+    // 교차 채널 누화 판정: 반대 채널이 5초 내 유사 문장을 확정했으면 누화(마이크로 샌 소리)로 드랍.
+    // 근접 게이트를 통과한 잔여 누화의 마지막 방어선. 진짜 발화 채널이 신호가 커서 먼저 확정되는 것을 이용.
+    const crossDup = (ch, txt) => {
+      const n = echoNorm(txt);
+      const now = Date.now();
+      while (recentCommits.length && now - recentCommits[0].at > 5000) recentCommits.shift();
+      if (n.length >= 6 && recentCommits.some((e) => e.ch !== ch && echoMatch(n, e.n))) return true;
+      recentCommits.push({ n, at: now, ch });
+      return false;
+    };
+
     const baseConfig = () => ({
       api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
       enable_language_identification: true, enable_endpoint_detection: true,
@@ -2193,6 +2226,9 @@ function handleHost(ws) {
       const tgt = (finalTrans.trim() || lastTrans).trim();
       resetUtterance();
       if (!id || !txt) return;
+      // 여객 채널이 이미 확정한 문장과 유사 → 데스크 마이크로 샌 누화, 드랍(화면 카드도 제거)
+      if (guestMicOn && crossDup('staff', txt)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
+      chStats.staff++;
       const out = tgt || txt;
       if (out && out === lastCommitText) return;
       lastCommitText = out;
@@ -2253,16 +2289,22 @@ function handleHost(ws) {
       if (session) {
         if (Array.isArray(session.items) && session.items.length) {
           session.deskLog = session.deskLog || [];
-          session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: lockedB, items: session.items });
+          // stats: 채널별 확정 수 + 누화 드랍 수 — 2채널 프로토타입 누화율 측정용
+          session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: lockedB, items: session.items, stats: { ...chStats } });
           if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200); // 보존 상한
           session.items = [];
         }
         saveSessions();
       }
+      if (chStats.staff + chStats.guest + chStats.crossDrops > 0) console.log(`[desk] 채널 통계 staff=${chStats.staff} guest=${chStats.guest} crossDrops=${chStats.crossDrops}`);
+      chStats.staff = 0; chStats.guest = 0; chStats.crossDrops = 0;
+      recentCommits.length = 0;
+      gLastCommitText = '';
       lastCommitText = '';
       phase = 'idle'; lockedB = null; resetUtterance();
       pending = [];
       closeSx();
+      closeGuest(); // 여객 채널 종료(guestMicOn 플래그는 유지 — 다음 응대에서 재연결)
       broadcast(sessionId, { type: 'desk-reset' });
       toHost({ type: 'desk-reset' });
       broadcast(sessionId, { type: 'snapshot', items: [] });
@@ -2284,6 +2326,7 @@ function handleHost(ws) {
       broadcast(sessionId, m); toHost(m);
       toHost({ type: 'status', message: `통역 시작 (ko↔${lang}) — 무음 ${deskIdleMs / 1000}초 시 자동 종료` });
       connectSx();
+      if (guestMicOn) connectGuest(); // 여객 마이크가 이미 연결돼 있으면 여객 채널도 시작
     };
 
     function closeSx() {
@@ -2338,6 +2381,86 @@ function handleHost(ws) {
       if (endHit || finalText.length >= SX_MAX_CHARS) commit();
     }
 
+    /* ---- 여객 채널(2채널 프로토타입): 뷰어 태블릿 마이크 → 별도 soniox one_way(선택언어→ko) ----
+       언어 힌트를 손님 언어로 고정해 인식 정확도를 높이고, side='left'/lang=손님언어로 결정적 귀속.
+       누화 방어: ① 뷰어 근접 게이트(작은 소리는 무음 전송) ② crossDup(교차 중복 필터). */
+    const guestConfig = () => ({
+      ...baseConfig(),
+      language_hints: lockedB && lockedB !== A ? [lockedB] : [A],
+      translation: { type: 'one_way', target_language: A },
+    });
+    function closeGuest() {
+      const old = gsx; gsx = null; gsxReady = false; gPending = [];
+      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = '';
+      if (old) { try { old.send(''); } catch {} try { old.close(); } catch {} }
+    }
+    function connectGuest() {
+      if (closed || phase !== 'active' || !guestMicOn) return;
+      const old = gsx;
+      gsxReady = false;
+      const next = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
+      gsx = next;
+      next.on('open', () => {
+        try { next.send(JSON.stringify(guestConfig())); } catch {}
+        gsxReady = true;
+        while (gPending.length) { try { next.send(gPending.shift()); } catch {} }
+      });
+      next.on('message', onGuestMsg);
+      next.on('error', () => {});
+      next.on('close', () => {
+        if (gsx === next && !closed && phase === 'active' && guestMicOn) {
+          setTimeout(() => { if (gsx === next && !closed && phase === 'active' && guestMicOn) connectGuest(); }, 800);
+        }
+      });
+      try { if (old && old !== next) old.close(); } catch {}
+    }
+    const guestCommit = () => {
+      const id = gCurId, txt = gFinalText.trim();
+      const tgt = (gFinalTrans.trim() || gLastTrans).trim();
+      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = '';
+      if (!id || !txt) return;
+      // 안내원 채널이 이미 확정한 문장과 유사 → 여객 마이크로 샌 누화, 드랍
+      if (crossDup('guest', txt)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
+      chStats.guest++;
+      const out = tgt || txt;
+      if (out && out === gLastCommitText) return;
+      gLastCommitText = out;
+      upsertItem(id, { [A]: out }, txt, null, lockedB || null, 'left');
+    };
+    function onGuestMsg(raw) {
+      let ev; try { ev = JSON.parse(raw.toString()); } catch { return; }
+      if (ev.error_code) return;
+      const toks = ev.tokens || [];
+      if (!toks.length) return;
+      if (phase === 'active') armForeignTimer();
+      let endHit = false, nonFinal = '', nonFinalTrans = '';
+      for (const t of toks) {
+        if (t.text === '<end>') { endHit = true; continue; }
+        if (t.translation_status === 'translation') { if (t.is_final) gFinalTrans += t.text; else nonFinalTrans += t.text; }
+        else { if (t.is_final) gFinalText += t.text; else nonFinal += t.text; }
+      }
+      const shownSrc = (gFinalText + nonFinal).trim();
+      const shownTgt = (gFinalTrans + nonFinalTrans).trim();
+      if (shownTgt) gLastTrans = shownTgt;
+      if (!gCurId && (shownSrc || shownTgt)) gCurId = newId();
+      if (gCurId) liveSend(gCurId, { [A]: shownTgt }, shownSrc || null, null, lockedB || null, 'left');
+      if (endHit || gFinalText.length >= SX_MAX_CHARS) guestCommit();
+    }
+    // 뷰어의 여객 마이크 채널 on/off — 켜지면 응대 중일 때 즉시 엔진 연결, 꺼지면 단일 채널로 폴백.
+    // fromWs 로 소유 소켓을 추적: 뷰어 재접속 시 구 소켓의 close 가 새 소켓의 채널을 끄지 않도록.
+    let guestWs = null;
+    const guestMic = (on, fromWs) => {
+      if (on) guestWs = fromWs || guestWs;
+      else if (fromWs && guestWs && fromWs !== guestWs) return; // 소유자가 아닌(이전) 소켓의 해제는 무시
+      if (guestMicOn === !!on) return;
+      guestMicOn = !!on;
+      const m = { type: 'desk-guest-mic', on: guestMicOn };
+      toHost(m); broadcast(sessionId, m);
+      if (guestMicOn && phase === 'active') connectGuest();
+      if (!guestMicOn) closeGuest();
+      toHost({ type: 'status', message: guestMicOn ? '여객 태블릿 마이크 연결 — 2채널 화자 구분으로 동작합니다.' : '여객 태블릿 마이크 해제 — 데스크 마이크 단일 채널로 동작합니다.' });
+    };
+
     ws.on('message', (data, isBinary) => {
       // 대기(idle) 중에는 오디오를 버림(STT 세션 없음 — 비용 0). 통역 중에만 soniox 로 전달.
       if (isBinary) {
@@ -2347,7 +2470,7 @@ function handleHost(ws) {
       }
       try {
         const m = JSON.parse(data.toString());
-        if (m.type === 'stop') { closed = true; clearTimeout(foreignTimer); clearTimeout(warnTimer); closeSx(); }
+        if (m.type === 'stop') { closed = true; clearTimeout(foreignTimer); clearTimeout(warnTimer); closeSx(); closeGuest(); }
         else if (m.type === 'desk-start') { startConversation(String(m.lang || '').toLowerCase()); } // 호스트 수동 시작(언어 선택)
         else if (m.type === 'desk-reset-now') { endConversation(); } // 호스트 수동 '대기모드로' — 대화 종료·뷰어 터치화면 복귀
         else if (m.type === 'wayfind-show') { // 호스트가 길안내 제안 승인 → 뷰어에 지도 표시
@@ -2367,11 +2490,20 @@ function handleHost(ws) {
       clearTimeout(warnTimer);
       if (deskCtrl.get(sessionId) === ctrl) deskCtrl.delete(sessionId);
       if (wasActive) endConversation(); // 응대 중 호스트 이탈 → 기록 보존 + 뷰어를 터치 화면으로
-      else closeSx();
+      else { closeSx(); closeGuest(); }
     });
 
-    // 뷰어(손님)의 통역 시작/종료/연장 요청을 이 파이프라인으로 전달받기 위한 컨트롤러 등록
-    const ctrl = { start: startConversation, end: endConversation, keepalive: () => { if (phase === 'active') armForeignTimer(); } };
+    // 뷰어(손님)의 통역 시작/종료/연장/여객 마이크 요청을 이 파이프라인으로 전달받기 위한 컨트롤러 등록
+    const ctrl = {
+      start: startConversation,
+      end: endConversation,
+      keepalive: () => { if (phase === 'active') armForeignTimer(); },
+      guestMic,
+      feedGuest: (data) => {
+        if (phase !== 'active' || !guestMicOn) return; // 대기 중 여객 오디오는 버림(비용 0)
+        if (gsxReady && gsx) { try { gsx.send(data); } catch {} } else if (gPending.length < 2000) gPending.push(data);
+      },
+    };
     deskCtrl.set(sessionId, ctrl);
 
     setMeta();

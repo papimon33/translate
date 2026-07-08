@@ -266,6 +266,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [micMuted, setMicMuted] = useState(false); // 발화 일시정지(세션 유지, 마이크만 off)
   const [viewerActive, setViewerActive] = useState(false); // 데스크: 통역(응대) 진행 중인지
   const [deskGuestLang, setDeskGuestLang] = useState(null); // 데스크: 현재 응대 중인 손님 언어
+  const [deskGuestMic, setDeskGuestMic] = useState(false); // 데스크: 여객 태블릿 마이크(2채널) 연결 여부
   const [hostLang, setHostLang] = useState('en'); // 데스크: 호스트 수동 시작용 손님 언어
   const deskAutoRef = useRef(false); // 데스크 자동 캡처 시작 1회 가드
   const [wayfindSug, setWayfindSug] = useState(null); // 데스크: 길안내 제안(호스트 승인 대기)
@@ -437,6 +438,10 @@ export default function TranslateView({ session: initial, onBack }) {
     }
     if (m.type === 'desk-active') { // 통역 시작됨(손님 언어 선택 또는 호스트 수동 시작)
       if (cfg.pipeline === 'desk') { setViewerActive(true); if (m.lang) setDeskGuestLang(m.lang); }
+      return;
+    }
+    if (m.type === 'desk-guest-mic') { // 여객 태블릿 마이크 채널 연결 여부(2채널 화자 구분)
+      if (cfg.pipeline === 'desk') setDeskGuestMic(!!m.on);
       return;
     }
     if (m.type === 'wayfind-suggest') { // 길안내 감지 → 호스트 승인 대기(자동 표시 설정 시 즉시 승인)
@@ -985,7 +990,7 @@ export default function TranslateView({ session: initial, onBack }) {
             viewerActive ? (
               <>
                 <Chip
-                  label={`● 손님 응대 중${deskGuestLang ? ` (${DESK_LANGS.find((l) => l.code === deskGuestLang)?.label || deskGuestLang})` : ''}`}
+                  label={`● 손님 응대 중${deskGuestLang ? ` (${DESK_LANGS.find((l) => l.code === deskGuestLang)?.label || deskGuestLang})` : ''}${deskGuestMic ? ' · 2채널' : ''}`}
                   color="error"
                   variant="filled"
                   sx={{ pointerEvents: 'auto', fontWeight: 800, fontSize: 14, py: 2, px: 1, boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}

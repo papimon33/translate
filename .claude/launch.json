@@ -12,6 +12,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["/Users/jake/Documents/claude/translate/map/_serve.py"],
       "port": 8765
+    },
+    {
+      "name": "t2s-ui-mock",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "/Users/jake/Documents/claude/text2sql/frontend", "run", "dev:mock"],
+      "port": 5173
     }
   ]
 }
