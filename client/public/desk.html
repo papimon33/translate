@@ -471,6 +471,9 @@ async function guestMicStart(){
   let openUntil = 0;
   proc.onaudioprocess = (e) => {
     if (!gm || !ws || ws.readyState !== 1 || !started) return;
+    // 백프레셔: 네트워크가 밀려 소켓 버퍼에 오디오가 쌓이면 이 프레임은 버림 —
+    // 밀린 오디오를 그대로 보내면 이후 모든 인식이 그 시간만큼 늦게 도착한다(지연 누적 방지)
+    if (ws.bufferedAmount > 131072) return;
     const input = e.inputBuffer.getChannelData(0);
     let peak = 0;
     for (let i = 0; i < input.length; i++) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
@@ -574,8 +577,10 @@ $('moreBtn').addEventListener('click', (e) => { e.stopPropagation(); $('langMore
 $('endBtn').addEventListener('click', end);
 $('stage').addEventListener('click', flashEnd);
 // 전체화면이 풀렸으면(ESC·시스템 제스처) 다음 터치에서 자동으로 전체화면 복귀
+// + 여객 마이크 AudioContext 가 제스처 없이 시작돼 suspended 면(호스트 측 시작 케이스) 터치로 재개
 document.addEventListener('click', () => {
   if (entered && !isStandalone() && !document.fullscreenElement && !document.webkitFullscreenElement) goFullscreen();
+  if (gm && gm.ctx && gm.ctx.state === 'suspended') { try { gm.ctx.resume(); } catch {} }
 }, true);
 
 /* ---- 세션 제목(안내데스크명) 표시 ---- */

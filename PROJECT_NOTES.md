@@ -51,13 +51,18 @@
 ## 운영/보안 (SECURITY_GUIDE.md 참고)
 - `FORCE_HTTPS=1` http→https 리다이렉트. 관리자 **2FA(TOTP)**: env `ADMIN_TOTP_SECRET` 우선, 아니면 관리자>시스템·보안에서 설정(data/security.json). 로그인 시 `need2fa` 응답 → Login.jsx 코드 입력. `DATA_KEY` 설정 시 data/*.json **AES-256-GCM 암호화**(평문 하위호환, security_util.js).
 - 관리자 탭: **데스크 통계**(GET /api/admin/desk-stats — deskLog 기반 응대수·언어분포·평균시간(deskLog.startedAt)·일별, 대화 내용 미노출) / **시스템·보안**(GET /api/admin/health — 가동시간·연결수·보안상태·최근 서버/브라우저 오류, POST /api/client-log 수집).
-- **오번역 검사**: 관리자>용어 설정 '검사 실행' → POST /api/admin/terms-suggest (최근 대화 원문·번역 200쌍을 GPT 검수 → 용어 후보 추천 → '추가'로 translationTerms 반영).
+- **오번역 검사**: 관리자>용어 설정 → '최근 전체 검사' 또는 '대상 선택…'(세션·안내데스크 체크) → POST /api/admin/terms-suggest {sessionIds?} (일반 대화 + 데스크 응대 로그 원문·번역 200쌍을 GPT 검수 → 용어 후보 추천 → '추가'로 translationTerms 반영).
+- **관리자 '로그' 탭**: GET /api/admin/logs(데스크 응대 건 메타 + 세션 메타) / logs/desk/:sid/:idx·logs/session/:id (대화 전문). 건당 시각·길이·언어·문장수·누화드랍 표시, 클릭 시 전문(안내원/손님·마이크/시스템 구분) 펼침.
+- 모바일: 세션 화면 옵션바 기본 접힘(<600px), 타이틀바·간격 축소, 하단 버튼 세이프에어리어. 관리자 카드류 borderRadius 3→2.
 - 테스트: `npm test` = smoke + `test/security.test.mjs`(base32/TOTP RFC 벡터/암호화 라운드트립·변조감지/에코 매칭).
 - 데스크톱 설치파일: `desktop/` electron-builder — `npm run dist:win`(NSIS 설치 마법사 exe) / `npm run dist:mac`(dmg). macOS 시스템 오디오는 BlackHole 필요(desktop/README.md).
 - 통역 시작/종료 프로토콜: 뷰어/호스트 `{type:'desk-start', lang}` → 서버 `deskCtrl`(sessionId→start/end) → `startConversation` → 모두에게 `{type:'desk-active', lang}` — **뷰어는 상시 연결이라 호스트가 시작해도 즉시 통역 화면으로 전환**. 종료(무음 deskIdle **기본 30초**·뷰어 ✕ `desk-end`·호스트 '대기모드로' `desk-reset-now`·호스트 이탈) → items 를 deskLog 에 보존 후 `desk-reset` → 뷰어는 터치 화면 복귀(WS 유지). 호스트 수동 시작은 `audio.js deskStart(lang)`.
 - desk sentence 메시지에 **`lang`(발화 원문 언어)** 포함 — 뷰어가 말풍선 좌우(안내원 ko=좌 / 손님=우)를 번역 도착 전에 확정(방향 튐 방지). 화자 라벨(안내원/나)은 표시 안 함(정렬만 유지). 안내원 발화는 번역 도착 전까지 뷰어에서 숨김.
 - 호스트 미준비 상태에서 뷰어가 시작하면 status 안내 토스트 후 터치 화면 복귀.
 - 길안내(wayfind): 통역 중 안내원(ko) 답변에서 시설 감지 → 뷰어 채팅 아래 인라인 지도.
+- 엔진 토큰은 **현재 소켓 + phase active 일 때만 처리**(종료 후 늦게 도착한 토큰이 다음 응대에 새는 잔여 버퍼 문제 수정). 여객 오디오는 **백프레셔 드랍**(클라 ws.bufferedAmount>128KB·서버 gsx>256KB 시 프레임 버림, 연결 전 큐는 최근 ~2초만) — 밀린 오디오를 그대로 보내면 이후 인식이 계속 지연되는 문제 방지.
+- 입력 언어 판정은 **토큰 다수결**(runSoniox·runDesk 공통, `langVotes`) — 한국어 발화의 첫 단어가 영어로 오인돼도 뒤 토큰들이 교정.
+- **동시접속 승계(takeover)**: 같은 세션·같은 소스로 새 호스트 연결이 오면 기존 연결에 `{type:'takeover'}` 후 종료(나중 연결 우선). 클라는 notice 표시. 로그인 자체는 무상태 HMAC 쿠키라 충돌 없음.
 - **2채널 마이크(프로토타입)**: 통역 시작 시 여객 태블릿이 자기 마이크를 상시 캡처해 뷰어 WS 로 스트림(`desk.html guestMicStart`, 근접 게이트 GM_GATE=0.04 미만은 무음 전송) + `{type:'desk-mic',on}` 등록. 서버 `runDesk` 가 **여객 전용 soniox one_way(선택언어→ko, 힌트 고정)** 엔진을 병행 — 채널 자체가 화자 귀속(guest: side='left'/lang=손님언어), 동시 발화도 채널별 독립 인식. 누화 방어: 근접 게이트 + `crossDup`(교차 채널 5초 내 유사 문장=누화 드랍, `echoMatch` 재사용). 여객 마이크 실패/해제 시 기존 단일 채널(two_way)로 자동 폴백. 누화율 측정: `deskLog[].stats={staff,guest,crossDrops}` + 서버 콘솔 `[desk] 채널 통계`. 호스트 응대 칩에 '· 2채널' 표시(`desk-guest-mic`). 뷰어 재접속 시 desk-mic 재등록(소유 소켓 추적으로 구 소켓 close 무시).
 
 ## 표시 규칙

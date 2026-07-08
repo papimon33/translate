@@ -8,6 +8,11 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Checkbox from '@mui/material/Checkbox';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
@@ -58,15 +63,30 @@ export default function TermsConfigPage({ user, embedded }) {
   const setPair = (i, k, v) => { setPairs((arr) => arr.map((p, j) => (j === i ? { ...p, [k]: v } : p))); mark(); };
   const removePair = (i) => { setPairs((arr) => arr.filter((_, j) => j !== i)); mark(); };
 
-  // 오번역 검사: 최근 대화의 원문·번역을 AI 로 검수해 용어 후보 추천(관리자)
+  // 오번역 검사: 대화(일반 세션 + 데스크 응대 로그)의 원문·번역을 AI 로 검수해 용어 후보 추천(관리자)
   const [sugBusy, setSugBusy] = useState(false);
   const [sugResult, setSugResult] = useState(null); // { checked, suggestions: [{source,target,wrong,reason}] }
-  const runSuggest = async () => {
-    setSugBusy(true); setErr('');
-    try { setSugResult(await api.adminTermsSuggest()); }
+  const [pickOpen, setPickOpen] = useState(false); // 검사 대상 선택 다이얼로그
+  const [pickList, setPickList] = useState(null); // [{ id, title, kind, count }]
+  const [selIds, setSelIds] = useState([]);
+  const runSuggest = async (ids) => {
+    setPickOpen(false); setSugBusy(true); setErr('');
+    try { setSugResult(await api.adminTermsSuggest(ids && ids.length ? ids : undefined)); }
     catch (e) { setErr(e.message || '오번역 검사 실패'); }
     finally { setSugBusy(false); }
   };
+  const openPick = async () => {
+    setPickOpen(true);
+    if (pickList) return;
+    try {
+      const d = await api.adminLogs();
+      setPickList([
+        ...(d.desks || []).map((x) => ({ id: x.id, title: x.title, kind: '안내데스크', count: x.logs.reduce((a, e) => a + (e.count || 0), 0) })),
+        ...(d.sessions || []).map((x) => ({ id: x.id, title: x.title, kind: '세션', count: x.count || 0 })),
+      ]);
+    } catch { setPickList([]); }
+  };
+  const togglePick = (id) => setSelIds((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
   const adoptSuggestion = (s) => {
     setPairs((arr) => (arr.some((p) => p.source === s.source) ? arr : [...arr, { source: s.source, target: s.target }]));
     setSugResult((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
@@ -216,12 +236,16 @@ export default function TermsConfigPage({ user, embedded }) {
                     <Box sx={{ flex: 1 }}>
                       <Typography sx={{ fontWeight: 800, fontSize: 15 }}>오번역 검사</Typography>
                       <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>
-                        최근 대화의 원문과 번역을 AI 가 검수해 잘못 번역된 고유명사·시설명을 찾고 용어 후보로 추천합니다.
+                        대화의 원문과 번역을 AI 가 검수해 잘못 번역된 고유명사·시설명을 찾고 용어 후보로 추천합니다.
+                        안내데스크 응대 기록도 포함됩니다.
                       </Typography>
                     </Box>
-                    <Button size="small" variant="outlined" onClick={runSuggest} disabled={sugBusy}>
-                      {sugBusy ? '검사 중…' : '검사 실행'}
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1, flex: 'none' }}>
+                      <Button size="small" onClick={openPick} disabled={sugBusy} sx={{ color: 'text.secondary' }}>대상 선택…</Button>
+                      <Button size="small" variant="outlined" onClick={() => runSuggest()} disabled={sugBusy}>
+                        {sugBusy ? '검사 중…' : '최근 전체 검사'}
+                      </Button>
+                    </Box>
                   </Box>
                   {sugResult && sugResult.suggestions.length === 0 && (
                     <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
@@ -251,6 +275,28 @@ export default function TermsConfigPage({ user, embedded }) {
           )}
         </Box>
       </Box>
+
+      {/* 검사 대상 선택: 특정 세션·안내데스크(응대 로그 포함)만 골라 검사 */}
+      <Dialog open={pickOpen} onClose={() => setPickOpen(false)} PaperProps={{ sx: { width: 440, maxWidth: 440 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>검사 대상 선택</DialogTitle>
+        <DialogContent>
+          {!pickList && <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>목록을 불러오는 중…</Typography>}
+          {pickList && pickList.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>검사할 대화가 없습니다.</Typography>}
+          {pickList && pickList.map((p) => (
+            <Box key={p.id} onClick={() => togglePick(p.id)}
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25, cursor: 'pointer', borderRadius: 1, '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) } }}>
+              <Checkbox size="small" checked={selIds.includes(p.id)} sx={{ p: 0.75 }} />
+              <Typography sx={{ fontSize: 13.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.title}</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 'none' }}>{p.kind} · {p.count}문장</Typography>
+            </Box>
+          ))}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setSelIds([])} disabled={!selIds.length} sx={{ mr: 'auto', color: 'text.secondary' }}>선택 해제</Button>
+          <Button onClick={() => setPickOpen(false)}>취소</Button>
+          <Button variant="contained" onClick={() => runSuggest(selIds)} disabled={!selIds.length || sugBusy}>선택 대상 검사</Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

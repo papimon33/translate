@@ -607,12 +607,48 @@ app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
   res.json(out);
 });
 
+/* ---- 관리자: 세부 로그 열람 — 데스크 응대 로그(건당) + 일반 세션 대화 로그 ---- */
+app.get('/api/admin/logs', requireAdmin, (req, res) => {
+  const desks = sessions.filter((s) => s.pipeline === 'desk').map((s) => ({
+    id: s.id,
+    title: s.title || '안내데스크',
+    logs: (Array.isArray(s.deskLog) ? s.deskLog : []).map((e, i) => ({
+      idx: i,
+      startedAt: e.startedAt || null,
+      endedAt: e.endedAt || null,
+      lang: e.lang || null,
+      count: Array.isArray(e.items) ? e.items.length : 0,
+      stats: e.stats || null,
+    })).reverse(),
+  }));
+  const others = sessions.filter((s) => s.pipeline !== 'desk').map((s) => ({
+    id: s.id, title: s.title || '(제목 없음)', owner: s.owner || null, pipeline: s.pipeline || 'whisper', preset: s.preset || null,
+    updatedAt: s.updatedAt || 0, count: Array.isArray(s.items) ? s.items.length : 0,
+  })).sort((a, b) => b.updatedAt - a.updatedAt);
+  res.json({ desks, sessions: others });
+});
+app.get('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
+  const s = getSession(req.params.sid);
+  if (!s || s.pipeline !== 'desk') return res.status(404).json({ error: 'not found' });
+  const e = (s.deskLog || [])[Number(req.params.idx)];
+  if (!e) return res.status(404).json({ error: 'not found' });
+  res.json({ startedAt: e.startedAt || null, endedAt: e.endedAt || null, lang: e.lang || null, stats: e.stats || null, items: e.items || [] });
+});
+app.get('/api/admin/logs/session/:id', requireAdmin, (req, res) => {
+  const s = getSession(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  res.json({ id: s.id, title: s.title || '', langs: s.langs || [], items: s.items || [] });
+});
+
 /* ---- 관리자: 오번역 검사 — 최근 대화의 원문·번역 쌍을 GPT 로 검수해 용어 후보 추천 ----
    고유명사·시설명·전문용어의 오역/비일관 번역만 찾아 용어 설정(translation_terms) 후보로 반환. */
 app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
   if (!OPENAI_API_KEY) return res.status(400).json({ error: 'OPENAI_API_KEY 미설정' });
+  // sessionIds 지정 시 해당 세션(일반 대화 + 데스크 응대 로그)만 검사, 미지정 시 최근 전체
+  const bq = req.body || {};
+  const wanted = Array.isArray(bq.sessionIds) && bq.sessionIds.length ? new Set(bq.sessionIds.map(String)) : null;
   const pairs = [];
-  const sorted = [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const sorted = [...sessions].filter((s) => !wanted || wanted.has(s.id)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   for (const s of sorted) {
     const items = [
       ...(Array.isArray(s.items) ? s.items : []),
@@ -1806,6 +1842,14 @@ function handleHost(ws) {
   const sessionId = ws._session;
   const side = ws._src === 'system' ? 'left' : 'right'; // 시스템=좌, 마이크=우
   const session = getSession(sessionId);
+  // 동시접속 충돌 방지: 같은 세션·같은 소스로 이미 녹음 중인 연결이 있으면 그쪽을 종료하고 새 연결이 승계.
+  // (같은 계정으로 다른 기기/탭에서 시작하거나, 새로고침 후 좀비 연결이 남은 경우 — 나중 연결 우선)
+  for (const h of [...getRoom(sessionId).hosts]) {
+    if (h !== ws && h._src === ws._src) {
+      try { h.send(JSON.stringify({ type: 'takeover' })); } catch {}
+      try { h.close(); } catch {}
+    }
+  }
   // 폰 PTT 결과를 이 호스트 화면에도 보내기 위해 room.hosts 에 등록 + 활성 신호
   getRoom(sessionId).hosts.add(ws);
   broadcast(sessionId, { type: 'host', active: true });
@@ -1815,7 +1859,8 @@ function handleHost(ws) {
     const r = rooms.get(sessionId);
     if (r) {
       r.hosts.delete(ws);
-      if (side === 'right') { r.hostTalking = false; broadcastPttState(sessionId); }
+      // 승계된 새 연결이 남아 있으면 발화 상태 유지(takeover 시 구 연결 close 가 늦게 도착하는 경우)
+      if (side === 'right' && ![...r.hosts].some((h) => h._src !== 'system')) { r.hostTalking = false; broadcastPttState(sessionId); }
       if (r.hosts.size === 0) broadcast(sessionId, { type: 'host', active: false });
     }
   });
@@ -1975,7 +2020,8 @@ function handleHost(ws) {
     let finalText = '';   // 전사(원문) 확정 누적
     let finalTrans = '';  // Soniox 번역(타깃) 확정 누적
     let lastTrans = '';   // 마지막으로 표시한 번역(폴백용)
-    let curSrc = '';      // 감지된 입력 언어
+    let curSrc = '';      // 감지된 입력 언어(토큰 다수결 — 첫 단어 오인식 교정)
+    let langVotes = {};   // 언어별 토큰 수
     let curSpeaker = '';  // 현재 발화 화자(diarization)
     let lastCommitText = ''; // 직전 확정 텍스트(연속 중복 카드 방지)
     let sawSpeaker = false;  // 엔진이 화자 정보를 한 번이라도 반환했는지(진단용)
@@ -2040,7 +2086,7 @@ function handleHost(ws) {
       const tgt = (finalTrans.trim() || lastTrans).trim();
       const tail = ttsPending;            // 종결부호 없이 남은 마지막 조각
       const hadFinal = !!finalTrans.trim(); // 발화 중 확정 번역이 흘러갔는지
-      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = '';
+      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = ''; langVotes = {};
       // 화자 구분 켰는데 엔진이 화자 정보를 한 번도 안 줬으면 1회 안내(진단)
       if (diar && !sawSpeaker && !noSpkWarned) { noSpkWarned = true; toHost({ type: 'status', message: '화자 구분: 엔진이 화자 정보를 반환하지 않음(번역/엔드포인트와 동시 사용 시 발생 가능)' }); }
       if (!id || !txt) return;
@@ -2099,7 +2145,9 @@ function handleHost(ws) {
           } else nonFinalTrans += t.text;
         } else {
           // 전사(원문) 토큰 (translation_status: none | original | undefined)
-          if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase();
+          // 입력 언어는 첫 토큰이 아니라 '다수결'로 — 한국어 발화의 첫 단어가 영어로 오인돼도 뒤 토큰들이 교정
+          const lg = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
+          if (lg) { langVotes[lg] = (langVotes[lg] || 0) + 1; if (langVotes[lg] >= (langVotes[curSrc] || 0)) curSrc = lg; }
           // 화자 변경 시: 누적된 발화가 있으면 먼저 확정하고 새 화자로 시작
           if (diar && t.speaker != null && t.speaker !== '' && t.is_final && curSpeaker && String(t.speaker) !== String(curSpeaker) && finalText.trim()) commit();
           if (diar && t.speaker != null && t.speaker !== '') curSpeaker = t.speaker;
@@ -2218,8 +2266,9 @@ function handleHost(ws) {
     };
 
     let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommitText = '';
+    let langVotes = {}; // 입력 언어 다수결(첫 단어 오인식 교정)
     const targetKeyFor = (src) => (lockedB && lockedB !== A ? (src === A ? lockedB : A) : A);
-    const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; };
+    const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; langVotes = {}; };
 
     const commit = () => {
       const id = curId, txt = finalText.trim(), src = curSrc;
@@ -2344,7 +2393,8 @@ function handleHost(ws) {
         sxReady = true;
         while (pending.length) { try { next.send(pending.shift()); } catch {} }
       });
-      next.on('message', onSxMessage);
+      // 종료(idle)·소켓 교체 후 늦게 도착한 토큰이 다음 응대 화면·기록에 새지 않도록 가드
+      next.on('message', (raw) => { if (sx === next && phase === 'active') onSxMessage(raw); });
       next.on('error', (e) => toHost({ type: 'status', message: 'Soniox 오류: ' + ((e && e.message) || e) }));
       // 통역 중 연결이 예기치 않게 끊기면 자동 재연결 — 응대 중 멈춤 방지
       next.on('close', () => {
@@ -2368,8 +2418,9 @@ function handleHost(ws) {
         if (t.translation_status === 'translation') {
           if (t.is_final) finalTrans += t.text; else nonFinalTrans += t.text;
         } else {
+          // 입력 언어는 토큰 다수결 — 한국어 발화의 첫 단어가 영어로 오인돼도 뒤 토큰들이 교정
           const lang = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
-          if (lang && !curSrc) curSrc = lang;
+          if (lang) { langVotes[lang] = (langVotes[lang] || 0) + 1; if (langVotes[lang] >= (langVotes[curSrc] || 0)) curSrc = lang; }
           if (t.is_final) finalText += t.text; else nonFinal += t.text;
         }
       }
@@ -2403,9 +2454,12 @@ function handleHost(ws) {
       next.on('open', () => {
         try { next.send(JSON.stringify(guestConfig())); } catch {}
         gsxReady = true;
+        // 연결 대기 중 쌓인 오디오는 최근 2초만 전송(오래된 프레임을 밀어넣으면 이후 내내 지연됨)
+        if (gPending.length > 24) gPending = gPending.slice(-24);
         while (gPending.length) { try { next.send(gPending.shift()); } catch {} }
       });
-      next.on('message', onGuestMsg);
+      // 종료·소켓 교체 후 늦게 도착한 토큰 차단(다음 응대로 새는 문제 방지)
+      next.on('message', (raw) => { if (gsx === next && phase === 'active') onGuestMsg(raw); });
       next.on('error', () => {});
       next.on('close', () => {
         if (gsx === next && !closed && phase === 'active' && guestMicOn) {
@@ -2501,7 +2555,14 @@ function handleHost(ws) {
       guestMic,
       feedGuest: (data) => {
         if (phase !== 'active' || !guestMicOn) return; // 대기 중 여객 오디오는 버림(비용 0)
-        if (gsxReady && gsx) { try { gsx.send(data); } catch {} } else if (gPending.length < 2000) gPending.push(data);
+        if (gsxReady && gsx) {
+          // 백프레셔: 엔진 쪽으로 못 내보내고 쌓이면 오래된 오디오 대신 현재 프레임을 버려 실시간 유지
+          if (gsx.bufferedAmount > 262144) return;
+          try { gsx.send(data); } catch {}
+        } else {
+          gPending.push(data);
+          if (gPending.length > 24) gPending.shift(); // 연결 전 큐는 최근 ~2초만(지연 누적 방지)
+        }
       },
     };
     deskCtrl.set(sessionId, ctrl);

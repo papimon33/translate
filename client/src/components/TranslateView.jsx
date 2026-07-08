@@ -230,7 +230,7 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = Number(localStorage.getItem('kac-desk-idle'));
     return Number.isFinite(v) && v >= 10 ? v : 30; // 초 (기본 30)
   });
-  const [optsOpen, setOptsOpen] = useState(true); // 옵션(컨트롤) 바 접기 — 접으면 번역영역 넓어짐
+  const [optsOpen, setOptsOpen] = useState(() => (typeof window === 'undefined' ? true : !window.matchMedia('(max-width: 599px)').matches)); // 옵션 바 — 모바일은 화면이 좁아 기본 접힘
   const [micSens, setMicSens] = useState(() => {
     const s = localStorage.getItem('kac-mic-sens'); // 미저장 시 Number(null)=0 으로 오인되지 않게 원문 확인
     const v = s == null ? NaN : Number(s);
@@ -428,6 +428,12 @@ export default function TranslateView({ session: initial, onBack }) {
       setTimeout(() => setNotice(''), 6000);
       return;
     }
+    if (m.type === 'takeover') { // 같은 세션을 다른 기기/탭에서 시작 → 이 연결은 종료됨
+      stop();
+      setNotice('다른 기기 또는 탭에서 이 세션의 번역을 시작해 이 연결을 종료했습니다.');
+      setTimeout(() => setNotice(''), 8000);
+      return;
+    }
     if (m.type === 'desk-reset') { // 데스크: 대화 종료 → 화면 초기화(다음 손님), 대기 상태로
       setMessages([]);
       setPartials({ left: '', right: '' });
@@ -573,14 +579,14 @@ export default function TranslateView({ session: initial, onBack }) {
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* 타이틀 바 */}
-      <Box sx={{ px: { xs: 1.5, sm: 3 }, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      {/* 타이틀 바 — 모바일은 여백·간격 축소 */}
+      <Box sx={{ px: { xs: 1.25, sm: 3 }, pt: { xs: 1.25, sm: 2 }, pb: { xs: 1, sm: 1.5 }, display: 'flex', alignItems: 'center', gap: { xs: 0.75, sm: 1.5 } }}>
         <IconButton onClick={onBack} sx={{ width: 38, height: 38, borderRadius: '10px', border: 1, borderColor: 'divider', color: 'text.secondary' }}>
           <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" sx={{ width: 20, height: 20 }}><path d="M15 6l-6 6 6 6" /></Box>
         </IconButton>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: { xs: 16, sm: 18 }, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
               {sessTitle}
             </Typography>
             {cfg.pipeline !== 'desk' && (
@@ -657,7 +663,7 @@ export default function TranslateView({ session: initial, onBack }) {
       <Box sx={{ px: { xs: 1.5, sm: 3 }, pb: optsOpen ? 1.5 : 0, position: 'relative' }}>
         <Collapse in={optsOpen}>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015), overflow: 'hidden' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', px: 1.5, py: 1, pr: 7 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1.25, sm: 2 }, flexWrap: 'wrap', px: { xs: 1, sm: 1.5 }, py: 1, pr: { xs: 5, sm: 7 } }}>
           {cfg.pipeline !== 'desk' && cfg.pipeline !== 'soniox' && (
             <Field label="오디오 소스">
               <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
@@ -968,9 +974,10 @@ export default function TranslateView({ session: initial, onBack }) {
         {/* 하단 그라데이션 + FAB */}
         <Box
           sx={{
-            // 모바일: 화면 고정(스크롤해도 위치 유지) / 데스크톱: 채팅영역 하단
-            position: { xs: 'fixed', sm: 'absolute' }, left: 0, right: 0, bottom: 0, height: 130, zIndex: 1100,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, pointerEvents: 'none',
+            // 모바일: 화면 고정(스크롤해도 위치 유지) + 홈바 세이프에어리어 / 데스크톱: 채팅영역 하단
+            position: { xs: 'fixed', sm: 'absolute' }, left: 0, right: 0, bottom: 0, height: { xs: 118, sm: 130 }, zIndex: 1100,
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: { xs: 1, sm: 1.5 }, flexWrap: 'wrap', pointerEvents: 'none',
             background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
           }}
         >

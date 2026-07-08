@@ -114,11 +114,19 @@ export const api = {
     }),
   adminDeskStats: () => fetch('/api/admin/desk-stats').then(json),
   adminHealth: () => fetch('/api/admin/health').then(json),
-  adminTermsSuggest: () =>
-    fetch('/api/admin/terms-suggest', { method: 'POST' }).then(async (r) => {
+  adminTermsSuggest: (sessionIds) =>
+    fetch('/api/admin/terms-suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sessionIds && sessionIds.length ? { sessionIds } : {}),
+    }).then(async (r) => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '검사 실패');
       return r.json();
     }),
+  // 관리자: 세부 로그(데스크 응대 건·일반 세션 대화)
+  adminLogs: () => fetch('/api/admin/logs').then(json),
+  adminDeskLog: (sid, idx) => fetch(`/api/admin/logs/desk/${encodeURIComponent(sid)}/${idx}`).then(json),
+  adminSessionLog: (id) => fetch('/api/admin/logs/session/' + encodeURIComponent(id)).then(json),
   adminResetPassword: (id, password) =>
     fetch('/api/admin/users/' + encodeURIComponent(id) + '/password', {
       method: 'POST',
