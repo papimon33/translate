@@ -10,13 +10,13 @@ import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from '
 import { b32encode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from './security_util.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { scoreAll } from './eval/score_core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = Number(process.env.PORT || 3000);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // 모델은 코드 고정(환경변수로 안 받음). 바꾸려면 여기서 직접 수정.
-const TRANSCRIBE_MODEL = 'gpt-realtime-whisper';
 const TRANSLATE_MODEL = 'gpt-realtime-translate';
 const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
@@ -356,26 +356,151 @@ async function flushUsage() {
   }
 }
 
-// 고유명사/번역설정 기본 시드(KAC 항공 도메인) — 저장된 설정이 없을 때만 1회 주입
-const DEFAULT_TERMS = ['ICAO','IATA','FAA','KAC','IIAC','FIDS','CIQ','BHS','NOTAM','PBB','VDGS','FOD','A-CDM','MRO','ILS','AWOS','SCADA','AODB','EIRP','FIS','ASDE','BMS','AVSM'];
-const DEFAULT_TRANSLATION_TERMS = [
-  { source: 'apron', target: '주기장' }, { source: 'ramp', target: '램프' }, { source: 'slot', target: '슬롯' },
-  { source: 'terminal', target: '터미널' }, { source: 'gate', target: '탑승구' }, { source: 'marshalling', target: '항공기 유도' },
-  { source: 'towing', target: '토잉' }, { source: 'towing car', target: '토잉카' }, { source: 'pushback', target: '푸시백' },
-  { source: 'hub', target: '허브 공항' }, { source: 'curbside', target: '커브사이드' }, { source: 'landside', target: '랜드사이드' },
-  { source: 'airside', target: '에어사이드' }, { source: 'carousel', target: '수하물 수취대' }, { source: 'holdover time', target: '방빙유지시간' },
-  { source: 'de-icing', target: '제빙 작업' }, { source: 'taxing', target: '지상 활주' }, { source: 'taxiway', target: '유도로' },
-  { source: 'runway', target: '활주로' }, { source: 'stand', target: '주기장 번호' }, { source: 'screening', target: '보안검색' },
-  { source: 'pat-down', target: '촉수검색' }, { source: 'diversion', target: '회항' }, { source: 'check-in', target: '체크인' },
-  { source: 'concourse', target: '탑승동' }, { source: 'turnaround', target: '턴어라운드' }, { source: 'turnaround time', target: '지상조업 시간' },
-  { source: 'baggage claim', target: '수하물 수취대' }, { source: 'customs', target: '세관' }, { source: 'immigration', target: '출입국심사' },
-  { source: 'quarantine', target: '검역' },
+/* ---- 고유명사/번역설정 스키마 ----
+   terms: { airline: string[], aviation: string[], etc: string[] } — 카테고리별 인식(STT) 힌트.
+   translationTerms: [{ ko, en?, ja?, zh?, es?, fr?, pt?, ar? }] — 한 행 = 한 용어의 다국어 표기.
+     세션 연결 시 활성 언어쌍의 표기만 골라 Soniox context 로 조립(비면 en → ko 폴백).
+   구형(terms 배열 / {source,target} 쌍)은 로드·저장 시 자동 마이그레이션. */
+const TERM_LANGS = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'pt', 'ar'];
+const TERM_CATS = ['airline', 'aviation', 'etc'];
+
+// 기본 시드(KAC 항공 도메인) — 저장된 설정이 없을 때만 1회 주입
+const DEFAULT_TERMS_AVIATION = ['ICAO','IATA','FAA','KAC','IIAC','FIDS','CIQ','BHS','NOTAM','PBB','VDGS','FOD','A-CDM','MRO','ILS','AWOS','SCADA','AODB','EIRP','FIS','ASDE','BMS','AVSM'];
+// 취항 항공사 다국어 표기 — es/fr/pt/ar 는 통상 영문 명칭을 쓰므로 비워 두면 en 으로 폴백된다.
+// alt = 현지에서 통용되는 축약/구어 표기(언어별 배열). 인식(terms) 힌트로 쓰이고,
+//        "축약형 → 한국어 정식명" 단방향 번역으로도 강제된다(예: 国航 → 중국국제항공).
+// (파라타/섬에어 등 신생 항공사의 외국어 표기 일부는 미확정 — 원어민 검수 권장)
+const DEFAULT_AIRLINES = [
+  { ko: '대한항공', en: 'Korean Air', ja: '大韓航空', zh: '大韩航空' },
+  { ko: '아시아나항공', en: 'Asiana Airlines', ja: 'アシアナ航空', zh: '韩亚航空' },
+  { ko: '제주항공', en: 'Jeju Air', ja: 'チェジュ航空', zh: '济州航空' },
+  { ko: '진에어', en: 'Jin Air', ja: 'ジンエアー', zh: '真航空' },
+  { ko: '티웨이항공', en: "T'way Air", ja: 'ティーウェイ航空', zh: '德威航空' },
+  { ko: '에어부산', en: 'Air Busan', ja: 'エアプサン', zh: '釜山航空' },
+  { ko: '이스타항공', en: 'Eastar Jet', ja: 'イースター航空', zh: '易斯达航空' },
+  { ko: '에어서울', en: 'Air Seoul', ja: 'エアソウル', zh: '首尔航空' },
+  { ko: '에어로케이', en: 'Aero K', ja: 'エアロK' },
+  { ko: '파라타항공', en: 'Parata Air', ja: 'パラタ航空', zh: '帕拉塔航空' }, // ja/zh 는 잠정 음역 — 검수 필요
+  { ko: '섬에어' },
+  { ko: '일본항공', en: 'Japan Airlines', ja: '日本航空', zh: '日本航空', alt: { ja: ['日航', 'JAL'] } },
+  { ko: '전일본공수', en: 'All Nippon Airways', ja: '全日本空輸', zh: '全日空', alt: { ja: ['全日空', 'ANA'] } },
+  { ko: '피치항공', en: 'Peach Aviation', ja: 'ピーチ・アビエーション', zh: '乐桃航空', alt: { ja: ['ピーチ'] } },
+  { ko: '중국국제항공', en: 'Air China', ja: '中国国際航空', zh: '中国国际航空', alt: { zh: ['国航'] } },
+  { ko: '중국남방항공', en: 'China Southern Airlines', ja: '中国南方航空', zh: '中国南方航空', alt: { zh: ['南航'] } },
+  { ko: '중국동방항공', en: 'China Eastern Airlines', ja: '中国東方航空', zh: '中国东方航空', alt: { zh: ['东航'] } },
+  { ko: '상하이항공', en: 'Shanghai Airlines', ja: '上海航空', zh: '上海航空', alt: { zh: ['上航'] } },
+  { ko: '길상항공', en: 'Juneyao Air', ja: '吉祥航空', zh: '吉祥航空', alt: { zh: ['吉祥'] } },
+  { ko: '춘추항공', en: 'Spring Airlines', ja: '春秋航空', zh: '春秋航空', alt: { zh: ['春秋'] } },
+  { ko: '사천항공', en: 'Sichuan Airlines', ja: '四川航空', zh: '四川航空', alt: { zh: ['川航'] } },
+  { ko: '하문항공', en: 'XiamenAir', ja: '厦門航空', zh: '厦门航空', alt: { zh: ['厦航'] } },
+  { ko: '중화항공', en: 'China Airlines', ja: 'チャイナエアライン', zh: '中华航空' },
+  { ko: '에바항공', en: 'EVA Air', ja: 'エバー航空', zh: '长荣航空' },
+  { ko: '타이거에어 타이완', en: 'Tigerair Taiwan', ja: 'タイガーエア台湾', zh: '台湾虎航' },
+  { ko: '캐세이퍼시픽항공', en: 'Cathay Pacific', ja: 'キャセイパシフィック航空', zh: '国泰航空' },
+  { ko: '홍콩익스프레스', en: 'HK Express', ja: '香港エクスプレス', zh: '香港快运航空' },
+  { ko: '마카오항공', en: 'Air Macau', ja: 'マカオ航空', zh: '澳门航空' },
+  { ko: '베트남항공', en: 'Vietnam Airlines', ja: 'ベトナム航空', zh: '越南航空' },
+  { ko: '비엣젯항공', en: 'VietJet Air', ja: 'ベトジェットエア', zh: '越捷航空' },
+  { ko: '필리핀항공', en: 'Philippine Airlines', ja: 'フィリピン航空', zh: '菲律宾航空' },
+  { ko: '세부퍼시픽', en: 'Cebu Pacific', ja: 'セブパシフィック航空', zh: '宿务太平洋航空' },
+  { ko: '타이에어아시아엑스', en: 'Thai AirAsia X', ja: 'タイ・エアアジアX' },
+  { ko: '몽골항공', en: 'MIAT Mongolian Airlines', ja: 'MIATモンゴル航空', zh: '蒙古航空' },
+  { ko: '미아트 몽골항공', en: 'MIAT Mongolian Airlines', ja: 'MIATモンゴル航空', zh: '蒙古航空' },
+  { ko: '싱가포르항공', en: 'Singapore Airlines', ja: 'シンガポール航空', zh: '新加坡航空' },
 ];
+const DEFAULT_TRANSLATION_TERMS = [
+  { ko: '주기장', en: 'apron' }, { ko: '램프', en: 'ramp' }, { ko: '슬롯', en: 'slot' },
+  { ko: '터미널', en: 'terminal' }, { ko: '탑승구', en: 'gate' }, { ko: '항공기 유도', en: 'marshalling' },
+  { ko: '토잉', en: 'towing' }, { ko: '토잉카', en: 'towing car' }, { ko: '푸시백', en: 'pushback' },
+  { ko: '허브 공항', en: 'hub' }, { ko: '커브사이드', en: 'curbside' }, { ko: '랜드사이드', en: 'landside' },
+  { ko: '에어사이드', en: 'airside' }, { ko: '수하물 수취대', en: 'baggage claim' }, { ko: '방빙유지시간', en: 'holdover time' },
+  { ko: '제빙 작업', en: 'de-icing' }, { ko: '지상 활주', en: 'taxing' }, { ko: '유도로', en: 'taxiway' },
+  { ko: '활주로', en: 'runway' }, { ko: '주기장 번호', en: 'stand' }, { ko: '보안검색', en: 'screening' },
+  { ko: '촉수검색', en: 'pat-down' }, { ko: '회항', en: 'diversion' }, { ko: '체크인', en: 'check-in' },
+  { ko: '탑승동', en: 'concourse' }, { ko: '턴어라운드', en: 'turnaround' }, { ko: '지상조업 시간', en: 'turnaround time' },
+  { ko: '세관', en: 'customs' }, { ko: '출입국심사', en: 'immigration' }, { ko: '검역', en: 'quarantine' },
+];
+
+// 구형/임의 입력을 새 스키마로 정규화(로드·PUT·업로드 공용)
+function normalizeTermsConfig(b) {
+  const clean = (v, n = 80) => String(v == null ? '' : v).trim().slice(0, n);
+  const terms = { airline: [], aviation: [], etc: [] };
+  if (Array.isArray(b.terms)) {
+    // 구형: 평면 배열 → 기본 항공용어는 aviation, 나머지는 etc 로 분류
+    for (const t of b.terms) {
+      const v = clean(t);
+      if (v) (DEFAULT_TERMS_AVIATION.includes(v) ? terms.aviation : terms.etc).push(v);
+    }
+  } else if (b.terms && typeof b.terms === 'object') {
+    for (const c of TERM_CATS) if (Array.isArray(b.terms[c])) terms[c] = b.terms[c].map((t) => clean(t)).filter(Boolean);
+  }
+  for (const c of TERM_CATS) terms[c] = [...new Set(terms[c])].slice(0, 1000);
+  const rows = [];
+  for (const r of Array.isArray(b.translationTerms) ? b.translationTerms : []) {
+    if (!r || typeof r !== 'object') continue;
+    let row = {};
+    if (r.source != null || r.target != null) {
+      // 구형 {source(외국어), target(한국어)} → {ko, en}
+      if (clean(r.target)) row.ko = clean(r.target);
+      if (clean(r.source)) row.en = clean(r.source);
+    } else {
+      for (const lg of TERM_LANGS) { const v = clean(r[lg]); if (v) row[lg] = v; }
+      // alt = 언어별 축약/구어 표기 배열(인식 힌트 + 축약→한국어 단방향 번역)
+      if (r.alt && typeof r.alt === 'object') {
+        const alt = {};
+        for (const lg of TERM_LANGS) {
+          if (!Array.isArray(r.alt[lg])) continue;
+          const arr = [...new Set(r.alt[lg].map((x) => clean(x, 40)).filter(Boolean))];
+          if (arr.length) alt[lg] = arr;
+        }
+        if (Object.keys(alt).length) row.alt = alt;
+      }
+    }
+    if (row.ko) rows.push(row); // ko 표기는 필수(행의 키 역할)
+    if (rows.length >= 2000) break;
+  }
+  return { terms, translationTerms: rows };
+}
+// 항공사 축약형(alt) 백필: 구버전에서 저장돼 alt 가 없는 항공사 행에 시드의 alt 를 1회 병합.
+// altSeeded 플래그로 한 번만 실행 → 이후 사용자가 지운 alt 를 되살리지 않는다.
+function backfillAirlineAlt() {
+  const altMap = new Map(DEFAULT_AIRLINES.filter((a) => a.alt).map((a) => [a.ko, a.alt]));
+  let changed = false;
+  for (const row of termsConfig.translationTerms || []) {
+    if (row && row.ko && !row.alt && altMap.has(row.ko)) { row.alt = JSON.parse(JSON.stringify(altMap.get(row.ko))); changed = true; }
+  }
+  // 파라타 등 이후에 채운 정식 표기도 비어 있으면 보완
+  const canon = new Map(DEFAULT_AIRLINES.map((a) => [a.ko, a]));
+  for (const row of termsConfig.translationTerms || []) {
+    const seed = row && row.ko && canon.get(row.ko);
+    if (!seed) continue;
+    for (const lg of ['ja', 'zh']) if (!row[lg] && seed[lg]) { row[lg] = seed[lg]; changed = true; }
+  }
+  return changed;
+}
 
 await loadStore();
 if (!termsConfig.updatedAt) {
-  termsConfig = { terms: DEFAULT_TERMS.slice(), translationTerms: DEFAULT_TRANSLATION_TERMS.slice(), updatedAt: Date.now() };
+  termsConfig = {
+    terms: { airline: DEFAULT_AIRLINES.map((a) => a.ko), aviation: DEFAULT_TERMS_AVIATION.slice(), etc: [] },
+    translationTerms: [...DEFAULT_AIRLINES.map((a) => ({ ...a })), ...DEFAULT_TRANSLATION_TERMS.map((r) => ({ ...r }))],
+    updatedAt: Date.now(),
+  };
   try { await persistTermsConfig(); console.log('[terms] 기본 고유명사/번역 설정 시드 저장'); } catch (e) { console.error('[terms] 시드 저장 실패', e); }
+} else if (Array.isArray(termsConfig.terms) || (termsConfig.translationTerms || []).some((r) => r && (r.source != null || r.target != null))) {
+  // 구형 저장분 자동 마이그레이션(1회) — 항공사 시드도 함께 병합
+  const mig = normalizeTermsConfig(termsConfig);
+  const haveKo = new Set(mig.translationTerms.map((r) => r.ko));
+  for (const a of DEFAULT_AIRLINES) if (!haveKo.has(a.ko)) mig.translationTerms.push({ ...a });
+  mig.terms.airline = [...new Set([...mig.terms.airline, ...DEFAULT_AIRLINES.map((a) => a.ko)])];
+  termsConfig = { ...mig, updatedAt: Date.now() };
+  try { await persistTermsConfig(); console.log('[terms] 구형 설정 → 다국어 스키마 마이그레이션 완료'); } catch (e) { console.error('[terms] 마이그레이션 저장 실패', e); }
+}
+// 항공사 축약형(alt) 1회 백필 — 스키마는 최신이지만 alt 가 없던 기존 저장분 보완
+if (!termsConfig.altSeeded) {
+  const changed = backfillAirlineAlt();
+  termsConfig.altSeeded = true;
+  if (changed || termsConfig.updatedAt) { termsConfig.updatedAt = Date.now(); try { await persistTermsConfig(); console.log('[terms] 항공사 축약형(alt) 백필 완료'); } catch (e) { console.error('[terms] alt 백필 저장 실패', e); } }
 }
 
 /* ---- AI 요약 저장 ---- */
@@ -421,17 +546,54 @@ async function persistTermsConfig() {
   }
 }
 // Soniox 세션 context: terms(고유명사) + translation_terms(번역 쌍). 비어 있으면 null.
-function buildSonioxContext() {
-  const terms = (termsConfig.terms || []).map((t) => String(t || '').trim()).filter(Boolean);
-  const tt = (termsConfig.translationTerms || [])
-    .filter((p) => p && p.source && p.target)
-    .map((p) => ({ source: String(p.source).trim(), target: String(p.target).trim() }))
-    .filter((p) => p.source && p.target);
-  // 번역쌍의 source 단어도 전사 인식 향상 위해 terms에 합침(중복 제거)
-  const allTerms = [...new Set([...terms, ...tt.map((p) => p.source)])];
+// langs = 이 세션에서 실제 쓰이는 언어들(예: ['ko','ja']). 활성 언어의 표기·번역쌍만 조립해
+// 전체 한도(8,000토큰 ≈ 10,000자)를 넘지 않게 한다. 표기가 비면 en → ko 순 폴백
+// (라틴계·아랍어권에서 항공사 등 고유명사는 통상 영문 명칭 사용).
+const termLangValue = (row, lg) => String(row[lg] || (lg !== 'en' && row.en) || row.ko || '').trim();
+function buildSonioxContext(langs) {
+  const L = [...new Set((langs || []).filter((c) => TERM_LANGS.includes(c)))];
+  if (!L.length) L.push('ko', 'en');
+  const t = termsConfig.terms || {};
+  const catTerms = TERM_CATS.flatMap((c) => (Array.isArray(t[c]) ? t[c] : []));
+  const terms = new Set(catTerms.map((x) => String(x || '').trim()).filter(Boolean));
+  const pairs = [];
+  const seen = new Set();
+  for (const row of termsConfig.translationTerms || []) {
+    if (!row || !row.ko) continue;
+    for (const lg of L) { const v = termLangValue(row, lg); if (v) terms.add(v); } // 활성 언어 표기 → 인식 힌트
+    // 축약/구어 표기(alt): 활성 언어 것만 → 인식 힌트 + (축약형 → 한국어 정식명) 단방향 번역 강제.
+    // 정방향(한국어→외국어)은 정식명으로 유지되도록 alt→ko 한 방향만 추가(충돌 방지).
+    if (row.alt && typeof row.alt === 'object') {
+      for (const lg of L) {
+        if (lg === 'ko') continue;
+        for (const a of (Array.isArray(row.alt[lg]) ? row.alt[lg] : [])) {
+          const av = String(a || '').trim();
+          if (!av || av === row.ko) continue;
+          terms.add(av);
+          if (L.includes('ko') && !seen.has(av + ' ' + row.ko)) { seen.add(av + ' ' + row.ko); pairs.push({ source: av, target: row.ko }); }
+        }
+      }
+    }
+    for (const a of L) for (const b of L) {
+      if (a === b) continue;
+      const s = termLangValue(row, a), tgt = termLangValue(row, b);
+      if (!s || !tgt || s === tgt) continue;
+      const k = s + '\u0000' + tgt;
+      if (!seen.has(k)) { seen.add(k); pairs.push({ source: s, target: tgt }); }
+    }
+  }
   const ctx = {};
-  if (allTerms.length) ctx.terms = allTerms;
-  if (tt.length) ctx.translation_terms = tt;
+  if (terms.size) ctx.terms = [...terms];
+  if (pairs.length) ctx.translation_terms = pairs;
+  if (!Object.keys(ctx).length) return null;
+  // 한도 방어: 초과 시 번역쌍부터, 다음 인식 힌트를 뒤에서부터 잘라낸다(전부 잘리면 경고만)
+  let guard = 0;
+  while (JSON.stringify(ctx).length > 9500 && guard++ < 500) {
+    if (ctx.translation_terms && ctx.translation_terms.length) { ctx.translation_terms.pop(); if (!ctx.translation_terms.length) delete ctx.translation_terms; }
+    else if (ctx.terms && ctx.terms.length) { ctx.terms.pop(); if (!ctx.terms.length) delete ctx.terms; }
+    else break;
+  }
+  if (guard > 0) console.warn(`[terms] Soniox context 한도 초과 — ${guard}개 항목 잘림(langs=${L.join(',')})`);
   return Object.keys(ctx).length ? ctx : null;
 }
 
@@ -683,8 +845,9 @@ app.get('/api/admin/logs/session/:id', requireAdmin, (req, res) => {
   res.json({ id: s.id, title: s.title || '', langs: s.langs || [], items: s.items || [] });
 });
 
-/* ---- 관리자: 오번역 검사 — 최근 대화의 원문·번역 쌍을 GPT 로 검수해 용어 후보 추천 ----
-   고유명사·시설명·전문용어의 오역/비일관 번역만 찾아 용어 설정(translation_terms) 후보로 반환. */
+/* ---- 관리자: 오탈자·오번역 검사 — 최근 대화의 원문·번역 쌍을 GPT 로 단어 단위 대조 검수 ----
+   문장 전체가 아니라 개별 단어 단위로 오탈자(맞춤법·깨진 표기)·잘못 번역된 고유명사/시설명/전문용어를
+   찾아 용어 설정(translation_terms) 후보로 반환. */
 app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
   if (!OPENAI_API_KEY) return res.status(400).json({ error: 'OPENAI_API_KEY 미설정' });
   // sessionIds 지정 시 해당 세션(일반 대화 + 데스크 응대 로그)만 검사, 미지정 시 최근 전체
@@ -707,12 +870,16 @@ app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
     if (pairs.length >= 200) break;
   }
   if (pairs.length < 3) return res.json({ checked: pairs.length, suggestions: [] });
-  const existing = (termsConfig.translationTerms || []).map((t) => `${t.source}→${t.target}`).join(', ');
+  const existing = (termsConfig.translationTerms || [])
+    .map((row) => TERM_LANGS.filter((lg) => row[lg]).map((lg) => row[lg]).join('/'))
+    .filter(Boolean).join(', ');
   const sys =
-    '너는 공항 안내 통역 품질 검수자다. 아래 "원문 => 기계번역" 쌍 목록에서 잘못 번역되었거나 쌍마다 다르게 번역된 고유명사·시설명·전문용어만 찾아라. ' +
-    '일반 문장의 어색함은 무시한다. 반드시 JSON 하나만 출력한다: ' +
-    '{"suggestions":[{"source":"원문 표기","target":"권장 번역","wrong":"현재 잘못된 번역","reason":"짧은 이유"}]} ' +
-    '확실한 것만 최대 12개. 이미 등록된 용어는 제외: ' + (existing || '없음');
+    '너는 공항 안내 통역 품질 검수자다. 아래 "원문 => 기계번역" 쌍 목록을 문장 전체가 아니라 단어 단위로 대조하여, 개별 단어의 오류만 찾아라. ' +
+    '검출 대상은 두 가지다: (1) 오탈자 — 맞춤법 오류·깨진 표기·잘못된 글자가 섞인 단어, (2) 잘못 번역된 단어 — 고유명사·시설명·전문용어가 원문과 다르게 옮겨졌거나 대화마다 다르게 번역된 경우. ' +
+    '각 오류 항목은 반드시 정확히 하나의 단어(또는 「제1여객터미널」처럼 한 덩어리로 취급되는 용어) 여야 한다. 문장 전체의 어색함·문체·어순·의역 여부는 무시한다. ' +
+    '반드시 JSON 하나만 출력한다: ' +
+    '{"suggestions":[{"source":"원문의 해당 단어","target":"올바른 단어","wrong":"현재 잘못된 단어","reason":"짧은 이유"}]} ' +
+    'source·target·wrong 은 각각 문장이 아니라 단어(또는 한 덩어리 용어) 하나여야 한다. 확실한 것만 최대 12개. 이미 등록된 용어는 제외: ' + (existing || '없음');
   try {
     const body = {
       model: REFINE_MODEL,
@@ -923,22 +1090,44 @@ app.get('/api/admin/usage', requireAdmin, (req, res) => {
 
 // 고유명사/번역 설정: 열람(로그인 누구나) + 수정(관리자만). Soniox context로 주입됨.
 app.get('/api/terms-config', requireAuth, (req, res) => {
-  res.json({ terms: termsConfig.terms || [], translationTerms: termsConfig.translationTerms || [], updatedAt: termsConfig.updatedAt || 0 });
+  res.json({ terms: termsConfig.terms || { airline: [], aviation: [], etc: [] }, translationTerms: termsConfig.translationTerms || [], updatedAt: termsConfig.updatedAt || 0 });
 });
 app.put('/api/terms-config', requireAdmin, async (req, res) => {
-  const b = req.body || {};
-  const terms = Array.isArray(b.terms)
-    ? [...new Set(b.terms.map((t) => String(t || '').trim()).filter(Boolean))].slice(0, 1000)
-    : [];
-  const translationTerms = Array.isArray(b.translationTerms)
-    ? b.translationTerms
-        .map((p) => ({ source: String((p && p.source) || '').trim(), target: String((p && p.target) || '').trim() }))
-        .filter((p) => p.source && p.target)
-        .slice(0, 1000)
-    : [];
-  termsConfig = { terms, translationTerms, updatedAt: Date.now() };
+  // 새 스키마(카테고리 terms + 다국어 translationTerms)와 구형(JSON 업로드 포함) 모두 정규화 수용
+  termsConfig = { ...normalizeTermsConfig(req.body || {}), updatedAt: Date.now() };
   try { await persistTermsConfig(); } catch (e) { console.error('[terms] 저장 실패', e); }
   res.json(termsConfig);
+});
+
+/* ---- 평가(eval): 가이드 러너용 정답셋 제공 + 채점 ----
+   가이드 러너(/eval.html)가 낭독 스크립트를 받아 진행하고, 수집한 records 를 채점 요청한다. */
+let evalDatasetCache = null;
+function loadEvalDataset() {
+  if (evalDatasetCache) return evalDatasetCache;
+  try { evalDatasetCache = JSON.parse(fs.readFileSync(path.join(__dirname, 'eval', 'dataset.json'), 'utf8')); }
+  catch (e) { logErr('eval-dataset', e); evalDatasetCache = null; }
+  return evalDatasetCache;
+}
+app.get('/api/eval/dataset', requireAdmin, (req, res) => {
+  const d = loadEvalDataset();
+  if (!d) return res.status(404).json({ error: '정답셋(eval/dataset.json)을 찾을 수 없습니다.' });
+  res.json(d);
+});
+app.post('/api/eval/score', requireAdmin, async (req, res) => {
+  const dataset = loadEvalDataset();
+  if (!dataset) return res.status(404).json({ error: '정답셋을 찾을 수 없습니다.' });
+  const b = req.body || {};
+  const records = Array.isArray(b.records) ? b.records : [];
+  if (!records.length) return res.status(400).json({ error: 'records 가 비어 있습니다.' });
+  const dry = b.dry === true || !OPENAI_API_KEY;
+  const model = /^gpt-/.test(String(b.model || '')) ? b.model : 'gpt-5-mini';
+  try {
+    const report = await scoreAll(dataset, records.slice(0, 500), { dry, apiKey: OPENAI_API_KEY, model, concurrency: 4 });
+    res.json({ dry, model: dry ? null : model, report });
+  } catch (e) {
+    logErr('eval-score', e);
+    res.status(500).json({ error: '채점 실패: ' + (e.message || e) });
+  }
 });
 
 /* ================================================================== */
@@ -1112,10 +1301,10 @@ app.get('/api/sessions', requireAuth, (req, res) => {
 app.post('/api/sessions', requireAuth, (req, res) => {
   const now = Date.now();
   const b = req.body || {};
-  const pipeline = ['translate', 'deepgram', 'soniox', 'desk'].includes(b.pipeline) ? b.pipeline : 'whisper';
-  // whisper 는 항상 한·영·일·중 전부 번역. translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장).
+  const pipeline = ['translate', 'deepgram', 'soniox', 'desk'].includes(b.pipeline) ? b.pipeline : 'soniox'; // whisper(구) 지원 종료 — 기본 soniox
+  // translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장). soniox·deepgram 다국어.
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
-  const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice()); // whisper·deepgram 다국어
+  const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice());
   // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
   const preset = ['live', 'oneway', 'twoway', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
   // 데스크 안내: 출발 안내데스크 층/방향(길안내 출발점)
@@ -1816,6 +2005,7 @@ function startTalkPipeline(sessionId, side) {
     enable_language_identification: true, enable_endpoint_detection: true,
     endpoint_sensitivity: cfg.sens || 0, max_endpoint_delay_ms: cfg.maxDelay || 2000, endpoint_latency_adjustment_level: cfg.latency || 0,
     language_hints: [a, b], translation: { type: 'two_way', language_a: a, language_b: b },
+    ...((() => { const c = buildSonioxContext([a, b]); return c ? { context: c } : {}; })()), // 고유명사/번역 설정(활성 쌍)
   };
   const sx = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
   let ready = false; const pending = [];
@@ -2061,7 +2251,8 @@ function handleHost(ws) {
   else if (pipeline === 'deepgram') runDeepgram();
   else if (pipeline === 'soniox') runSoniox();
   else if (pipeline === 'desk') runDesk();
-  else runWhisper();
+  // whisper(구 다국어 번역) 파이프라인은 지원 종료 — 기존 세션 기록은 열람만 가능
+  else toHost({ type: 'status', message: '이 세션의 번역 모드(다국어 번역·구)는 지원이 종료되었습니다. 새 세션을 만들어 이용해 주세요.' });
 
   /* ---------- Soniox stt-rt-v5 (전사) -> gpt 번역 [테스트] ---------- */
   function runSoniox() {
@@ -2105,7 +2296,8 @@ function handleHost(ws) {
       translation: sxMode === 'two'
         ? { type: 'two_way', language_a: sxA, language_b: sxB }
         : { type: 'one_way', target_language: sxTarget },
-      ...(buildSonioxContext() ? { context: buildSonioxContext() } : {}), // 고유명사/번역 설정 주입
+      // 고유명사/번역 설정 주입 — 이 세션에서 쓰이는 언어의 표기·번역쌍만 조립
+      ...((() => { const c = buildSonioxContext(sxMode === 'two' ? [sxA, sxB] : [sxTarget, ...(inLang ? [inLang] : L4)]); return c ? { context: c } : {}; })()),
     };
 
     let sx = null;          // 현재 엔진 소켓(예기치 않은 끊김 시 자동 재연결)
@@ -2370,18 +2562,19 @@ function handleHost(ws) {
       return false;
     };
 
-    const baseConfig = () => ({
+    // langs = 이번 응대의 활성 언어(ko + 손님 언어) — 해당 언어의 용어 표기·번역쌍만 context 로 주입
+    const baseConfig = (langs) => ({
       api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
       enable_language_identification: true, enable_endpoint_detection: true,
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
       endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
-      ...(buildSonioxContext() ? { context: buildSonioxContext() } : {}),
+      ...((() => { const c = buildSonioxContext(langs); return c ? { context: c } : {}; })()),
     });
     // 손님이 한국어를 고르면 two_way 가 성립하지 않으므로 전부 한국어로 표기(one_way→ko)
     const configFor = () => (lockedB && lockedB !== A
-      ? { ...baseConfig(), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } }
-      : { ...baseConfig(), language_hints: [A], translation: { type: 'one_way', target_language: A } });
+      ? { ...baseConfig([A, lockedB]), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } }
+      : { ...baseConfig([A]), language_hints: [A], translation: { type: 'one_way', target_language: A } });
 
     const setMeta = () => {
       const sxInfo = phase === 'active'
@@ -2572,7 +2765,7 @@ function handleHost(ws) {
        언어 힌트를 손님 언어로 고정해 인식 정확도를 높이고, side='left'/lang=손님언어로 결정적 귀속.
        누화 방어: ① 뷰어 근접 게이트(작은 소리는 무음 전송) ② crossDup(교차 중복 필터). */
     const guestConfig = () => ({
-      ...baseConfig(),
+      ...baseConfig(lockedB && lockedB !== A ? [A, lockedB] : [A]),
       language_hints: lockedB && lockedB !== A ? [lockedB] : [A],
       translation: { type: 'one_way', target_language: A },
     });
@@ -2799,166 +2992,6 @@ function handleHost(ws) {
       } catch {}
     });
     ws.on('close', () => { try { dg.close(); } catch {} });
-  }
-
-  /* ---------- whisper 전사 -> gpt 번역 ---------- */
-  function runWhisper() {
-    const oa = new WebSocket('wss://api.openai.com/v1/realtime?intent=transcription', {
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-    });
-    idleClose = () => { try { oa.close(); } catch {} };
-    let oaReady = false;
-    let appendedSinceCommit = 0;
-    let srcBuf = ''; // 현재 커밋의 스트리밍 델타
-    let srcAccum = ''; // 표시 단위가 될 때까지 누적되는 원문
-    let batchStart = 0; // 현재 배치가 쌓이기 시작한 시각(ms)
-    let tailTimer = null;
-    const N_MS = 4000; // 최소 표시 단위(이 시간 전엔 번역 보류하고 더 모음 → 도입부 조각이 주절과 붙을 시간)
-    const HARD_MS = 10000; // 이 시간 넘으면 미완성이라도 강제 확정(폭주 방지, 드물게 발동)
-    const pending = [];
-    const history = []; // 최근 원문->번역 쌍 (맥락용)
-    const now = () => Date.now();
-    let translating = false;
-
-    // N초 배칭 + GPT 문장 경계 판단: 완결 문장만 번역하고 미완성 꼬리는 다음으로 넘김.
-    // remainder 는 입력의 '깔끔한 꼬리'일 때만 신뢰. 아니면 통째로 보류하고 더 모아 재시도(중복/누락 방지).
-    let pendingFlush = null; // 번역 진행 중 도착한 flush 요청(특히 종료 시 강제 flush)을 보류했다가 재실행
-    const flushBatch = async (force) => {
-      if (translating) { if (force || !pendingFlush) pendingFlush = { force: !!force || !!(pendingFlush && pendingFlush.force) }; return; }
-      const input = srcAccum.trim();
-      if (!input) return;
-      translating = true;
-      srcAccum = ''; // 소비 시작 (호출 중 도착분은 뒤에 append)
-      let tail = ''; // 다음으로 넘길 원문
-      try {
-        const ctx = history.slice(-2);
-        const { translation, remainder } = await segmentTranslate(input, ctx, force, targetLang, polish, refineModel);
-        const rem = (remainder || '').trim();
-        const cleanSuffix = rem && rem.length < input.length && input.endsWith(rem);
-
-        if (!force && rem && !cleanSuffix) {
-          // GPT 분절을 신뢰할 수 없음 → 번역 버리고 입력 통째 보류, 더 모아서 재시도
-          tail = input;
-        } else {
-          const consumed = cleanSuffix ? input.slice(0, input.length - rem.length).trim() : input;
-          tail = force ? '' : cleanSuffix ? rem : '';
-          const tr = (translation || '').trim();
-          if (tr && consumed) {
-            const id = newId();
-            // 1차 언어(segmentTranslate 결과) 먼저 표시
-            upsertItem(id, { [sessionLangs[0]]: tr }, consumed);
-            history.push({ src: consumed, tr });
-            if (history.length > 24) history.shift();
-            // 나머지 언어는 같은 원문(consumed)을 직접 번역해 병렬로 채움
-            for (const lang of sessionLangs.slice(1)) {
-              translateText(consumed, lang, polish, undefined, refineModel).then((t) => {
-                if (t && t.trim()) upsertItem(id, { [lang]: t.trim() });
-              });
-            }
-          }
-        }
-      } finally {
-        srcAccum = (tail + ' ' + srcAccum).replace(/\s+/g, ' ').trim(); // 보류분 + 호출 중 도착분
-        batchStart = srcAccum ? batchStart || now() : 0;
-        sendPartial(srcAccum);
-        translating = false;
-        // 진행 중에 버려졌던 flush 재실행 — 종료 직전 강제 flush 가 유실돼 마지막 문장이 사라지던 문제 수정
-        if (pendingFlush) { const pf = pendingFlush; pendingFlush = null; flushBatch(pf.force); }
-      }
-    };
-
-    oa.on('open', () => {
-      oa.send(
-        JSON.stringify({
-          type: 'session.update',
-          session: {
-            type: 'transcription',
-            audio: {
-              input: {
-                format: { type: 'audio/pcm', rate: 24000 },
-                transcription: inLang
-                  ? { model: TRANSCRIBE_MODEL, language: inLang }
-                  : { model: TRANSCRIBE_MODEL },
-              },
-            },
-          },
-        })
-      );
-      // 세션 준비 전 오디오는 OpenAI 가 버리므로, 준비 이벤트(또는 1.5s 폴백) 후 전송.
-      setTimeout(markReady, 1500);
-    });
-    function markReady() {
-      if (oaReady) return;
-      oaReady = true;
-      while (pending.length) oa.send(pending.shift());
-      toHost({ type: 'status', message: '엔진 연결됨 (whisper)' });
-      bumpIdle(); // 무입력 카운트다운 시작
-    }
-
-    oa.on('message', (raw) => {
-      let ev;
-      try {
-        ev = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      if (!oaReady && /session\.(created|updated)/.test(ev.type || '')) markReady(); // 준비됨 → 버퍼 오디오 전송
-      if (ev.type === 'conversation.item.input_audio_transcription.delta') {
-        bumpIdle(); // 음성 활동 → 유휴 타이머 리셋
-        srcBuf += ev.delta || '';
-        sendPartial((srcAccum + ' ' + srcBuf).trim());
-      } else if (ev.type === 'conversation.item.input_audio_transcription.completed') {
-        srcAccum = (srcAccum + ' ' + (ev.transcript || srcBuf || '')).replace(/\s+/g, ' ').trim();
-        srcBuf = '';
-        if (!batchStart && srcAccum) batchStart = now();
-        sendPartial(srcAccum); // 진행 중 원문 실시간 표시
-        const elapsed = batchStart ? now() - batchStart : 0;
-        if (elapsed >= HARD_MS) flushBatch(true);
-        else if (elapsed >= N_MS) flushBatch(false);
-        // 말이 멈추면 남은 것 확정 (연속 발화 중엔 커밋이 더 자주 와서 안 터짐)
-        clearTimeout(tailTimer);
-        tailTimer = setTimeout(() => flushBatch(true), 3000);
-      } else if (ev.type && ev.type.includes('error')) {
-        console.error('[whisper error]', JSON.stringify(ev));
-        toHost({ type: 'status', message: '엔진 오류: ' + (ev.error?.message || ev.type) });
-      }
-    });
-    oa.on('error', (e) => toHost({ type: 'status', message: 'OpenAI 연결 오류: ' + (e?.message || e) }));
-    oa.on('close', () => toHost({ type: 'status', message: '엔진 연결 종료' }));
-
-    const commit = () => {
-      if (!oaReady || appendedSinceCommit === 0) return;
-      appendedSinceCommit = 0;
-      try {
-        oa.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
-      } catch {}
-    };
-
-    ws.on('message', (data, isBinary) => {
-      if (isBinary) {
-        const msg = JSON.stringify({ type: 'input_audio_buffer.append', audio: Buffer.from(data).toString('base64') });
-        if (oaReady) oa.send(msg);
-        else pending.push(msg);
-        appendedSinceCommit++;
-        return;
-      }
-      let m;
-      try {
-        m = JSON.parse(data.toString());
-      } catch {
-        return;
-      }
-      if (m.type === 'commit' || m.type === 'stop') commit();
-    });
-    ws.on('close', () => {
-      clearTimeout(tailTimer);
-      flushBatch(true); // 남은 마지막 원문 확정(저장/뷰어 전송)
-      setTimeout(() => {
-        try {
-          oa.close();
-        } catch {}
-      }, 2000);
-    });
   }
 
   /* ---------- gpt-realtime-translate -> gpt 다듬기 ---------- */

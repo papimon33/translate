@@ -1,0 +1,11 @@
+{
+  "_comment": "채점기 형식 확인용 가짜 표본. 실제 수집 시 이 파일을 실측 결과로 교체. stt=인식원문, mt=시스템번역.",
+  "records": [
+    { "scenario_id": "gate-find", "direction": "q", "lang": "en", "stt": "How do I get to gate twenty seven?", "mt": "27번 게이트에 어떻게 가나요?", "latency_ms": 1100 },
+    { "scenario_id": "gate-find", "direction": "a", "lang": "en", "stt": "27번 게이트는 이 복도를 따라가면 오른쪽 끝에 있습니다.", "mt": "Gate 27 is at the far right end if you follow this hallway.", "latency_ms": 1300 },
+    { "scenario_id": "baggage-fee", "direction": "q", "lang": "ja", "stt": "超過手荷物の料金はいくらですか", "mt": "초과 수하물 요금은 얼마인가요?", "latency_ms": 900 },
+    { "scenario_id": "baggage-fee", "direction": "a", "lang": "ja", "stt": "초과 수하물 요금은 1킬로그램당 만 오천 원입니다.", "mt": "超過手荷物の料金は1キロあたり5000ウォンです。", "latency_ms": 1500 },
+    { "scenario_id": "flight-delay", "direction": "q", "lang": "es", "stt": "¿El vuelo que uno dos tres está retrasado?", "mt": "1-2-3 항공편이 지연되나요?", "latency_ms": 1200 },
+    { "scenario_id": "flight-delay", "direction": "a", "lang": "ar", "stt": "KE123편은 30분 지연되어 오후 2시 40분에 출발합니다.", "mt": "الرحلة KE123 متأخرة 30 دقيقة وستغادر في الساعة 2:40 مساءً.", "latency_ms": 1400 }
+  ]
+}

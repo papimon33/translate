@@ -65,7 +65,6 @@ const OUT4 = [
   { code: 'zh', label: '中文' },
 ];
 const PIPES = [
-  { v: 'whisper', label: '다국어 번역 (구)' },
   { v: 'translate', label: '실시간 통역' },
   { v: 'deepgram', label: '다국어 번역 (Deepgram)' },
   { v: 'soniox', label: '다국어 번역' },
@@ -193,7 +192,7 @@ function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange 
 
 export default function TranslateView({ session: initial, onBack }) {
   const [cfg, setCfg] = useState({
-    pipeline: initial.pipeline || 'whisper',
+    pipeline: initial.pipeline || 'soniox',
     inLang: initial.inLang || 'auto',
     langs: initial.langs && initial.langs.length ? initial.langs : [initial.outLang || 'ko'],
     outLang: initial.outLang || 'ko',
@@ -338,7 +337,7 @@ export default function TranslateView({ session: initial, onBack }) {
       );
       setSpeakers(s.speakers || {});
       setCfg({
-        pipeline: s.pipeline || 'whisper',
+        pipeline: s.pipeline || 'soniox',
         inLang: s.inLang || 'auto',
         langs: s.langs && s.langs.length ? s.langs : [s.outLang || 'ko'],
         outLang: s.outLang || 'ko',
@@ -579,7 +578,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const showPartial = true;
   const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
   const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
-  const pipeLabel = preset ? PRESET_LABEL[preset] : PIPES.find((p) => p.v === cfg.pipeline)?.label;
+  const pipeLabel = preset ? PRESET_LABEL[preset] : (PIPES.find((p) => p.v === cfg.pipeline)?.label || '지원 종료 모드');
   // 모드 변경(번역 이력 없을 때만): 프리셋 + 모드별 기본값(소스·방향·TTS)을 함께 리셋
   const presetGroup = preset ? (preset === 'live' ? 'live' : onewayPreset ? 'oneway' : 'twoway') : null;
   const changeMode = (v) => {

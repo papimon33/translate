@@ -122,3 +122,35 @@
 - OpenAI 실시간 모델은 **GA API** 사용(베타 헤더 X). `gpt-realtime-translate`는 `/v1/realtime/translations` 전용 엔드포인트.
 - OpenAI 비용은 호스팅과 별개로 항상 발생(음성 모델). whisch 다국어는 전사 1회 + 언어당 텍스트 번역.
 - 옛 세션('123123' 등)은 옛 `text` 형식 → 클라이언트에서 `texts`로 하위호환 처리됨.
+
+## 2026-07-09 — whisper 삭제 + 용어설정 다국어 개편
+- **whisper 파이프라인 삭제**: `runWhisper`·`TRANSCRIBE_MODEL` 제거, 세션 생성 기본 `soniox`. 기존 whisper 세션은 열람만 가능(시작 시 "지원 종료" 상태 메시지). 클라 PIPES 에서 '다국어 번역 (구)' 제거, `pipeline || 'soniox'` 폴백.
+- **termsConfig 새 스키마**:
+  - `terms` = `{ airline: [], aviation: [], etc: [] }` 3분류(구형 평면 배열은 기본 항공용어→aviation, 나머지→etc 자동 분류).
+  - `translationTerms` = 행당 다국어 `{ ko(필수·행 키), en?, ja?, zh?, es?, fr?, pt?, ar? }` (구형 `{source,target}` → `{ko:target, en:source}` 마이그레이션).
+  - 로드/`PUT /api/terms-config` 모두 `normalizeTermsConfig` 로 정규화. 마이그레이션은 부팅 시 1회, 항공사 36개 시드 병합.
+  - 시드: `DEFAULT_AIRLINES`(36개, ko/en/ja/zh — es/fr/pt/ar 는 비워 en 폴백. **파라타항공 en·섬에어 외국어 표기는 미확정이라 비움 — 확정 시 채울 것**), `DEFAULT_TERMS_AVIATION`, `DEFAULT_TRANSLATION_TERMS`(ko/en 항공용어 30).
+- **buildSonioxContext(langs)**: 활성 언어쌍의 표기·번역쌍만 조립(양방향 2항목/행). 비면 en→ko 폴백(`termLangValue`). 한도 방어: JSON 9,500자 초과 시 번역쌍→terms 순으로 잘라내고 경고 로그. Soniox 한도 = context 전체 8,000토큰(≈10,000자), translation_terms 는 항목당 target 언어 1개.
+  - 호출부: runSoniox(two=[A,B]/one=[target,+힌트]), desk `baseConfig(langs)`(configFor/guestConfig), PTT `startTalkPipeline`(기존 미주입이던 것 추가).
+- **용어설정 UI**(TermsConfigPage 재작성): 고유명사 3분류 칩, 번역설정 언어 Select(ko→선택언어 열 편집, 폴백 플레이스홀더), 저장 버튼 아래 컨텍스트 크기 게이지 `N/10,000자`(언어쌍 중 최대 기준, 80% 경고색/초과 시 Alert), JSON 내려받기/업로드(구형 형식도 수용), 오탈자·오번역 검사 채택 시 한글 감지로 ko/현재 언어 열 배치.
+- 검증: 8/8 테스트(부팅 테스트가 실데이터 마이그레이션 수행 확인), 빌드 OK, 프리뷰에서 3분류(36/23/0)·게이지 7,048자·언어 전환(ja=大韓航空)·데스크 ja 실연결(desk-active, soniox 오류 없음 → 새 context 수용) 확인.
+
+## 2026-07-09 (2) — 항공사 축약형(alt) 지원
+- **번역 행에 `alt` 필드 추가** — `{ ko, en, ja, zh, …, alt: { ja:[…], zh:[…] } }`. 현지 축약/구어 표기(예: 国航, 全日空, JAL, ピーチ).
+  - **인식**: 활성 언어의 alt 표기를 Soniox `terms` 에 추가 → 축약형 전사 정확도 ↑.
+  - **번역**: `alt→ko`(정식명) **단방향** translation_term 만 추가 → 정방향(한국어→외국어)은 정식명 유지(충돌 방지). 예: 国航→중국국제항공.
+  - `buildSonioxContext`/`normalizeTermsConfig` 가 alt 처리·보존. 클라 `contextSizeFor`/`normalizeUpload`/save 도 alt 반영.
+- **시드 보강**: 일본항공(日航/JAL)·전일본공수(全日空/ANA)·피치(ピーチ), 중국국제(国航)·남방(南航)·동방(东航)·상하이(上航)·사천(川航)·하문(厦航)·길상(吉祥)·춘추(春秋). 파라타항공 ja/zh(パラタ航空/帕拉塔航空, **잠정 음역 — 검수 필요**).
+- **1회 백필 마이그레이션**: `termsConfig.altSeeded` 플래그. 기존 저장분(alt 없던 항공사 행)에 시드 alt·미채운 ja/zh 병합, 이후엔 사용자 삭제분 되살리지 않음.
+- **UI**: 번역 설정 각 행 아래 '약어·구어' 칩 편집기(선택 언어 기준 추가/삭제). JSON 입출력도 alt 라운드트립.
+- 검증: 빌드 OK, 프리뷰에서 alt 백필 로그·데이터 확인, ko↔zh 데스크 연결(약어 포함 context 수용, soniox 오류 0), UI 国航/南航 칩 렌더 확인.
+
+## 2026-07-09 (3) — 평가 가이드 러너 (eval.html)
+- **목적**: 수동 결과 전사(로그→records.json) 제거. 낭독→자동 수집→즉시 채점을 한 화면에서.
+- **`client/public/eval.html`** (독립 바닐라 JS): 언어 선택 → 마이크 캡처(soniox two_way ko↔L, host WS, 세션 미생성 `eval-<rand>`) →
+  시나리오별 질문(원어)·답변(한국어) 낭독 안내 → `sentence` 수신 시 방향에 맞춰 자동 태깅(q: stt=source/mt=texts.ko, a: stt=source/mt=texts[L]) →
+  입력칸에서 수정 가능 → [확정&다음]으로 records 누적 → 완료 후 [채점(OpenAI)]/[간이(CER)]/[records 내려받기]. 언어 감지 불일치 경고, 20s activity ping으로 유휴 종료 방지.
+- **채점 코어 분리**: `eval/score_core.mjs`(CER·정규화·judge·집계·오류귀속 순수 함수). `eval/score.mjs`(CLI)와 서버가 공유.
+- **서버 API**(requireAdmin): `GET /api/eval/dataset`(정답셋), `POST /api/eval/score`({records,dry}→구조화 리포트). OPENAI_API_KEY 없으면 자동 dry.
+- **진입점**: 관리자 → 용어 설정 상단 **'평가 러너'** 버튼(`window.open('/eval.html')`). `eval/TEST_GUIDE.md` 최상단에 러너 절차 추가.
+- 검증: dataset API 30개·score API dry 리포트·페이지 로드·러너 로직(질문/답변 방향별 캡처·records 누적) 프리뷰 확인. 마이크 캡처는 mobile.html PTT와 동일 코드(실기기 필요).
