@@ -60,13 +60,15 @@ export function decryptData(key, raw) {
 
 /* ---- TTS 자기음성(에코) 텍스트 매칭 ---- */
 export const echoNorm = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-// a, b = echoNorm 결과. 포함 관계이거나 앞부분 문자 70% 이상 일치하면 에코로 판단.
+// a, b = echoNorm 결과. 에코 = 거의 같은 문장이 되돌아온 경우이므로 길이가 비슷할 때만 매칭.
+// (짧은 조각이 긴 문장에 포함되는 경우는 '상대 문구를 따라 말한 실제 발화'일 수 있어 매칭하지 않음 — 오탐 방지)
 export function echoMatch(a, b) {
   if (a.length < 6 || b.length < 6) return false;
-  if (a.includes(b) || b.includes(a)) return true;
   const s = a.length <= b.length ? a : b;
   const l = a.length <= b.length ? b : a;
-  if (s.length >= 10 && l.length <= s.length * 2) {
+  if (s.length / l.length < 0.6) return false; // 길이 격차가 크면 에코로 보지 않음
+  if (l.includes(s)) return true;
+  if (s.length >= 10) {
     let same = 0;
     for (let i = 0; i < s.length; i++) if (s[i] === l[i]) same++;
     if (same / s.length >= 0.7) return true;

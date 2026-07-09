@@ -98,11 +98,14 @@
   #toast.show { opacity:.94; }
 
   /* 대화 흐름(transcript): 아래=최신(선명), 위로 갈수록 흐려짐(마스크) — 지도 포함 */
-  #stage { flex-direction:column; justify-content:flex-end; align-items:stretch; overflow-y:auto;
+  /* 하단 정렬은 justify-content:flex-end 대신 ::before 스페이서로 — flex-end + overflow 조합은
+     iOS 사파리에서 위쪽 넘친 내용이 스크롤 불가(clipping)해지는 문제가 있음 */
+  #stage { flex-direction:column; align-items:stretch; overflow-y:auto;
     padding:calc(9vh + env(safe-area-inset-top)) 6vw calc(5vh + env(safe-area-inset-bottom));
     -webkit-mask-image:linear-gradient(to top,#000 62%,transparent 100%);
     mask-image:linear-gradient(to top,#000 62%,transparent 100%); }
   #stage::-webkit-scrollbar { display:none; }
+  #stage::before { content:''; flex:1 0 auto; } /* 스페이서: 내용이 적을 때 아래 정렬 유지 */
   .turn { margin-top:22px; display:flex; flex-direction:column; }
   .turn.staff { align-items:flex-start; }
   .turn.self  { align-items:flex-end; }
@@ -319,7 +322,9 @@ function upsert(item){
   if (item.lang) c.lang = item.lang;
   renderCard(c);
   hideIdleWarn(); // 발화가 이어지면 종료 예고 해제(서버 타이머도 리셋됨)
-  $('dots').style.display = order.length ? 'none' : 'flex';
+  // '말씀하세요' 안내는 '보이는' 카드가 없을 때만 — 에코 드랍으로 숨겨진 카드는 세지 않음
+  const anyVisible = [...cards.values()].some((x) => x.el.style.display !== 'none');
+  $('dots').style.display = anyVisible ? 'none' : 'flex';
   scrollBottom();
 }
 function rerender(){ cards.forEach(renderCard); }
@@ -330,7 +335,12 @@ function clearAll(){
   $('dots').style.display = 'flex';
 }
 function applySxInfo(info){
-  if(!info || info.mode !== 'two') return;
+  if(!info) return;
+  if(info.mode !== 'two'){
+    // 서버는 대기(idle)인데 클라만 진행 중(절전으로 desk-reset 을 놓친 경우) → 이전 대화를 지우고 터치 화면 복귀
+    if (started && !pendingStart) backToTouch();
+    return;
+  }
   if(!started){ if (entered && hostActive) enterStage(info.b); return; } // 접속 시 이미 통역 중이면 바로 통역 화면으로
   curLang = info.b || curLang; setSvcPair();
   rerender(); try { mapApi && mapApi.setLang(curLang); } catch {}
@@ -339,10 +349,12 @@ function setSvcPair(){ $('svcPair').textContent = curLang === 'ko' ? '한국어'
 function setSvcConnecting(){ $('svcPair').textContent = t('connecting'); $('svcLive').textContent = ''; $('svcDot').style.display = 'none'; }
 
 /* ---- 길안내 맵 (채팅 아래 인라인, 단일 인스턴스 — 새 안내 시 맨 아래로 이동) ---- */
-let mapApi = null, mapLoading = false, mapBlock = null;
+let mapApi = null, mapLoading = false, mapBlock = null, mapLoadTries = 0;
 function loadMapScripts(cb){
   if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
   if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
+  if (mapLoadTries >= 3) return; // 에셋 404/오프라인 시 wayfind 마다 스크립트 태그가 무한 누적되던 문제 방지
+  mapLoadTries++;
   mapLoading = true;
   let n = 0; const done = () => { if (++n >= 2) { mapLoading = false; cb(); } };
   for (const src of ['/map/wayfinding_data.js', '/map/airport25d.js']) {
@@ -399,11 +411,13 @@ function ensureWs(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}`);
   ws.binaryType = 'arraybuffer';
-  // (재)접속 시 시작 대기/진행 중이면 시작 요청 재전송 — 같은 언어로 이미 진행 중이면 서버가 무시.
-  // 여객 마이크 캡처 중이면 채널도 재등록(새 소켓은 서버가 desk-mic 상태를 모름).
+  // (재)접속 시: '언어를 막 골라 확인 대기 중'일 때만 시작 요청 재전송.
+  // started 만으로 재전송하면 절전 중 서버가 idle 종료된 뒤 깨어나며 빈 응대를 새로 과금 시작하는 문제가 있어,
+  // 진행 중 세션의 실제 상태는 접속 직후 서버가 보내는 meta 로 동기화한다(idle 이면 터치 화면 복귀).
   ws.onopen = () => {
-    if (pendingStart || started) sendStart();
+    if (pendingStart) sendStart();
     if (gm) { try { ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {} }
+    if (pendingKeepalive) { pendingKeepalive = false; try { ws.send(JSON.stringify({ type: 'desk-keepalive' })); } catch {} }
   };
   ws.onclose = () => { ws = null; if (entered) setTimeout(ensureWs, 1500); };
   ws.onmessage = (ev) => {
@@ -424,6 +438,9 @@ function sendStart(){ try { ws && ws.send(JSON.stringify({ type:'desk-start', la
 // 통역 화면 진입 — 서버의 desk-active 확인 시(언어 선택 직후 또는 호스트 측 시작)
 function enterStage(lang){
   clearTimeout(activeGuard);
+  clearTimeout(thanksTimer); $('thanks').classList.remove('show'); // 감사 인사 잔여 타이머가 새 응대 화면을 덮지 않게
+  // meta 와 desk-active 가 연달아 도착해 이중 진입하던 것 가드(여객 마이크 파이프라인 2개 생성 방지)
+  if (started && gotActive) { if (lang) { curLang = lang; setSvcPair(); rerender(); } return; }
   pendingStart = false; gotActive = true; started = true;
   if (lang) curLang = lang;
   $('speakTxt').textContent = t('speak'); // 발화 유도(손님 언어)
@@ -442,25 +459,33 @@ function backToTouch(withThanks){
   clearAll();
   if (withThanks) {
     $('thanks').classList.add('show');
-    setTimeout(() => { $('thanks').classList.remove('show'); show('touchWrap'); }, 1500);
+    clearTimeout(thanksTimer);
+    thanksTimer = setTimeout(() => {
+      $('thanks').classList.remove('show');
+      if (!started) show('touchWrap'); // 그 사이 새 응대가 시작됐으면 stage 유지
+    }, 1500);
   } else {
     show('touchWrap');
   }
 }
+let thanksTimer = null;
 
 /* ---- 여객 마이크(2채널 화자 귀속): 통역 중 상시 캡처 → 서버 여객 채널로 전송 ----
    근접 게이트: 여객 입은 태블릿에서 ~30cm, 안내원·주변음은 멀어서 작게 잡힘 →
    임계(GM_GATE) 미만이면 무음을 보내 누화·안내방송을 차단(무음 전송은 엔드포인트 판정 유지용). */
 const GM_GATE = 0.04;
 let gm = null; // { stream, ctx, proc }
+let gmStarting = false; // getUserMedia 대기 중 재진입 가드(파이프라인 이중 생성·마이크 누수 방지)
 function f32to16(f32){ const b = new ArrayBuffer(f32.length * 2), v = new DataView(b); for (let i = 0; i < f32.length; i++){ let s = Math.max(-1, Math.min(1, f32[i])); s = s < 0 ? s * 0x8000 : s * 0x7fff; v.setInt16(i * 2, s, true); } return b; }
 function ds24(f32, rate){ if (rate === 24000) return f32; const r = rate / 24000, n = Math.round(f32.length / r), o = new Float32Array(n); for (let i = 0; i < n; i++){ const idx = i * r, i0 = Math.floor(idx), i1 = Math.min(i0 + 1, f32.length - 1); o[i] = f32[i0] * (1 - (idx - i0)) + f32[i1] * (idx - i0); } return o; }
 async function guestMicStart(){
-  if (gm) { try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {} return; }
+  if (gm || gmStarting) { try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {} return; }
+  gmStarting = true;
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-  catch { toast('태블릿 마이크를 사용할 수 없어 안내데스크 마이크로만 인식합니다.'); return; }
-  if (!started) { try { stream.getTracks().forEach((t) => t.stop()); } catch {} return; } // 권한 대기 중 종료된 경우
+  catch { gmStarting = false; toast('태블릿 마이크를 사용할 수 없어 안내데스크 마이크로만 인식합니다.'); return; }
+  gmStarting = false;
+  if (!started || gm) { try { stream.getTracks().forEach((t) => t.stop()); } catch {} return; } // 권한 대기 중 종료/중복 생성된 경우
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   try { ctx.resume(); } catch {}
   const rate = ctx.sampleRate;
@@ -505,7 +530,12 @@ function showIdleWarn(secs){
   warnIv = setInterval(() => { left--; if (left <= 0) hideIdleWarn(); else $('warnCnt').textContent = left + 's'; }, 1000);
 }
 function hideIdleWarn(){ clearInterval(warnIv); warnIv = null; $('idleWarn').classList.remove('show'); }
-$('idleWarn').addEventListener('click', () => { try { ws && ws.send(JSON.stringify({ type:'desk-keepalive' })); } catch {} hideIdleWarn(); });
+let pendingKeepalive = false; // 재접속 창에서 누른 연장 요청을 다음 연결에서 전송(그냥 버려지던 문제 수정)
+$('idleWarn').addEventListener('click', () => {
+  if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type:'desk-keepalive' })); } catch {} }
+  else pendingKeepalive = true;
+  hideIdleWarn();
+});
 
 /* ---- 전체화면 ---- */
 function goFullscreen(){

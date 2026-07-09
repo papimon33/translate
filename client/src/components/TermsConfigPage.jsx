@@ -77,18 +77,23 @@ export default function TermsConfigPage({ user, embedded }) {
   };
   const openPick = async () => {
     setPickOpen(true);
-    if (pickList) return;
     try {
+      // 열 때마다 최신 목록으로 갱신(캐시로 새 세션이 안 보이던 문제) — 기존 표시는 유지한 채 교체
       const d = await api.adminLogs();
-      setPickList([
+      const list = [
         ...(d.desks || []).map((x) => ({ id: x.id, title: x.title, kind: '안내데스크', count: x.logs.reduce((a, e) => a + (e.count || 0), 0) })),
         ...(d.sessions || []).map((x) => ({ id: x.id, title: x.title, kind: '세션', count: x.count || 0 })),
-      ]);
-    } catch { setPickList([]); }
+      ];
+      setPickList(list);
+      setSelIds((ids) => ids.filter((id) => list.some((p) => p.id === id))); // 삭제된 세션 선택 해제
+    } catch { if (!pickList) setPickList([]); }
   };
   const togglePick = (id) => setSelIds((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
   const adoptSuggestion = (s) => {
-    setPairs((arr) => (arr.some((p) => p.source === s.source) ? arr : [...arr, { source: s.source, target: s.target }]));
+    // 같은 source 가 이미 있으면 target 을 추천값으로 교체(이전엔 추천만 사라지고 오역이 남았음)
+    setPairs((arr) => (arr.some((p) => p.source === s.source)
+      ? arr.map((p) => (p.source === s.source ? { ...p, target: s.target } : p))
+      : [...arr, { source: s.source, target: s.target }]));
     setSugResult((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
     mark();
   };
@@ -237,7 +242,7 @@ export default function TermsConfigPage({ user, embedded }) {
                       <Typography sx={{ fontWeight: 800, fontSize: 15 }}>오번역 검사</Typography>
                       <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>
                         대화의 원문과 번역을 AI 가 검수해 잘못 번역된 고유명사·시설명을 찾고 용어 후보로 추천합니다.
-                        안내데스크 응대 기록도 포함됩니다.
+                        안내데스크 응대 기록도 포함됩니다. 검사 시 대화 내용이 외부 AI 서비스(OpenAI)로 전송됩니다.
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, flex: 'none' }}>

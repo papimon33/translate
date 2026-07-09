@@ -1,4 +1,14 @@
-const json = (r) => r.json();
+// 모든 응답의 HTTP 상태를 검사 — 오류 바디({error})가 성공값으로 흘러 화면이 깨지던 문제 수정.
+// 실패 시 Error(message)에 status 를 붙여 던진다(호출부 .catch 폴백이 정상 동작).
+const json = async (r) => {
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    const e = new Error(d.error || `요청 실패 (${r.status})`);
+    e.status = r.status;
+    throw e;
+  }
+  return r.json();
+};
 
 export const api = {
   list: () => fetch('/api/sessions').then(json),
@@ -29,6 +39,7 @@ export const api = {
         const d = await r.json().catch(() => ({}));
         const e = new Error(d.error || '로그인 실패');
         e.need2fa = !!d.need2fa; // 관리자 2FA 코드 필요/불일치
+        e.status = r.status; // 429(잠금) 구분용
         throw e;
       }
       return r.json();

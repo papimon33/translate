@@ -157,13 +157,15 @@ function LogsPanel() {
     const key = `d:${sid}:${idx}`;
     if (open && open.key === key) { setOpen(null); return; }
     setOpen({ kind: 'desk', key, loading: true });
-    try { setOpen({ kind: 'desk', key, detail: await api.adminDeskLog(sid, idx) }); } catch { setOpen(null); }
+    try { setOpen({ kind: 'desk', key, detail: await api.adminDeskLog(sid, idx) }); }
+    catch (e) { setOpen({ kind: 'desk', key, error: e.message || '불러오기 실패' }); } // 조용히 접히지 않고 실패를 표시
   };
   const openSession = async (id) => {
     const key = `s:${id}`;
     if (open && open.key === key) { setOpen(null); return; }
     setOpen({ kind: 'session', key, loading: true });
-    try { setOpen({ kind: 'session', key, detail: await api.adminSessionLog(id) }); } catch { setOpen(null); }
+    try { setOpen({ kind: 'session', key, detail: await api.adminSessionLog(id) }); }
+    catch (e) { setOpen({ kind: 'session', key, error: e.message || '불러오기 실패' }); }
   };
   if (!data) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
   const durOf = (e) => (e.startedAt && e.endedAt ? fmtDuration(e.endedAt - e.startedAt) : '—');
@@ -188,6 +190,7 @@ function LogsPanel() {
               {open && open.key === `d:${d.id}:${e.idx}` && (
                 <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
                   {open.loading ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', py: 1 }}>불러오는 중…</Typography>
+                    : open.error ? <Typography sx={{ fontSize: 12.5, color: 'error.main', py: 1 }}>{open.error}</Typography>
                     : <TranscriptView items={open.detail?.items} deskMode />}
                 </Box>
               )}
@@ -212,6 +215,7 @@ function LogsPanel() {
               {open && open.key === `s:${s.id}` && (
                 <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
                   {open.loading ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', py: 1 }}>불러오는 중…</Typography>
+                    : open.error ? <Typography sx={{ fontSize: 12.5, color: 'error.main', py: 1 }}>{open.error}</Typography>
                     : <TranscriptView items={open.detail?.items} />}
                 </Box>
               )}
@@ -401,7 +405,7 @@ export default function AdminPage({ user }) {
   };
   const remove = async (u) => {
     if (!confirm(`'${u.username || u.id}' 사용자와 해당 사용자의 모든 세션을 삭제할까요?`)) return;
-    await api.adminDeleteUser(u.id);
+    try { await api.adminDeleteUser(u.id); } catch (e) { alert('삭제 실패: ' + (e.message || '네트워크 오류')); }
     reload();
   };
 
@@ -489,9 +493,11 @@ export default function AdminPage({ user }) {
                             </IconButton>
                           </Tooltip>
                         )}
-                        <IconButton size="small" onClick={() => remove(u)} sx={{ color: 'error.main' }}>
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
+                        {u.role !== 'admin' && (
+                          <IconButton size="small" onClick={() => remove(u)} sx={{ color: 'error.main' }}>
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

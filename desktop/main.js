@@ -32,10 +32,12 @@ function createMain() {
   mainWin.loadURL(SITE);
 
   // 시스템 오디오 캡처: 웹의 getDisplayMedia(시스템 소리 공유) 요청을 Electron이 처리.
-  // Windows 는 audio:'loopback' 으로 시스템 출력음을 캡처.
+  // audio:'loopback' 은 Windows 전용 — macOS 에서 지정하면 요청 전체가 실패해 화면공유까지 죽는다.
+  // macOS 는 비디오만 승인(시스템 오디오는 BlackHole 등 가상 드라이버 필요, desktop/README.md 참고).
   mainWin.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      callback({ video: sources[0], audio: 'loopback' });
+      if (!sources.length) { callback({}); return; } // 화면 기록 권한 미허용 등 — 명시적 거부
+      callback({ video: sources[0], ...(process.platform === 'win32' ? { audio: 'loopback' } : {}) });
     }).catch(() => callback({}));
   });
 

@@ -52,8 +52,10 @@ test('에코 필터: TTS 재입력 텍스트 매칭', () => {
   const n = echoNorm;
   // 동일 문장(문장부호·공백 차이) → 에코
   assert.equal(echoMatch(n('Hello, this is a test.'), n('hello this is a test')), true);
-  // 부분 포함(짧게 잘려 인식) → 에코
-  assert.equal(echoMatch(n('this is a test'), n('Hello, this is a test sentence for you.')), true);
+  // 길이가 비슷한 포함 관계(살짝 잘려 인식) → 에코
+  assert.equal(echoMatch(n('this is a test sentence for'), n('Hello, this is a test sentence for you.')), true);
+  // 짧은 조각이 긴 문장에 포함 — 상대 문구를 따라 말한 실제 발화일 수 있음 → 에코 아님(오탐 방지)
+  assert.equal(echoMatch(n('gate three?'), n('Please go to gate three, it is on the second floor.')), false);
   // 앞부분 다수 일치(인식 왜곡) → 에코
   assert.equal(echoMatch(n('안내데스크는 이층에 있습니다 감사합니다'), n('안내데스크는 이층에 있습니다 감사합니당')), true);
   // 전혀 다른 문장 → 통과

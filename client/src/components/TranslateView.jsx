@@ -207,8 +207,9 @@ export default function TranslateView({ session: initial, onBack }) {
   const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
   const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
   const [volume, setVolume] = useState(() => {
-    const v = Number(localStorage.getItem('kac-vol'));
-    return Number.isFinite(v) && v > 0 ? v : 1;
+    const s = localStorage.getItem('kac-vol'); // 0(음소거)도 유효한 저장값 — v > 0 판정으로 무시되던 문제 수정
+    const v = s == null ? NaN : Number(s);
+    return Number.isFinite(v) && v >= 0 && v <= 1.5 ? v : 1;
   });
   const [endpointing, setEndpointing] = useState(() => {
     const v = Number(localStorage.getItem('kac-dg-endpointing'));
@@ -345,7 +346,12 @@ export default function TranslateView({ session: initial, onBack }) {
       setDispLang(s.outLang || 'ko');
     });
     api.qr(initial.id).then(setQr);
-    return () => recRef.current?.stop();
+    return () => {
+      // 언마운트 시: 권한 프롬프트 대기 중(start await 중)인 레코더도 완료되는 즉시 정리되도록 표시.
+      // 이게 없으면 뒤로가기 후 권한을 허용한 경우 마이크·연결이 화면 없이 계속 돌아간다.
+      stopReqRef.current = true;
+      recRef.current?.stop();
+    };
     // eslint-disable-next-line
   }, [initial.id]);
 
@@ -358,14 +364,15 @@ export default function TranslateView({ session: initial, onBack }) {
   useEffect(() => {
     if (cfg.pipeline !== 'desk') return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    let ws = null, closed = false;
+    let ws = null, closed = false, retry = null;
     const conn = () => {
+      if (closed) return; // 재시도 타이머가 언마운트 후 발화해 고아 소켓을 만드는 것 방지
       ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${initial.id}`);
       ws.onmessage = (ev) => { try { onMessageRef.current && onMessageRef.current(JSON.parse(ev.data)); } catch {} };
-      ws.onclose = () => { if (!closed) setTimeout(conn, 1500); };
+      ws.onclose = () => { if (!closed) retry = setTimeout(conn, 1500); };
     };
     conn();
-    return () => { closed = true; try { ws && ws.close(); } catch {} };
+    return () => { closed = true; clearTimeout(retry); try { ws && ws.close(); } catch {} };
     // eslint-disable-next-line
   }, [cfg.pipeline, initial.id]);
 
@@ -463,6 +470,9 @@ export default function TranslateView({ session: initial, onBack }) {
       setPartials((p) => ({ ...p, [m.side || 'right']: m.text || '' }));
     } else if (m.type === 'sentence') {
       const side = m.side || 'right';
+      // 에코 드랍/고스트 정리: 서버가 내용 없는 페이로드를 보내면 해당 카드를 화면에서 제거
+      const emptyPayload = !m.source && (!m.texts || !Object.values(m.texts).some(Boolean));
+      if (emptyPayload) { setMessages((arr) => arr.filter((x) => x.id !== m.id)); return; }
       setPartials((p) => ({ ...p, [side]: '' }));
       setMessages((arr) => {
         const i = arr.findIndex((x) => x.id === m.id);
@@ -512,7 +522,9 @@ export default function TranslateView({ session: initial, onBack }) {
         onMessage,
         onMeter: (rms) => {
           const db = 20 * Math.log10(rms + 1e-8);
-          setLevel(Math.max(0, Math.min(100, ((db + 60) / 60) * 100)));
+          const v = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
+          // 값이 실질적으로 변할 때만 상태 갱신 — 매 오디오 프레임(~85ms)마다 전체 메시지 목록이 리렌더되던 문제 완화
+          setLevel((prev) => (Math.abs(prev - v) < 3 ? prev : Math.round(v)));
         },
       });
       // 연결되는 동안 사용자가 중지를 눌렀으면 즉시 정리하고 켜지 않음
@@ -544,8 +556,10 @@ export default function TranslateView({ session: initial, onBack }) {
     setLevel(0);
     setPartials({ left: '', right: '' });
   };
-  // 데스크: 호스트 수동 통역 시작 — 캡처가 아직 없으면(권한 거부 등) 먼저 시작
+  // 데스크: 호스트 수동 통역 시작 — 캡처가 아직 없으면(권한 대기·거부 등) 먼저 시작.
+  // 자동 시작이 진행 중이면 끝날 때까지 대기(이전엔 이 경우 버튼이 소리 없이 무시됐음)
   const deskManualStart = async () => {
+    for (let i = 0; i < 100 && startingRef.current; i++) await new Promise((r) => setTimeout(r, 100));
     if (!recRef.current) await start();
     if (recRef.current && recRef.current.deskStart) recRef.current.deskStart(hostLang);
   };
@@ -575,6 +589,7 @@ export default function TranslateView({ session: initial, onBack }) {
     setSxMode(v === 'twoway' ? 'two' : 'one');
     if (v !== 'twoway') setSxTarget('ko');
     setTtsOn(v === 'twoway');
+    localStorage.setItem('kac-sx-tts', v === 'twoway' ? '1' : '0'); // 저장값과 동기화(리로드 시 되돌아가던 문제)
   };
 
   return (
@@ -1260,7 +1275,8 @@ function PartialLine({ side, text, scale = 1 }) {
 
 // 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
 // 양방향(dir): 언어1 발화='a'(보라 액센트) · 언어2 발화='b'(무채색=검정/흰색) 로 방향 구분.
-function Row({ side, text, source, dir, scale = 1 }) {
+// memo: 마이크 미터 등 무관한 상태 변경 때 수백 개 행이 재렌더되지 않도록
+const Row = React.memo(function Row({ side, text, source, dir, scale = 1 }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
@@ -1292,4 +1308,4 @@ function Row({ side, text, source, dir, scale = 1 }) {
       )}
     </Box>
   );
-}
+});

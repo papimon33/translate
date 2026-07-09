@@ -34,10 +34,13 @@ export default function Login({ onSuccess }) {
       onSuccess(user);
     } catch (e) {
       if (e.need2fa) {
-        // 비밀번호는 맞음 — 인증 앱 코드 단계로 전환(코드 오류 시에도 유지)
+        // 비밀번호는 맞음 — 인증 앱 코드 단계로 전환. 첫 진입에도 서버 안내문을 보여준다.
         setNeed2fa(true);
         setOtp('');
-        setErr(need2fa ? e.message || '인증 코드가 올바르지 않습니다.' : '');
+        setErr(e.message || '인증 앱의 6자리 코드를 입력하세요.');
+      } else if (need2fa && e.status === 429) {
+        // 코드 단계에서 시도 초과 잠금 — 코드 입력 단계를 유지한 채 잠금 안내(비밀번호 재입력으로 오인하지 않게)
+        setErr(e.message || '시도가 너무 많습니다. 잠시 후 다시 시도하세요.');
       } else {
         setNeed2fa(false);
         setErr(e.message || '로그인 실패');

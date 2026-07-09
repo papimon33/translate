@@ -25,9 +25,6 @@
   /* 언어 방향 라벨(선택 대신 표시) */
   #langLabel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line);
     background:var(--panel); color:var(--txt); font-size:14px; font-weight:700; text-align:center; }
-  /* 호스트 중지 배너 */
-  #hostBanner { position:sticky; top:0; z-index:7; margin:0; padding:9px 14px; text-align:center;
-    font-size:13px; font-weight:700; color:#fff; background:#ef4444; }
   /* 폰 PTT(누르고 말하기) — 녹음 아이콘 버튼 */
   body { padding-bottom:100px; }
   #pttBtn { position:fixed; right:18px; bottom:calc(env(safe-area-inset-bottom) + 18px); z-index:25; display:none;
@@ -363,6 +360,12 @@ function upsert(item){
     // 최신 강조 이동
     if(latestId && cards.get(latestId)) cards.get(latestId).el.classList.remove('latest');
     el.classList.add('latest'); latestId = item.id;
+    // 장시간 세션 메모리·렌더 보호: 오래된 카드는 화면에서 제거(전문은 서버 세션에 보존)
+    while(order.length > 300){
+      const oldId = order.shift();
+      const old = cards.get(oldId);
+      if(old){ try { old.el.remove(); } catch {} cards.delete(oldId); }
+    }
   }
   card.texts = item.texts || (item.text ? { [curLang]: item.text } : {});
   card.source = item.source || '';
@@ -432,10 +435,16 @@ function playPcm24(b64){
 /* ---- WS ---- */
 let ws;
 function connect(){
+  // 이미 연결(중)이면 무시 — onclose 재시도와 visibilitychange 가 경합해 소켓이 병렬 누적되던 문제(TTS 이중 재생) 수정
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
   const proto = location.protocol==='https:'?'wss':'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}`);
-  ws.onopen = () => { if(audioOn) sendAudioSub(true); }; // 재접속 시 구독 복원
-  ws.onclose = () => setTimeout(connect, 1500);
+  const cur = ws;
+  ws.onopen = () => {
+    if(audioOn) sendAudioSub(true); // 재접속 시 구독 복원
+    if(pttActive) { try { cur.send(JSON.stringify({ type:'ptt', on:true })); } catch {} } // 발화 중 재접속 → 서버 파이프라인 재개(무음 녹음 방지)
+  };
+  ws.onclose = () => { if (ws === cur) { ws = null; setTimeout(connect, 1500); } };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if(m.type==='snapshot'){ m.items.forEach(it => upsert(it)); }
@@ -500,11 +509,15 @@ $('qrCopy').onclick = async () => {
 let pttActive=false, pttStream=null, pttCtx=null, pttProc=null;
 function f32to16(f32){ const b=new ArrayBuffer(f32.length*2), v=new DataView(b); for(let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); s=s<0?s*0x8000:s*0x7fff; v.setInt16(i*2,s,true);} return b; }
 function ds24(f32,rate){ if(rate===24000) return f32; const r=rate/24000, n=Math.round(f32.length/r), o=new Float32Array(n); for(let i=0;i<n;i++){ const idx=i*r, i0=Math.floor(idx), i1=Math.min(i0+1,f32.length-1); o[i]=f32[i0]*(1-(idx-i0))+f32[i1]*(idx-i0);} return o; }
+let pttStarting=false; // 권한 프롬프트 대기 중 이중 탭 가드(파이프라인 중복·마이크 누수 방지)
 async function pttStart(){
-  if(pttActive) return;
+  if(pttActive || pttStarting) return;
+  pttStarting=true;
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
-  catch(e){ alert('마이크 권한이 필요합니다. 브라우저 주소가 https 인지 확인해 주세요.'); return; }
+  catch(e){ pttStarting=false; alert('마이크 권한이 필요합니다. 브라우저 주소가 https 인지 확인해 주세요.'); return; }
+  pttStarting=false;
+  if(pttActive){ try { stream.getTracks().forEach(t=>t.stop()); } catch {} return; }
   pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec'); updatePttBtn();
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
   pttCtx = new (window.AudioContext||window.webkitAudioContext)();
@@ -512,7 +525,11 @@ async function pttStart(){
   const node = pttCtx.createMediaStreamSource(stream);
   pttProc = pttCtx.createScriptProcessor(4096,1,1);
   node.connect(pttProc); const g=pttCtx.createGain(); g.gain.value=0; pttProc.connect(g); g.connect(pttCtx.destination);
-  pttProc.onaudioprocess = (e)=>{ if(!pttActive || !ws || ws.readyState!==1) return; ws.send(f32to16(ds24(e.inputBuffer.getChannelData(0), rate))); };
+  pttProc.onaudioprocess = (e)=>{
+    if(!pttActive || !ws || ws.readyState!==1) return;
+    if(ws.bufferedAmount > 131072) return; // 백프레셔: 밀린 오디오를 보내면 이후 인식이 계속 지연됨 — 버리고 실시간 유지
+    ws.send(f32to16(ds24(e.inputBuffer.getChannelData(0), rate)));
+  };
 }
 function pttStop(){
   if(!pttActive) return; pttActive=false;

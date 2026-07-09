@@ -162,22 +162,45 @@ export async function startRecorder(opts) {
   for (const { src, stream } of sources) {
     streams.push(stream);
     const isAudioPipe = pipes.length === 0; // 서버 TTS 음성은 첫 연결에서만 재생(모두 모드 이중 재생 방지)
-    const ws = new WebSocket(`${proto}://${location.host}/ws/host?src=${src}&${q}`);
-    ws.binaryType = 'arraybuffer';
+    const wsUrl = `${proto}://${location.host}/ws/host?src=${src}&${q}`;
+    const pipe = { src, ws: null, proc: null };
+
+    // 소켓 배선 — 초기 연결과 자동 재연결이 공용
+    const wire = (sock) => {
+      sock.binaryType = 'arraybuffer';
+      sock.onmessage = (ev) => {
+        const m = JSON.parse(ev.data);
+        // 중지 후 결과 수신 창(1.8초) 동안엔 자막 병합만 허용 — 구 소켓이 받은 takeover 등
+        // 제어 메시지가 새로 시작한 녹음을 죽이는 레이스 차단
+        if (stopped && m.type !== 'sentence' && m.type !== 'partial') return;
+        if (m.type === 'audio') {
+          if (audioOutOn && isAudioPipe) playPcm24(m.b64);
+          return;
+        }
+        onMessage(m);
+      };
+      sock.onclose = () => {
+        if (stopped || pipe.ws !== sock) return;
+        // 네트워크 블립·서버 재시작 → 자동 재연결('진행 중' 표시인 채 무음이 지속되던 문제 수정)
+        try { onMessage({ type: 'status', message: '연결이 끊겨 재연결 중…' }); } catch {}
+        setTimeout(() => {
+          if (stopped || pipe.ws !== sock) return;
+          const re = new WebSocket(wsUrl);
+          pipe.ws = re;
+          wire(re);
+        }, 2000);
+      };
+    };
+
+    const ws0 = new WebSocket(wsUrl);
+    pipe.ws = ws0;
     await new Promise((res, rej) => {
       // 연결이 영원히 매달리는(half-open) 경우 방지 — 12초 후 실패 처리
-      const to = setTimeout(() => { try { ws.close(); } catch {} rej(new Error('연결 시간 초과 — 다시 시도해 주세요.')); }, 12000);
-      ws.onopen = () => { clearTimeout(to); res(); };
-      ws.onerror = () => { clearTimeout(to); rej(new Error('연결 실패 — 다시 시도해 주세요.')); };
+      const to = setTimeout(() => { try { ws0.close(); } catch {} rej(new Error('연결 시간 초과 — 다시 시도해 주세요.')); }, 12000);
+      ws0.onopen = () => { clearTimeout(to); res(); };
+      ws0.onerror = () => { clearTimeout(to); rej(new Error('연결 실패 — 다시 시도해 주세요.')); };
     });
-    ws.onmessage = (ev) => {
-      const m = JSON.parse(ev.data);
-      if (m.type === 'audio') {
-        if (audioOutOn && isAudioPipe) playPcm24(m.b64);
-        return;
-      }
-      onMessage(m);
-    };
+    wire(ws0);
 
     const node = audioCtx.createMediaStreamSource(stream);
     const proc = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -207,12 +230,15 @@ export async function startRecorder(opts) {
       }
       if (src === 'mic' && onMeter) onMeter(Math.sqrt(sum / input.length), peak);
 
+      const w = pipe.ws; // 재연결로 소켓이 바뀌어도 항상 현재 소켓 사용
+      const wOpen = w && w.readyState === WebSocket.OPEN;
+
       // 발화 일시정지(mute), 또는 (AEC 미지원 폴백일 때만) TTS 재생 중 자동 음소거: 무음 전송 + keepalive
       // AEC 루프백이 켜져 있으면 재생음이 마이크에서 제거되므로 TTS 중에도 발화 가능(음소거 안 함)
       if (muted || (!aecActive && audioCtx.currentTime < ttsMutedUntil)) {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (wOpen) {
           const ds = downsampleTo24k(input, inRate);
-          ws.send(new ArrayBuffer(ds.length * 2));
+          w.send(new ArrayBuffer(ds.length * 2));
           const t = Date.now();
           if (t - lastActivitySent > 5000) { lastActivitySent = t; notifyActivityAll(); }
         }
@@ -225,9 +251,9 @@ export async function startRecorder(opts) {
         if (peak >= gateTh) gateOpenUntil = Date.now() + 300;
         if (Date.now() >= gateOpenUntil) gated = true;
       }
-      if (ws.readyState === WebSocket.OPEN) {
+      if (wOpen) {
         const ds = downsampleTo24k(input, inRate);
-        ws.send(gated ? new ArrayBuffer(ds.length * 2) : floatTo16BitPCM(ds));
+        w.send(gated ? new ArrayBuffer(ds.length * 2) : floatTo16BitPCM(ds));
       }
 
       // 소리(시스템 오디오 포함)가 들리면 유휴 자동종료 방지 신호 — 모든 연결에 전송(전역)
@@ -239,15 +265,16 @@ export async function startRecorder(opts) {
         vad.silence = 0;
       } else vad.silence++;
       if (vad.speaking && (vad.silence >= SIL || vad.since >= MAXF)) {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'commit' }));
+        if (wOpen) w.send(JSON.stringify({ type: 'commit' }));
         vad.speaking = false;
         vad.silence = 0;
         vad.since = 0;
       }
     };
+    pipe.proc = proc;
 
     stream.getTracks().forEach((t) => (t.onended = () => stop()));
-    pipes.push({ ws, proc });
+    pipes.push(pipe);
   }
 
   let stopped = false;

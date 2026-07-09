@@ -115,18 +115,24 @@ export default function SessionList({ onOpen, user, deskMode }) {
   };
 
   const create = async () => {
-    setDlg(false);
     const titles = (list || []).map((s) => s.title);
     const title = name.trim() || uniqueName(base, titles);
     const body = deskMode
       ? { title, pipeline: 'desk', inLang: 'auto', deskFloor, deskSide }
       : { title, pipeline: 'soniox', preset, inLang: 'auto' };
-    const s = await api.create(body);
-    onOpen(s);
+    try {
+      const s = await api.create(body);
+      setDlg(false);
+      onOpen(s);
+    } catch (e) {
+      setSnack({ ok: false, msg: '세션 생성 실패: ' + (e.message || '네트워크 오류') });
+    }
   };
 
   const exportSession = async () => {
-    const s = await api.get(menu.session.id);
+    let s;
+    try { s = await api.get(menu.session.id); }
+    catch (e) { setMenu(null); setSnack({ ok: false, msg: '내보내기 실패: ' + (e.message || '네트워크 오류') }); return; }
     setMenu(null);
     const lines = s.items.map((it) => {
       const who = it.side === 'left' ? '[시스템]' : '[마이크]';
@@ -145,14 +151,15 @@ export default function SessionList({ onOpen, user, deskMode }) {
     const id = menu.session.id;
     setMenu(null);
     if (!confirm('이 세션을 삭제할까요?')) return;
-    await api.remove(id);
+    try { await api.remove(id); } catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
     reload();
   };
   const startRename = () => { setRename({ id: menu.session.id, val: menu.session.title || '' }); setMenu(null); };
   const saveRename = async () => {
     const { id, val } = rename;
     setRename(null);
-    await api.patch(id, { title: (val || '').trim() || '제목 없음' });
+    try { await api.patch(id, { title: (val || '').trim() || '제목 없음' }); }
+    catch (e) { setSnack({ ok: false, msg: '제목 변경 실패: ' + (e.message || '네트워크 오류') }); }
     reload();
   };
   // 데스크 메뉴는 desk 세션만, 실시간 번역 메뉴는 desk 외 세션만
