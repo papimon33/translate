@@ -64,6 +64,29 @@ const OUT4 = [
   { code: 'ja', label: '日本語' },
   { code: 'zh', label: '中文' },
 ];
+// Soniox stt-rt-v5 지원 언어 전체(60) — 한·영·일·중을 상단에, 나머지는 가나다순
+const SX_LANGS = [
+  ...OUT4,
+  { code: 'el', label: '그리스어' }, { code: 'nl', label: '네덜란드어' }, { code: 'no', label: '노르웨이어' },
+  { code: 'da', label: '덴마크어' }, { code: 'de', label: '독일어' }, { code: 'lv', label: '라트비아어' },
+  { code: 'ru', label: '러시아어' }, { code: 'ro', label: '루마니아어' }, { code: 'lt', label: '리투아니아어' },
+  { code: 'mk', label: '마케도니아어' }, { code: 'mr', label: '마라티어' }, { code: 'ms', label: '말레이어' },
+  { code: 'ml', label: '말라얄람어' }, { code: 'eu', label: '바스크어' },
+  { code: 'bn', label: '벵골어' }, { code: 'bs', label: '보스니아어' }, { code: 'bg', label: '불가리아어' },
+  { code: 'be', label: '벨라루스어' }, { code: 'vi', label: '베트남어' }, { code: 'sr', label: '세르비아어' },
+  { code: 'sw', label: '스와힐리어' }, { code: 'sv', label: '스웨덴어' }, { code: 'es', label: '스페인어' },
+  { code: 'sk', label: '슬로바키아어' }, { code: 'sl', label: '슬로베니아어' }, { code: 'ar', label: '아랍어' },
+  { code: 'az', label: '아제르바이잔어' }, { code: 'af', label: '아프리칸스어' }, { code: 'sq', label: '알바니아어' },
+  { code: 'et', label: '에스토니아어' }, { code: 'cy', label: '웨일스어' }, { code: 'uk', label: '우크라이나어' },
+  { code: 'ur', label: '우르두어' }, { code: 'it', label: '이탈리아어' }, { code: 'id', label: '인도네시아어' },
+  { code: 'gl', label: '갈리시아어' }, { code: 'gu', label: '구자라트어' }, { code: 'kk', label: '카자흐어' },
+  { code: 'ca', label: '카탈루냐어' }, { code: 'kn', label: '칸나다어' }, { code: 'hr', label: '크로아티아어' },
+  { code: 'ta', label: '타밀어' }, { code: 'th', label: '태국어' }, { code: 'te', label: '텔루구어' },
+  { code: 'tr', label: '터키어' }, { code: 'pa', label: '펀자브어' }, { code: 'fa', label: '페르시아어' },
+  { code: 'pt', label: '포르투갈어' }, { code: 'pl', label: '폴란드어' }, { code: 'fr', label: '프랑스어' },
+  { code: 'fi', label: '핀란드어' }, { code: 'tl', label: '필리핀어' }, { code: 'hu', label: '헝가리어' },
+  { code: 'he', label: '히브리어' }, { code: 'hi', label: '힌디어' }, { code: 'cs', label: '체코어' },
+];
 const PIPES = [
   { v: 'translate', label: '실시간 통역' },
   { v: 'deepgram', label: '다국어 번역 (Deepgram)' },
@@ -752,8 +775,8 @@ export default function TranslateView({ session: initial, onBack }) {
                 </Select>
               </Box>
               <Field label="출력 언어">
-                <Select size="small" value={sxTarget} disabled={recording} onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }} sx={{ ...selSx, minWidth: 120 }}>
-                  {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                <Select size="small" value={sxTarget} disabled={recording} onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                  {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
                 </Select>
               </Field>
               {['oneway', 'online'].includes(preset) && (
@@ -793,13 +816,13 @@ export default function TranslateView({ session: initial, onBack }) {
           {cfg.pipeline === 'soniox' && !onewayPreset && (
             <>
               <Field label="언어 1">
-                <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} sx={{ ...selSx, minWidth: 110 }}>
-                  {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} sx={{ ...selSx, minWidth: 110 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                  {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
                 </Select>
               </Field>
               <Field label="언어 2">
-                <Select size="small" value={sxB} disabled={recording} onChange={(e) => { setSxB(e.target.value); localStorage.setItem('kac-sx-b', e.target.value); }} sx={{ ...selSx, minWidth: 110 }}>
-                  {OUT4.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                <Select size="small" value={sxB} disabled={recording} onChange={(e) => { setSxB(e.target.value); localStorage.setItem('kac-sx-b', e.target.value); }} sx={{ ...selSx, minWidth: 110 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                  {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
                 </Select>
               </Field>
               <InfoToggle

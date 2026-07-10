@@ -182,3 +182,12 @@
 - **지도 상단 플로팅**: `.item.map` → body 직속 `position:fixed; top:14px; z-index:70`. 새 발화에도 유지(collapseMapMini 제거), **10초 뒤 자동 닫힘**(mapHideTimer, 새 안내 시 리셋) + **아무 곳이나 탭하면 닫힘**. clearAll→removeMap(타이머 정리 포함).
 - **경로 2개 중복**: 원인 = resolveCategoryDests 가 층의 매칭 시설 전부를 dests 로 반환 → 맵이 전 경로를 그림. ① 서버: 좌표(5px 격자) 중복 시설 dedupe ② 클라: 1차 showRoute 결과에서 최단(summary.meters) 후보를 골라 **그 하나만 재표시**.
 - 검증(프리뷰): 지도 fixed/route 1개/새 발화 유지/탭 닫힘/10초 자동 닫힘 모두 통과, 데스크 시작→guest-mic on/off→종료 프로토콜 회귀 정상(서버 오류 0), 8/8 테스트. ⚠ 실제 이중 마이크 누화 억제 효과는 실기기(데스크+태블릿 동시)로 확인 필요.
+
+## 2026-07-10 (3) — 언어 확장·데스크 자동감지·지도/절단 수정
+- **실시간 번역 언어 60개**: `SONIOX_LANGS`(서버) — runSoniox `okL`·PTT 검증을 전체 지원 언어로 개방(기본 힌트는 L4 유지). 클라 `SX_LANGS`(한영일중 상단 + 가나다순 56개) — soniox 단방향 타깃·양방향 언어1/2 셀렉트에 적용(maxHeight 360 메뉴).
+- **데스크 'Other languages' 자동 감지**: 터치 화면 = 영/일/중 3버튼 + 하단 넓은 대시 버튼 "Other languages — just speak"(`desk-start lang:'auto'`).
+  - 서버: `autoDetect` 상태 — one_way(→ko)+광역 힌트(GUEST_LANGS)로 시작, `sxInfo {mode:'detect'}`. **첫 커밋의 감지 언어(src≠ko)로 two_way 재체결**(closeSx→connectSx, 여객 채널도 재연결), desk-active(lang)·meta 재브로드캐스트.
+  - 뷰어: applySxInfo 에 detect 분기(터치 화면으로 쫓지 않음), svcPair "Detecting language…", LANGNAME 확장(es/fr/pt/ar/de/it/hi/tr/uk/pl/nl). 구 '+ More languages' 확장 패널 제거.
+- **지도 top**: `top:calc(env(safe-area-inset-top)+14px)` — 노치 기기에서도 항상 화면 최상단.
+- **발화 길이 강제 확정 제거**: SX_MAX(_CHARS) 200자 도달 시 강제 commit 하던 로직(runSoniox·데스크 staff/guest·PTT 4곳) 삭제 — 문장 중간 절단이 단어 오역·언어 오인식을 유발했음. 이제 endpoint(<end>)에서만 확정. (translate 파이프라인의 텍스트 스트리밍 MAX_BUF 는 별개로 유지)
+- 검증: desk-start auto → meta detect→desk-active:auto→상태문구, 뷰어 Other 버튼→"Detecting language…" 화면, soniox 광역 힌트 연결 오류 0, 빌드에 60언어 포함, 8/8 테스트. ⚠ 감지→two_way 전환의 실발화 확인은 실기기 필요.

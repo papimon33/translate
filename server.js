@@ -21,6 +21,8 @@ const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || ''; // Nova-3 테스트 모드(선택)
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
+// Soniox stt-rt-v5 지원 언어(60) — 번역은 지원 언어 임의 쌍. 선택 UI/검증에 사용.
+const SONIOX_LANGS = ['af','sq','ar','az','eu','be','bn','bs','bg','ca','zh','hr','cs','da','nl','en','et','fi','fr','gl','de','el','gu','he','hi','hu','id','it','ja','kn','kk','ko','lv','lt','mk','ms','ml','mr','no','fa','pl','pt','pa','ro','ru','sr','sk','sl','es','sw','sv','tl','ta','te','th','tr','uk','ur','vi','cy'];
 const CARTESIA_API_KEY = process.env.CARTESIA_API_KEY || ''; // Cartesia Sonic 실시간 TTS(선택)
 const CARTESIA_VERSION = '2025-04-16';
 const CARTESIA_MODEL = 'sonic-3.5';
@@ -2112,9 +2114,8 @@ function maybeGcRoom(sessionId) {
 function startTalkPipeline(sessionId, side) {
   if (!SONIOX_API_KEY) return null;
   const cfg = roomCfg.get(sessionId) || {};
-  const L4 = ['ko', 'en', 'ja', 'zh'];
-  const a = L4.includes(cfg.sxA) ? cfg.sxA : 'ko';
-  const b = L4.includes(cfg.sxB) ? cfg.sxB : (cfg.sxMode === 'one' && L4.includes(cfg.sxTarget) ? cfg.sxTarget : 'en');
+  const a = SONIOX_LANGS.includes(cfg.sxA) ? cfg.sxA : 'ko';
+  const b = SONIOX_LANGS.includes(cfg.sxB) ? cfg.sxB : (cfg.sxMode === 'one' && SONIOX_LANGS.includes(cfg.sxTarget) ? cfg.sxTarget : 'en');
   const config = {
     api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
     enable_language_identification: true, enable_endpoint_detection: true,
@@ -2126,7 +2127,6 @@ function startTalkPipeline(sessionId, side) {
   let ready = false; const pending = [];
   let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommit = '', lastCommitAt = 0;
   const targetKeyFor = (src) => (src === a ? b : a);
-  const SX_MAX = 200;
   const clearCard = (id) => { const m0 = { type: 'sentence', id, side, source: null, texts: {} }; broadcast(sessionId, m0); sendToHosts(sessionId, m0); };
   const commit = () => {
     const id = curId, txt = finalText.trim(), src = curSrc, tgt = (finalTrans.trim() || lastTrans).trim();
@@ -2163,7 +2163,7 @@ function startTalkPipeline(sessionId, side) {
     if (shownTgt) lastTrans = shownTgt;
     if (!curId && (shownSrc || shownTgt)) curId = newId();
     if (curId) { const msg = { type: 'sentence', id: curId, side, source: shownSrc || null, texts: { [targetKeyFor(curSrc || a)]: shownTgt } }; broadcast(sessionId, msg); sendToHosts(sessionId, msg); }
-    if (endHit || finalText.length >= SX_MAX) commit();
+    if (endHit) commit(); // 길이 기반 강제 확정 제거 — 문장 중간 절단이 오역·언어 오인식 유발
   });
   sx.on('error', () => {});
   return {
@@ -2375,15 +2375,14 @@ function handleHost(ws) {
       toHost({ type: 'status', message: 'SONIOX_API_KEY 미설정 — soniox 모드 사용 불가' });
       return;
     }
-    const SX_MAX_CHARS = 200; // endpoint 안 잡혀도 이 길이에서 강제 확정(폭주 방지)
     // 엔드포인트 튜닝(테스트용, UI에서 선택). 문서 기본값: sensitivity 0, maxDelay 2000, latency 0.
     const sens = Number(ws._sxSens);
     const maxDelay = Number(ws._sxMaxDelay);
     const latency = Number(ws._sxLatency);
     // Soniox 자체 실시간 번역(기본). GPT 경유 없이 전사+번역 토큰을 한 스트림으로 받음.
     //  단방향(one): 타깃 1개 / 양방향(two): A↔B. 지원 언어 ko/en/ja/zh 로 한정.
-    const L4 = ['ko', 'en', 'ja', 'zh'];
-    const okL = (c) => L4.includes(c);
+    const L4 = ['ko', 'en', 'ja', 'zh']; // 미지정 시 기본 언어 힌트
+    const okL = (c) => SONIOX_LANGS.includes(c); // 선택지는 soniox 지원 언어 전체
     const sxMode = ws._sxMode === 'two' ? 'two' : 'one';
     const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
     const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
@@ -2586,7 +2585,7 @@ function handleHost(ws) {
         liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, spkLabel(curSpeaker));
       }
       // 발화 종료(<end>) 또는 과도하게 길면 확정
-      if (endHit || finalText.length >= SX_MAX_CHARS) commit();
+      if (endHit) commit(); // 길이 기반 강제 확정 제거
     });
     cur.on('error', (e) => { if (sx === cur) toHost({ type: 'status', message: 'Soniox 오류: ' + (e && e.message || e) }); });
     cur.on('close', () => {
@@ -2639,7 +2638,6 @@ function handleHost(ws) {
      · TTS/화자분리 없음. 클라(호스트=ko / 뷰어=X)는 source+texts+meta(sxInfo)로 색/표시 결정. */
   function runDesk() {
     if (!SONIOX_API_KEY) { toHost({ type: 'status', message: 'SONIOX_API_KEY 미설정 — 데스크 모드 사용 불가' }); return; }
-    const SX_MAX_CHARS = 200;
     const sens = Number(ws._sxSens), maxDelay = Number(ws._sxMaxDelay), latency = Number(ws._sxLatency);
     const A = 'ko'; // 안내원 언어(고정)
     const GUEST_LANGS = ['en', 'ja', 'zh', 'vi', 'th', 'id', 'ru']; // 손님(또는 호스트)이 고르는 언어(soniox two_way 지원, 한국어 제외)
@@ -2698,11 +2696,12 @@ function handleHost(ws) {
     // 손님이 한국어를 고르면 two_way 가 성립하지 않으므로 전부 한국어로 표기(one_way→ko)
     const configFor = () => (lockedB && lockedB !== A
       ? { ...baseConfig([A, lockedB]), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } }
-      : { ...baseConfig([A]), language_hints: [A], translation: { type: 'one_way', target_language: A } });
+      // 자동 감지 중: 언어 미정 → one_way(→ko) + 광역 힌트로 첫 발화 언어를 파악
+      : { ...baseConfig([A]), language_hints: autoDetect ? [A, ...GUEST_LANGS] : [A], translation: { type: 'one_way', target_language: A } });
 
     const setMeta = () => {
       const sxInfo = phase === 'active'
-        ? (lockedB && lockedB !== A ? { mode: 'two', a: A, b: lockedB } : { mode: 'one', target: A })
+        ? (lockedB && lockedB !== A ? { mode: 'two', a: A, b: lockedB } : (autoDetect ? { mode: 'detect' } : { mode: 'one', target: A }))
         : { mode: 'idle' };
       if (session) { session.sxInfo = sxInfo; if (phase === 'active' && lockedB) session.langs = [A, lockedB]; saveSessions(); }
       broadcast(sessionId, { type: 'meta', sxInfo });
@@ -2711,6 +2710,7 @@ function handleHost(ws) {
 
     let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommitText = '';
     let lastCommitAt = 0; // 중복 판정은 5초 창 안에서만(의도적 반복 발화 허용)
+    let autoDetect = false; // 'Other languages' 시작 — 첫 발화의 언어를 감지해 two_way 로 전환
     let langVotes = {}; // 입력 언어 다수결(첫 단어 오인식 교정)
     const targetKeyFor = (src) => (lockedB && lockedB !== A ? (src === A ? lockedB : A) : A);
     const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; langVotes = {}; };
@@ -2730,6 +2730,18 @@ function handleHost(ws) {
       lastCommitText = out;
       lastCommitAt = Date.now();
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null);
+      // 자동 감지 완료: 첫 발화가 한국어가 아니면 그 언어로 two_way 재체결(단방향 종료 → 양방향 시작)
+      if (autoDetect && phase === 'active' && src && src !== A && SONIOX_LANGS.includes(src)) {
+        autoDetect = false;
+        lockedB = src;
+        setMeta();
+        armForeignTimer();
+        const m2 = { type: 'desk-active', lang: src };
+        broadcast(sessionId, m2); toHost(m2);
+        toHost({ type: 'status', message: `언어 감지: ${src} — 양방향 통역(ko↔${src})으로 전환` });
+        closeSx(); connectSx();                       // two_way 로 재연결
+        if (guestMicOn) { closeGuest(); connectGuest(); } // 여객 채널도 감지 언어 힌트로 재연결
+      }
       // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
       // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
       // 기계번역이 아닌 원어민 한국어 원문(txt)에서 매칭하므로 정확도가 높다.
@@ -2805,7 +2817,7 @@ function handleHost(ws) {
       recentCommits.length = 0;
       gLastCommitText = '';
       lastCommitText = '';
-      phase = 'idle'; lockedB = null; resetUtterance();
+      phase = 'idle'; lockedB = null; autoDetect = false; resetUtterance();
       pending = [];
       closeSx();
       closeGuest(); // 여객 채널 종료(guestMicOn 플래그는 유지 — 다음 응대에서 재연결)
@@ -2819,16 +2831,17 @@ function handleHost(ws) {
     // 통역 시작: 손님(뷰어)이 언어를 고르거나 호스트가 수동 시작 — 이때 처음 soniox 연결
     const startConversation = (B) => {
       if (closed) return;
-      const lang = GUEST_LANGS.includes(B) ? B : 'en';
-      if (phase === 'active' && lang === lockedB) return;
+      const auto = B === 'auto'; // 'Other languages' — 첫 발화 언어를 감지해 two_way 전환
+      const lang = auto ? null : (GUEST_LANGS.includes(B) ? B : 'en');
+      if (phase === 'active' && !auto && lang === lockedB) return;
       if (phase !== 'active') convStartedAt = Date.now(); // 응대 시작 시각(통계용)
-      phase = 'active'; lockedB = lang; lastCommitText = ''; resetUtterance();
+      phase = 'active'; lockedB = lang; autoDetect = auto; lastCommitText = ''; resetUtterance();
       pending = [];
       setMeta();
       armForeignTimer();
-      const m = { type: 'desk-active', lang };
+      const m = { type: 'desk-active', lang: lang || 'auto' };
       broadcast(sessionId, m); toHost(m);
-      toHost({ type: 'status', message: `통역 시작 (ko↔${lang}) — 무음 ${deskIdleMs / 1000}초 시 자동 종료` });
+      toHost({ type: 'status', message: auto ? `통역 시작 — 손님의 첫 발화로 언어를 감지합니다 (무음 ${deskIdleMs / 1000}초 시 자동 종료)` : `통역 시작 (ko↔${lang}) — 무음 ${deskIdleMs / 1000}초 시 자동 종료` });
       connectSx();
       if (guestMicOn) connectGuest(); // 여객 마이크가 이미 연결돼 있으면 여객 채널도 시작
     };
@@ -2888,7 +2901,7 @@ function handleHost(ws) {
         if (!staffOwns(curSrc)) liveSend(curId, {}, null, null);
         else liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, null, curSrc || null);
       }
-      if (endHit || finalText.length >= SX_MAX_CHARS) commit();
+      if (endHit) commit(); // 길이 기반 강제 확정 제거
     }
 
     /* ---- 여객 채널(2채널 프로토타입): 뷰어 태블릿 마이크 → 별도 soniox one_way(선택언어→ko) ----
@@ -2968,7 +2981,7 @@ function handleHost(ws) {
         if (!guestOwns(gCurSrc)) liveSend(gCurId, {}, null, null, null, 'left');
         else liveSend(gCurId, { [A]: shownTgt }, shownSrc || null, null, lockedB || null, 'left');
       }
-      if (endHit || gFinalText.length >= SX_MAX_CHARS) guestCommit();
+      if (endHit) guestCommit(); // 길이 기반 강제 확정 제거
     }
     // 뷰어의 여객 마이크 채널 on/off — 켜지면 응대 중일 때 즉시 엔진 연결, 꺼지면 단일 채널로 폴백.
     // fromWs 로 소유 소켓을 추적: 뷰어 재접속 시 구 소켓의 close 가 새 소켓의 채널을 끄지 않도록.

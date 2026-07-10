@@ -71,7 +71,10 @@
     font-size:clamp(19px,3.8vw,26px); font-weight:800; padding:26px 6px; cursor:pointer;
     box-shadow:0 6px 20px rgba(0,0,0,.06); }
   #langBtns button:active { background:var(--chip); }
-  #moreBtn { border:none; background:transparent; color:var(--muted); font-size:15px; font-weight:700; margin-top:18px; cursor:pointer; padding:8px 14px; }
+  /* 기타 언어: 넓은 단일 버튼 — 누르면 바로 발화 화면, 첫 발화로 언어 자동 감지 */
+  #otherLangBtn { width:100%; margin-top:14px; border:1px dashed var(--line); border-radius:20px; background:transparent;
+    color:var(--muted); font-size:calc(17px * var(--fs)); font-weight:800; padding:18px 10px; cursor:pointer; }
+  #otherLangBtn:active { background:var(--chip); }
   #langMore { display:none; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; width:100%; margin-top:12px; }
   #langMore.show { display:grid; }
   #langMore button { border:1px solid var(--line); border-radius:16px; background:var(--card); color:var(--fg);
@@ -115,7 +118,7 @@
   .turn.self  .bub { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:7px; }
 
   /* 길안내 맵 — 화면 상단 고정 플로팅(대화와 독립). 탭하거나 10초 뒤 자동으로 닫힌다. */
-  .item.map { position:fixed; top:14px; left:14px; right:14px; z-index:70; margin:0;
+  .item.map { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 14px); left:14px; right:14px; z-index:70; margin:0;
     border:1px solid var(--line); border-radius:20px; overflow:hidden; background:var(--card);
     box-shadow:0 14px 44px rgba(0,0,0,.28); display:flex; flex-direction:column; cursor:pointer; }
   .mapHead { display:flex; align-items:center; gap:9px; padding:11px 14px; border-bottom:1px solid var(--line); }
@@ -195,13 +198,7 @@
         <button data-lang="ja">日本語</button>
         <button data-lang="zh">中文</button>
       </div>
-      <button id="moreBtn">+ More languages</button>
-      <div id="langMore">
-        <button data-lang="vi">Tiếng Việt</button>
-        <button data-lang="th">ไทย</button>
-        <button data-lang="id">Bahasa Indonesia</button>
-        <button data-lang="ru">Русский</button>
-      </div>
+      <button id="otherLangBtn">Other languages — just speak</button>
     </div>
   </div>
 
@@ -259,7 +256,7 @@ const cards = new Map();   // id -> { el, bub, texts, source, lang }
 let order = [];
 
 /* ---- 언어·문구 현지화(손님 언어 기준, en 폴백) ---- */
-const LANGNAME = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', vi:'Tiếng Việt', th:'ไทย', id:'Bahasa Indonesia', ru:'Русский', tl:'Filipino', ms:'Bahasa Melayu' };
+const LANGNAME = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', vi:'Tiếng Việt', th:'ไทย', id:'Bahasa Indonesia', ru:'Русский', tl:'Filipino', ms:'Bahasa Melayu', es:'Español', fr:'Français', pt:'Português', ar:'العربية', de:'Deutsch', it:'Italiano', hi:'हिन्दी', tr:'Türkçe', uk:'Українська', pl:'Polski', nl:'Nederlands', mn:'Монгол' };
 const UI = {
   interpreting: { ko:'통역 중', en:'Interpreting', ja:'通訳中', zh:'翻译中', vi:'Đang dịch' },
   connecting:   { ko:'연결 중…', en:'Connecting…', ja:'接続中…', zh:'连接中…', vi:'Đang kết nối…' },
@@ -336,6 +333,12 @@ function clearAll(){
 }
 function applySxInfo(info){
   if(!info) return;
+  if(info.mode === 'detect'){
+    // 언어 자동 감지 중(Other languages) — 유효한 진행 상태
+    if(!started){ if (entered && hostActive) enterStage('auto'); return; }
+    curLang = 'auto'; setSvcPair();
+    return;
+  }
   if(info.mode !== 'two'){
     // 서버는 대기(idle)인데 클라만 진행 중(절전으로 desk-reset 을 놓친 경우) → 이전 대화를 지우고 터치 화면 복귀
     if (started && !pendingStart) backToTouch();
@@ -345,7 +348,10 @@ function applySxInfo(info){
   curLang = info.b || curLang; setSvcPair();
   rerender(); try { mapApi && mapApi.setLang(curLang); } catch {}
 }
-function setSvcPair(){ $('svcPair').textContent = curLang === 'ko' ? '한국어' : '한국어 ↔ ' + (LANGNAME[curLang] || String(curLang).toUpperCase()); $('svcLive').textContent = t('interpreting'); $('svcDot').style.display = ''; }
+function setSvcPair(){
+  if (curLang === 'auto') { $('svcPair').textContent = 'Detecting language…'; $('svcLive').textContent = 'Speak in your language'; $('svcDot').style.display = ''; return; }
+  $('svcPair').textContent = curLang === 'ko' ? '한국어' : '한국어 ↔ ' + (LANGNAME[curLang] || String(curLang).toUpperCase()); $('svcLive').textContent = t('interpreting'); $('svcDot').style.display = '';
+}
 function setSvcConnecting(){ $('svcPair').textContent = t('connecting'); $('svcLive').textContent = ''; $('svcDot').style.display = 'none'; }
 
 /* ---- 길안내 맵 (화면 상단 고정 플로팅, 단일 인스턴스) — 탭 또는 10초 뒤 닫힘 ---- */
@@ -619,8 +625,8 @@ $('enterBtn').addEventListener('click', () => { entered = true; goFullscreen(); 
 // 대기 화면: 언어 버튼 원탭으로 바로 시작
 const pickLang = (e) => { const b = e.target.closest('button[data-lang]'); if (!b) return; startWithLang(b.dataset.lang); };
 $('langBtns').addEventListener('click', pickLang);
-$('langMore').addEventListener('click', pickLang);
-$('moreBtn').addEventListener('click', (e) => { e.stopPropagation(); $('langMore').classList.toggle('show'); });
+// 기타 언어: 언어 선택 없이 바로 발화 화면 — 서버가 첫 발화로 언어를 감지해 양방향 전환
+$('otherLangBtn').addEventListener('click', () => startWithLang('auto'));
 $('endBtn').addEventListener('click', end);
 $('stage').addEventListener('click', flashEnd);
 // 전체화면이 풀렸으면(ESC·시스템 제스처) 다음 터치에서 자동으로 전체화면 복귀
