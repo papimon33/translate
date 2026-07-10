@@ -204,3 +204,27 @@
 - **내부 집계 제거(UI)**: UsageChart·일별/시간별 토글·총사용시간/비용 카드 삭제 — 사용량 탭은 벤더 API 기반만. (서버 recordUsage 는 계정 관리의 사용자별 이용시간용으로 유지)
 - **유저별 사용량(STT)**: Soniox WS config `client_reference_id: 'u:<userId>'`(공식 필드, usage-logs 에 기록) — runSoniox/데스크 staff·guest/PTT(세션 소유자) 태깅. usage-logs 집계에 byUser(일별) 추가, vendor-usage 응답에 기간 합산 users[]. Soniox 카드에 유저별 목록(미태깅 과거분='anon'). **Cartesia TTS 는 명세상 요청 태그 필드 없음 + usage 는 api_key 단위만 → 유저별 불가**, OpenAI costs 도 프로젝트/키 단위.
 - 검증: vendor-usage users[anon] 집계, openai serviceKey 구분 문구, desk-guest-sens E2E(쿼리 초기값 30 → meta gs=30 → 변경 80 뷰어 전파), 내부 집계 UI 제거 확인, 8/8 테스트.
+
+## 2026-07-10 (6) — 용어 설정 통합모델(v3) 전면 개편
+- **데이터 모델 통합**: `termsConfig = { version:3, servedLangs, categoryScope, entries[] }`. 고유명사·번역쌍·alt 분리 폐지 → 평면 entries.
+  - `entry = { id, category(airline|aviation|facility|etc), scope:['*']|['zh'..], names:{ko필수,en,ja,..}, mode }`
+  - `mode`: **pair**(양방향 번역+인식) / **inputOnly**(외국어→ko 단방향, 약칭·오인식 교정) / **recognize**(인식 힌트만, 예 ICAO).
+  - 구형(terms/translationTerms/alt) → entries 자동 마이그레이션(부팅 1회, seed 병합). 로드 지점(Mongo/파일/초기값) 전체 객체 보존하도록 수정.
+- **약칭 단방향 확정**: 东航=`{airline, scope:[zh], names:{ko:중국동방항공, zh:东航}, inputOnly}` → zh→ko 만. 정식 표기는 한국어→중국어로 유지(충돌 없음). 오인식 교정(キチン室→흡연실)도 동일 inputOnly.
+- **buildSonioxContext(langs, {desk})** entries 기반 재작성 — mode별 조립, scope 언어필터, **categoryScope로 데스크 시 aviation 제외**(항공용어 데스크 주입 안 함). **en→ko 폴백 제거**(명시 표기만). raw/한도방어 분리(buildSonioxContextRaw).
+- **언어별 게이지**: 세션은 언어쌍 단위라 게이지를 운영 언어별(ko↔L)로 표시. 서버·클라 동일 규칙(contextSizeFor).
+- **soniox 실검증 API** `POST /api/terms-config/validate`: 각 운영 언어쌍 context 로 soniox WS 열어 config 수락/거부 판정(오디오 미전송, 3s 타임아웃=수락), 언어별 pass/fail+bytes 반환. 글자수 추정의 부정확성(토큰≠글자) 보완.
+- **필수 입력**: servedLangs(기본 ko/en/ja/zh) 미충족 entry = '미완성' 뱃지·필터. 폴백 없앴으므로 항공용어 pair(ko/en만)들이 미완성으로 노출(정상 — 채우거나 servedLangs 조정).
+- **UI 전면 개편**(TermsConfigPage): 카테고리 탭+검색+미완성필터, 엔트리 카드(mode/scope/언어별 입력), 언어·적용대상 설정 다이얼로그(servedLangs 칩 + 카테고리별 데스크/일반 체크), 게이지+실검증(✓/✗), JSON 입출력, 오탈자검사 채택→entry. GET/PUT/api.js 갱신.
+- 검증(프리뷰, 실 soniox): 기존데이터 마이그레이션 103 entries, 검증 API 3언어 ok(en 7048/ja 3841/zh 3568 bytes), 흡연실 inputOnly 저장→ja context +1 pair·+2 terms(단방향 확인), 데스크 ko↔zh 연결(항공용어 제외 context 수용, 오류 0), 8/8 테스트.
+
+## 2026-07-10 (7) — 용어 설정 UI 단순화 (표 형태, 저장 시 자동검증)
+- 사용자 피드백: v3 UI(엔트리 카드+mode/scope 드롭다운)가 복잡·중복. 키텀/번역쌍 구분은 유지, 실검증 버튼 제거→저장 시 자동.
+- **화면 모델 재편**(TermsConfigPage 재작성, 서버 모델·API 는 그대로): UI 는 `행(용어)+키텀`, 저장/로드 시 entries 와 상호 변환.
+  - `groupEntries()`: pair→행의 정식 명칭, inputOnly→같은 (category, ko) 행의 해당 언어 **약칭 칩**, recognize→키텀. `toEntries()` 는 역변환(약칭 칩=`inputOnly scope:[lang]` 자동).
+  - **번역 용어 표**: 열=한국어+운영 외국어(그리드, 가로 스크롤). mode/scope 드롭다운 제거 — 칸을 채우면 양방향 쌍, 칸 아래 약칭 칩은 그 언어→ko 단방향. 약칭 추가는 행 hover 시 `+ 약칭` 칩(빈 행은 hover 시에만 노출돼 행 높이 압축).
+  - **키텀(인식 전용)**: 표와 분리된 칩 목록 + Enter 입력.
+  - 미완성 규칙 조정: 정식 외국어가 하나라도 있으면 운영 언어 전부 필수, **약칭만 있는 행(오인식 교정 전용)은 완성**으로 간주.
+  - 오탈자검사 채택 → ko 일치 행을 찾아 해당 언어 약칭 칩으로 병합(없으면 새 행). 언어는 문자셋으로 감지.
+- **저장 시 자동 soniox 검증**: 실검증 버튼 삭제. 저장(PUT) 성공 → `POST /api/terms-config/validate` 자동 호출 → 게이지 칩에 언어별 ✓/✗, 실패 언어는 경고 문구. JSON 업로드도 동일 흐름.
+- 검증(프리뷰): 로드 시 약칭 그룹핑(日航/全日空/东航 등 칩 표시), 키텀 추가→저장→"저장 완료 · soniox 검증 통과"+✓ 아이콘, 삭제→재저장 라운드트립 정상, 빌드 OK.
