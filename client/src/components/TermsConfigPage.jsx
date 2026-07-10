@@ -16,286 +16,204 @@ import Checkbox from '@mui/material/Checkbox';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import LinearProgress from '@mui/material/LinearProgress';
+import Tooltip from '@mui/material/Tooltip';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import FileDownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import FileUploadIcon from '@mui/icons-material/FileUploadOutlined';
+import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import { alpha } from '@mui/material/styles';
 import { api } from '../api.js';
 
-// 고유명사(카테고리별) + 번역 설정(행당 다국어 표기). 세션(Soniox) 연결 시
-// 활성 언어쌍의 표기만 골라 context 로 주입된다. 전원 열람, 관리자만 수정.
-const TERM_LANGS = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'pt', 'ar'];
+const ALL_LANGS = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'pt', 'ar'];
 const LANG_LABEL = { ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어', fr: '프랑스어', pt: '포르투갈어', ar: '아랍어' };
 const CATS = [
-  { key: 'airline', label: '항공사', hint: '취항 항공사 이름. 인식 정확도를 높입니다. (예: 대한항공)' },
-  { key: 'aviation', label: '항공용어', hint: '항공 약어·기관명·전문용어. (예: ICAO, NOTAM)' },
-  { key: 'etc', label: '기타', hint: '그 외 자주 등장하는 고유명사·시설명.' },
+  { key: 'airline', label: '항공사' },
+  { key: 'aviation', label: '항공용어' },
+  { key: 'facility', label: '시설' },
+  { key: 'etc', label: '기타' },
 ];
-const EMPTY_TERMS = { airline: [], aviation: [], etc: [] };
-const CTX_LIMIT = 10000; // Soniox context 한도(8,000토큰 ≈ 10,000자)
+const MODES = [
+  { v: 'pair', label: '양방향 번역', hint: '두 언어가 서로 번역됩니다(정식 용어).' },
+  { v: 'inputOnly', label: '입력 전용(약칭·오인식)', hint: '외국어 표기 → 한국어 한 방향만. 약칭(东航)·오인식 교정(キチン室)에. 한국어→외국어로는 안 나갑니다.' },
+  { v: 'recognize', label: '인식 전용', hint: '번역 없이 음성 인식 힌트로만(약어·고유명사, 예: ICAO).' },
+];
+const MODE_LABEL = Object.fromEntries(MODES.map((m) => [m.v, m.label]));
+const CTX_LIMIT = 10000;
+const DEFAULT_CAT_SCOPE = {
+  airline: { desk: true, session: true }, aviation: { desk: false, session: true },
+  facility: { desk: true, session: true }, etc: { desk: true, session: true },
+};
 
-// 서버 buildSonioxContext 와 동일한 규칙으로 언어쌍(ko↔lang) 컨텍스트 크기를 추정
-function contextSizeFor(terms, rows, lang) {
+let _uid = 0;
+const uid = () => 'c' + (_uid++).toString(36) + Math.random().toString(36).slice(2, 6);
+const cleanStr = (v) => String(v == null ? '' : v).trim().slice(0, 80);
+
+// 서버 buildSonioxContextRaw 와 동일 규칙으로 언어쌍(ko↔lang) context 바이트 추정
+function contextSizeFor(entries, catScope, lang, desk) {
   const L = lang === 'ko' ? ['ko'] : ['ko', lang];
-  const val = (row, lg) => String(row[lg] || (lg !== 'en' && row.en) || row.ko || '').trim();
-  const set = new Set(CATS.flatMap((c) => terms[c.key] || []).map((x) => String(x || '').trim()).filter(Boolean));
+  const terms = new Set();
   const pairs = [];
   const seen = new Set();
-  const addPair = (s, t) => { if (!s || !t || s === t) return; const k = s + '||' + t; if (!seen.has(k)) { seen.add(k); pairs.push({ source: s, target: t }); } };
-  for (const row of rows) {
-    if (!row || !row.ko) continue;
-    for (const lg of L) { const v = val(row, lg); if (v) set.add(v); }
-    if (row.alt && typeof row.alt === 'object') {
-      for (const lg of L) {
-        if (lg === 'ko') continue;
-        for (const a of (Array.isArray(row.alt[lg]) ? row.alt[lg] : [])) {
-          const av = String(a || '').trim();
-          if (!av || av === row.ko) continue;
-          set.add(av);
-          if (L.includes('ko')) addPair(av, row.ko);
-        }
-      }
-    }
-    for (const a of L) for (const b of L) { if (a !== b) addPair(val(row, a), val(row, b)); }
+  const add = (a, b) => { if (!a || !b || a === b) return; const k = a + '||' + b; if (!seen.has(k)) { seen.add(k); pairs.push([a, b]); } };
+  for (const e of entries) {
+    if (!e.names || !e.names.ko) continue;
+    const cs = catScope[e.category] || { desk: true, session: true };
+    if (desk ? cs.desk === false : cs.session === false) continue;
+    const scoped = Array.isArray(e.scope) && !e.scope.includes('*');
+    if (scoped && !e.scope.some((s) => L.includes(s))) continue;
+    if (e.mode === 'recognize') { const v = cleanStr(e.names.ko); if (v) terms.add(v); continue; }
+    for (const lg of L) { const v = cleanStr(e.names[lg]); if (v) terms.add(v); }
+    const ko = cleanStr(e.names.ko);
+    if (e.mode === 'inputOnly') { if (!ko || !L.includes('ko')) continue; for (const lg of L) { if (lg === 'ko') continue; add(cleanStr(e.names[lg]), ko); } }
+    else { for (const a of L) for (const b of L) if (a !== b) add(cleanStr(e.names[a]), cleanStr(e.names[b])); }
   }
   const ctx = {};
-  if (set.size) ctx.terms = [...set];
-  if (pairs.length) ctx.translation_terms = pairs;
+  if (terms.size) ctx.terms = [...terms];
+  if (pairs.length) ctx.translation_terms = pairs.map(([source, target]) => ({ source, target }));
   return JSON.stringify(ctx).length;
 }
 
-// 업로드 JSON 정규화(구형 배열/{source,target} 포함) — 서버 normalize 와 동일 규칙
-function normalizeUpload(b) {
-  const clean = (v) => String(v == null ? '' : v).trim().slice(0, 80);
-  const terms = { airline: [], aviation: [], etc: [] };
-  if (Array.isArray(b.terms)) terms.etc = b.terms.map(clean).filter(Boolean);
-  else if (b.terms && typeof b.terms === 'object') {
-    for (const c of Object.keys(terms)) if (Array.isArray(b.terms[c])) terms[c] = b.terms[c].map(clean).filter(Boolean);
-  }
-  for (const c of Object.keys(terms)) terms[c] = [...new Set(terms[c])];
-  const rows = [];
-  for (const r of Array.isArray(b.translationTerms) ? b.translationTerms : []) {
-    if (!r || typeof r !== 'object') continue;
-    const row = {};
-    if (r.source != null || r.target != null) {
-      if (clean(r.target)) row.ko = clean(r.target);
-      if (clean(r.source)) row.en = clean(r.source);
-    } else {
-      for (const lg of TERM_LANGS) { const v = clean(r[lg]); if (v) row[lg] = v; }
-      if (r.alt && typeof r.alt === 'object') {
-        const alt = {};
-        for (const lg of TERM_LANGS) {
-          if (!Array.isArray(r.alt[lg])) continue;
-          const arr = [...new Set(r.alt[lg].map((x) => clean(x)).filter(Boolean))];
-          if (arr.length) alt[lg] = arr;
-        }
-        if (Object.keys(alt).length) row.alt = alt;
-      }
-    }
-    if (row.ko) rows.push(row);
-  }
-  return { terms, translationTerms: rows };
+// 미완성: pair=scope∩served 언어 중 빈 칸 / inputOnly=ko + scope 언어값 하나 이상 / recognize=ko
+function isIncomplete(e, served) {
+  if (!e.names || !cleanStr(e.names.ko)) return true;
+  if (e.mode === 'recognize') return false;
+  const scopeLangs = (Array.isArray(e.scope) && !e.scope.includes('*')) ? e.scope : served;
+  if (e.mode === 'inputOnly') return !scopeLangs.some((lg) => lg !== 'ko' && cleanStr(e.names[lg]));
+  return scopeLangs.filter((lg) => served.includes(lg)).some((lg) => !cleanStr(e.names[lg]));
 }
 
-// 카테고리별 고유명사 칩 입력
-function TermChips({ cat, values, isAdmin, onAdd, onRemove }) {
-  const [input, setInput] = useState('');
-  const add = () => {
-    const v = input.trim();
-    if (!v) return;
-    setInput('');
-    onAdd(cat, v);
-  };
-  const onKey = (e) => {
-    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); }
-    else if (e.key === 'Backspace' && !input && values.length) onRemove(cat, values[values.length - 1]);
-  };
-  return (
-    <Box
-      sx={{
-        display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center',
-        p: 1.25, borderRadius: 2, minHeight: 52,
-        border: 1, borderColor: 'divider', bgcolor: (t) => alpha(t.palette.text.primary, 0.015),
-      }}
-    >
-      {values.map((t) => (
-        <Chip key={t} label={t} size="small" onDelete={isAdmin ? () => onRemove(cat, t) : undefined} sx={{ fontWeight: 600 }} />
-      ))}
-      {isAdmin && (
-        <Box
-          component="input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKey}
-          onBlur={add}
-          placeholder={values.length ? '입력 후 Enter' : '용어 입력 후 Enter'}
-          sx={{
-            flex: 1, minWidth: 160, border: 'none', outline: 'none', background: 'transparent',
-            color: 'text.primary', fontSize: 14, py: 0.5, px: 0.5, fontFamily: 'inherit',
-          }}
-        />
-      )}
-      {!isAdmin && !values.length && <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>등록된 용어가 없습니다.</Typography>}
-    </Box>
-  );
+function normalizeUploadEntries(b) {
+  // 신 스키마(entries) 우선, 아니면 서버가 구형→entries 변환하도록 그대로 전달
+  if (Array.isArray(b.entries)) return b;
+  return b; // 서버 PUT 의 normalize 가 구형(terms/translationTerms) 처리
 }
 
 export default function TermsConfigPage({ user, embedded }) {
   const isAdmin = user?.role === 'admin';
   const [loading, setLoading] = useState(true);
-  const [terms, setTerms] = useState(EMPTY_TERMS);
-  const [rows, setRows] = useState([]); // translationTerms: [{ko,en,ja,...}]
-  const [tLang, setTLang] = useState('en'); // 번역 설정에서 편집 중인 언어
+  const [entries, setEntries] = useState([]);
+  const [served, setServed] = useState(['ko', 'en', 'ja', 'zh']);
+  const [catScope, setCatScope] = useState(DEFAULT_CAT_SCOPE);
+  const [tab, setTab] = useState('airline');
+  const [onlyIncomplete, setOnlyIncomplete] = useState(false);
+  const [q, setQ] = useState('');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [err, setErr] = useState('');
   const [okMsg, setOkMsg] = useState('');
+  const [val, setVal] = useState(null); // { results:[{lang,ok,bytes,error}] }
+  const [validating, setValidating] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const fileRef = useRef(null);
 
   useEffect(() => {
-    api
-      .termsConfig()
-      .then((c) => {
-        setTerms(c.terms && !Array.isArray(c.terms) ? { ...EMPTY_TERMS, ...c.terms } : EMPTY_TERMS);
-        setRows(Array.isArray(c.translationTerms) ? c.translationTerms : []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    api.termsConfig().then((c) => {
+      setEntries((c.entries || []).map((e) => ({ ...e, _k: uid() })));
+      if (Array.isArray(c.servedLangs) && c.servedLangs.length) setServed(c.servedLangs);
+      if (c.categoryScope) setCatScope({ ...DEFAULT_CAT_SCOPE, ...c.categoryScope });
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const mark = () => { setDirty(true); setOkMsg(''); };
+  const mark = () => { setDirty(true); setOkMsg(''); setVal(null); };
+  const servedForeign = served.filter((l) => l !== 'ko');
 
-  const addTerm = (cat, v) => { setTerms((t) => (t[cat].includes(v) ? t : { ...t, [cat]: [...t[cat], v] })); mark(); };
-  const removeTerm = (cat, v) => { setTerms((t) => ({ ...t, [cat]: t[cat].filter((x) => x !== v) })); mark(); };
+  const setEntry = (k, patch) => { setEntries((arr) => arr.map((e) => (e._k === k ? { ...e, ...patch } : e))); mark(); };
+  const setName = (k, lg, v) => setEntries((arr) => arr.map((e) => (e._k === k ? { ...e, names: { ...e.names, [lg]: v } } : e))) || mark();
+  const addEntry = () => { setEntries((arr) => [{ _k: uid(), id: uid(), category: tab, scope: ['*'], names: { ko: '' }, mode: 'pair' }, ...arr]); mark(); };
+  const removeEntry = (k) => { setEntries((arr) => arr.filter((e) => e._k !== k)); mark(); };
 
-  const addRow = () => { setRows((arr) => [...arr, { ko: '' }]); mark(); };
-  const setRowVal = (i, lg, v) => { setRows((arr) => arr.map((r, j) => (j === i ? { ...r, [lg]: v } : r))); mark(); };
-  const removeRow = (i) => { setRows((arr) => arr.filter((_, j) => j !== i)); mark(); };
+  const gauge = useMemo(() => servedForeign.map((lg) => ({ lang: lg, bytes: contextSizeFor(entries, catScope, lg, false) })), [entries, catScope, servedForeign]);
+  const maxBytes = Math.max(0, ...gauge.map((g) => g.bytes));
 
-  // 컨텍스트 크기 게이지: 실제 세션은 언어쌍(ko↔선택언어) 단위로 조립되므로 '가장 큰 쌍' 기준으로 표시
-  const ctxSize = useMemo(() => {
-    let max = 0, maxLang = 'en';
-    for (const lg of TERM_LANGS.filter((l) => l !== 'ko')) {
-      const n = contextSizeFor(terms, rows, lg);
-      if (n > max) { max = n; maxLang = lg; }
-    }
-    return { max, maxLang };
-  }, [terms, rows]);
-
-  // JSON 내려받기/업로드 (고유명사 + 번역 설정 통째)
-  const downloadJson = () => {
-    const blob = new Blob([JSON.stringify({ terms, translationTerms: rows }, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'terms-config.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-  const uploadJson = async (file) => {
-    if (!file) return;
-    try {
-      const parsed = JSON.parse(await file.text());
-      const norm = normalizeUpload(parsed);
-      setTerms(norm.terms);
-      setRows(norm.translationTerms);
-      mark();
-      setOkMsg('JSON 을 불러왔습니다 — 내용 확인 후 저장을 눌러야 반영됩니다.');
-    } catch {
-      setErr('JSON 파일을 읽을 수 없습니다. 내려받은 형식({terms, translationTerms})인지 확인하세요.');
-    } finally {
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
-  // 오탈자·오번역 검사(관리자)
-  const [sugBusy, setSugBusy] = useState(false);
-  const [sugResult, setSugResult] = useState(null); // { checked, suggestions: [{source,target,wrong,reason}] }
-  const [pickOpen, setPickOpen] = useState(false);
-  const [pickList, setPickList] = useState(null);
-  const [selIds, setSelIds] = useState([]);
-  const runSuggest = async (ids) => {
-    setPickOpen(false); setSugBusy(true); setErr('');
-    try { setSugResult(await api.adminTermsSuggest(ids && ids.length ? ids : undefined)); }
-    catch (e) { setErr(e.message || '오탈자·오번역 검사 실패'); }
-    finally { setSugBusy(false); }
-  };
-  const openPick = async () => {
-    setPickOpen(true);
-    try {
-      const d = await api.adminLogs();
-      const list = [
-        ...(d.desks || []).map((x) => ({ id: x.id, title: x.title, kind: '안내데스크', count: x.logs.reduce((a, e) => a + (e.count || 0), 0) })),
-        ...(d.sessions || []).map((x) => ({ id: x.id, title: x.title, kind: '세션', count: x.count || 0 })),
-      ];
-      setPickList(list);
-      setSelIds((ids) => ids.filter((id) => list.some((p) => p.id === id)));
-    } catch { if (!pickList) setPickList([]); }
-  };
-  const togglePick = (id) => setSelIds((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
-  const adoptSuggestion = (s) => {
-    // 한글 포함 여부로 방향 판별: 한글 쪽을 ko, 반대쪽을 현재 편집 언어 열에 넣는다
-    const hasKo = /[가-힣]/.test(s.source);
-    const ko = hasKo ? s.source : s.target;
-    const other = hasKo ? s.target : s.source;
-    setRows((arr) => (arr.some((r) => r.ko === ko)
-      ? arr.map((r) => (r.ko === ko ? { ...r, [tLang]: other } : r))
-      : [...arr, { ko, [tLang]: other }]));
-    setSugResult((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
-    mark();
-  };
+  const shown = useMemo(() => {
+    const kw = q.trim().toLowerCase();
+    return entries.filter((e) => e.category === tab)
+      .filter((e) => !onlyIncomplete || isIncomplete(e, served))
+      .filter((e) => !kw || ALL_LANGS.some((lg) => cleanStr(e.names[lg]).toLowerCase().includes(kw)));
+  }, [entries, tab, onlyIncomplete, q, served]);
+  const incompleteCount = useMemo(() => entries.filter((e) => isIncomplete(e, served)).length, [entries, served]);
 
   const save = async () => {
     setSaving(true); setErr(''); setOkMsg('');
     try {
-      const cleanRows = rows
-        .map((r) => {
-          const o = {};
-          for (const lg of TERM_LANGS) { const v = (r[lg] || '').trim(); if (v) o[lg] = v; }
-          if (r.alt && typeof r.alt === 'object') o.alt = r.alt; // 축약형(alt) 보존 — 서버가 정규화
-          return o;
-        })
-        .filter((r) => r.ko);
-      const c = await api.saveTermsConfig({ terms, translationTerms: cleanRows });
-      setTerms(c.terms && !Array.isArray(c.terms) ? { ...EMPTY_TERMS, ...c.terms } : EMPTY_TERMS);
-      setRows(Array.isArray(c.translationTerms) ? c.translationTerms : []);
-      setDirty(false);
-      setOkMsg('저장되었습니다. 다음 세션 시작부터 적용됩니다.');
-    } catch (e) {
-      setErr(e.message || '저장 실패');
-    } finally {
-      setSaving(false);
-    }
+      const clean = entries.map((e) => {
+        const names = {}; for (const lg of ALL_LANGS) { const v = cleanStr(e.names[lg]); if (v) names[lg] = v; }
+        return { id: e.id, category: e.category, scope: e.scope && e.scope.length ? e.scope : ['*'], names, mode: e.mode };
+      }).filter((e) => e.names.ko);
+      const c = await api.saveTermsConfig({ version: 3, servedLangs: served, categoryScope: catScope, entries: clean });
+      setEntries((c.entries || []).map((e) => ({ ...e, _k: uid() })));
+      setDirty(false); setOkMsg('저장되었습니다. 다음 세션 시작부터 적용됩니다.');
+    } catch (e) { setErr(e.message || '저장 실패'); } finally { setSaving(false); }
+  };
+  const validate = async () => {
+    setValidating(true); setErr('');
+    try { setVal(await api.validateTermsConfig()); }
+    catch (e) { setErr(e.message || '검증 실패 (SONIOX_API_KEY 확인)'); } finally { setValidating(false); }
+  };
+  const downloadJson = () => {
+    const blob = new Blob([JSON.stringify({ version: 3, servedLangs: served, categoryScope: catScope, entries: entries.map(({ _k, ...e }) => e) }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'terms-config.json'; a.click(); URL.revokeObjectURL(a.href);
+  };
+  const uploadJson = async (file) => {
+    if (!file) return;
+    try {
+      const parsed = normalizeUploadEntries(JSON.parse(await file.text()));
+      const c = await api.saveTermsConfig(parsed); // 서버가 구형·신형 모두 정규화
+      setEntries((c.entries || []).map((e) => ({ ...e, _k: uid() })));
+      if (Array.isArray(c.servedLangs)) setServed(c.servedLangs);
+      if (c.categoryScope) setCatScope({ ...DEFAULT_CAT_SCOPE, ...c.categoryScope });
+      setDirty(false); setOkMsg('JSON 을 불러와 저장했습니다.');
+    } catch (e) { setErr('JSON 을 읽을 수 없습니다: ' + (e.message || '')); } finally { if (fileRef.current) fileRef.current.value = ''; }
   };
 
-  // 우상단(저장 아래) 컨텍스트 크기 게이지
-  const gauge = (
-    <Box sx={{ minWidth: 190, textAlign: 'right' }}>
-      <Typography sx={{ fontSize: 11.5, color: ctxSize.max > CTX_LIMIT ? 'error.main' : 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
-        {ctxSize.max.toLocaleString()} / {CTX_LIMIT.toLocaleString()}자
-        <Box component="span" sx={{ color: 'text.disabled', ml: 0.5 }}>(최대 쌍: {LANG_LABEL[ctxSize.maxLang]})</Box>
-      </Typography>
-      <LinearProgress
-        variant="determinate"
-        value={Math.min(100, (ctxSize.max / CTX_LIMIT) * 100)}
-        color={ctxSize.max > CTX_LIMIT ? 'error' : ctxSize.max > CTX_LIMIT * 0.8 ? 'warning' : 'primary'}
-        sx={{ height: 4, borderRadius: 2, mt: 0.5 }}
-      />
+  // 오탈자·오번역 검사 → 채택 시 entry 생성
+  const [sugBusy, setSugBusy] = useState(false);
+  const [sugResult, setSugResult] = useState(null);
+  const runSuggest = async () => {
+    setSugBusy(true); setErr('');
+    try { setSugResult(await api.adminTermsSuggest()); }
+    catch (e) { setErr(e.message || '검사 실패'); } finally { setSugBusy(false); }
+  };
+  const adoptSuggestion = (s) => {
+    const hasKo = /[가-힣]/.test(s.source);
+    const ko = cleanStr(hasKo ? s.source : s.target);
+    const other = cleanStr(hasKo ? s.target : s.source);
+    // 외국어→ko 오인식/약칭 성격 → inputOnly, scope 는 현재 탭이 언어면 그 언어, 아니면 전체
+    setEntries((arr) => [{ _k: uid(), id: uid(), category: tab === 'aviation' ? 'aviation' : 'facility', scope: ['*'], names: { ko, en: other }, mode: 'inputOnly' }, ...arr]);
+    setSugResult((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
+    mark();
+  };
+
+  const gaugeBar = (
+    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+      {gauge.map((g) => {
+        const over = g.bytes > CTX_LIMIT;
+        const v = val && val.results && val.results.find((r) => r.lang === g.lang);
+        return (
+          <Tooltip key={g.lang} title={`${LANG_LABEL[g.lang]} 세션(ko↔${g.lang}) context ${g.bytes.toLocaleString()}자 / ${CTX_LIMIT.toLocaleString()}${v ? (v.ok ? ' · soniox 검증 통과' : ' · 검증 실패: ' + (v.error || '')) : ''}`}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.4, borderRadius: 1.5, border: 1, borderColor: over ? 'error.main' : 'divider', bgcolor: (t) => alpha(t.palette.text.primary, 0.02) }}>
+              <Typography sx={{ fontSize: 11.5, fontWeight: 700 }}>{LANG_LABEL[g.lang]}</Typography>
+              <Typography sx={{ fontSize: 11.5, color: over ? 'error.main' : 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{g.bytes.toLocaleString()}</Typography>
+              {v && (v.ok ? <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} /> : <ErrorOutlineIcon sx={{ fontSize: 14, color: 'error.main' }} />)}
+            </Box>
+          </Tooltip>
+        );
+      })}
+      {isAdmin && <Button size="small" onClick={validate} disabled={validating} sx={{ fontSize: 11.5, py: 0.2, color: 'text.secondary' }}>{validating ? '검증 중…' : 'soniox 실검증'}</Button>}
     </Box>
   );
 
-  const headerButtons = isAdmin && (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.75 }}>
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <Button size="small" startIcon={<FileDownloadIcon />} onClick={downloadJson} sx={{ color: 'text.secondary' }}>JSON</Button>
-        <Button size="small" startIcon={<FileUploadIcon />} onClick={() => fileRef.current && fileRef.current.click()} sx={{ color: 'text.secondary' }}>업로드</Button>
-        <Button variant="contained" size="small" startIcon={<SaveIcon />} onClick={save} disabled={saving || !dirty}>
-          {saving ? '저장 중…' : '저장'}
-        </Button>
-      </Box>
-      {gauge}
+  const headerBtns = isAdmin && (
+    <Box sx={{ display: 'flex', gap: 1 }}>
+      <Button size="small" onClick={() => setSettingsOpen(true)} sx={{ color: 'text.secondary' }}>언어·적용대상</Button>
+      <Button size="small" startIcon={<FileDownloadIcon />} onClick={downloadJson} sx={{ color: 'text.secondary' }}>JSON</Button>
+      <Button size="small" startIcon={<FileUploadIcon />} onClick={() => fileRef.current && fileRef.current.click()} sx={{ color: 'text.secondary' }}>업로드</Button>
+      <Button variant="contained" size="small" startIcon={<SaveIcon />} onClick={save} disabled={saving || !dirty}>{saving ? '저장 중…' : '저장'}</Button>
     </Box>
   );
 
@@ -303,151 +221,102 @@ export default function TermsConfigPage({ user, embedded }) {
     <>
       <Box component="input" type="file" accept=".json,application/json" ref={fileRef} onChange={(e) => uploadJson(e.target.files && e.target.files[0])} sx={{ display: 'none' }} />
       {!embedded && (
-        <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="h6">용어 설정</Typography>
-            <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
-              세션 시작 시 음성인식·번역에 반영됩니다{isAdmin ? '' : ' · 수정은 관리자만 가능'}
-            </Typography>
+        <Box sx={{ px: { xs: 2, sm: 4 }, py: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+            <Typography variant="h6">용어 설정</Typography><Box sx={{ flex: 1 }} />{headerBtns}
           </Box>
-          <Box sx={{ flex: 1 }} />
-          {headerButtons}
+          <Box sx={{ mt: 1.5 }}>{gaugeBar}</Box>
         </Box>
       )}
 
       <Box sx={{ flex: embedded ? 'none' : 1, minHeight: 0, overflow: embedded ? 'visible' : 'auto', p: embedded ? 0 : { xs: 2, sm: 4 } }}>
-        <Box sx={{ maxWidth: embedded ? '100%' : 880, mx: 'auto' }}>
+        <Box sx={{ maxWidth: embedded ? '100%' : 960, mx: 'auto' }}>
           {embedded && (
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
-              <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.5 }}>
-                세션 시작 시 음성인식·번역에 반영됩니다{isAdmin ? '' : ' · 수정은 관리자만 가능'}
-              </Typography>
-              <Box sx={{ flex: 1 }} />
-              {headerButtons}
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>{gaugeBar}</Box>{headerBtns}
             </Box>
           )}
           {okMsg && <Alert severity="success" sx={{ mb: 2 }}>{okMsg}</Alert>}
           {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-          {ctxSize.max > CTX_LIMIT && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              설정이 Soniox 한도({CTX_LIMIT.toLocaleString()}자)를 넘어 일부가 잘려 전송됩니다 — 사용 빈도가 낮은 용어를 정리하세요.
-            </Alert>
-          )}
+          {maxBytes > CTX_LIMIT && <Alert severity="warning" sx={{ mb: 2 }}>일부 언어가 한도({CTX_LIMIT.toLocaleString()}자)를 초과합니다. 초과분은 전송 시 잘립니다 — 사용 빈도 낮은 항목을 정리하거나 카테고리 적용대상을 조정하세요.</Alert>}
 
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8, gap: 1, color: 'text.secondary' }}>
-              <CircularProgress size={18} /> <Typography sx={{ fontSize: 14 }}>불러오는 중…</Typography>
-            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8, gap: 1, color: 'text.secondary' }}><CircularProgress size={18} /> <Typography sx={{ fontSize: 14 }}>불러오는 중…</Typography></Box>
           ) : (
             <>
-              {/* 고유명사 — 항공사/항공용어/기타 3분류 */}
-              <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, mb: 3 }}>
-                <Typography sx={{ fontWeight: 800, fontSize: 15 }}>고유명사</Typography>
-                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>
-                  자주 등장하는 이름·약어·전문용어. 음성 인식 정확도를 높입니다.
-                </Typography>
-                {CATS.map((c) => (
-                  <Box key={c.key} sx={{ mt: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.75 }}>
-                      <Typography sx={{ fontWeight: 700, fontSize: 13.5 }}>{c.label}</Typography>
-                      <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>{c.hint} · {(terms[c.key] || []).length}개</Typography>
-                    </Box>
-                    <TermChips cat={c.key} values={terms[c.key] || []} isAdmin={isAdmin} onAdd={addTerm} onRemove={removeTerm} />
-                  </Box>
-                ))}
-                {isAdmin && <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 1 }}>Enter 또는 쉼표로 추가 · 칩의 ✕ 또는 빈 입력에서 Backspace로 삭제</Typography>}
-              </Paper>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                <Tabs value={tab} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, textTransform: 'none', fontWeight: 700, fontSize: 13.5 } }}>
+                  {CATS.map((c) => <Tab key={c.key} value={c.key} label={`${c.label} (${entries.filter((e) => e.category === c.key).length})`} />)}
+                </Tabs>
+                <Box sx={{ flex: 1 }} />
+                <TextField size="small" placeholder="검색" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 140 }} />
+                <Chip size="small" label={`미완성 ${incompleteCount}`} color={onlyIncomplete ? 'warning' : 'default'} variant={onlyIncomplete ? 'filled' : 'outlined'} onClick={() => setOnlyIncomplete((v) => !v)} sx={{ cursor: 'pointer' }} />
+                {isAdmin && <Button size="small" startIcon={<AddIcon />} onClick={addEntry}>추가</Button>}
+              </Box>
 
-              {/* 번역 설정 — 언어별 편집(행당 다국어 표기) */}
-              <Paper variant="outlined" sx={{ borderRadius: 2, p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, gap: 1, flexWrap: 'wrap' }}>
-                  <Box sx={{ flex: 1, minWidth: 200 }}>
-                    <Typography sx={{ fontWeight: 800, fontSize: 15 }}>번역 설정</Typography>
-                    <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>
-                      용어마다 언어별 표기를 지정합니다. 세션에서는 그 세션의 언어쌍 표기만 적용됩니다.
-                    </Typography>
-                  </Box>
-                  <Select size="small" value={tLang} onChange={(e) => setTLang(e.target.value)} sx={{ minWidth: 130 }}>
-                    {TERM_LANGS.filter((l) => l !== 'ko').map((l) => (
-                      <MenuItem key={l} value={l}>{LANG_LABEL[l]}</MenuItem>
-                    ))}
-                  </Select>
-                  {isAdmin && <Button size="small" startIcon={<AddIcon />} onClick={addRow}>추가</Button>}
-                </Box>
-                <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mb: 1.5 }}>
-                  비워 둔 언어는 영어 표기로 대체되고, 영어도 없으면 한국어 표기를 그대로 씁니다. (항공사 등 고유명사는 대부분 영어 표기 하나면 충분)
-                </Typography>
+              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mb: 1 }}>
+                {tab === 'aviation' && !catScope.aviation.desk && '항공용어는 안내데스크 세션에는 주입되지 않습니다(손님 응대 무관). '}
+                입력 전용(약칭·오인식)은 외국어→한국어 한 방향만 적용됩니다. 비워 둔 언어는 대체되지 않습니다(필수).
+              </Typography>
 
-                {rows.length === 0 && (
-                  <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 1 }}>등록된 번역 설정이 없습니다.</Typography>
-                )}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {shown.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 2, textAlign: 'center' }}>항목이 없습니다.</Typography>}
+                {shown.map((e) => {
+                  const scoped = Array.isArray(e.scope) && !e.scope.includes('*');
+                  const langsToShow = e.mode === 'recognize' ? ['ko'] : (scoped ? ['ko', ...e.scope.filter((s) => s !== 'ko')] : served);
+                  const incomplete = isIncomplete(e, served);
+                  return (
+                    <Paper key={e._k} variant="outlined" sx={{ borderRadius: 1.5, p: 1.5, borderColor: incomplete ? 'warning.main' : 'divider' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+                        <Select size="small" value={e.mode} disabled={!isAdmin} onChange={(ev) => setEntry(e._k, { mode: ev.target.value })} sx={{ minWidth: 160, fontSize: 13 }}>
+                          {MODES.map((m) => <MenuItem key={m.v} value={m.v} sx={{ fontSize: 13 }}>{m.label}</MenuItem>)}
+                        </Select>
+                        {e.mode !== 'recognize' && (
+                          <Select size="small" multiple={false} value={scoped ? (e.scope[0] || '*') : '*'} disabled={!isAdmin}
+                            onChange={(ev) => setEntry(e._k, { scope: ev.target.value === '*' ? ['*'] : [ev.target.value] })} sx={{ minWidth: 120, fontSize: 13 }}>
+                            <MenuItem value="*" sx={{ fontSize: 13 }}>전체 언어</MenuItem>
+                            {servedForeign.map((lg) => <MenuItem key={lg} value={lg} sx={{ fontSize: 13 }}>{LANG_LABEL[lg]}만</MenuItem>)}
+                          </Select>
+                        )}
+                        <Tooltip title={MODES.find((m) => m.v === e.mode)?.hint || ''}><Chip size="small" label="?" sx={{ height: 20, width: 20, fontSize: 11, cursor: 'help' }} /></Tooltip>
+                        {incomplete && <Chip size="small" color="warning" label="미완성" sx={{ height: 20, fontSize: 11 }} />}
+                        <Box sx={{ flex: 1 }} />
+                        {isAdmin && <IconButton size="small" onClick={() => removeEntry(e._k)}><DeleteOutlineIcon fontSize="small" /></IconButton>}
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        {langsToShow.map((lg) => (
+                          <TextField key={lg} size="small" label={LANG_LABEL[lg] + (lg === 'ko' ? (e.mode === 'recognize' ? ' (표기)' : ' (필수·타깃)') : '')}
+                            value={e.names[lg] || ''} disabled={!isAdmin} onChange={(ev) => setName(e._k, lg, ev.target.value)}
+                            sx={{ flex: '1 1 180px', minWidth: 150 }} InputLabelProps={{ sx: { fontSize: 12 } }} />
+                        ))}
+                      </Box>
+                    </Paper>
+                  );
+                })}
+              </Box>
 
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {rows.map((r, i) => (
-                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <TextField
-                        size="small" placeholder="한국어 표기" value={r.ko || ''}
-                        onChange={(e) => setRowVal(i, 'ko', e.target.value)}
-                        disabled={!isAdmin} sx={{ flex: 1 }}
-                      />
-                      <ArrowForwardIcon sx={{ fontSize: 18, color: 'text.disabled', flex: 'none' }} />
-                      <TextField
-                        size="small"
-                        placeholder={`${LANG_LABEL[tLang]} 표기${r.en && tLang !== 'en' ? ` (비면 ${r.en})` : ''}`}
-                        value={r[tLang] || ''}
-                        onChange={(e) => setRowVal(i, tLang, e.target.value)}
-                        disabled={!isAdmin} sx={{ flex: 1 }}
-                      />
-                      {isAdmin && (
-                        <IconButton size="small" onClick={() => removeRow(i)} sx={{ flex: 'none' }}>
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      )}
-                    </Box>
-                  ))}
-                </Box>
-              </Paper>
-
-              {/* 오탈자·오번역 검사(관리자): 최근 대화 원문·번역을 AI 로 단어 단위 검수 → 용어 추천 */}
+              {/* 오탈자·오번역 검사 */}
               {isAdmin && (
-                <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, mt: 3 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+                <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5, mt: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <Box sx={{ flex: 1 }}>
                       <Typography sx={{ fontWeight: 800, fontSize: 15 }}>오탈자·오번역 검사</Typography>
-                      <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>
-                        대화의 원문과 번역을 AI 가 단어 단위로 대조해, 오탈자나 잘못 번역된 고유명사·시설명 단어를 찾아 용어 후보로 추천합니다.
-                        안내데스크 응대 기록도 포함됩니다. 검사 시 대화 내용이 외부 AI 서비스(OpenAI)로 전송됩니다.
-                      </Typography>
+                      <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>대화 로그를 AI 로 단어 단위 대조해 오탈자·오역 후보를 찾습니다. 채택 시 현재 탭에 '입력 전용' 항목으로 추가됩니다. (OpenAI 전송)</Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 1, flex: 'none' }}>
-                      <Button size="small" onClick={openPick} disabled={sugBusy} sx={{ color: 'text.secondary' }}>대상 선택…</Button>
-                      <Button size="small" variant="outlined" onClick={() => runSuggest()} disabled={sugBusy}>
-                        {sugBusy ? '검사 중…' : '최근 전체 검사'}
-                      </Button>
-                    </Box>
+                    <Button size="small" variant="outlined" onClick={runSuggest} disabled={sugBusy}>{sugBusy ? '검사 중…' : '검사'}</Button>
                   </Box>
-                  {sugResult && sugResult.suggestions.length === 0 && (
-                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-                      최근 대화 {sugResult.checked}건을 확인했지만 추천할 오탈자·오번역을 찾지 못했습니다.
-                    </Typography>
-                  )}
+                  {sugResult && sugResult.suggestions.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>추천할 항목을 찾지 못했습니다. ({sugResult.checked}건 확인)</Typography>}
                   {sugResult && sugResult.suggestions.length > 0 && (
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                       {sugResult.suggestions.map((s, i) => (
-                        <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.25, borderRadius: 2, border: 1, borderColor: 'divider' }}>
+                        <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.25, borderRadius: 1.5, border: 1, borderColor: 'divider' }}>
                           <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography sx={{ fontSize: 14, fontWeight: 700 }}>
-                              {s.source} → {s.target}
-                              {s.wrong && <Box component="span" sx={{ fontWeight: 500, color: 'error.main', fontSize: 12.5, ml: 1 }}>현재: {s.wrong}</Box>}
-                            </Typography>
+                            <Typography sx={{ fontSize: 14, fontWeight: 700 }}>{s.source} → {s.target}{s.wrong && <Box component="span" sx={{ fontWeight: 500, color: 'error.main', fontSize: 12.5, ml: 1 }}>현재: {s.wrong}</Box>}</Typography>
                             {s.reason && <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{s.reason}</Typography>}
                           </Box>
                           <Button size="small" variant="contained" disableElevation onClick={() => adoptSuggestion(s)}>추가</Button>
                         </Box>
                       ))}
-                      <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>
-                        추가한 항목은 번역 설정의 [{LANG_LABEL[tLang]}] 열에 들어갑니다 — 저장을 눌러야 반영됩니다.
-                      </Typography>
                     </Box>
                   )}
                 </Paper>
@@ -457,26 +326,35 @@ export default function TermsConfigPage({ user, embedded }) {
         </Box>
       </Box>
 
-      {/* 검사 대상 선택: 특정 세션·안내데스크(응대 로그 포함)만 골라 검사 */}
-      <Dialog open={pickOpen} onClose={() => setPickOpen(false)} PaperProps={{ sx: { width: 440, maxWidth: 440 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>검사 대상 선택</DialogTitle>
+      {/* 언어·적용대상 설정 */}
+      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} PaperProps={{ sx: { width: 460, maxWidth: 460 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>운영 언어 · 카테고리 적용대상</DialogTitle>
         <DialogContent>
-          {!pickList && <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>목록을 불러오는 중…</Typography>}
-          {pickList && pickList.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>검사할 대화가 없습니다.</Typography>}
-          {pickList && pickList.map((p) => (
-            <Box key={p.id} onClick={() => togglePick(p.id)}
-              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25, cursor: 'pointer', borderRadius: 1, '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) } }}>
-              <Checkbox size="small" checked={selIds.includes(p.id)} sx={{ p: 0.75 }} />
-              <Typography sx={{ fontSize: 13.5, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.title}</Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 'none' }}>{p.kind} · {p.count}문장</Typography>
+          <Typography sx={{ fontWeight: 700, fontSize: 13.5, mb: 0.5 }}>운영 언어(필수 입력 대상)</Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 1 }}>선택한 언어는 모든 양방향 용어에서 필수로 채워야 합니다. 한국어는 항상 포함.</Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 2.5 }}>
+            {ALL_LANGS.map((lg) => (
+              <Chip key={lg} label={LANG_LABEL[lg]} size="small" color={served.includes(lg) ? 'primary' : 'default'} variant={served.includes(lg) ? 'filled' : 'outlined'}
+                onClick={() => { if (lg === 'ko' || !isAdmin) return; setServed((s) => s.includes(lg) ? s.filter((x) => x !== lg) : [...s, lg]); mark(); }}
+                sx={{ cursor: lg === 'ko' ? 'default' : 'pointer' }} />
+            ))}
+          </Box>
+          <Typography sx={{ fontWeight: 700, fontSize: 13.5, mb: 0.5 }}>카테고리 적용 대상</Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 1 }}>해당 카테고리를 어떤 세션에 주입할지. (항공용어는 데스크 손님 응대엔 불필요)</Typography>
+          {CATS.map((c) => (
+            <Box key={c.key} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 600, width: 90 }}>{c.label}</Typography>
+              {['desk', 'session'].map((kind) => (
+                <Box key={kind} sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Checkbox size="small" checked={(catScope[c.key] || {})[kind] !== false} disabled={!isAdmin}
+                    onChange={(e) => { setCatScope((cs) => ({ ...cs, [c.key]: { ...cs[c.key], [kind]: e.target.checked } })); mark(); }} sx={{ p: 0.5 }} />
+                  <Typography sx={{ fontSize: 13 }}>{kind === 'desk' ? '안내데스크' : '일반세션'}</Typography>
+                </Box>
+              ))}
             </Box>
           ))}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setSelIds([])} disabled={!selIds.length} sx={{ mr: 'auto', color: 'text.secondary' }}>선택 해제</Button>
-          <Button onClick={() => setPickOpen(false)}>취소</Button>
-          <Button variant="contained" onClick={() => runSuggest(selIds)} disabled={!selIds.length || sugBusy}>선택 대상 검사</Button>
-        </DialogActions>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}><Button variant="contained" onClick={() => setSettingsOpen(false)}>닫기</Button></DialogActions>
       </Dialog>
     </>
   );

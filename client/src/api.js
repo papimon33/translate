@@ -77,6 +77,7 @@ export const api = {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '저장 실패');
       return r.json();
     }),
+  validateTermsConfig: () => fetch('/api/terms-config/validate', { method: 'POST' }).then(json),
 
   summaries: () => fetch('/api/summaries').then(json),
   summary: (id) => fetch('/api/summaries/' + id).then(json),

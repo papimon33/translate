@@ -161,7 +161,7 @@ let usageHourly = {}; // { 'YYYY-MM-DDTHH': { whisperMs, translateMs } } — 시
 // 여기 계속 쌓아 무기한 보관한다. { soniox:{date:{audioMs,costUsd,requests}}, cartesia:{date:{credits}}, openai:{date:{costUsd}} }
 let vendorUsage = { soniox: {}, cartesia: {}, openai: {} };
 // 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
-let termsConfig = { terms: [], translationTerms: [], updatedAt: 0 };
+let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [], updatedAt: 0 };
 let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
@@ -201,7 +201,7 @@ async function loadStore() {
         usageHourly = {};
         hrows.forEach((r) => (usageHourly[r.hour] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
         const tc = await termsConfigCol.findOne({ _id: 'singleton' });
-        if (tc) termsConfig = { terms: tc.terms || [], translationTerms: tc.translationTerms || [], updatedAt: tc.updatedAt || 0 };
+        if (tc) { const { _id, ...rest } = tc; termsConfig = { ...rest, updatedAt: tc.updatedAt || 0 }; } // 전체 보존(entries/servedLangs/categoryScope), 구형은 부팅 마이그레이션
         const vu = await vendorUsageCol.findOne({ _id: 'singleton' });
         if (vu) vendorUsage = { soniox: vu.soniox || {}, cartesia: vu.cartesia || {}, openai: vu.openai || {} };
         summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
@@ -241,7 +241,7 @@ async function loadStore() {
     }
     if (fs.existsSync(TERMS_FILE)) {
       const t = JSON.parse(readDataFile(TERMS_FILE));
-      if (t && typeof t === 'object') termsConfig = { terms: t.terms || [], translationTerms: t.translationTerms || [], updatedAt: t.updatedAt || 0 };
+      if (t && typeof t === 'object') termsConfig = { ...t, updatedAt: t.updatedAt || 0 }; // 전체 보존, 구형은 부팅 마이그레이션
     }
     if (fs.existsSync(SUMMARIES_FILE)) {
       const s = JSON.parse(readDataFile(SUMMARIES_FILE));
@@ -379,7 +379,23 @@ async function flushUsage() {
      세션 연결 시 활성 언어쌍의 표기만 골라 Soniox context 로 조립(비면 en → ko 폴백).
    구형(terms 배열 / {source,target} 쌍)은 로드·저장 시 자동 마이그레이션. */
 const TERM_LANGS = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'pt', 'ar'];
-const TERM_CATS = ['airline', 'aviation', 'etc'];
+const TERM_CATEGORIES = ['airline', 'aviation', 'facility', 'etc']; // 항공사·항공용어·시설·기타
+const DEFAULT_SERVED_LANGS = ['ko', 'en', 'ja', 'zh'];         // 필수 입력 대상(운영 언어) — 관리자가 변경
+// 카테고리별 적용 대상: 데스크(손님 응대)엔 항공용어 불필요(예산 낭비) → 기본 제외
+const DEFAULT_CATEGORY_SCOPE = {
+  airline:  { desk: true,  session: true },
+  aviation: { desk: false, session: true },
+  facility: { desk: true,  session: true },
+  etc:      { desk: true,  session: true },
+};
+
+// ── 통합 용어 모델(v3) ──
+// termsConfig = { version:3, servedLangs, categoryScope, entries:[], updatedAt }
+// entry = { id, category, scope:['*']|['zh',...], names:{ko(필수),en,ja,...}, mode }
+//   mode 'pair'      : 활성 언어쌍 양방향 번역 + 인식
+//   mode 'inputOnly' : 외국어 표기 → 한국어 단방향 번역 + 인식 (약칭·오인식 교정)
+//   mode 'recognize' : 언어무관 인식 힌트만(번역쌍 없음) — 약어·고유명사(예: ICAO)
+// scope: '*' 아니면 그 언어 세션에만 주입되고, 그 언어만 필수.
 
 // 기본 시드(KAC 항공 도메인) — 저장된 설정이 없을 때만 1회 주입
 const DEFAULT_TERMS_AVIATION = ['ICAO','IATA','FAA','KAC','IIAC','FIDS','CIQ','BHS','NOTAM','PBB','VDGS','FOD','A-CDM','MRO','ILS','AWOS','SCADA','AODB','EIRP','FIS','ASDE','BMS','AVSM'];
@@ -438,86 +454,103 @@ const DEFAULT_TRANSLATION_TERMS = [
   { ko: '세관', en: 'customs' }, { ko: '출입국심사', en: 'immigration' }, { ko: '검역', en: 'quarantine' },
 ];
 
-// 구형/임의 입력을 새 스키마로 정규화(로드·PUT·업로드 공용)
-function normalizeTermsConfig(b) {
-  const clean = (v, n = 80) => String(v == null ? '' : v).trim().slice(0, n);
-  const terms = { airline: [], aviation: [], etc: [] };
-  if (Array.isArray(b.terms)) {
-    // 구형: 평면 배열 → 기본 항공용어는 aviation, 나머지는 etc 로 분류
-    for (const t of b.terms) {
-      const v = clean(t);
-      if (v) (DEFAULT_TERMS_AVIATION.includes(v) ? terms.aviation : terms.etc).push(v);
-    }
-  } else if (b.terms && typeof b.terms === 'object') {
-    for (const c of TERM_CATS) if (Array.isArray(b.terms[c])) terms[c] = b.terms[c].map((t) => clean(t)).filter(Boolean);
+let _eidc = 0;
+function entryId() { return 'e' + Date.now().toString(36) + (_eidc++).toString(36) + Math.random().toString(36).slice(2, 5); }
+const cleanTerm = (v, n = 80) => String(v == null ? '' : v).trim().slice(0, n);
+
+// 시드 → entries[]
+function seedEntries() {
+  const out = [];
+  const namesOf = (o) => { const n = {}; for (const lg of TERM_LANGS) if (o[lg]) n[lg] = cleanTerm(o[lg]); return n; };
+  for (const a of DEFAULT_AIRLINES) {
+    out.push({ id: entryId(), category: 'airline', scope: ['*'], names: namesOf(a), mode: 'pair' });
+    if (a.alt) for (const lg of Object.keys(a.alt)) for (const v of a.alt[lg])
+      out.push({ id: entryId(), category: 'airline', scope: [lg], names: { ko: a.ko, [lg]: cleanTerm(v, 40) }, mode: 'inputOnly' });
   }
-  for (const c of TERM_CATS) terms[c] = [...new Set(terms[c])].slice(0, 1000);
-  const rows = [];
+  for (const s of DEFAULT_TERMS_AVIATION) out.push({ id: entryId(), category: 'aviation', scope: ['*'], names: { ko: cleanTerm(s) }, mode: 'recognize' });
+  for (const r of DEFAULT_TRANSLATION_TERMS) out.push({ id: entryId(), category: 'aviation', scope: ['*'], names: namesOf(r), mode: 'pair' });
+  return out;
+}
+
+function sanitizeServed(v) {
+  const arr = Array.isArray(v) ? v.filter((x) => TERM_LANGS.includes(x)) : [];
+  const set = [...new Set(['ko', ...(arr.length ? arr : DEFAULT_SERVED_LANGS)])];
+  return set.filter((x) => TERM_LANGS.includes(x));
+}
+function sanitizeCatScope(v) {
+  const out = {};
+  for (const c of TERM_CATEGORIES) {
+    const d = (v && v[c]) || DEFAULT_CATEGORY_SCOPE[c];
+    out[c] = { desk: d.desk !== false, session: d.session !== false };
+  }
+  return out;
+}
+function normEntry(e) {
+  if (!e || typeof e !== 'object') return null;
+  const category = TERM_CATEGORIES.includes(e.category) ? e.category : 'etc';
+  const mode = ['pair', 'inputOnly', 'recognize'].includes(e.mode) ? e.mode : 'pair';
+  let scope = Array.isArray(e.scope) ? [...new Set(e.scope.map((x) => String(x)).filter((x) => x === '*' || TERM_LANGS.includes(x)))] : [];
+  if (!scope.length) scope = ['*'];
+  const names = {};
+  const src = e.names && typeof e.names === 'object' ? e.names : e; // names 없이 평면으로 와도 수용
+  for (const lg of TERM_LANGS) { const v = cleanTerm(src[lg]); if (v) names[lg] = v; }
+  if (!names.ko) return null; // ko 필수(키·타깃)
+  return { id: (e.id && String(e.id).slice(0, 40)) || entryId(), category, scope, names, mode };
+}
+
+// 구형(terms{}, translationTerms[] with alt) → entries[]
+function migrateToEntries(b) {
+  const entries = [];
+  const airlineKo = new Set(DEFAULT_AIRLINES.map((a) => a.ko));
+  const avTermKo = new Set(DEFAULT_TRANSLATION_TERMS.map((r) => r.ko).concat(DEFAULT_TERMS_AVIATION));
+  const pairKo = new Set();
+  // 구형 {source,target} 또는 다국어 행
   for (const r of Array.isArray(b.translationTerms) ? b.translationTerms : []) {
     if (!r || typeof r !== 'object') continue;
-    let row = {};
-    if (r.source != null || r.target != null) {
-      // 구형 {source(외국어), target(한국어)} → {ko, en}
-      if (clean(r.target)) row.ko = clean(r.target);
-      if (clean(r.source)) row.en = clean(r.source);
-    } else {
-      for (const lg of TERM_LANGS) { const v = clean(r[lg]); if (v) row[lg] = v; }
-      // alt = 언어별 축약/구어 표기 배열(인식 힌트 + 축약→한국어 단방향 번역)
-      if (r.alt && typeof r.alt === 'object') {
-        const alt = {};
-        for (const lg of TERM_LANGS) {
-          if (!Array.isArray(r.alt[lg])) continue;
-          const arr = [...new Set(r.alt[lg].map((x) => clean(x, 40)).filter(Boolean))];
-          if (arr.length) alt[lg] = arr;
-        }
-        if (Object.keys(alt).length) row.alt = alt;
-      }
+    const names = {};
+    if (r.source != null || r.target != null) { if (cleanTerm(r.target)) names.ko = cleanTerm(r.target); if (cleanTerm(r.source)) names.en = cleanTerm(r.source); }
+    else for (const lg of TERM_LANGS) { const v = cleanTerm(r[lg]); if (v) names[lg] = v; }
+    if (!names.ko) continue;
+    pairKo.add(names.ko);
+    const category = airlineKo.has(names.ko) ? 'airline' : (avTermKo.has(names.ko) ? 'aviation' : 'etc');
+    entries.push({ id: entryId(), category, scope: ['*'], names, mode: 'pair' });
+    if (r.alt && typeof r.alt === 'object') for (const lg of TERM_LANGS) for (const v of (Array.isArray(r.alt[lg]) ? r.alt[lg] : [])) {
+      const av = cleanTerm(v, 40); if (av) entries.push({ id: entryId(), category, scope: [lg], names: { ko: names.ko, [lg]: av }, mode: 'inputOnly' });
     }
-    if (row.ko) rows.push(row); // ko 표기는 필수(행의 키 역할)
-    if (rows.length >= 2000) break;
   }
-  return { terms, translationTerms: rows };
+  // 구형 terms(고유명사 문자열) → recognize (번역쌍이 이미 있는 ko 는 제외)
+  const t = b.terms;
+  const pushRec = (cat, s) => { const v = cleanTerm(s); if (v && !pairKo.has(v)) entries.push({ id: entryId(), category: cat, scope: ['*'], names: { ko: v }, mode: 'recognize' }); };
+  if (Array.isArray(t)) for (const s of t) pushRec(DEFAULT_TERMS_AVIATION.includes(cleanTerm(s)) ? 'aviation' : 'etc', s);
+  else if (t && typeof t === 'object') {
+    for (const s of (Array.isArray(t.aviation) ? t.aviation : [])) pushRec('aviation', s);
+    for (const s of (Array.isArray(t.etc) ? t.etc : [])) pushRec('etc', s);
+    for (const s of (Array.isArray(t.facility) ? t.facility : [])) pushRec('facility', s);
+    // t.airline 은 항공사 ko 이름의 중복이라 번역쌍이 커버 → 무시
+  }
+  return entries;
 }
-// 항공사 축약형(alt) 백필: 구버전에서 저장돼 alt 가 없는 항공사 행에 시드의 alt 를 1회 병합.
-// altSeeded 플래그로 한 번만 실행 → 이후 사용자가 지운 alt 를 되살리지 않는다.
-function backfillAirlineAlt() {
-  const altMap = new Map(DEFAULT_AIRLINES.filter((a) => a.alt).map((a) => [a.ko, a.alt]));
-  let changed = false;
-  for (const row of termsConfig.translationTerms || []) {
-    if (row && row.ko && !row.alt && altMap.has(row.ko)) { row.alt = JSON.parse(JSON.stringify(altMap.get(row.ko))); changed = true; }
-  }
-  // 파라타 등 이후에 채운 정식 표기도 비어 있으면 보완
-  const canon = new Map(DEFAULT_AIRLINES.map((a) => [a.ko, a]));
-  for (const row of termsConfig.translationTerms || []) {
-    const seed = row && row.ko && canon.get(row.ko);
-    if (!seed) continue;
-    for (const lg of ['ja', 'zh']) if (!row[lg] && seed[lg]) { row[lg] = seed[lg]; changed = true; }
-  }
-  return changed;
+
+// 로드·PUT·업로드 공용 정규화 → 항상 v3 shape 반환
+function normalizeTermsConfig(b) {
+  b = b || {};
+  let entries;
+  if (Array.isArray(b.entries)) { entries = []; for (const e of b.entries) { const n = normEntry(e); if (n) entries.push(n); if (entries.length >= 4000) break; } }
+  else entries = migrateToEntries(b);
+  return { version: 3, servedLangs: sanitizeServed(b.servedLangs), categoryScope: sanitizeCatScope(b.categoryScope), entries };
 }
 
 await loadStore();
 if (!termsConfig.updatedAt) {
-  termsConfig = {
-    terms: { airline: DEFAULT_AIRLINES.map((a) => a.ko), aviation: DEFAULT_TERMS_AVIATION.slice(), etc: [] },
-    translationTerms: [...DEFAULT_AIRLINES.map((a) => ({ ...a })), ...DEFAULT_TRANSLATION_TERMS.map((r) => ({ ...r }))],
-    updatedAt: Date.now(),
-  };
-  try { await persistTermsConfig(); console.log('[terms] 기본 고유명사/번역 설정 시드 저장'); } catch (e) { console.error('[terms] 시드 저장 실패', e); }
-} else if (Array.isArray(termsConfig.terms) || (termsConfig.translationTerms || []).some((r) => r && (r.source != null || r.target != null))) {
-  // 구형 저장분 자동 마이그레이션(1회) — 항공사 시드도 함께 병합
+  termsConfig = { version: 3, servedLangs: DEFAULT_SERVED_LANGS.slice(), categoryScope: sanitizeCatScope(), entries: seedEntries(), updatedAt: Date.now() };
+  try { await persistTermsConfig(); console.log('[terms] 기본 용어 시드 저장 (v3)'); } catch (e) { console.error('[terms] 시드 저장 실패', e); }
+} else if (!Array.isArray(termsConfig.entries)) {
+  // 구형(terms/translationTerms) → v3 entries 자동 마이그레이션(1회). 시드에만 있고 없는 항목은 병합.
   const mig = normalizeTermsConfig(termsConfig);
-  const haveKo = new Set(mig.translationTerms.map((r) => r.ko));
-  for (const a of DEFAULT_AIRLINES) if (!haveKo.has(a.ko)) mig.translationTerms.push({ ...a });
-  mig.terms.airline = [...new Set([...mig.terms.airline, ...DEFAULT_AIRLINES.map((a) => a.ko)])];
+  const haveKey = new Set(mig.entries.map((e) => e.category + '|' + e.mode + '|' + (e.names.ko || '') + '|' + (e.scope || []).join(',')));
+  for (const se of seedEntries()) { const k = se.category + '|' + se.mode + '|' + (se.names.ko || '') + '|' + (se.scope || []).join(','); if (!haveKey.has(k)) mig.entries.push(se); }
   termsConfig = { ...mig, updatedAt: Date.now() };
-  try { await persistTermsConfig(); console.log('[terms] 구형 설정 → 다국어 스키마 마이그레이션 완료'); } catch (e) { console.error('[terms] 마이그레이션 저장 실패', e); }
-}
-// 항공사 축약형(alt) 1회 백필 — 스키마는 최신이지만 alt 가 없던 기존 저장분 보완
-if (!termsConfig.altSeeded) {
-  const changed = backfillAirlineAlt();
-  termsConfig.altSeeded = true;
-  if (changed || termsConfig.updatedAt) { termsConfig.updatedAt = Date.now(); try { await persistTermsConfig(); console.log('[terms] 항공사 축약형(alt) 백필 완료'); } catch (e) { console.error('[terms] alt 백필 저장 실패', e); } }
+  try { await persistTermsConfig(); console.log(`[terms] 구형 → v3 통합모델 마이그레이션 (${termsConfig.entries.length} entries)`); } catch (e) { console.error('[terms] 마이그레이션 저장 실패', e); }
 }
 
 /* ---- AI 요약 저장 ---- */
@@ -562,55 +595,57 @@ async function persistTermsConfig() {
     writeDataFile(TERMS_FILE, JSON.stringify(termsConfig, null, 2));
   }
 }
-// Soniox 세션 context: terms(고유명사) + translation_terms(번역 쌍). 비어 있으면 null.
-// langs = 이 세션에서 실제 쓰이는 언어들(예: ['ko','ja']). 활성 언어의 표기·번역쌍만 조립해
-// 전체 한도(8,000토큰 ≈ 10,000자)를 넘지 않게 한다. 표기가 비면 en → ko 순 폴백
-// (라틴계·아랍어권에서 항공사 등 고유명사는 통상 영문 명칭 사용).
-const termLangValue = (row, lg) => String(row[lg] || (lg !== 'en' && row.en) || row.ko || '').trim();
-function buildSonioxContext(langs) {
+// Soniox 세션 context 조립(통합 v3 entries 기반). langs=이 세션 활성 언어, opts.desk=데스크 세션 여부.
+//  - mode 'pair'      : 활성 언어쌍 양방향 번역 + 인식
+//  - mode 'inputOnly' : 외국어 표기 → 한국어(ko) 단방향 번역 + 인식 (약칭·오인식 교정)
+//  - mode 'recognize' : 언어무관 인식 힌트만
+//  - scope: '*' 아니면 그 언어가 활성일 때만 주입 / categoryScope: 데스크·일반세션 적용 여부
+//  - 폴백(en→ko) 없음: 명시된 언어 표기만 사용. 전체 한도(8,000토큰≈10,000자) 방어는 유지.
+function buildSonioxContextRaw(langs, opts = {}) {
+  const desk = !!opts.desk;
   const L = [...new Set((langs || []).filter((c) => TERM_LANGS.includes(c)))];
   if (!L.length) L.push('ko', 'en');
-  const t = termsConfig.terms || {};
-  const catTerms = TERM_CATS.flatMap((c) => (Array.isArray(t[c]) ? t[c] : []));
-  const terms = new Set(catTerms.map((x) => String(x || '').trim()).filter(Boolean));
+  const cs = termsConfig.categoryScope || {};
+  const terms = new Set();
   const pairs = [];
   const seen = new Set();
-  for (const row of termsConfig.translationTerms || []) {
-    if (!row || !row.ko) continue;
-    for (const lg of L) { const v = termLangValue(row, lg); if (v) terms.add(v); } // 활성 언어 표기 → 인식 힌트
-    // 축약/구어 표기(alt): 활성 언어 것만 → 인식 힌트 + (축약형 → 한국어 정식명) 단방향 번역 강제.
-    // 정방향(한국어→외국어)은 정식명으로 유지되도록 alt→ko 한 방향만 추가(충돌 방지).
-    if (row.alt && typeof row.alt === 'object') {
-      for (const lg of L) {
-        if (lg === 'ko') continue;
-        for (const a of (Array.isArray(row.alt[lg]) ? row.alt[lg] : [])) {
-          const av = String(a || '').trim();
-          if (!av || av === row.ko) continue;
-          terms.add(av);
-          if (L.includes('ko') && !seen.has(av + ' ' + row.ko)) { seen.add(av + ' ' + row.ko); pairs.push({ source: av, target: row.ko }); }
-        }
-      }
-    }
-    for (const a of L) for (const b of L) {
-      if (a === b) continue;
-      const s = termLangValue(row, a), tgt = termLangValue(row, b);
-      if (!s || !tgt || s === tgt) continue;
-      const k = s + '\u0000' + tgt;
-      if (!seen.has(k)) { seen.add(k); pairs.push({ source: s, target: tgt }); }
+  const addPair = (a, b) => {
+    if (!a || !b || a === b) return;
+    const k = a + '||' + b;
+    if (!seen.has(k)) { seen.add(k); pairs.push({ source: a, target: b }); }
+  };
+  for (const e of termsConfig.entries || []) {
+    if (!e || !e.names || !e.names.ko) continue;
+    const scope = cs[e.category] || { desk: true, session: true };
+    if (desk ? scope.desk === false : scope.session === false) continue; // 카테고리 적용대상(데스크 항공용어 제외 등)
+    const scoped = Array.isArray(e.scope) && !e.scope.includes('*');
+    if (scoped && !e.scope.some((sl) => L.includes(sl))) continue;       // 언어 스코프
+    if (e.mode === 'recognize') { const v = String(e.names.ko || '').trim(); if (v) terms.add(v); continue; }
+    for (const lg of L) { const v = String(e.names[lg] || '').trim(); if (v) terms.add(v); } // 활성 언어 표기 → 인식 힌트
+    const ko = String(e.names.ko || '').trim();
+    if (e.mode === 'inputOnly') {
+      if (!ko || !L.includes('ko')) continue;
+      for (const lg of L) { if (lg === 'ko') continue; addPair(String(e.names[lg] || '').trim(), ko); } // 외국어 → ko 단방향
+    } else { // pair
+      for (const a of L) for (const b of L) { if (a !== b) addPair(String(e.names[a] || '').trim(), String(e.names[b] || '').trim()); }
     }
   }
   const ctx = {};
   if (terms.size) ctx.terms = [...terms];
   if (pairs.length) ctx.translation_terms = pairs;
-  if (!Object.keys(ctx).length) return null;
+  return Object.keys(ctx).length ? ctx : null;
+}
+function buildSonioxContext(langs, opts = {}) {
+  const ctx = buildSonioxContextRaw(langs, opts);
+  if (!ctx) return null;
   // 한도 방어: 초과 시 번역쌍부터, 다음 인식 힌트를 뒤에서부터 잘라낸다(전부 잘리면 경고만)
   let guard = 0;
-  while (JSON.stringify(ctx).length > 9500 && guard++ < 500) {
+  while (JSON.stringify(ctx).length > 9500 && guard++ < 2000) {
     if (ctx.translation_terms && ctx.translation_terms.length) { ctx.translation_terms.pop(); if (!ctx.translation_terms.length) delete ctx.translation_terms; }
     else if (ctx.terms && ctx.terms.length) { ctx.terms.pop(); if (!ctx.terms.length) delete ctx.terms; }
     else break;
   }
-  if (guard > 0) console.warn(`[terms] Soniox context 한도 초과 — ${guard}개 항목 잘림(langs=${L.join(',')})`);
+  if (guard > 0) console.warn(`[terms] Soniox context 한도 초과 — ${guard}개 항목 잘림(langs=${(langs || []).join(',')}${opts.desk ? ',desk' : ''})`);
   return Object.keys(ctx).length ? ctx : null;
 }
 
@@ -887,8 +922,8 @@ app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
     if (pairs.length >= 200) break;
   }
   if (pairs.length < 3) return res.json({ checked: pairs.length, suggestions: [] });
-  const existing = (termsConfig.translationTerms || [])
-    .map((row) => TERM_LANGS.filter((lg) => row[lg]).map((lg) => row[lg]).join('/'))
+  const existing = (termsConfig.entries || [])
+    .map((e) => TERM_LANGS.filter((lg) => e.names && e.names[lg]).map((lg) => e.names[lg]).join('/'))
     .filter(Boolean).join(', ');
   const sys =
     '너는 공항 안내 통역 품질 검수자다. 아래 "원문 => 기계번역" 쌍 목록을 문장 전체가 아니라 단어 단위로 대조하여, 개별 단어의 오류만 찾아라. ' +
@@ -1244,15 +1279,66 @@ app.get('/api/admin/vendor-usage', requireAdmin, async (req, res) => {
   });
 });
 
-// 고유명사/번역 설정: 열람(로그인 누구나) + 수정(관리자만). Soniox context로 주입됨.
+// 용어 설정(통합 v3): 열람(로그인 누구나) + 수정(관리자만). Soniox context로 주입됨.
 app.get('/api/terms-config', requireAuth, (req, res) => {
-  res.json({ terms: termsConfig.terms || { airline: [], aviation: [], etc: [] }, translationTerms: termsConfig.translationTerms || [], updatedAt: termsConfig.updatedAt || 0 });
+  res.json({
+    version: 3,
+    servedLangs: termsConfig.servedLangs || DEFAULT_SERVED_LANGS.slice(),
+    categoryScope: sanitizeCatScope(termsConfig.categoryScope),
+    entries: termsConfig.entries || [],
+    langs: TERM_LANGS, categories: TERM_CATEGORIES, // UI 참고용
+    updatedAt: termsConfig.updatedAt || 0,
+  });
 });
 app.put('/api/terms-config', requireAdmin, async (req, res) => {
-  // 새 스키마(카테고리 terms + 다국어 translationTerms)와 구형(JSON 업로드 포함) 모두 정규화 수용
+  // 신 스키마(entries) + 구형(terms/translationTerms/alt, JSON 업로드) 모두 정규화 수용
   termsConfig = { ...normalizeTermsConfig(req.body || {}), updatedAt: Date.now() };
   try { await persistTermsConfig(); } catch (e) { console.error('[terms] 저장 실패', e); }
-  res.json(termsConfig);
+  res.json({ version: 3, servedLangs: termsConfig.servedLangs, categoryScope: termsConfig.categoryScope, entries: termsConfig.entries, langs: TERM_LANGS, categories: TERM_CATEGORIES, updatedAt: termsConfig.updatedAt });
+});
+
+/* ---- 용어 설정 실검증: 저장된 설정을 실제 soniox 에 던져 언어쌍별 수락/거부 확인 ----
+   글자수 추정(≈10,000자)은 토큰≠글자라 부정확 → 각 운영 언어쌍(ko↔L) context 로 soniox WS 를
+   열어 config 만 보내고 수락/에러(용량초과 등)를 판정한 뒤 즉시 닫는다(오디오 미전송 → 과금 최소). */
+function validateSonioxPair(a, b, ctx) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { ws.close(); } catch {} resolve(r); };
+    let ws;
+    try { ws = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket'); }
+    catch (e) { return resolve({ ok: false, error: String(e.message || e) }); }
+    const timer = setTimeout(() => finish({ ok: true }), 3000); // 수락되면 오디오 대기로 무응답 → 통과
+    ws.on('open', () => {
+      try {
+        ws.send(JSON.stringify({
+          api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+          enable_language_identification: true, enable_endpoint_detection: true,
+          language_hints: [a, b], translation: { type: 'two_way', language_a: a, language_b: b },
+          ...(ctx ? { context: ctx } : {}),
+        }));
+      } catch (e) { finish({ ok: false, error: String(e.message || e) }); }
+    });
+    ws.on('message', (raw) => {
+      let m; try { m = JSON.parse(raw.toString()); } catch { return; }
+      if (m.error_code || m.error_message) finish({ ok: false, error: `${m.error_code || ''} ${m.error_message || ''}`.trim() });
+      else finish({ ok: true }); // 정상 응답(토큰/메타) → 수락
+    });
+    ws.on('error', (e) => finish({ ok: false, error: String((e && e.message) || e) }));
+    ws.on('close', (code, reason) => finish(code === 1000 ? { ok: true } : { ok: false, error: `closed ${code} ${String(reason || '').slice(0, 80)}`.trim() }));
+  });
+}
+app.post('/api/terms-config/validate', requireAdmin, async (req, res) => {
+  if (!SONIOX_API_KEY) return res.status(400).json({ error: 'SONIOX_API_KEY 미설정 — 실검증 불가' });
+  const served = (termsConfig.servedLangs || DEFAULT_SERVED_LANGS).filter((l) => l !== 'ko');
+  const results = await Promise.all(served.map(async (L) => {
+    const ctx = buildSonioxContextRaw(['ko', L], { desk: false }); // 일반세션(항공용어 포함)이 더 큼 → 최악 케이스 검증
+    const bytes = ctx ? JSON.stringify(ctx).length : 0;
+    const terms = ctx && ctx.terms ? ctx.terms.length : 0;
+    const pairs = ctx && ctx.translation_terms ? ctx.translation_terms.length : 0;
+    let r; try { r = await validateSonioxPair('ko', L, ctx); } catch (e) { r = { ok: false, error: String(e.message || e) }; }
+    return { lang: L, ok: r.ok, error: r.error || null, bytes, terms, pairs };
+  }));
+  res.json({ at: Date.now(), results });
 });
 
 /* (평가 러너는 제거됨 — 평가는 데스크 응대 로그의 '평가 JSON' 내려받기 + eval/score.mjs --auto 로 진행) */
@@ -2723,7 +2809,7 @@ function handleHost(ws) {
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
       endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
-      ...((() => { const c = buildSonioxContext(langs); return c ? { context: c } : {}; })()),
+      ...((() => { const c = buildSonioxContext(langs, { desk: true }); return c ? { context: c } : {}; })()), // 데스크: 항공용어 카테고리 제외
     });
     // 손님이 한국어를 고르면 two_way 가 성립하지 않으므로 전부 한국어로 표기(one_way→ko)
     const configFor = () => (lockedB && lockedB !== A
