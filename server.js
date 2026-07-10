@@ -595,11 +595,20 @@ async function persistTermsConfig() {
     writeDataFile(TERMS_FILE, JSON.stringify(termsConfig, null, 2));
   }
 }
+// 데스크 모드 전용 general context — Soniox 에 "이 자리가 어떤 상황인지" 배경을 줘서
+// 저빈도·동음이의 단어(예 喫煙室=きつえんしつ) 인식률을 끌어올린다. context.general = [{key,value}].
+// 흡연실처럼 STT 가 자꾸 헷갈리는 단어는 value 에 일본어 표기를 괄호로 병기.
+const DESK_GENERAL_CONTEXT = [
+  { key: 'location', value: 'Airport information desk' },
+  { key: 'airport', value: 'Gimpo International Airport' },
+  { key: 'facilities', value: 'smoking room (喫煙室 / きつえんしつ), restroom, currency exchange, convenience store, subway station, boarding gate' },
+];
 // Soniox 세션 context 조립(통합 v3 entries 기반). langs=이 세션 활성 언어, opts.desk=데스크 세션 여부.
 //  - mode 'pair'      : 활성 언어쌍 양방향 번역 + 인식
 //  - mode 'inputOnly' : 외국어 표기 → 한국어(ko) 단방향 번역 + 인식 (약칭·오인식 교정)
 //  - mode 'recognize' : 언어무관 인식 힌트만
 //  - scope: '*' 아니면 그 언어가 활성일 때만 주입 / categoryScope: 데스크·일반세션 적용 여부
+//  - 데스크 세션은 general(공항 안내데스크 배경)도 함께 주입 — 저빈도 단어 인식 보정.
 //  - 폴백(en→ko) 없음: 명시된 언어 표기만 사용. 전체 한도(8,000토큰≈10,000자) 방어는 유지.
 function buildSonioxContextRaw(langs, opts = {}) {
   const desk = !!opts.desk;
@@ -631,6 +640,7 @@ function buildSonioxContextRaw(langs, opts = {}) {
     }
   }
   const ctx = {};
+  if (desk && DESK_GENERAL_CONTEXT.length) ctx.general = DESK_GENERAL_CONTEXT; // 데스크 배경(공항 안내데스크)
   if (terms.size) ctx.terms = [...terms];
   if (pairs.length) ctx.translation_terms = pairs;
   return Object.keys(ctx).length ? ctx : null;

@@ -228,3 +228,11 @@
   - 오탈자검사 채택 → ko 일치 행을 찾아 해당 언어 약칭 칩으로 병합(없으면 새 행). 언어는 문자셋으로 감지.
 - **저장 시 자동 soniox 검증**: 실검증 버튼 삭제. 저장(PUT) 성공 → `POST /api/terms-config/validate` 자동 호출 → 게이지 칩에 언어별 ✓/✗, 실패 언어는 경고 문구. JSON 업로드도 동일 흐름.
 - 검증(프리뷰): 로드 시 약칭 그룹핑(日航/全日空/东航 등 칩 표시), 키텀 추가→저장→"저장 완료 · soniox 검증 통과"+✓ 아이콘, 삭제→재저장 라운드트립 정상, 빌드 OK.
+
+## 2026-07-10 (8) — 데스크 context.general(공항 배경) 주입 → 저빈도 단어 인식 보정
+- 문제: 喫煙室(きつえんしつ)를 STT 가 계속 キッチン室/実習室 등으로 오인식. 키텀 등록은 soft-bias 라 강제 못 하고, 데스크·실시간 경로는 Soniox 직번역이라 뒤에서 잡을 GPT 도 없음.
+- Soniox context 4섹션 확인: `general`(=[{key,value}])·`text`·`terms`·`translation_terms`. `general` 로 "이 자리가 어떤 상황인지" 배경을 주면 저빈도·동음이의 인식이 개선됨.
+- **`DESK_GENERAL_CONTEXT`**(server.js, buildSonioxContextRaw 위) 상수 추가 — location=Airport information desk, airport=Gimpo International Airport, facilities=smoking room(喫煙室/きつえんしつ 병기), restroom, currency exchange, convenience store, subway station, boarding gate. 영어로 작성, 흡연실만 일본어 병기.
+- `buildSonioxContextRaw` 에서 **`opts.desk` 일 때만** `ctx.general` 주입(일반세션·실시간엔 미주입). 한도 방어 루프는 translation_terms→terms 만 잘라 general 은 보존.
+- 검증: 실제 soniox WS 에 general 포함 데스크 config 전송 → ACCEPTED(수락). 서버 부팅 정상.
+- 편집하려면 server.js 의 DESK_GENERAL_CONTEXT 배열 수정(현재 코드 상수, 필요 시 termsConfig 로 승격해 UI 편집 가능하게 할 수 있음).
