@@ -22,7 +22,6 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import FileDownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import FileUploadIcon from '@mui/icons-material/FileUploadOutlined';
-import ScienceIcon from '@mui/icons-material/ScienceOutlined';
 import { alpha } from '@mui/material/styles';
 import { api } from '../api.js';
 
@@ -144,29 +143,6 @@ function TermChips({ cat, values, isAdmin, onAdd, onRemove }) {
   );
 }
 
-// 행별 축약/구어 표기(alt) 편집기 — 선택 언어(lang) 기준. (예: 中国国际航空 행에 国航)
-function AltChips({ i, lang, values, isAdmin, onAdd, onRemove }) {
-  const [input, setInput] = useState('');
-  const add = () => { const v = input.trim(); if (!v) return; setInput(''); onAdd(i, lang, v); };
-  const onKey = (e) => {
-    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); }
-    else if (e.key === 'Backspace' && !input && values.length) onRemove(i, lang, values[values.length - 1]);
-  };
-  return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5, pl: 0.5 }}>
-      <Typography sx={{ fontSize: 11.5, color: 'text.disabled', flex: 'none', mr: 0.5 }}>약어·구어</Typography>
-      {values.map((t) => (
-        <Chip key={t} label={t} size="small" variant="outlined" onDelete={isAdmin ? () => onRemove(i, lang, t) : undefined} sx={{ height: 22, fontSize: 12 }} />
-      ))}
-      {isAdmin && (
-        <Box component="input" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} onBlur={add}
-          placeholder={values.length ? '' : '축약형 입력 후 Enter (예: 国航)'}
-          sx={{ flex: 1, minWidth: 120, border: 'none', outline: 'none', background: 'transparent', color: 'text.secondary', fontSize: 12.5, py: 0.25, fontFamily: 'inherit' }} />
-      )}
-    </Box>
-  );
-}
-
 export default function TermsConfigPage({ user, embedded }) {
   const isAdmin = user?.role === 'admin';
   const [loading, setLoading] = useState(true);
@@ -198,20 +174,6 @@ export default function TermsConfigPage({ user, embedded }) {
   const addRow = () => { setRows((arr) => [...arr, { ko: '' }]); mark(); };
   const setRowVal = (i, lg, v) => { setRows((arr) => arr.map((r, j) => (j === i ? { ...r, [lg]: v } : r))); mark(); };
   const removeRow = (i) => { setRows((arr) => arr.filter((_, j) => j !== i)); mark(); };
-  // 축약/구어 표기(alt) — 선택 언어(tLang) 기준 추가/삭제. 인식 힌트 + '축약형→한국어' 번역으로 쓰임.
-  const addAlt = (i, lg, v) => setRows((arr) => arr.map((r, j) => {
-    if (j !== i) return r;
-    const cur = (r.alt && r.alt[lg]) || [];
-    if (cur.includes(v)) return r;
-    return { ...r, alt: { ...(r.alt || {}), [lg]: [...cur, v] } };
-  })) || mark();
-  const removeAlt = (i, lg, v) => setRows((arr) => arr.map((r, j) => {
-    if (j !== i) return r;
-    const cur = ((r.alt && r.alt[lg]) || []).filter((x) => x !== v);
-    const alt = { ...(r.alt || {}) };
-    if (cur.length) alt[lg] = cur; else delete alt[lg];
-    return { ...r, alt: Object.keys(alt).length ? alt : undefined };
-  })) || mark();
 
   // 컨텍스트 크기 게이지: 실제 세션은 언어쌍(ko↔선택언어) 단위로 조립되므로 '가장 큰 쌍' 기준으로 표시
   const ctxSize = useMemo(() => {
@@ -327,7 +289,6 @@ export default function TermsConfigPage({ user, embedded }) {
   const headerButtons = isAdmin && (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.75 }}>
       <Box sx={{ display: 'flex', gap: 1 }}>
-        <Button size="small" startIcon={<ScienceIcon />} onClick={() => window.open('/eval.html', '_blank')} sx={{ color: 'text.secondary' }}>평가 러너</Button>
         <Button size="small" startIcon={<FileDownloadIcon />} onClick={downloadJson} sx={{ color: 'text.secondary' }}>JSON</Button>
         <Button size="small" startIcon={<FileUploadIcon />} onClick={() => fileRef.current && fileRef.current.click()} sx={{ color: 'text.secondary' }}>업로드</Button>
         <Button variant="contained" size="small" startIcon={<SaveIcon />} onClick={save} disabled={saving || !dirty}>
@@ -380,7 +341,7 @@ export default function TermsConfigPage({ user, embedded }) {
           ) : (
             <>
               {/* 고유명사 — 항공사/항공용어/기타 3분류 */}
-              <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mb: 3 }}>
+              <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, mb: 3 }}>
                 <Typography sx={{ fontWeight: 800, fontSize: 15 }}>고유명사</Typography>
                 <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>
                   자주 등장하는 이름·약어·전문용어. 음성 인식 정확도를 높입니다.
@@ -398,7 +359,7 @@ export default function TermsConfigPage({ user, embedded }) {
               </Paper>
 
               {/* 번역 설정 — 언어별 편집(행당 다국어 표기) */}
-              <Paper variant="outlined" sx={{ borderRadius: 3, p: 3 }}>
+              <Paper variant="outlined" sx={{ borderRadius: 2, p: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, gap: 1, flexWrap: 'wrap' }}>
                   <Box sx={{ flex: 1, minWidth: 200 }}>
                     <Typography sx={{ fontWeight: 800, fontSize: 15 }}>번역 설정</Typography>
@@ -421,43 +382,35 @@ export default function TermsConfigPage({ user, embedded }) {
                   <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 1 }}>등록된 번역 설정이 없습니다.</Typography>
                 )}
 
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {rows.map((r, i) => (
-                    <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <TextField
-                          size="small" placeholder="한국어 표기" value={r.ko || ''}
-                          onChange={(e) => setRowVal(i, 'ko', e.target.value)}
-                          disabled={!isAdmin} sx={{ flex: 1 }}
-                        />
-                        <ArrowForwardIcon sx={{ fontSize: 18, color: 'text.disabled', flex: 'none' }} />
-                        <TextField
-                          size="small"
-                          placeholder={`${LANG_LABEL[tLang]} 표기${r.en && tLang !== 'en' ? ` (비면 ${r.en})` : ''}`}
-                          value={r[tLang] || ''}
-                          onChange={(e) => setRowVal(i, tLang, e.target.value)}
-                          disabled={!isAdmin} sx={{ flex: 1 }}
-                        />
-                        {isAdmin && (
-                          <IconButton size="small" onClick={() => removeRow(i)} sx={{ flex: 'none' }}>
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        )}
-                      </Box>
-                      {(isAdmin || ((r.alt && r.alt[tLang]) || []).length > 0) && (
-                        <AltChips i={i} lang={tLang} values={(r.alt && r.alt[tLang]) || []} isAdmin={isAdmin} onAdd={addAlt} onRemove={removeAlt} />
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TextField
+                        size="small" placeholder="한국어 표기" value={r.ko || ''}
+                        onChange={(e) => setRowVal(i, 'ko', e.target.value)}
+                        disabled={!isAdmin} sx={{ flex: 1 }}
+                      />
+                      <ArrowForwardIcon sx={{ fontSize: 18, color: 'text.disabled', flex: 'none' }} />
+                      <TextField
+                        size="small"
+                        placeholder={`${LANG_LABEL[tLang]} 표기${r.en && tLang !== 'en' ? ` (비면 ${r.en})` : ''}`}
+                        value={r[tLang] || ''}
+                        onChange={(e) => setRowVal(i, tLang, e.target.value)}
+                        disabled={!isAdmin} sx={{ flex: 1 }}
+                      />
+                      {isAdmin && (
+                        <IconButton size="small" onClick={() => removeRow(i)} sx={{ flex: 'none' }}>
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
                       )}
                     </Box>
                   ))}
                 </Box>
-                <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 1.5 }}>
-                  약어·구어 표기(예: 中国国际航空 → 国航)는 인식 정확도를 높이고 '축약형 → 한국어 정식명' 번역으로 반영됩니다.
-                </Typography>
               </Paper>
 
               {/* 오탈자·오번역 검사(관리자): 최근 대화 원문·번역을 AI 로 단어 단위 검수 → 용어 추천 */}
               {isAdmin && (
-                <Paper variant="outlined" sx={{ borderRadius: 3, p: 3, mt: 3 }}>
+                <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, mt: 3 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
                     <Box sx={{ flex: 1 }}>
                       <Typography sx={{ fontWeight: 800, fontSize: 15 }}>오탈자·오번역 검사</Typography>

@@ -10,7 +10,6 @@ import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from '
 import { b32encode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from './security_util.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { scoreAll } from './eval/score_core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -148,6 +147,7 @@ const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
 const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
 const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
+const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
@@ -155,6 +155,9 @@ let sessions = [];  // 메모리 캐시(항상 진실의 원천)
 let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
 let usageDaily = {}; // { 'YYYY-MM-DD': { whisperMs, translateMs } } — 파이프라인별 사용시간 일별 집계
 let usageHourly = {}; // { 'YYYY-MM-DDTHH': { whisperMs, translateMs } } — 시간대별 집계(UTC)
+// 벤더 실사용량 일별 누적 — 벤더 API 는 조회 보관기간(예: Soniox 91일)이 있어 그 뒤엔 못 꺼내므로
+// 여기 계속 쌓아 무기한 보관한다. { soniox:{date:{audioMs,costUsd,requests}}, cartesia:{date:{credits}}, openai:{date:{costUsd}} }
+let vendorUsage = { soniox: {}, cartesia: {}, openai: {} };
 // 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
 let termsConfig = { terms: [], translationTerms: [], updatedAt: 0 };
 let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
@@ -164,6 +167,7 @@ let usageCol = null;
 let usageHourlyCol = null;
 let termsConfigCol = null;
 let summariesCol = null;
+let vendorUsageCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
@@ -179,6 +183,7 @@ async function loadStore() {
         usageHourlyCol = db.collection('usageHourly');
         termsConfigCol = db.collection('termsConfig');
         summariesCol = db.collection('summaries');
+        vendorUsageCol = db.collection('vendorUsage');
         try { await db.collection('glossary').drop(); console.log('[store] 구 glossary 컬렉션 삭제'); } catch {} // 용어집 폐기
         await col.createIndex({ id: 1 }, { unique: true });
         await usersCol.createIndex({ id: 1 }, { unique: true });
@@ -195,12 +200,14 @@ async function loadStore() {
         hrows.forEach((r) => (usageHourly[r.hour] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
         const tc = await termsConfigCol.findOne({ _id: 'singleton' });
         if (tc) termsConfig = { terms: tc.terms || [], translationTerms: tc.translationTerms || [], updatedAt: tc.updatedAt || 0 };
+        const vu = await vendorUsageCol.findOne({ _id: 'singleton' });
+        if (vu) vendorUsage = { soniox: vu.soniox || {}, cartesia: vu.cartesia || {}, openai: vu.openai || {} };
         summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
         console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -238,9 +245,17 @@ async function loadStore() {
       const s = JSON.parse(readDataFile(SUMMARIES_FILE));
       if (Array.isArray(s)) summaries = s;
     }
+    if (fs.existsSync(VENDOR_USAGE_FILE)) {
+      const v = JSON.parse(readDataFile(VENDOR_USAGE_FILE));
+      if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {} };
+    }
   } catch (e) {
     console.error('[store] 로드 실패', e);
   }
+}
+async function persistVendorUsage() {
+  if (vendorUsageCol) { await vendorUsageCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...vendorUsage }, { upsert: true }); }
+  else { writeDataFile(VENDOR_USAGE_FILE, JSON.stringify(vendorUsage, null, 2)); }
 }
 
 let saveTimer = null;
@@ -1088,6 +1103,124 @@ app.get('/api/admin/usage', requireAdmin, (req, res) => {
   });
 });
 
+/* ---- 벤더 실사용량: Soniox / Cartesia / OpenAI 사용량 API 를 직접 조회해 일별 집계 ----
+   - Soniox: GET /v1/usage-logs (일반 API 키) — 요청별 오디오시간·비용(cost_usd)
+   - Cartesia: GET /usage/credits (⚠ 관리자 키 CARTESIA_ADMIN_API_KEY = sk_car_admin_… 필요) — 일별 크레딧
+   - OpenAI: GET /v1/organization/costs (⚠ 관리자 키 OPENAI_ADMIN_API_KEY = sk-admin-… 필요) — 일별 비용(USD)
+   키가 없는 벤더는 configured=false 로 내려 UI 가 내부 집계 폴백을 안내한다. 10분 캐시(과금·쿼터 보호). */
+const CARTESIA_ADMIN_API_KEY = process.env.CARTESIA_ADMIN_API_KEY || '';
+const OPENAI_ADMIN_API_KEY = process.env.OPENAI_ADMIN_API_KEY || '';
+const kstDay = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 10);
+
+// 각 fetch 는 { byDay: {date: metrics} } 또는 { error } 를 반환. 미설정이면 null.
+async function fetchSonioxRange(startMs, endMs) {
+  const byDay = {};
+  let cursor = null;
+  for (let page = 0; page < 40; page++) { // 안전 상한(최대 40,000건)
+    const qs = new URLSearchParams({ start_time: new Date(startMs).toISOString(), end_time: new Date(endMs).toISOString(), limit: '1000' });
+    if (cursor) qs.set('cursor', cursor);
+    const r = await fetch('https://api.soniox.com/v1/usage-logs?' + qs, { headers: { Authorization: `Bearer ${SONIOX_API_KEY}` } });
+    if (!r.ok) return { error: `Soniox ${r.status}: ${(await r.text()).slice(0, 120)}` };
+    const d = await r.json();
+    for (const e of d.usage_logs || []) {
+      const day = kstDay(Date.parse(e.end_time || e.start_time || 0) || startMs);
+      const b = byDay[day] || (byDay[day] = { audioMs: 0, costUsd: 0, requests: 0 });
+      b.audioMs += Number(e.input_audio_duration_ms) || 0;
+      b.costUsd += Number(e.cost_usd) || 0;
+      b.requests += 1;
+    }
+    cursor = d.next_page_cursor;
+    if (!cursor) break;
+  }
+  for (const k of Object.keys(byDay)) byDay[k].costUsd = +byDay[k].costUsd.toFixed(4);
+  return { byDay };
+}
+// Soniox 는 요청당 31일 창 제한 → 30일씩 잘라 요청(최대 90일까지 보관분 backfill)
+async function fetchSoniox(spanDays) {
+  if (!SONIOX_API_KEY) return null;
+  const endMs = Date.now();
+  const byDay = {};
+  const CH = 30 * 86400e3;
+  for (let s = endMs - spanDays * 86400e3; s < endMs; s += CH) {
+    const r = await fetchSonioxRange(s, Math.min(s + CH, endMs));
+    if (r.error) return r; // 에러면 저장분 보존
+    Object.assign(byDay, r.byDay);
+  }
+  return { byDay };
+}
+async function fetchCartesia(spanDays) {
+  if (!CARTESIA_ADMIN_API_KEY) return null;
+  const endMs = Date.now();
+  const qs = new URLSearchParams({ start_ts: new Date(endMs - spanDays * 86400e3).toISOString(), end_ts: new Date(endMs).toISOString(), interval: 'day' });
+  const r = await fetch('https://api.cartesia.ai/usage/credits?' + qs, { headers: { Authorization: `Bearer ${CARTESIA_ADMIN_API_KEY}`, 'Cartesia-Version': '2025-04-16' } });
+  if (!r.ok) return { error: `Cartesia ${r.status}: ${(await r.text()).slice(0, 120)}` };
+  const d = await r.json();
+  const byDay = {};
+  for (const b of d.data || []) byDay[kstDay(Date.parse(b.start_ts))] = { credits: b.credits || 0 };
+  return { byDay };
+}
+async function fetchOpenai(spanDays) {
+  if (!OPENAI_ADMIN_API_KEY) return null;
+  const endMs = Date.now();
+  const byDay = {};
+  let pageToken = null;
+  for (let page = 0; page < 8; page++) {
+    const qs = new URLSearchParams({ start_time: String(Math.floor((endMs - spanDays * 86400e3) / 1000)), end_time: String(Math.floor(endMs / 1000)), bucket_width: '1d', limit: '31' });
+    if (pageToken) qs.set('page', pageToken);
+    const r = await fetch('https://api.openai.com/v1/organization/costs?' + qs, { headers: { Authorization: `Bearer ${OPENAI_ADMIN_API_KEY}` } });
+    if (!r.ok) return { error: `OpenAI ${r.status}: ${(await r.text()).slice(0, 120)}` };
+    const d = await r.json();
+    for (const b of d.data || []) {
+      const day = kstDay((b.start_time || 0) * 1000);
+      byDay[day] = { costUsd: +(b.results || []).reduce((a, x) => a + ((x.amount && x.amount.value) || 0), 0).toFixed(4) };
+    }
+    if (!d.has_more) break;
+    pageToken = d.next_page;
+    if (!pageToken) break;
+  }
+  return { byDay };
+}
+
+// 벤더 API 조회 → 저장소에 병합(무기한 누적). 상태(configured/error)는 메모리에 최신값 유지.
+const vendorStatus = { soniox: {}, cartesia: {}, openai: {} };
+let vendorRefreshAt = 0;
+let vendorRefreshing = null;
+async function refreshVendorUsage(spanDays = 90) {
+  const jobs = { soniox: fetchSoniox, cartesia: fetchCartesia, openai: fetchOpenai };
+  let changed = false;
+  await Promise.all(Object.entries(jobs).map(async ([k, fn]) => {
+    let r; try { r = await fn(spanDays); } catch (e) { r = { error: String(e.message || e) }; }
+    if (r === null) { vendorStatus[k] = { configured: false }; return; }
+    if (r.error) { vendorStatus[k] = { configured: true, error: r.error }; return; } // 저장분은 보존
+    vendorStatus[k] = { configured: true };
+    for (const [date, m] of Object.entries(r.byDay)) { vendorUsage[k][date] = m; changed = true; } // 최근일은 갱신(덮어쓰기)
+  }));
+  vendorRefreshAt = Date.now();
+  if (changed) { try { await persistVendorUsage(); } catch (e) { logErr('vendor-usage-persist', e); } }
+}
+app.get('/api/admin/vendor-usage', requireAdmin, async (req, res) => {
+  const days = Math.min(365, Math.max(1, Number(req.query.days) || 14));
+  // 10분보다 오래됐으면 신선화(과금·쿼터 보호). 중복 호출은 한 번만 실행.
+  if (Date.now() - vendorRefreshAt > 10 * 60e3) {
+    if (!vendorRefreshing) vendorRefreshing = refreshVendorUsage().finally(() => { vendorRefreshing = null; });
+    try { await vendorRefreshing; } catch {}
+  }
+  const cut = kstDay(Date.now() - (days - 1) * 86400e3);
+  const build = (k, extra) => {
+    const st = vendorStatus[k];
+    const all = Object.keys(vendorUsage[k]).sort();
+    const dates = all.filter((d) => d >= cut);
+    const days2 = dates.map((date) => ({ date, ...vendorUsage[k][date] }));
+    return { ...st, days: days2, earliest: all[0] || null, ...extra(days2) };
+  };
+  res.json({
+    days, at: vendorRefreshAt, retention: { soniox: 91 },
+    soniox: build('soniox', (ds) => ({ totalCostUsd: +ds.reduce((a, d) => a + (d.costUsd || 0), 0).toFixed(4), totalAudioMin: +(ds.reduce((a, d) => a + (d.audioMs || 0), 0) / 60000).toFixed(1), totalRequests: ds.reduce((a, d) => a + (d.requests || 0), 0) })),
+    cartesia: build('cartesia', (ds) => ({ totalCredits: ds.reduce((a, d) => a + (d.credits || 0), 0) })),
+    openai: build('openai', (ds) => ({ totalCostUsd: +ds.reduce((a, d) => a + (d.costUsd || 0), 0).toFixed(4) })),
+  });
+});
+
 // 고유명사/번역 설정: 열람(로그인 누구나) + 수정(관리자만). Soniox context로 주입됨.
 app.get('/api/terms-config', requireAuth, (req, res) => {
   res.json({ terms: termsConfig.terms || { airline: [], aviation: [], etc: [] }, translationTerms: termsConfig.translationTerms || [], updatedAt: termsConfig.updatedAt || 0 });
@@ -1099,36 +1232,7 @@ app.put('/api/terms-config', requireAdmin, async (req, res) => {
   res.json(termsConfig);
 });
 
-/* ---- 평가(eval): 가이드 러너용 정답셋 제공 + 채점 ----
-   가이드 러너(/eval.html)가 낭독 스크립트를 받아 진행하고, 수집한 records 를 채점 요청한다. */
-let evalDatasetCache = null;
-function loadEvalDataset() {
-  if (evalDatasetCache) return evalDatasetCache;
-  try { evalDatasetCache = JSON.parse(fs.readFileSync(path.join(__dirname, 'eval', 'dataset.json'), 'utf8')); }
-  catch (e) { logErr('eval-dataset', e); evalDatasetCache = null; }
-  return evalDatasetCache;
-}
-app.get('/api/eval/dataset', requireAdmin, (req, res) => {
-  const d = loadEvalDataset();
-  if (!d) return res.status(404).json({ error: '정답셋(eval/dataset.json)을 찾을 수 없습니다.' });
-  res.json(d);
-});
-app.post('/api/eval/score', requireAdmin, async (req, res) => {
-  const dataset = loadEvalDataset();
-  if (!dataset) return res.status(404).json({ error: '정답셋을 찾을 수 없습니다.' });
-  const b = req.body || {};
-  const records = Array.isArray(b.records) ? b.records : [];
-  if (!records.length) return res.status(400).json({ error: 'records 가 비어 있습니다.' });
-  const dry = b.dry === true || !OPENAI_API_KEY;
-  const model = /^gpt-/.test(String(b.model || '')) ? b.model : 'gpt-5-mini';
-  try {
-    const report = await scoreAll(dataset, records.slice(0, 500), { dry, apiKey: OPENAI_API_KEY, model, concurrency: 4 });
-    res.json({ dry, model: dry ? null : model, report });
-  } catch (e) {
-    logErr('eval-score', e);
-    res.status(500).json({ error: '채점 실패: ' + (e.message || e) });
-  }
-});
+/* (평가 러너는 제거됨 — 평가는 데스크 응대 로그의 '평가 JSON' 내려받기 + eval/score.mjs --auto 로 진행) */
 
 /* ================================================================== */
 /*  AI 요약 (gpt-5-nano) — 세션 전문을 체계적으로 요약                   */
@@ -1895,7 +1999,18 @@ function resolveCategoryDests(catId, deskFloor) {
   const order = DESK_FLOORS.slice().sort((a, b) => Math.abs(DESK_FLOORS.indexOf(a) - DESK_FLOORS.indexOf(base)) - Math.abs(DESK_FLOORS.indexOf(b) - DESK_FLOORS.indexOf(base)));
   for (const fk of order) {
     const list = (fac[fk] || []).filter((f) => !f.in_secure && cat.match.some((m) => String(f.name).includes(m)));
-    if (list.length) return { category: cat.id, ko: cat.ko, floor: fk, sameFloor: fk === base, dests: list.map((f) => ({ floor: fk, x: f.x, y: f.y, name: f.name })) };
+    if (list.length) {
+      // 같은(또는 거의 같은) 좌표의 중복 데이터 제거 — 지도에 경로가 겹쳐 2개 그려지던 문제
+      const seen = new Set();
+      const dests = [];
+      for (const f of list) {
+        const k = Math.round(f.x / 5) + ',' + Math.round(f.y / 5);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        dests.push({ floor: fk, x: f.x, y: f.y, name: f.name });
+      }
+      return { category: cat.id, ko: cat.ko, floor: fk, sameFloor: fk === base, dests };
+    }
   }
   return null; // 일반구역에 해당 시설 없음 → 안내 안 함
 }
@@ -2548,19 +2663,28 @@ function handleHost(ws) {
     let gPending = [];
     let gCurId = null, gFinalText = '', gFinalTrans = '', gLastTrans = '', gLastCommitText = '';
     let gLastCommitAt = 0;
+    let gCurSrc = '', gLangVotes = {}; // 여객 채널 감지 언어(다수결) — 안내원(ko) 누화 판정용
     const recentCommits = [];   // 교차 중복(누화) 필터: [{ n, at, ch }]
     const chStats = { staff: 0, guest: 0, crossDrops: 0 }; // 누화율 측정용(deskLog 에 저장)
 
-    // 교차 채널 누화 판정: 반대 채널이 5초 내 유사 문장을 확정했으면 누화(마이크로 샌 소리)로 드랍.
-    // 근접 게이트를 통과한 잔여 누화의 마지막 방어선. 진짜 발화 채널이 신호가 커서 먼저 확정되는 것을 이용.
+    // 교차 채널 누화 판정: 반대 채널이 8초 내 유사 문장을 확정했으면 누화(마이크로 샌 소리)로 드랍.
+    // 근접 게이트·언어 소유권을 통과한 잔여 누화의 마지막 방어선.
+    // (두 엔진의 endpoint 시점이 벌어져 5초 창을 새던 문제 → 8초, 짧은 발화도 → 4자)
     const crossDup = (ch, txt) => {
       const n = echoNorm(txt);
       const now = Date.now();
-      while (recentCommits.length && now - recentCommits[0].at > 5000) recentCommits.shift();
-      if (n.length >= 6 && recentCommits.some((e) => e.ch !== ch && echoMatch(n, e.n))) return true;
+      while (recentCommits.length && now - recentCommits[0].at > 8000) recentCommits.shift();
+      if (n.length >= 4 && recentCommits.some((e) => e.ch !== ch && echoMatch(n, e.n))) return true;
       recentCommits.push({ n, at: now, ch });
       return false;
     };
+    // 채널-언어 소유권(2채널 모드의 1차 방어): 여객 태블릿 마이크가 켜져 있으면
+    // 손님 언어 발화는 여객 채널이, 한국어 발화는 데스크 채널이 소유한다.
+    // 같은 발화가 반대쪽 마이크에 새어 들어와 문장이 조금 다르게 전사되면 crossDup(유사도)이
+    // 놓칠 수 있는데, 언어 기준 소유권은 전사 차이와 무관하게 결정적으로 걸러 준다.
+    // (손님이 한국어를 고른 단일언어 응대에서는 언어로 구분 불가 → crossDup 만 사용)
+    const staffOwns = (src) => !(guestMicOn && lockedB && lockedB !== A && src && src !== A);
+    const guestOwns = (src) => !(lockedB && lockedB !== A && src === A);
 
     // langs = 이번 응대의 활성 언어(ko + 손님 언어) — 해당 언어의 용어 표기·번역쌍만 context 로 주입
     const baseConfig = (langs) => ({
@@ -2596,6 +2720,8 @@ function handleHost(ws) {
       const tgt = (finalTrans.trim() || lastTrans).trim();
       resetUtterance();
       if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던 고스트 카드 제거
+      // 언어 소유권: 2채널 모드에서 손님 언어 발화는 여객 채널 소유 → 데스크 마이크 누화로 드랍
+      if (!staffOwns(src)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
       // 여객 채널이 이미 확정한 문장과 유사 → 데스크 마이크로 샌 누화, 드랍(화면 카드도 제거)
       if (guestMicOn && crossDup('staff', txt)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
       chStats.staff++;
@@ -2757,7 +2883,11 @@ function handleHost(ws) {
       const shownTgt = (finalTrans + nonFinalTrans).trim();
       if (shownTgt) lastTrans = shownTgt;
       if (!curId && (shownSrc || shownTgt)) curId = newId();
-      if (curId) liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, null, curSrc || null);
+      // 2채널 모드: 손님 언어로 감지된 진행 중 발화는 표시하지 않음(커밋 시 드랍될 누화의 이중 표시 방지)
+      if (curId) {
+        if (!staffOwns(curSrc)) liveSend(curId, {}, null, null);
+        else liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, null, curSrc || null);
+      }
       if (endHit || finalText.length >= SX_MAX_CHARS) commit();
     }
 
@@ -2771,7 +2901,7 @@ function handleHost(ws) {
     });
     function closeGuest() {
       const old = gsx; gsx = null; gsxReady = false; gPending = [];
-      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = '';
+      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {};
       if (old) { try { old.send(''); } catch {} try { old.close(); } catch {} }
     }
     function connectGuest() {
@@ -2798,10 +2928,12 @@ function handleHost(ws) {
       try { if (old && old !== next) old.close(); } catch {}
     }
     const guestCommit = () => {
-      const id = gCurId, txt = gFinalText.trim();
+      const id = gCurId, txt = gFinalText.trim(), gSrc = gCurSrc;
       const tgt = (gFinalTrans.trim() || gLastTrans).trim();
-      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = '';
+      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {};
       if (!id || !txt) { if (id) liveSend(id, {}, null, null, null, 'left'); return; } // 고스트 카드 제거
+      // 언어 소유권: 한국어로 감지된 발화는 안내원 채널 소유 → 여객 마이크 누화로 드랍
+      if (!guestOwns(gSrc)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
       // 안내원 채널이 이미 확정한 문장과 유사 → 여객 마이크로 샌 누화, 드랍
       if (crossDup('guest', txt)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
       chStats.guest++;
@@ -2821,13 +2953,21 @@ function handleHost(ws) {
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
         if (t.translation_status === 'translation') { if (t.is_final) gFinalTrans += t.text; else nonFinalTrans += t.text; }
-        else { if (t.is_final) gFinalText += t.text; else nonFinal += t.text; }
+        else {
+          const lang = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
+          if (lang) { gLangVotes[lang] = (gLangVotes[lang] || 0) + 1; if (!gCurSrc || gLangVotes[lang] > (gLangVotes[gCurSrc] || 0)) gCurSrc = lang; }
+          if (t.is_final) gFinalText += t.text; else nonFinal += t.text;
+        }
       }
       const shownSrc = (gFinalText + nonFinal).trim();
       const shownTgt = (gFinalTrans + nonFinalTrans).trim();
       if (shownTgt) gLastTrans = shownTgt;
       if (!gCurId && (shownSrc || shownTgt)) gCurId = newId();
-      if (gCurId) liveSend(gCurId, { [A]: shownTgt }, shownSrc || null, null, lockedB || null, 'left');
+      // 한국어(안내원 누화)로 감지된 진행 중 발화는 표시하지 않음
+      if (gCurId) {
+        if (!guestOwns(gCurSrc)) liveSend(gCurId, {}, null, null, null, 'left');
+        else liveSend(gCurId, { [A]: shownTgt }, shownSrc || null, null, lockedB || null, 'left');
+      }
       if (endHit || gFinalText.length >= SX_MAX_CHARS) guestCommit();
     }
     // 뷰어의 여객 마이크 채널 on/off — 켜지면 응대 중일 때 즉시 엔진 연결, 꺼지면 단일 채널로 폴백.
@@ -3126,3 +3266,10 @@ server.listen(PORT, () => {
   console.log(`  · 데스크톱:  http://localhost:${PORT}`);
   console.log(`  · 같은 와이파이 모바일: http://${ip}:${PORT}\n`);
 });
+
+// 벤더 사용량 주기 신선화(12h) — 관리자가 화면을 안 봐도 일별 실사용량이 계속 누적되어
+// 벤더 API 보관기간(예: Soniox 91일)이 지나도 앱에는 기록이 남는다. 키가 하나라도 있을 때만.
+if (SONIOX_API_KEY || CARTESIA_ADMIN_API_KEY || OPENAI_ADMIN_API_KEY) {
+  setTimeout(() => refreshVendorUsage().catch((e) => logErr('vendor-usage-boot', e)), 8000); // 부팅 직후 1회
+  setInterval(() => refreshVendorUsage().catch((e) => logErr('vendor-usage-cron', e)), 12 * 3600e3);
+}

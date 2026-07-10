@@ -154,3 +154,31 @@
 - **서버 API**(requireAdmin): `GET /api/eval/dataset`(정답셋), `POST /api/eval/score`({records,dry}→구조화 리포트). OPENAI_API_KEY 없으면 자동 dry.
 - **진입점**: 관리자 → 용어 설정 상단 **'평가 러너'** 버튼(`window.open('/eval.html')`). `eval/TEST_GUIDE.md` 최상단에 러너 절차 추가.
 - 검증: dataset API 30개·score API dry 리포트·페이지 로드·러너 로직(질문/답변 방향별 캡처·records 누적) 프리뷰 확인. 마이크 캡처는 mobile.html PTT와 동일 코드(실기기 필요).
+
+## 2026-07-09 (4) — 관리자 개편(벤더 사용량·로그·평가 흐름 단순화)
+- **평가 러너 삭제** → 데스크 로그 활용: 관리자→로그→응대 상세에 **[평가 JSON 내려받기]**(items→records 변환, 안내원(ko)=a/손님=q). `eval/score.mjs --auto` 가 scenario_id 없이 정답 원문 CER 유사도로 자동 매칭(0.55 초과 미매칭 제외·표시). /api/eval/* 및 eval.html 제거. TEST_GUIDE 표준 절차 갱신.
+- **번역설정 약어(alt) 입력 UI 제거** — 데이터·서버 로직(alt 인식 힌트+축약→정식명 번역)은 유지, 편집은 JSON 업로드로.
+- **벤더 실사용량**: `GET /api/admin/vendor-usage?days=`(requireAdmin, 10분 캐시) —
+  Soniox `GET /v1/usage-logs`(일반 키, cost_usd·audio ms, 문자열 숫자 주의 Number() 강제), Cartesia `GET /usage/credits`(⚠ `CARTESIA_ADMIN_API_KEY`=sk_car_admin_… + Cartesia-Version 헤더), OpenAI `GET /v1/organization/costs`(⚠ `OPENAI_ADMIN_API_KEY`=sk-admin-…). KST 일별 버킷.
+  사용량 탭 = 요약 StatCard → **벤더 카드 3개**(총액/미니바, 키 미설정 시 env 안내) → 내부 집계(추정치 라벨) → **데스크 통계 편입**(데스크 탭 제거).
+- **로그 스크롤 억제**: 데스크 응대 8건/세션 15건 첫 표시 + '더 보기', 전문(TranscriptView)은 maxHeight 340 내부 스크롤.
+- 관리자 상단 '관리자' 타이틀 제거(탭이 최상단), 카드 라운딩 2→1.5(용어 3→2).
+- 검증: Soniox 실청구 조회 성공(7일 $0.4152/103분, 14일 $0.792/244분), Cartesia·OpenAI 키미설정 카드, 탭 5개, 로그·용어 렌더, 8/8 테스트.
+
+## 2026-07-10 — 벤더 사용량 무기한 누적(보관기간 대응)
+- **문제**: 벤더 사용량 API 는 조회 보관기간이 있다 — **Soniox 91일 보관 · 요청당 31일 창**. 그 뒤엔 API 로도 못 꺼냄.
+- **해결**: `vendorUsage` 저장소(Mongo `vendorUsage` 싱글턴 / 파일 `data/vendor_usage.json`)에 일별로 계속 누적.
+  - fetchers(`fetchSoniox`/`fetchCartesia`/`fetchOpenai`)는 `{byDay}` 반환. Soniox 는 30일씩 잘라 최대 90일 backfill(31일 창 제한 준수), OpenAI 는 page 페이지네이션.
+  - `refreshVendorUsage(90)`: 각 벤더 조회 → **저장소에 병합(덮어쓰기, 삭제 없음)** → persist. 에러 시 저장분 보존. 상태(configured/error)는 `vendorStatus` 메모리.
+  - `GET /api/admin/vendor-usage?days=`(최대 365): 10분 초과 시 신선화(중복호출 1회만), 응답은 **저장소에서** 해당 범위 + `earliest`.
+  - 부팅 8s 후 1회 + **12h 주기** 자동 갱신 → 관리자가 안 봐도 누적(서버 다운 91일↑ 아니면 공백 없음).
+- **UI**: 기간 토글 7/30/90일, "자체 누적 — 보관기간 지나도 남음" 안내, "기록 시작일 …" 캡션.
+- 검증: 90일 backfill(Soniox 17일·$1.36·389분·586건), `data/vendor_usage.json` 저장 확인, **191일 전 날짜 주입→재기동→365일 조회에 그대로 표시**(API 불가 데이터가 앱엔 잔존) 확인, 8/8 테스트.
+
+## 2026-07-10 (2) — 데스크 2채널 이중입력·지도 UX 수정
+- **이중 입력(양쪽 마이크 동시 인식)**: crossDup(유사도)만으로는 ①두 엔진 endpoint 가 5초 이상 벌어짐 ②6자 미만 짧은 발화 ③두 마이크 전사가 달라 매칭 실패 ④커밋 전 live 카드 이중 표시를 못 막았음.
+  - **채널-언어 소유권**(1차 방어): 여객 마이크 on + 이중언어 응대에서 `staffOwns(src)`=손님 언어 발화는 데스크 채널이 버림 / `guestOwns(src)`=ko 발화는 여객 채널이 버림. 여객 채널에도 `gCurSrc`/`gLangVotes` 언어 감지 추가. **live 단계에서도** 소유권 위반이면 빈 페이로드(카드 제거)로 이중 표시 차단. 커밋 시에도 드랍(crossDrops 집계).
+  - crossDup 강화(2차): 창 5s→8s, 최소 길이 6→4자. (손님이 한국어 고른 단일언어 응대는 언어 구분 불가 → crossDup 만)
+- **지도 상단 플로팅**: `.item.map` → body 직속 `position:fixed; top:14px; z-index:70`. 새 발화에도 유지(collapseMapMini 제거), **10초 뒤 자동 닫힘**(mapHideTimer, 새 안내 시 리셋) + **아무 곳이나 탭하면 닫힘**. clearAll→removeMap(타이머 정리 포함).
+- **경로 2개 중복**: 원인 = resolveCategoryDests 가 층의 매칭 시설 전부를 dests 로 반환 → 맵이 전 경로를 그림. ① 서버: 좌표(5px 격자) 중복 시설 dedupe ② 클라: 1차 showRoute 결과에서 최단(summary.meters) 후보를 골라 **그 하나만 재표시**.
+- 검증(프리뷰): 지도 fixed/route 1개/새 발화 유지/탭 닫힘/10초 자동 닫힘 모두 통과, 데스크 시작→guest-mic on/off→종료 프로토콜 회귀 정상(서버 오류 0), 8/8 테스트. ⚠ 실제 이중 마이크 누화 억제 효과는 실기기(데스크+태블릿 동시)로 확인 필요.

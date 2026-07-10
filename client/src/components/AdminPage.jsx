@@ -93,9 +93,9 @@ function UsageChart({ data, kind }) {
 
 function StatCard({ icon, label, value, sub }) {
   return (
-    <Box sx={{ flex: '1 1 180px', minWidth: 160, bgcolor: (t) => alpha(t.palette.text.primary, 0.02), border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}>
+    <Box sx={{ flex: '1 1 180px', minWidth: 160, bgcolor: (t) => alpha(t.palette.text.primary, 0.02), border: 1, borderColor: 'divider', borderRadius: 1.5, p: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary', mb: 1 }}>
-        <Box sx={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 2, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>{icon}</Box>
+        <Box sx={{ display: 'grid', placeItems: 'center', width: 30, height: 30, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>{icon}</Box>
         <Typography sx={{ fontSize: 12.5, fontWeight: 700 }}>{label}</Typography>
       </Box>
       <Typography sx={{ fontSize: 26, fontWeight: 800, lineHeight: 1.2 }}>{value}</Typography>
@@ -114,9 +114,94 @@ function EmptyTab({ icon, title, desc }) {
   );
 }
 
+/* ---- 벤더 실사용량: Soniox(STT·번역) / Cartesia(TTS) / OpenAI(GPT) 사용량 API 직접 조회 ---- */
+function MiniBars({ days, valueOf, tipOf }) {
+  const rows = days || [];
+  if (!rows.length) return <Typography sx={{ fontSize: 12, color: 'text.disabled', py: 2, textAlign: 'center' }}>기간 내 사용 기록 없음</Typography>;
+  const max = Math.max(...rows.map(valueOf), 1e-9);
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, height: 56, mt: 1.5 }}>
+      {rows.map((d) => (
+        <Tooltip key={d.date} title={tipOf(d)}>
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
+            <Box sx={{ width: '68%', height: `${Math.max(2, (valueOf(d) / max) * 40)}px`, borderRadius: 0.5, bgcolor: 'primary.main', opacity: 0.75 }} />
+            <Typography sx={{ fontSize: 9, color: 'text.disabled', whiteSpace: 'nowrap' }}>{d.date.slice(8)}</Typography>
+          </Box>
+        </Tooltip>
+      ))}
+    </Box>
+  );
+}
+function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf }) {
+  const body = () => {
+    if (!v) return <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 2 }}>불러오는 중…</Typography>;
+    if (!v.configured) return (
+      <>
+        <Chip size="small" label="키 미설정" sx={{ height: 20, fontSize: 11, my: 1 }} />
+        <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>서버 환경변수 <b>{keyHint}</b> 를 설정하면 벤더 콘솔과 동일한 실사용량이 여기 표시됩니다.</Typography>
+      </>
+    );
+    if (v.error) return (
+      <>
+        <Chip size="small" color="warning" label="조회 실패" sx={{ height: 20, fontSize: 11, my: 1 }} />
+        <Typography sx={{ fontSize: 11.5, color: 'text.disabled', wordBreak: 'break-all' }}>{v.error}</Typography>
+      </>
+    );
+    return (
+      <>
+        <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, mt: 0.5 }}>{totalOf(v)}</Typography>
+        {subOf && <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>{subOf(v)}</Typography>}
+        <MiniBars days={v.days} valueOf={valueOf} tipOf={tipOf} />
+      </>
+    );
+  };
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.25, flex: '1 1 240px', minWidth: 220 }}>
+      <Typography sx={{ fontWeight: 800, fontSize: 14 }}>{name} <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· {desc}</Box></Typography>
+      {body()}
+    </Paper>
+  );
+}
+function VendorUsage() {
+  const [days, setDays] = useState(14);
+  const [data, setData] = useState(null);
+  useEffect(() => { setData(null); api.adminVendorUsage(days).then(setData).catch(() => setData({ error: true })); }, [days]);
+  const v = (k) => (data && !data.error ? data[k] : null);
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3, mb: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+        <Box>
+          <Typography sx={{ fontWeight: 800, fontSize: 15 }}>벤더 실사용량</Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>사용량 API 를 조회해 일별로 <b>자체 누적</b> — 벤더 보관기간(Soniox 91일 등)이 지나도 여기엔 남습니다.</Typography>
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <ToggleButtonGroup size="small" exclusive value={days} onChange={(e, x) => x && setDays(x)}>
+          {[7, 30, 90].map((d) => <ToggleButton key={d} value={d} sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>{d}일</ToggleButton>)}
+        </ToggleButtonGroup>
+      </Box>
+      {data && data.error && <Alert severity="error" sx={{ mb: 1 }}>벤더 사용량을 불러오지 못했습니다.</Alert>}
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+        <VendorCard name="Soniox" desc="음성인식·실시간 번역" v={v('soniox')} keyHint="SONIOX_API_KEY"
+          totalOf={(x) => fmtCost(x.totalCostUsd || 0)} subOf={(x) => `오디오 ${fmtMin(x.totalAudioMin || 0)} · ${x.totalRequests || 0}회 연결`}
+          valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtMin((d.audioMs || 0) / 60000)} · ${fmtCost(d.costUsd)}`} />
+        <VendorCard name="Cartesia" desc="음성 합성(TTS)" v={v('cartesia')} keyHint="CARTESIA_ADMIN_API_KEY (sk_car_admin_…)"
+          totalOf={(x) => `${(x.totalCredits || 0).toLocaleString()} 크레딧`}
+          valueOf={(d) => d.credits} tipOf={(d) => `${d.date} · ${(d.credits || 0).toLocaleString()} 크레딧`} />
+        <VendorCard name="OpenAI" desc="GPT (요약·다듬기·검사)" v={v('openai')} keyHint="OPENAI_ADMIN_API_KEY (sk-admin-…)"
+          totalOf={(x) => fmtCost(x.totalCostUsd || 0)}
+          valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtCost(d.costUsd)}`} />
+      </Box>
+      {data && !data.error && (v('soniox')?.earliest || v('cartesia')?.earliest || v('openai')?.earliest) && (
+        <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 1.5 }}>
+          기록 시작일 {[['Soniox', v('soniox')], ['Cartesia', v('cartesia')], ['OpenAI', v('openai')]].filter(([, x]) => x?.earliest).map(([n, x]) => `${n} ${x.earliest}`).join(' · ')} — 12시간마다 자동 갱신·누적.
+        </Typography>
+      )}
+    </Paper>
+  );
+}
+
 const TABS = [
   { v: 'usage', label: '사용량' },
-  { v: 'desk', label: '데스크 통계' },
   { v: 'logs', label: '로그' },
   { v: 'accounts', label: '계정 관리' },
   { v: 'terms', label: '용어 설정' },
@@ -148,10 +233,38 @@ function TranscriptView({ items, deskMode }) {
   );
 }
 
+// 데스크 응대 상세 → 평가 JSON(records) 변환: 안내원(ko)=답변(a), 손님=질문(q).
+// eval/score.mjs --auto 가 시나리오를 자동 매칭하므로 scenario_id 태깅이 필요 없다.
+function deskEvalRecords(detail) {
+  const lang = detail.lang && detail.lang !== 'ko' ? detail.lang : 'en';
+  return (detail.items || [])
+    .map((it) => {
+      const staff = it.lang ? it.lang === 'ko' : it.side === 'right';
+      const texts = it.texts || {};
+      const mt = staff
+        ? (texts[lang] || Object.entries(texts).find(([k, v]) => v && k !== 'ko')?.[1] || '')
+        : (texts.ko || '');
+      return { direction: staff ? 'a' : 'q', lang, stt: it.source || '', mt };
+    })
+    .filter((r) => r.stt || r.mt);
+}
+function downloadJson(obj, name) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 // 로그 탭: 데스크 응대 로그(건당 시각·길이·언어·문장수) + 일반 세션 대화 로그 — 클릭 시 전문 열람
+const LOGS_DESK_CAP = 8;   // 데스크별 최초 표시 응대 수(과도한 스크롤 방지 — '더 보기'로 확장)
+const LOGS_SESS_CAP = 15;  // 세션 목록 최초 표시 수
 function LogsPanel() {
   const [data, setData] = useState(null); // { desks, sessions }
   const [open, setOpen] = useState(null); // { kind:'desk'|'session', key, loading, detail }
+  const [deskMore, setDeskMore] = useState({}); // { [deskId]: 표시 수 }
+  const [sessCap, setSessCap] = useState(LOGS_SESS_CAP);
   useEffect(() => { api.adminLogs().then(setData).catch(() => setData({ desks: [], sessions: [] })); }, []);
   const openDesk = async (sid, idx) => {
     const key = `d:${sid}:${idx}`;
@@ -173,11 +286,14 @@ function LogsPanel() {
     <>
       <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1 }}>안내데스크 응대 로그</Typography>
       {data.desks.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.disabled', mb: 2 }}>안내데스크 세션이 없습니다.</Typography>}
-      {data.desks.map((d) => (
-        <Paper key={d.id} variant="outlined" sx={{ borderRadius: 2, p: 2, mb: 2 }}>
+      {data.desks.map((d) => {
+        const cap = deskMore[d.id] || LOGS_DESK_CAP;
+        const shown = d.logs.slice(0, cap);
+        return (
+        <Paper key={d.id} variant="outlined" sx={{ borderRadius: 1.5, p: 2, mb: 2 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 14, mb: 1 }}>{d.title} <Box component="span" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: 12.5 }}>· 응대 {d.logs.length}건</Box></Typography>
           {d.logs.length === 0 && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>아직 응대 기록이 없습니다.</Typography>}
-          {d.logs.map((e) => (
+          {shown.map((e) => (
             <Box key={e.idx}>
               <Box onClick={() => openDesk(d.id, e.idx)}
                 sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.75, px: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) } }}>
@@ -191,19 +307,38 @@ function LogsPanel() {
                 <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
                   {open.loading ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', py: 1 }}>불러오는 중…</Typography>
                     : open.error ? <Typography sx={{ fontSize: 12.5, color: 'error.main', py: 1 }}>{open.error}</Typography>
-                    : <TranscriptView items={open.detail?.items} deskMode />}
+                    : (
+                      <>
+                        {/* 통역 평가용: 이 응대의 인식원문·번역을 records JSON 으로 — eval/score.mjs --auto 로 바로 채점 */}
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 0.5 }}>
+                          <Button size="small" sx={{ fontSize: 11.5, color: 'text.secondary', py: 0 }}
+                            onClick={(ev) => { ev.stopPropagation(); downloadJson({ records: deskEvalRecords(open.detail) }, `records-${d.id}-${e.idx}.json`); }}>
+                            평가 JSON 내려받기
+                          </Button>
+                        </Box>
+                        <Box sx={{ maxHeight: 340, overflowY: 'auto' }}>
+                          <TranscriptView items={open.detail?.items} deskMode />
+                        </Box>
+                      </>
+                    )}
                 </Box>
               )}
             </Box>
           ))}
+          {d.logs.length > cap && (
+            <Button size="small" onClick={() => setDeskMore((m) => ({ ...m, [d.id]: cap + 20 }))} sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
+              더 보기 ({d.logs.length - cap}건 남음)
+            </Button>
+          )}
         </Paper>
-      ))}
+        );
+      })}
 
       <Typography sx={{ fontWeight: 800, fontSize: 15, mt: 3, mb: 1 }}>세션 대화 로그</Typography>
       {data.sessions.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>세션이 없습니다.</Typography>}
       {data.sessions.length > 0 && (
-        <Paper variant="outlined" sx={{ borderRadius: 2, p: 1.5 }}>
-          {data.sessions.map((s) => (
+        <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 1.5 }}>
+          {data.sessions.slice(0, sessCap).map((s) => (
             <Box key={s.id}>
               <Box onClick={() => openSession(s.id)}
                 sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.75, px: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) } }}>
@@ -216,11 +351,16 @@ function LogsPanel() {
                 <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
                   {open.loading ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', py: 1 }}>불러오는 중…</Typography>
                     : open.error ? <Typography sx={{ fontSize: 12.5, color: 'error.main', py: 1 }}>{open.error}</Typography>
-                    : <TranscriptView items={open.detail?.items} />}
+                    : <Box sx={{ maxHeight: 340, overflowY: 'auto' }}><TranscriptView items={open.detail?.items} /></Box>}
                 </Box>
               )}
             </Box>
           ))}
+          {data.sessions.length > sessCap && (
+            <Button size="small" onClick={() => setSessCap((c) => c + 30)} sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
+              더 보기 ({data.sessions.length - sessCap}건 남음)
+            </Button>
+          )}
         </Paper>
       )}
       <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 1.5 }}>
@@ -237,7 +377,7 @@ function DeskStats() {
   const [stats, setStats] = useState(null);
   useEffect(() => { api.adminDeskStats().then(setStats).catch(() => setStats([])); }, []);
   if (!stats) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
-  if (!stats.length) return <EmptyTab icon={<ForumOutlinedIcon sx={{ fontSize: 34 }} />} title="데스크 통계" desc="안내데스크 세션이 아직 없습니다. 데스크 안내에서 세션을 만들면 응대 통계가 집계됩니다." />;
+  if (!stats.length) return <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 1 }}>안내데스크 세션이 아직 없습니다. 데스크 안내에서 세션을 만들면 응대 통계가 집계됩니다.</Typography>;
   const total = stats.reduce((a, d) => a + d.count, 0);
   return (
     <>
@@ -250,7 +390,7 @@ function DeskStats() {
         const langEntries = Object.entries(d.langs || {}).sort((a, b) => b[1] - a[1]);
         const maxDay = Math.max(1, ...(d.daily || []).map((x) => x.count));
         return (
-          <Paper key={d.id} variant="outlined" sx={{ borderRadius: 2, p: 3, mb: 2 }}>
+          <Paper key={d.id} variant="outlined" sx={{ borderRadius: 1.5, p: 3, mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
               <Typography sx={{ fontWeight: 800, fontSize: 16 }}>{d.title}</Typography>
               <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
@@ -301,7 +441,7 @@ function SystemPanel() {
   const fmtUp = (s) => (s >= 86400 ? `${Math.floor(s / 86400)}일 ` : '') + `${Math.floor((s % 86400) / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`;
   return (
     <>
-      <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, mb: 2 }}>
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3, mb: 2 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1.5 }}>시스템 상태</Typography>
         {!health ? <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>불러오는 중…</Typography> : (
           <>
@@ -332,7 +472,7 @@ function SystemPanel() {
         )}
       </Paper>
 
-      <Paper variant="outlined" sx={{ borderRadius: 2, p: 3 }}>
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 0.5 }}>관리자 2단계 인증</Typography>
         <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
           Google Authenticator 같은 인증 앱을 등록하면 관리자 로그인 시 비밀번호에 더해 6자리 코드를 요구합니다.
@@ -345,7 +485,7 @@ function SystemPanel() {
         {setup && (
           <Box>
             <Typography sx={{ fontSize: 13.5, mb: 1 }}>1. 인증 앱에서 아래 QR을 스캔하세요.</Typography>
-            <Box component="img" src={setup.qr} alt="2FA QR" sx={{ width: 180, bgcolor: '#fff', borderRadius: 2, p: 1, display: 'block', mb: 1 }} />
+            <Box component="img" src={setup.qr} alt="2FA QR" sx={{ width: 180, bgcolor: '#fff', borderRadius: 1.5, p: 1, display: 'block', mb: 1 }} />
             <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 2, wordBreak: 'break-all' }}>수동 입력 키: {setup.secret}</Typography>
             <Typography sx={{ fontSize: 13.5, mb: 1 }}>2. 앱에 표시된 6자리 코드를 입력해 활성화를 완료하세요.</Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -411,9 +551,8 @@ export default function AdminPage({ user }) {
 
   return (
     <>
-      {/* 헤더(제목 가운데) + 서브탭(가운데) */}
-      <Box sx={{ px: { xs: 2, sm: 4 }, pt: { xs: 2, sm: 4.5 }, borderBottom: 1, borderColor: 'divider' }}>
-        <Typography sx={{ textAlign: 'center', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mb: { xs: 2, sm: 2.5 } }}>관리자</Typography>
+      {/* 서브탭(가운데) */}
+      <Box sx={{ px: { xs: 2, sm: 4 }, pt: { xs: 1, sm: 1.5 }, borderBottom: 1, borderColor: 'divider' }}>
         <Tabs value={tab} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile
           sx={{ minHeight: 40, '& .MuiTabs-flexContainer': { justifyContent: 'center' }, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 700, fontSize: 14 } }}>
           {TABS.map((t) => <Tab key={t.v} value={t.v} label={t.label} />)}
@@ -422,20 +561,22 @@ export default function AdminPage({ user }) {
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 960, mx: 'auto' }}>
-          {/* ── 사용량 ── */}
+          {/* ── 사용량: 벤더 실사용량 + 내부 집계 + 데스크 통계 ── */}
           {tab === 'usage' && (
             <>
               <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
                 <StatCard icon={<PeopleAltOutlinedIcon fontSize="small" />} label="사용자" value={list ? list.length : '—'} />
                 <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="총 세션" value={list ? totalSessions : '—'} />
                 <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="총 사용 시간" value={usage ? fmtMin(usage.totalMinutes) : '—'} />
-                <StatCard icon={<PaidOutlinedIcon fontSize="small" />} label="총 사용 비용" value={usage ? fmtCost(usage.totalCost) : '—'} />
+                <StatCard icon={<PaidOutlinedIcon fontSize="small" />} label="총 사용 비용(내부 추정)" value={usage ? fmtCost(usage.totalCost) : '—'} />
               </Box>
 
-              <Paper variant="outlined" sx={{ borderRadius: 2, p: 3 }}>
+              <VendorUsage />
+
+              <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                   <Typography sx={{ fontSize: 13, fontWeight: 800 }}>
-                    {usageView === 'hourly' ? '시간대별 사용 비용 (최근 24시간)' : '일별 사용 비용 (최근 14일)'}
+                    내부 집계 {usageView === 'hourly' ? '— 시간대별 (최근 24시간)' : '— 일별 (최근 14일)'}
                   </Typography>
                   <Box sx={{ flex: 1 }} />
                   <ToggleButtonGroup size="small" exclusive value={usageView} onChange={(e, v) => v && setUsageView(v)}>
@@ -446,10 +587,13 @@ export default function AdminPage({ user }) {
                 <UsageChart data={usageView === 'hourly' ? usage?.hourly : usage?.daily} kind={usageView} />
                 {usage && (
                   <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 2 }}>
-                    ※ 호스트 사용 시간 기준 — 실시간 번역 ${usage.rateTranslate}/분 · 다국어 번역 ${usage.rateWhisper}/분.
+                    ※ 호스트 사용 시간 기준 추정치 — 벤더 키가 없어도 동작하는 참고용 집계입니다. 청구 기준은 위 벤더 실사용량을 보세요.
                   </Typography>
                 )}
               </Paper>
+
+              <Typography sx={{ fontWeight: 800, fontSize: 15, mt: 4, mb: 1.5 }}>데스크 통계</Typography>
+              <DeskStats />
             </>
           )}
 
@@ -459,7 +603,7 @@ export default function AdminPage({ user }) {
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
               <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg}>사용자 추가</Button>
             </Box>
-            <Paper variant="outlined" sx={{ borderRadius: 2, overflowX: 'auto' }}>
+            <Paper variant="outlined" sx={{ borderRadius: 1.5, overflowX: 'auto' }}>
               <Table sx={{ minWidth: 520 }}>
                 <TableHead>
                   <TableRow sx={{ '& th': { fontWeight: 800, fontSize: 13 } }}>
@@ -506,9 +650,6 @@ export default function AdminPage({ user }) {
             </Paper>
             </>
           )}
-
-          {/* ── 데스크 통계 ── */}
-          {tab === 'desk' && <DeskStats />}
 
           {/* ── 로그(데스크 응대·세션 대화 세부) ── */}
           {tab === 'logs' && <LogsPanel />}

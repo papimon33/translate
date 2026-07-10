@@ -114,9 +114,10 @@
   .turn.staff .bub { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:7px; }
   .turn.self  .bub { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:7px; }
 
-  /* 길안내 맵 (채팅 아래 인라인, 단일 인스턴스) */
-  .item.map { margin-top:22px; border:1px solid var(--line); border-radius:20px; overflow:hidden; background:var(--card);
-    box-shadow:0 6px 22px rgba(0,0,0,.08); display:flex; flex-direction:column; }
+  /* 길안내 맵 — 화면 상단 고정 플로팅(대화와 독립). 탭하거나 10초 뒤 자동으로 닫힌다. */
+  .item.map { position:fixed; top:14px; left:14px; right:14px; z-index:70; margin:0;
+    border:1px solid var(--line); border-radius:20px; overflow:hidden; background:var(--card);
+    box-shadow:0 14px 44px rgba(0,0,0,.28); display:flex; flex-direction:column; cursor:pointer; }
   .mapHead { display:flex; align-items:center; gap:9px; padding:11px 14px; border-bottom:1px solid var(--line); }
   .mapHead .mIco { color:var(--accent); display:inline-flex; flex:0 0 auto; }
   .mapHead .mName { font-size:calc(16px * var(--fs)); font-weight:800; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -125,8 +126,7 @@
     font-size:13px; font-weight:700; padding:4px 10px; border-radius:20px; white-space:nowrap; }
   .mapHead .mClose { border:none; background:transparent; color:var(--muted); font-size:17px; font-weight:700;
     cursor:pointer; padding:4px 8px; margin-left:2px; flex:0 0 auto; }
-  .mapHolder { height:50vh; overflow:hidden; }
-  .item.map.mini .mapHolder { display:none; } /* 새 발화가 오면 자동 축소 — 헤더 탭으로 다시 펼침 */
+  .mapHolder { height:46vh; overflow:hidden; }
 
   /* 발화 대기: 마이크 + '말씀하세요'(손님 언어) + 점 애니메이션 */
   #dots { position:absolute; inset:0; display:flex; flex-direction:column; gap:20px; align-items:center; justify-content:center; pointer-events:none; }
@@ -316,7 +316,7 @@ function upsert(item){
     const bub = document.createElement('div'); bub.className = 'bub';
     el.appendChild(bub);
     c = { el, bub }; cards.set(item.id, c); order.push(item.id); $('stage').appendChild(el);
-    collapseMapMini(); // 새 발화 시작 → 지도 자동 축소(대화 흐름 우선)
+    // (지도는 상단 플로팅 — 새 발화가 와도 유지, 10초 뒤 또는 탭으로 닫힘)
   }
   c.texts = item.texts || {}; c.source = item.source || '';
   if (item.lang) c.lang = item.lang;
@@ -331,7 +331,7 @@ function rerender(){ cards.forEach(renderCard); }
 function clearAll(){
   cards.forEach(c => { try { c.el.remove(); } catch {} });
   cards.clear(); order = [];
-  if (mapBlock) { try { mapBlock.remove(); } catch {} }
+  removeMap();
   $('dots').style.display = 'flex';
 }
 function applySxInfo(info){
@@ -348,8 +348,9 @@ function applySxInfo(info){
 function setSvcPair(){ $('svcPair').textContent = curLang === 'ko' ? '한국어' : '한국어 ↔ ' + (LANGNAME[curLang] || String(curLang).toUpperCase()); $('svcLive').textContent = t('interpreting'); $('svcDot').style.display = ''; }
 function setSvcConnecting(){ $('svcPair').textContent = t('connecting'); $('svcLive').textContent = ''; $('svcDot').style.display = 'none'; }
 
-/* ---- 길안내 맵 (채팅 아래 인라인, 단일 인스턴스 — 새 안내 시 맨 아래로 이동) ---- */
-let mapApi = null, mapLoading = false, mapBlock = null, mapLoadTries = 0;
+/* ---- 길안내 맵 (화면 상단 고정 플로팅, 단일 인스턴스) — 탭 또는 10초 뒤 닫힘 ---- */
+let mapApi = null, mapLoading = false, mapBlock = null, mapLoadTries = 0, mapHideTimer = null;
+const MAP_HIDE_MS = 10000;
 function loadMapScripts(cb){
   if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
   if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
@@ -369,13 +370,16 @@ function ensureMapBlock(){
   const holder = document.createElement('div'); holder.className = 'mapHolder';
   mapBlock.appendChild(head); mapBlock.appendChild(holder);
   mapBlock._holder = holder; mapBlock._head = head;
-  // 헤더 탭 = 접기/펼치기, ✕ = 지도 제거
-  head.addEventListener('click', () => { if (mapBlock) { mapBlock.classList.toggle('mini'); scrollBottom(); } });
-  head.querySelector('.mClose').addEventListener('click', (e) => { e.stopPropagation(); removeMap(); });
+  // 어디를 탭해도 닫힘(요구사항) — 상단 플로팅이라 대화를 가리는 시간을 최소화
+  mapBlock.addEventListener('click', () => removeMap());
+  document.body.appendChild(mapBlock);
   return mapBlock;
 }
-function removeMap(){ if (mapBlock) { try { mapBlock.remove(); } catch {} } mapBlock = null; mapApi = null; }
-function collapseMapMini(){ if (mapBlock && mapBlock.isConnected && !mapBlock.classList.contains('mini')) mapBlock.classList.add('mini'); }
+function removeMap(){
+  clearTimeout(mapHideTimer); mapHideTimer = null;
+  if (mapBlock) { try { mapBlock.remove(); } catch {} }
+  mapBlock = null; mapApi = null;
+}
 function fillMapHead(m, res){
   if (!mapBlock) return;
   mapBlock._head.querySelector('.mName').textContent = catLabel(m) + ' · ' + floorLbl(m.floor);
@@ -394,10 +398,23 @@ function showWayfind(m){
   if (!started) return;
   loadMapScripts(() => {
     const block = ensureMapBlock();
-    block.classList.remove('mini');                 // 새 안내는 펼친 상태로
-    $('stage').appendChild(block);                  // 항상 맨 아래(채팅 아래)로
-    scrollBottom();
-    const doRoute = () => { try { mapApi.setLang(curLang); const res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests }); fillMapHead(m, res); scrollBottom(); } catch (e) {} };
+    // 10초 뒤 자동 닫힘(새 안내가 오면 타이머 리셋)
+    clearTimeout(mapHideTimer);
+    mapHideTimer = setTimeout(removeMap, MAP_HIDE_MS);
+    const doRoute = () => {
+      try {
+        mapApi.setLang(curLang);
+        // 후보 시설이 여러 개면 전부 경로가 그려져 겹쳐 보이던 문제 →
+        // 1차 계산으로 최단 후보를 고른 뒤 그 하나만 다시 그린다.
+        let res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests });
+        const ok = (res.routes || []).filter((r) => r && !r.error && r.summary);
+        if (ok.length > 1) {
+          const best = ok.reduce((a, b) => ((b.summary.meters || 1e9) < (a.summary.meters || 1e9) ? b : a), ok[0]);
+          res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: best._dest });
+        }
+        fillMapHead(m, res);
+      } catch (e) {}
+    };
     if (mapApi) { doRoute(); return; }
     if (!window.AirportMap25D || !window.AIRPORT_DATA) return;
     // 첫 생성: 층 래스터화(비동기) 끝난 뒤 경로 표시

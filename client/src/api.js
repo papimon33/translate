@@ -66,6 +66,7 @@ export const api = {
 
   adminUsers: () => fetch('/api/admin/users').then(json),
   adminUsage: () => fetch('/api/admin/usage').then(json),
+  adminVendorUsage: (days) => fetch(`/api/admin/vendor-usage?days=${days || 14}`).then(json),
   termsConfig: () => fetch('/api/terms-config').then(json),
   saveTermsConfig: (body) =>
     fetch('/api/terms-config', {
