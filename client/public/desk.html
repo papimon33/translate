@@ -448,7 +448,8 @@ function ensureWs(){
     if (m.type === 'snapshot') (m.items||[]).forEach(upsert);
     else if (m.type === 'sentence') upsert(m);
     else if (m.type === 'host') hostActive = !!m.active;
-    else if (m.type === 'meta') applySxInfo(m.sxInfo);
+    else if (m.type === 'meta') { applySxInfo(m.sxInfo); if (m.guestSens != null) setGuestSens(m.guestSens); }
+    else if (m.type === 'desk-guest-sens') setGuestSens(m.value); // 호스트가 여객 마이크 민감도 변경
     else if (m.type === 'desk-active') enterStage(m.lang);   // 통역 시작(손님 선택 또는 호스트 시작)
     else if (m.type === 'wayfind') showWayfind(m);           // 시설 안내(호스트 승인 후) → 채팅 아래 인라인 지도
     else if (m.type === 'desk-idle-warn') showIdleWarn(m.secondsLeft || 10); // 무음 종료 예고(터치로 연장)
@@ -496,7 +497,10 @@ let thanksTimer = null;
 /* ---- 여객 마이크(2채널 화자 귀속): 통역 중 상시 캡처 → 서버 여객 채널로 전송 ----
    근접 게이트: 여객 입은 태블릿에서 ~30cm, 안내원·주변음은 멀어서 작게 잡힘 →
    임계(GM_GATE) 미만이면 무음을 보내 누화·안내방송을 차단(무음 전송은 엔드포인트 판정 유지용). */
-const GM_GATE = 0.04;
+/* 근접 게이트 임계 — 호스트 고급 설정(여객 태블릿 마이크 민감도 0~100)로 실시간 조절.
+   50=기존 고정값(0.04)과 동일, 100=게이트 없음(모든 소리), 0=아주 큰 소리만. */
+let gmGate = 0.04;
+function setGuestSens(v){ const x = Math.min(100, Math.max(0, Number(v))); gmGate = x >= 100 ? 0 : (1 - x / 100) * 0.08; }
 let gm = null; // { stream, ctx, proc }
 let gmStarting = false; // getUserMedia 대기 중 재진입 가드(파이프라인 이중 생성·마이크 누수 방지)
 function f32to16(f32){ const b = new ArrayBuffer(f32.length * 2), v = new DataView(b); for (let i = 0; i < f32.length; i++){ let s = Math.max(-1, Math.min(1, f32[i])); s = s < 0 ? s * 0x8000 : s * 0x7fff; v.setInt16(i * 2, s, true); } return b; }
@@ -525,7 +529,7 @@ async function guestMicStart(){
     const input = e.inputBuffer.getChannelData(0);
     let peak = 0;
     for (let i = 0; i < input.length; i++) { const v = Math.abs(input[i]); if (v > peak) peak = v; }
-    if (peak >= GM_GATE) openUntil = Date.now() + 300; // 큰 소리 감지 → 300ms 홀드
+    if (gmGate <= 0 || peak >= gmGate) openUntil = Date.now() + 300; // 큰 소리 감지 → 300ms 홀드 (게이트 0=항상 통과)
     const ds = ds24(input, rate);
     ws.send(Date.now() < openUntil ? f32to16(ds) : new ArrayBuffer(ds.length * 2));
   };

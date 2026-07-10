@@ -191,3 +191,16 @@
 - **지도 top**: `top:calc(env(safe-area-inset-top)+14px)` — 노치 기기에서도 항상 화면 최상단.
 - **발화 길이 강제 확정 제거**: SX_MAX(_CHARS) 200자 도달 시 강제 commit 하던 로직(runSoniox·데스크 staff/guest·PTT 4곳) 삭제 — 문장 중간 절단이 단어 오역·언어 오인식을 유발했음. 이제 endpoint(<end>)에서만 확정. (translate 파이프라인의 텍스트 스트리밍 MAX_BUF 는 별개로 유지)
 - 검증: desk-start auto → meta detect→desk-active:auto→상태문구, 뷰어 Other 버튼→"Detecting language…" 화면, soniox 광역 힌트 연결 오류 0, 빌드에 60언어 포함, 8/8 테스트. ⚠ 감지→two_way 전환의 실발화 확인은 실기기 필요.
+
+## 2026-07-10 (4) — 데스크 마이크 민감도 실시간 조절
+- 고급 설정의 '마이크 음성인식 민감도' 슬라이더가 `disabled={recording}` 이라 **상시 캡처인 데스크에선 항상 비활성**이던 문제.
+- audio.js: `gateTh` 를 let 으로, recorder API 에 `setMicSens(v)` 추가(볼륨 게이트만 실시간 조정, 연결 유지).
+- TranslateView: 슬라이더 상시 활성 + onChange 에서 `recRef.current.setMicSens(v)` — 번역/캡처 중 즉시 적용(전 모드 공통).
+- 검증: 데스크 세션 고급 설정에서 슬라이더 활성(Mui-disabled false) 확인, 빌드·8/8 테스트.
+
+## 2026-07-10 (5) — 여객 마이크 조절·벤더 키 안내·유저별 사용량
+- **여객 태블릿 마이크 민감도(호스트 조절)**: desk.html 근접 게이트 GM_GATE(고정 0.04) → `gmGate` 동적(50=기존값, 100=게이트 없음). 호스트 고급 설정에 슬라이더(kac-desk-guest-sens, 기본 50) → recorder `setGuestSens` → 서버 `desk-guest-sens` 메시지 → 뷰어 브로드캐스트. 초기값은 `deskGuestSens` 쿼리, 늦게 접속한 뷰어는 meta(guestSens)·ctrl.guestSens() 로 동기화.
+- **'키 미설정' 원인 명확화**: TTS/GPT 동작용 일반 키(CARTESIA_API_KEY/OPENAI_API_KEY)와 **사용량 조회용 관리자 키**(CARTESIA_ADMIN_API_KEY=sk_car_admin_…/OPENAI_ADMIN_API_KEY=sk-admin-…)는 별개 — 벤더가 일반 키로는 usage API 를 허용하지 않음. 응답에 serviceKey 플래그 추가, 카드 문구로 구분 표시.
+- **내부 집계 제거(UI)**: UsageChart·일별/시간별 토글·총사용시간/비용 카드 삭제 — 사용량 탭은 벤더 API 기반만. (서버 recordUsage 는 계정 관리의 사용자별 이용시간용으로 유지)
+- **유저별 사용량(STT)**: Soniox WS config `client_reference_id: 'u:<userId>'`(공식 필드, usage-logs 에 기록) — runSoniox/데스크 staff·guest/PTT(세션 소유자) 태깅. usage-logs 집계에 byUser(일별) 추가, vendor-usage 응답에 기간 합산 users[]. Soniox 카드에 유저별 목록(미태깅 과거분='anon'). **Cartesia TTS 는 명세상 요청 태그 필드 없음 + usage 는 api_key 단위만 → 유저별 불가**, OpenAI costs 도 프로젝트/키 단위.
+- 검증: vendor-usage users[anon] 집계, openai serviceKey 구분 문구, desk-guest-sens E2E(쿼리 초기값 30 → meta gs=30 → 변경 80 뷰어 전파), 내부 집계 UI 제거 확인, 8/8 테스트.

@@ -259,6 +259,11 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = s == null ? NaN : Number(s);
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100; // 마이크 음성인식 민감도 0~100 (100=가장 민감, 낮출수록 큰 소리만). 기기 저장
   });
+  const [guestSens, setGuestSens] = useState(() => {
+    const s = localStorage.getItem('kac-desk-guest-sens');
+    const v = s == null ? NaN : Number(s);
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 50; // 여객 태블릿 마이크 민감도(데스크) — 50=기존 근접 게이트와 동일
+  });
   // 프리셋: 단방향=one→ko, 양방향/모바일=two. (없으면 기존 localStorage)
   const [sxMode, setSxMode] = useState(() => (initial.preset ? (onewayPreset ? 'one' : 'two') : (localStorage.getItem('kac-sx-mode') || 'one')));
   const [sxTarget, setSxTarget] = useState(() => (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
@@ -533,6 +538,7 @@ export default function TranslateView({ session: initial, onBack }) {
         volume,
         endpointing,
         micSens, // 마이크 음성인식 민감도(0~100): 일정 볼륨 이상만 전송하는 클라이언트 볼륨 게이트
+        deskGuestSens: cfg.pipeline === 'desk' ? guestSens : undefined, // 여객 태블릿 마이크 민감도(서버 경유 뷰어 근접 게이트)
         sxSens,
         sxMaxDelay,
         sxLatency,
@@ -1171,17 +1177,24 @@ export default function TranslateView({ session: initial, onBack }) {
           <SxSlider label="텍스트 크기" hint="번역 텍스트 표시 크기 (80~160%)" value={fontScale} min={0.8} max={1.6} step={0.1} disabled={false}
             fmt={(v) => Math.round(v * 100) + '%'}
             onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
-          <SxSlider label="마이크 음성인식 민감도" hint="100=가장 민감(모든 소리), 낮출수록 큰 소리에만 반응(주변 소음 무시)" value={micSens} min={0} max={100} step={1} disabled={recording}
+          {/* 녹음(캡처) 중에도 실시간 조절 — 데스크는 상시 캡처라 비활성화하면 아예 바꿀 수 없었음 */}
+          <SxSlider label="마이크 음성인식 민감도" hint="100=가장 민감(모든 소리), 낮출수록 큰 소리에만 반응(주변 소음 무시). 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
             fmt={(v) => String(v)}
-            onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); }} />
+            onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
           {cfg.pipeline === 'desk' && (
-            <InfoToggle
-              label="지도 자동 표시"
-              hint="켜면 길안내 감지 시 확인 없이 바로 손님 화면에 지도를 표시합니다. 끄면 하단 제안에서 '표시'를 눌러야 표시됩니다."
-              checked={mapAuto}
-              disabled={false}
-              onChange={(e) => { setMapAuto(e.target.checked); localStorage.setItem('kac-desk-map-auto', e.target.checked ? '1' : '0'); }}
-            />
+            <>
+              {/* 여객 태블릿 마이크(2채널)의 근접 게이트 — 서버 경유로 뷰어에 실시간 반영 */}
+              <SxSlider label="여객 태블릿 마이크 민감도" hint="100=모든 소리, 낮출수록 태블릿 가까이의 큰 소리에만 반응(데스크 마이크 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다." value={guestSens} min={0} max={100} step={1} disabled={false}
+                fmt={(v) => String(v)}
+                onChange={(v) => { setGuestSens(v); localStorage.setItem('kac-desk-guest-sens', String(v)); if (recRef.current && recRef.current.setGuestSens) recRef.current.setGuestSens(v); }} />
+              <InfoToggle
+                label="지도 자동 표시"
+                hint="켜면 길안내 감지 시 확인 없이 바로 손님 화면에 지도를 표시합니다. 끄면 하단 제안에서 '표시'를 눌러야 표시됩니다."
+                checked={mapAuto}
+                disabled={false}
+                onChange={(e) => { setMapAuto(e.target.checked); localStorage.setItem('kac-desk-map-auto', e.target.checked ? '1' : '0'); }}
+              />
+            </>
           )}
           {cfg.pipeline === 'soniox' && (
             <>

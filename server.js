@@ -1126,15 +1126,25 @@ async function fetchSonioxRange(startMs, endMs) {
     const d = await r.json();
     for (const e of d.usage_logs || []) {
       const day = kstDay(Date.parse(e.end_time || e.start_time || 0) || startMs);
-      const b = byDay[day] || (byDay[day] = { audioMs: 0, costUsd: 0, requests: 0 });
+      const b = byDay[day] || (byDay[day] = { audioMs: 0, costUsd: 0, requests: 0, byUser: {} });
       b.audioMs += Number(e.input_audio_duration_ms) || 0;
       b.costUsd += Number(e.cost_usd) || 0;
       b.requests += 1;
+      // client_reference_id('u:<id>') → 유저별 집계 (미태깅 과거 요청은 'anon')
+      const ref = String(e.client_reference_id || '');
+      const uid = ref.startsWith('u:') ? ref.slice(2) : 'anon';
+      const u = b.byUser[uid] || (b.byUser[uid] = { audioMs: 0, costUsd: 0, requests: 0 });
+      u.audioMs += Number(e.input_audio_duration_ms) || 0;
+      u.costUsd += Number(e.cost_usd) || 0;
+      u.requests += 1;
     }
     cursor = d.next_page_cursor;
     if (!cursor) break;
   }
-  for (const k of Object.keys(byDay)) byDay[k].costUsd = +byDay[k].costUsd.toFixed(4);
+  for (const k of Object.keys(byDay)) {
+    byDay[k].costUsd = +byDay[k].costUsd.toFixed(4);
+    for (const u of Object.values(byDay[k].byUser || {})) u.costUsd = +u.costUsd.toFixed(4);
+  }
   return { byDay };
 }
 // Soniox 는 요청당 31일 창 제한 → 30일씩 잘라 요청(최대 90일까지 보관분 backfill)
@@ -1208,8 +1218,9 @@ app.get('/api/admin/vendor-usage', requireAdmin, async (req, res) => {
     try { await vendorRefreshing; } catch {}
   }
   const cut = kstDay(Date.now() - (days - 1) * 86400e3);
+  const svcKeys = { soniox: !!SONIOX_API_KEY, cartesia: !!CARTESIA_API_KEY, openai: !!OPENAI_API_KEY };
   const build = (k, extra) => {
-    const st = vendorStatus[k];
+    const st = { ...vendorStatus[k], serviceKey: svcKeys[k] }; // serviceKey=동작용 일반 키(사용량 조회 키와 별개)
     const all = Object.keys(vendorUsage[k]).sort();
     const dates = all.filter((d) => d >= cut);
     const days2 = dates.map((date) => ({ date, ...vendorUsage[k][date] }));
@@ -1217,7 +1228,17 @@ app.get('/api/admin/vendor-usage', requireAdmin, async (req, res) => {
   };
   res.json({
     days, at: vendorRefreshAt, retention: { soniox: 91 },
-    soniox: build('soniox', (ds) => ({ totalCostUsd: +ds.reduce((a, d) => a + (d.costUsd || 0), 0).toFixed(4), totalAudioMin: +(ds.reduce((a, d) => a + (d.audioMs || 0), 0) / 60000).toFixed(1), totalRequests: ds.reduce((a, d) => a + (d.requests || 0), 0) })),
+    soniox: build('soniox', (ds) => {
+      const byUser = {};
+      for (const d of ds) for (const [uid, u] of Object.entries(d.byUser || {})) {
+        const t = byUser[uid] || (byUser[uid] = { audioMs: 0, costUsd: 0, requests: 0 });
+        t.audioMs += u.audioMs; t.costUsd += u.costUsd; t.requests += u.requests;
+      }
+      const users = Object.entries(byUser)
+        .map(([id, u]) => ({ id, audioMin: +(u.audioMs / 60000).toFixed(1), costUsd: +u.costUsd.toFixed(4), requests: u.requests }))
+        .sort((a, b) => b.costUsd - a.costUsd);
+      return { totalCostUsd: +ds.reduce((a, d) => a + (d.costUsd || 0), 0).toFixed(4), totalAudioMin: +(ds.reduce((a, d) => a + (d.audioMs || 0), 0) / 60000).toFixed(1), totalRequests: ds.reduce((a, d) => a + (d.requests || 0), 0), users };
+    }),
     cartesia: build('cartesia', (ds) => ({ totalCredits: ds.reduce((a, d) => a + (d.credits || 0), 0) })),
     openai: build('openai', (ds) => ({ totalCostUsd: +ds.reduce((a, d) => a + (d.costUsd || 0), 0).toFixed(4) })),
   });
@@ -2073,6 +2094,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._diar = searchParams.get('diar');         // 화자 구분 on('1')
       ws._deskLangs = searchParams.get('deskLangs'); // desk 후보 언어(콤마구분) — 취항국
       ws._deskIdle = searchParams.get('deskIdle');   // desk 외국어 무음 리셋(ms)
+      ws._deskGuestSens = searchParams.get('deskGuestSens'); // desk 여객 태블릿 마이크 민감도(0~100)
       wss.emit('connection', ws, req);
     });
   } else {
@@ -2121,6 +2143,7 @@ function startTalkPipeline(sessionId, side) {
     enable_language_identification: true, enable_endpoint_detection: true,
     endpoint_sensitivity: cfg.sens || 0, max_endpoint_delay_ms: cfg.maxDelay || 2000, endpoint_latency_adjustment_level: cfg.latency || 0,
     language_hints: [a, b], translation: { type: 'two_way', language_a: a, language_b: b },
+    client_reference_id: 'u:' + ((getSession(sessionId) || {}).owner || 'anon'), // 유저별 사용량(발화자는 익명 뷰어 → 세션 소유자로 귀속)
     ...((() => { const c = buildSonioxContext([a, b]); return c ? { context: c } : {}; })()), // 고유명사/번역 설정(활성 쌍)
   };
   const sx = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
@@ -2182,7 +2205,11 @@ function handleViewer(ws) {
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
   ws.send(JSON.stringify({ type: 'ptt-state', busy: pttBusy(room) })); // 발화 가능 여부(배타 락)
-  if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo })); // 접속/재접속 시 현재 출력언어 라벨 동기화
+  {
+    const dc = deskCtrl.get(ws._session);
+    const gs = dc && dc.guestSens ? dc.guestSens() : undefined;
+    if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo, ...(gs != null ? { guestSens: gs } : {}) })); // 접속/재접속 시 현재 상태 동기화
+  }
   broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); // 뷰어 수(랜딩 표시)
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
@@ -2410,6 +2437,7 @@ function handleHost(ws) {
       translation: sxMode === 'two'
         ? { type: 'two_way', language_a: sxA, language_b: sxB }
         : { type: 'one_way', target_language: sxTarget },
+      client_reference_id: 'u:' + (ws._userId || 'anon'), // 유저별 사용량 집계(usage-logs 에 기록)
       // 고유명사/번역 설정 주입 — 이 세션에서 쓰이는 언어의 표기·번역쌍만 조립
       ...((() => { const c = buildSonioxContext(sxMode === 'two' ? [sxA, sxB] : [sxTarget, ...(inLang ? [inLang] : L4)]); return c ? { context: c } : {}; })()),
     };
@@ -2642,6 +2670,9 @@ function handleHost(ws) {
     const A = 'ko'; // 안내원 언어(고정)
     const GUEST_LANGS = ['en', 'ja', 'zh', 'vi', 'th', 'id', 'ru']; // 손님(또는 호스트)이 고르는 언어(soniox two_way 지원, 한국어 제외)
     const deskIdleMs = Math.min(120000, Math.max(5000, Number(ws._deskIdle) || 30000)); // 무음 → 대화 종료(기본 30초)
+    // 여객 태블릿 마이크 민감도(0~100, 50=기존 고정값과 동일) — 뷰어의 근접 게이트 임계로 변환돼 적용
+    let guestSens = Math.min(100, Math.max(0, Number(ws._deskGuestSens) >= 0 ? Number(ws._deskGuestSens) : 50));
+    const sendGuestSens = () => { const m = { type: 'desk-guest-sens', value: guestSens }; broadcast(sessionId, m); };
 
     let phase = 'idle';     // 'idle'(대기, soniox 없음) | 'active'(통역 중)
     let lockedB = null;     // 손님 언어
@@ -2687,6 +2718,7 @@ function handleHost(ws) {
     // langs = 이번 응대의 활성 언어(ko + 손님 언어) — 해당 언어의 용어 표기·번역쌍만 context 로 주입
     const baseConfig = (langs) => ({
       api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+      client_reference_id: 'u:' + (ws._userId || 'anon'), // 유저별 사용량 집계
       enable_language_identification: true, enable_endpoint_detection: true,
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
@@ -2704,8 +2736,8 @@ function handleHost(ws) {
         ? (lockedB && lockedB !== A ? { mode: 'two', a: A, b: lockedB } : (autoDetect ? { mode: 'detect' } : { mode: 'one', target: A }))
         : { mode: 'idle' };
       if (session) { session.sxInfo = sxInfo; if (phase === 'active' && lockedB) session.langs = [A, lockedB]; saveSessions(); }
-      broadcast(sessionId, { type: 'meta', sxInfo });
-      toHost({ type: 'meta', sxInfo });
+      broadcast(sessionId, { type: 'meta', sxInfo, guestSens });
+      toHost({ type: 'meta', sxInfo, guestSens });
     };
 
     let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommitText = '';
@@ -3010,6 +3042,10 @@ function handleHost(ws) {
         if (m.type === 'stop') { closed = true; clearTimeout(foreignTimer); clearTimeout(warnTimer); closeSx(); closeGuest(); }
         else if (m.type === 'desk-start') { startConversation(String(m.lang || '').toLowerCase()); } // 호스트 수동 시작(언어 선택)
         else if (m.type === 'desk-reset-now') { endConversation(); } // 호스트 수동 '대기모드로' — 대화 종료·뷰어 터치화면 복귀
+        else if (m.type === 'desk-guest-sens') { // 여객 태블릿 마이크 민감도 변경(호스트 고급 설정)
+          const v = Number(m.value);
+          if (Number.isFinite(v)) { guestSens = Math.min(100, Math.max(0, v)); sendGuestSens(); }
+        }
         else if (m.type === 'wayfind-show') { // 호스트가 길안내 제안 승인 → 뷰어에 지도 표시
           if (pendingWayfind) {
             broadcast(sessionId, pendingWayfind);
@@ -3033,6 +3069,7 @@ function handleHost(ws) {
     // 뷰어(손님)의 통역 시작/종료/연장/여객 마이크 요청을 이 파이프라인으로 전달받기 위한 컨트롤러 등록
     const ctrl = {
       start: startConversation,
+      guestSens: () => guestSens, // 뷰어 접속 시 현재 여객 마이크 민감도 동기화용
       end: endConversation,
       keepalive: () => { if (phase === 'active') armForeignTimer(); },
       guestMic,

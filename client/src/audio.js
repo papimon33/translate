@@ -53,9 +53,11 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
   // 마이크 음성인식 민감도(0~100): 100=가장 민감(게이트 없음, 기본), 낮출수록 더 큰 소리(peak)만 인식.
-  const gateTh = (typeof micSens === 'number' && micSens < 100) ? (1 - micSens / 100) * 0.08 : 0;
+  // 녹음 중에도 setMicSens 로 실시간 변경 가능(데스크는 상시 캡처라 이 경로가 유일한 조절 수단).
+  const sensToGate = (v) => (typeof v === 'number' && v < 100 ? (1 - v / 100) * 0.08 : 0);
+  let gateTh = sensToGate(micSens);
   const sources = await getSources(mode); // 권한 거부 시 throw
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -75,7 +77,7 @@ export async function startRecorder(opts) {
     pipeline === 'desk'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}${
           deskLangs ? `&deskLangs=${encodeURIComponent(deskLangs)}` : ''
-        }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}`
+        }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}${deskGuestSens != null ? `&deskGuestSens=${encodeURIComponent(deskGuestSens)}` : ''}`
       : ''
   }${model ? `&model=${encodeURIComponent(model)}` : ''}`;
 
@@ -333,6 +335,10 @@ export async function startRecorder(opts) {
   // 데스크: 길안내 제안 승인(뷰어에 지도 표시) / 무시
   function wayfindShow() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-show' })); } catch {} } }
   function wayfindDismiss() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-dismiss' })); } catch {} } }
+  // 녹음 중 마이크 민감도 실시간 변경(0~100) — 클라이언트 볼륨 게이트만 조정, 연결 유지
+  function setMicSens(v) { gateTh = sensToGate(Number(v)); }
+  // 데스크: 여객 태블릿 마이크 민감도(0~100) — 서버 경유로 뷰어의 근접 게이트에 실시간 반영
+  function setGuestSens(v) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens };
 }

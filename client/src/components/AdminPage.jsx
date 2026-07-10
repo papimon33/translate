@@ -47,50 +47,6 @@ function fmtMin(m) {
   return (m || 0).toFixed(m >= 10 ? 0 : 1) + '분';
 }
 
-function UsageChart({ data, kind }) {
-  const rows = (data || []).slice(kind === 'hourly' ? -24 : -14);
-  if (!rows.length) {
-    return (
-      <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 4, textAlign: 'center' }}>
-        아직 사용량 데이터가 없습니다. 번역을 실행하면 집계됩니다.
-      </Typography>
-    );
-  }
-  const max = Math.max(...rows.map((d) => d.cost), 1e-9);
-  const keyOf = (d) => (kind === 'hourly' ? d.hour : d.date);
-  const labelOf = (d) => {
-    if (kind === 'hourly') return new Date(d.hour + ':00:00Z').getHours() + '시';
-    return d.date.slice(5);
-  };
-  const tipOf = (d) => {
-    if (kind === 'hourly') {
-      const dt = new Date(d.hour + ':00:00Z');
-      return `${dt.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit' })} · ${fmtMin(d.minutes)} · ${fmtCost(d.cost)}`;
-    }
-    return `${d.date} · ${fmtMin(d.minutes)} (실시간 ${fmtMin(d.translateMin)} / 다국어 ${fmtMin(d.whisperMin)}) · ${fmtCost(d.cost)}`;
-  };
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: kind === 'hourly' ? 0.4 : 1, height: 160, mt: 1 }}>
-      {rows.map((d) => (
-        <Box key={keyOf(d)} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-          {kind !== 'hourly' && <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{fmtCost(d.cost)}</Typography>}
-          <Tooltip title={tipOf(d)}>
-            <Box
-              sx={{
-                width: '70%',
-                height: `${Math.max(2, (d.cost / max) * 110)}px`,
-                borderRadius: 1,
-                background: (t) => `linear-gradient(180deg, ${t.palette.primary.main}, ${alpha(t.palette.primary.main, 0.5)})`,
-              }}
-            />
-          </Tooltip>
-          <Typography sx={{ fontSize: 10, color: 'text.secondary', whiteSpace: 'nowrap' }}>{labelOf(d)}</Typography>
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
 function StatCard({ icon, label, value, sub }) {
   return (
     <Box sx={{ flex: '1 1 180px', minWidth: 160, bgcolor: (t) => alpha(t.palette.text.primary, 0.02), border: 1, borderColor: 'divider', borderRadius: 1.5, p: 2 }}>
@@ -132,13 +88,16 @@ function MiniBars({ days, valueOf, tipOf }) {
     </Box>
   );
 }
-function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf }) {
+function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, extra }) {
   const body = () => {
     if (!v) return <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 2 }}>불러오는 중…</Typography>;
     if (!v.configured) return (
       <>
-        <Chip size="small" label="키 미설정" sx={{ height: 20, fontSize: 11, my: 1 }} />
-        <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>서버 환경변수 <b>{keyHint}</b> 를 설정하면 벤더 콘솔과 동일한 실사용량이 여기 표시됩니다.</Typography>
+        <Chip size="small" label="사용량 조회 키 미설정" sx={{ height: 20, fontSize: 11, my: 1 }} />
+        <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>
+          {v.serviceKey && <>서비스 동작용 키는 설정되어 있어 {desc}는 정상 동작합니다.<br /></>}
+          사용량 조회는 별도의 <b>{keyHint}</b> 환경변수가 필요합니다{v.serviceKey ? ' (일반 키로는 벤더가 사용량 조회를 허용하지 않음)' : ''}.
+        </Typography>
       </>
     );
     if (v.error) return (
@@ -152,6 +111,7 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf }) 
         <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, mt: 0.5 }}>{totalOf(v)}</Typography>
         {subOf && <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>{subOf(v)}</Typography>}
         <MiniBars days={v.days} valueOf={valueOf} tipOf={tipOf} />
+        {extra && extra(v)}
       </>
     );
   };
@@ -183,7 +143,19 @@ function VendorUsage() {
       <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
         <VendorCard name="Soniox" desc="음성인식·실시간 번역" v={v('soniox')} keyHint="SONIOX_API_KEY"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)} subOf={(x) => `오디오 ${fmtMin(x.totalAudioMin || 0)} · ${x.totalRequests || 0}회 연결`}
-          valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtMin((d.audioMs || 0) / 60000)} · ${fmtCost(d.costUsd)}`} />
+          valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtMin((d.audioMs || 0) / 60000)} · ${fmtCost(d.costUsd)}`}
+          extra={(x) => (x.users || []).length > 0 && (
+            <Box sx={{ mt: 1.5, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>유저별 (client_reference_id)</Typography>
+              {x.users.slice(0, 6).map((u) => (
+                <Box key={u.id} sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{u.id === 'anon' ? '(미태깅·과거)' : u.id}</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{fmtCost(u.costUsd)} · {fmtMin(u.audioMin)}</Typography>
+                </Box>
+              ))}
+              {x.users.length > 6 && <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>+{x.users.length - 6}명 더</Typography>}
+            </Box>
+          )} />
         <VendorCard name="Cartesia" desc="음성 합성(TTS)" v={v('cartesia')} keyHint="CARTESIA_ADMIN_API_KEY (sk_car_admin_…)"
           totalOf={(x) => `${(x.totalCredits || 0).toLocaleString()} 크레딧`}
           valueOf={(d) => d.credits} tipOf={(d) => `${d.date} · ${(d.credits || 0).toLocaleString()} 크레딧`} />
@@ -509,7 +481,6 @@ function SystemPanel() {
 export default function AdminPage({ user }) {
   const [tab, setTab] = useState('usage');
   const [list, setList] = useState(null);
-  const [usage, setUsage] = useState(null);
   const [dlg, setDlg] = useState(false);
   const [form, setForm] = useState({ id: '', username: '', password: '' });
   const [err, setErr] = useState('');
@@ -517,11 +488,9 @@ export default function AdminPage({ user }) {
   const [pwDlg, setPwDlg] = useState(null); // { id, name }
   const [pwVal, setPwVal] = useState('');
   const [pwErr, setPwErr] = useState('');
-  const [usageView, setUsageView] = useState('daily'); // 'daily' | 'hourly'
 
   const reload = () => {
     api.adminUsers().then(setList).catch(() => setList([]));
-    api.adminUsage().then(setUsage).catch(() => setUsage(null));
   };
   useEffect(() => { reload(); }, []);
 
@@ -561,36 +530,15 @@ export default function AdminPage({ user }) {
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 960, mx: 'auto' }}>
-          {/* ── 사용량: 벤더 실사용량 + 내부 집계 + 데스크 통계 ── */}
+          {/* ── 사용량: 벤더 실사용량(API 기반) + 데스크 통계 ── */}
           {tab === 'usage' && (
             <>
               <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
                 <StatCard icon={<PeopleAltOutlinedIcon fontSize="small" />} label="사용자" value={list ? list.length : '—'} />
                 <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="총 세션" value={list ? totalSessions : '—'} />
-                <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="총 사용 시간" value={usage ? fmtMin(usage.totalMinutes) : '—'} />
-                <StatCard icon={<PaidOutlinedIcon fontSize="small" />} label="총 사용 비용(내부 추정)" value={usage ? fmtCost(usage.totalCost) : '—'} />
               </Box>
 
               <VendorUsage />
-
-              <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 800 }}>
-                    내부 집계 {usageView === 'hourly' ? '— 시간대별 (최근 24시간)' : '— 일별 (최근 14일)'}
-                  </Typography>
-                  <Box sx={{ flex: 1 }} />
-                  <ToggleButtonGroup size="small" exclusive value={usageView} onChange={(e, v) => v && setUsageView(v)}>
-                    <ToggleButton value="daily" sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>일별</ToggleButton>
-                    <ToggleButton value="hourly" sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>시간별</ToggleButton>
-                  </ToggleButtonGroup>
-                </Box>
-                <UsageChart data={usageView === 'hourly' ? usage?.hourly : usage?.daily} kind={usageView} />
-                {usage && (
-                  <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 2 }}>
-                    ※ 호스트 사용 시간 기준 추정치 — 벤더 키가 없어도 동작하는 참고용 집계입니다. 청구 기준은 위 벤더 실사용량을 보세요.
-                  </Typography>
-                )}
-              </Paper>
 
               <Typography sx={{ fontWeight: 800, fontSize: 15, mt: 4, mb: 1.5 }}>데스크 통계</Typography>
               <DeskStats />
