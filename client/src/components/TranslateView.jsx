@@ -283,7 +283,7 @@ export default function TranslateView({ session: initial, onBack }) {
       a.onended = () => URL.revokeObjectURL(url);
       await a.play();
     } catch (e) {
-      alert('미리듣기 실패: ' + (e.message || e));
+      setNotice('미리듣기 실패: ' + (e.message || e)); setTimeout(() => setNotice(''), 6000); // 블로킹 alert 대신 인앱 배너
     } finally {
       setPreviewing(false);
     }
@@ -567,9 +567,9 @@ export default function TranslateView({ session: initial, onBack }) {
       setMicMuted(false); // 시작 시 발화 on
       setConnecting(cfg.pipeline !== 'desk'); // 엔진 연결~첫 결과까지 표시 (데스크는 대기 모드라 제외)
     } catch (e) {
-      // 데스크는 진입 직후 자동 시작이라 alert(블로킹) 대신 인앱 안내로
+      // 블로킹 alert 대신 인앱 안내 배너로 통일
       if (cfg.pipeline === 'desk') { setNotice('마이크를 사용할 수 없습니다. 권한을 허용한 뒤 통역 시작을 눌러 주세요. (' + (e.message || e) + ')'); }
-      else alert(e.message);
+      else { setNotice(String(e.message || e)); setTimeout(() => setNotice(''), 8000); }
     } finally {
       startingRef.current = false;
     }
@@ -628,7 +628,8 @@ export default function TranslateView({ session: initial, onBack }) {
           <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" sx={{ width: 20, height: 20 }}><path d="M15 6l-6 6 6 6" /></Box>
         </IconButton>
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* overflow hidden — 좁은 폭에서 모드 칩이 우측 버튼들 밑으로 겹쳐 보이던 문제 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
             <Typography sx={{ fontWeight: 800, fontSize: { xs: 16, sm: 18 }, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
               {sessTitle}
             </Typography>
@@ -640,7 +641,7 @@ export default function TranslateView({ session: initial, onBack }) {
               </Tooltip>
             )}
             {cfg.pipeline !== 'desk' && (
-              <Chip size="small" label={pipeLabel} sx={{ height: 22, fontSize: 11.5, fontWeight: 700, flex: 'none', bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
+              <Chip size="small" label={pipeLabel} sx={{ height: 22, fontSize: 11.5, fontWeight: 700, flex: 'none', display: { xs: 'none', md: 'inline-flex' }, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
             )}
           </Box>
           {cfg.pipeline === 'desk' && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>{pipeLabel}</Typography>}

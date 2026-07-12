@@ -30,6 +30,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
+import ConfirmDialog from './ConfirmDialog.jsx';
 import { api } from '../api.js';
 
 function rel(ts) {
@@ -88,7 +89,7 @@ function uniqueName(base, titles) {
   return `${base} ${i}`;
 }
 
-export default function SessionList({ onOpen, user, deskMode }) {
+export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const isAdmin = user?.role === 'admin';
   const [list, setList] = useState(null);
   const [dlg, setDlg] = useState(false);
@@ -102,11 +103,14 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [rename, setRename] = useState(null); // { id, val } 제목 변경
   const [selMode, setSelMode] = useState(false); // 일괄 선택 모드
   const [selIds, setSelIds] = useState(() => new Set());
+  const [confirmReq, setConfirmReq] = useState(null); // 공용 확인 다이얼로그(브라우저 confirm 대체)
   const [showOnboard, setShowOnboard] = useState(() => localStorage.getItem('kac-onboard-v1') !== '1'); // 첫 사용 안내
   const dismissOnboard = () => { setShowOnboard(false); localStorage.setItem('kac-onboard-v1', '1'); };
 
   const reload = () => api.list().then(setList);
   useEffect(() => { reload(); }, []);
+  // 명령 팔레트(⌘K)의 '새 세션 만들기' → 생성 모달 열기
+  useEffect(() => { if (createSignal) openDlg(); }, [createSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = deskMode ? '안내데스크' : '새 세션';
   const openDlg = () => {
@@ -150,26 +154,36 @@ export default function SessionList({ onOpen, user, deskMode }) {
     a.click();
     URL.revokeObjectURL(a.href);
   };
-  const removeSession = async (sess) => {
+  const removeSession = (sess) => {
     setMenu(null);
-    if (!confirm('이 세션을 삭제할까요?')) return;
-    try { await api.remove(sess.id); } catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
-    reload();
+    setConfirmReq({
+      title: '세션 삭제',
+      message: `'${sess.title || '(제목 없음)'}' 세션과 대화 기록을 삭제합니다. 되돌릴 수 없습니다.`,
+      onOk: async () => {
+        try { await api.remove(sess.id); } catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
+        reload();
+      },
+    });
   };
   const startRename = (sess) => { setRename({ id: sess.id, val: sess.title || '' }); setMenu(null); };
   // 일괄 선택 삭제
   const toggleSel = (id) => setSelIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const exitSel = () => { setSelMode(false); setSelIds(new Set()); };
-  const bulkDelete = async () => {
+  const bulkDelete = () => {
     const ids = [...selIds];
     if (!ids.length) return;
-    if (!confirm(`선택한 ${ids.length}개 세션을 삭제할까요? 되돌릴 수 없습니다.`)) return;
-    const results = await Promise.allSettled(ids.map((id) => api.remove(id)));
-    const fail = results.filter((r) => r.status === 'rejected').length;
-    if (fail) setSnack({ ok: false, msg: `${fail}개 삭제 실패` });
-    else setSnack({ ok: true, msg: `${ids.length}개 세션을 삭제했습니다.` });
-    exitSel();
-    reload();
+    setConfirmReq({
+      title: '선택 세션 삭제',
+      message: `선택한 ${ids.length}개 세션과 대화 기록을 삭제합니다. 되돌릴 수 없습니다.`,
+      onOk: async () => {
+        const results = await Promise.allSettled(ids.map((id) => api.remove(id)));
+        const fail = results.filter((r) => r.status === 'rejected').length;
+        if (fail) setSnack({ ok: false, msg: `${fail}개 삭제 실패` });
+        else setSnack({ ok: true, msg: `${ids.length}개 세션을 삭제했습니다.` });
+        exitSel();
+        reload();
+      },
+    });
   };
   const saveRename = async () => {
     const { id, val } = rename;
@@ -462,6 +476,8 @@ export default function SessionList({ onOpen, user, deskMode }) {
           <Button variant="contained" onClick={saveRename}>저장</Button>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
 
       <Snackbar
         open={!!snack}

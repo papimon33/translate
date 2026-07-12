@@ -308,3 +308,11 @@
   권고: ① Atlas Network Access 를 Render egress IP 로 제한(0.0.0.0/0 금지) ② DB 사용자 최소권한(readWrite@해당DB) ③ 유출 의심 시 비밀번호 교체 ④ Mongo 문서는 앱 레벨 평문(DATA_KEY 암호화는 파일 모드 전용) — 민감 필드 암호화는 필요 시 별도 작업.
 - **TTS 샘플 생성 완료(#17)**: `tts_samples/{en,ja,zh,ru,es}/<lang>_{female,male}.mp3` 10개 (Cartesia sonic-3.5, 미리듣기 문장. '라틴어'→스페인어 해석).
 - 검증: 부팅 병합 로그(64칸), 미완성 pair 0, 사용량 탭·데스크 통계·세션 목록(호버 액션/선택 모드/모바일 간격) 프리뷰 확인, 빌드 OK.
+
+## 2026-07-12 (4) — UI 개선 2차: ⌘K 팔레트·확인 다이얼로그 통일·빈 상태·세션 헤더
+- **⌘K/Ctrl+K 명령 팔레트**(CommandPalette.jsx, App 전역 키 리스너): 세션 검색(제목)·이동 + 화면 이동 액션(실시간 번역/데스크 안내/관리자/새 세션 만들기 — createSignal 로 SessionList 생성 모달 오픈). 방향키/Enter/ESC, 최근 8개 세션.
+- **confirm()/alert() 전면 교체**(ConfirmDialog.jsx 공용): SessionList 삭제·일괄 삭제, AdminPage 로그 3종 삭제·사용자 삭제 → MUI 다이얼로그(+실패는 Snackbar). TranslateView alert 2곳(미리듣기 실패·시작 실패) → 기존 인앱 notice 배너.
+- **빈 상태 개선**(EmptyHint): 데스크 운영 통계·응대 로그가 비었을 때 아이콘+다음 행동 안내("데스크 안내에서 세션을 만들면…").
+- **세션 화면 헤더 겹침 수정**(TranslateView): 제목 행에 overflow hidden — 좁은 폭에서 모드 칩이 우측 버튼 밑으로 겹쳐 보이던 문제. 칩은 md 미만에서 숨김.
+- 검증(프리뷰): ⌘K 열기→검색→관리자 이동, 삭제 클릭→MUI 확인 다이얼로그(취소 동작), 헤더 겹침 해소, 빌드 OK. (참고: 시뮬레이션 키입력의 한글 IME 조합 artefact 로 Enter 실행이 지연돼 보였으나 클릭·실사용 경로 정상)
+- 남은 제안: 데스크 뷰어(desk.html) 브랜드 정합은 현장 검증 필요로 보류 유지.

@@ -15,6 +15,7 @@ import { buildTheme } from './theme.js';
 import Nav from './components/Nav.jsx';
 import SessionList from './components/SessionList.jsx';
 import Login from './components/Login.jsx';
+import CommandPalette from './components/CommandPalette.jsx';
 import { api } from './api.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
@@ -87,6 +88,21 @@ export default function App() {
   };
   const openSession = (s) => navTo({ session: s, view }); // 현재 목록(실시간/데스크) 위에서 세션 열기
 
+  // ⌘K/Ctrl+K 명령 팔레트 — 세션 검색·이동·새 세션
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [createSignal, setCreateSignal] = useState(0); // 팔레트에서 '새 세션' 선택 시 SessionList 모달 열기
+  useEffect(() => {
+    const h = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); setPaletteOpen((v) => !v); }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
+  const paletteNav = (next) => {
+    if (next.openCreate) { navTo({ view: 'sessions' }); setCreateSignal((n) => n + 1); }
+    else navTo(next);
+  };
+
   if (user === undefined) {
     return (
       <ThemeProvider theme={theme}>
@@ -110,11 +126,11 @@ export default function App() {
     session ? (
       <TranslateView session={session} onBack={() => window.history.back()} />
     ) : view === 'desk' ? (
-      <SessionList onOpen={openSession} user={user} deskMode />
+      <SessionList onOpen={openSession} user={user} deskMode createSignal={createSignal} />
     ) : view === 'admin' && user.role === 'admin' ? (
       <AdminPage user={user} />
     ) : (
-      <SessionList onOpen={openSession} user={user} />
+      <SessionList onOpen={openSession} user={user} createSignal={createSignal} />
     );
   const mainEl = (
     <Suspense
@@ -175,6 +191,7 @@ export default function App() {
           <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {mainEl}
           </Box>
+          <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} user={user} onNavigate={paletteNav} />
         </Box>
       </ThemeProvider>
     );
@@ -189,6 +206,7 @@ export default function App() {
         <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           {mainEl}
         </Box>
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} user={user} onNavigate={paletteNav} />
       </Box>
     </ThemeProvider>
   );

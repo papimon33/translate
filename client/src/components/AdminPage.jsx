@@ -29,7 +29,10 @@ import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
+import Snackbar from '@mui/material/Snackbar';
 import TermsConfigPage from './TermsConfigPage.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
 import { api } from '../api.js';
 
 function fmtDuration(ms) {
@@ -254,21 +257,23 @@ function LogsPanel() {
   const [open, setOpen] = useState(null); // { kind:'desk'|'session', key, loading, detail }
   const [deskMore, setDeskMore] = useState({}); // { [deskId]: 표시 수 }
   const [sessCap, setSessCap] = useState(LOGS_SESS_CAP);
+  const [confirmReq, setConfirmReq] = useState(null); // 공용 확인 다이얼로그
+  const [snack, setSnack] = useState('');
   const load = () => api.adminLogs().then(setData).catch(() => setData({ desks: [], sessions: [] }));
   useEffect(() => { load(); }, []);
   // 로그 정리(삭제) — 시범운영 데이터 관리용. 삭제 후 목록·열람 상태 갱신
-  const delDeskLog = async (sid, idx) => {
-    if (!confirm('이 응대 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
-    try { await api.adminDeleteDeskLog(sid, idx); setOpen(null); await load(); } catch (e) { alert(e.message || '삭제 실패'); }
-  };
-  const clearDeskLogs = async (sid, n) => {
-    if (!confirm(`이 데스크의 응대 기록 ${n}건을 모두 삭제할까요? 통계도 초기화됩니다. 되돌릴 수 없습니다.`)) return;
-    try { await api.adminClearDeskLogs(sid); setOpen(null); await load(); } catch (e) { alert(e.message || '삭제 실패'); }
-  };
-  const clearSessionLog = async (id) => {
-    if (!confirm('이 세션의 대화 기록을 삭제할까요? 세션 자체는 유지됩니다. 되돌릴 수 없습니다.')) return;
-    try { await api.adminClearSessionLog(id); setOpen(null); await load(); } catch (e) { alert(e.message || '삭제 실패'); }
-  };
+  const delDeskLog = (sid, idx) => setConfirmReq({
+    title: '응대 기록 삭제', message: '이 응대 기록을 삭제합니다. 되돌릴 수 없습니다.',
+    onOk: async () => { try { await api.adminDeleteDeskLog(sid, idx); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); } },
+  });
+  const clearDeskLogs = (sid, n) => setConfirmReq({
+    title: '로그 전체 삭제', message: `이 데스크의 응대 기록 ${n}건을 모두 삭제합니다. 운영 통계도 초기화됩니다. 되돌릴 수 없습니다.`,
+    onOk: async () => { try { await api.adminClearDeskLogs(sid); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); } },
+  });
+  const clearSessionLog = (id) => setConfirmReq({
+    title: '대화 기록 삭제', message: '이 세션의 대화 기록을 삭제합니다. 세션 자체는 유지됩니다. 되돌릴 수 없습니다.',
+    onOk: async () => { try { await api.adminClearSessionLog(id); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); } },
+  });
   // 늦게 도착한 응답이 현재 선택(다른 항목/닫힘)을 덮지 않도록 — 여전히 같은 key 가 열려 있을 때만 반영
   const settleOpen = (key, next) => setOpen((cur) => (cur && cur.key === key ? next : cur));
   const openDesk = async (sid, idx) => {
@@ -290,7 +295,12 @@ function LogsPanel() {
   return (
     <>
       <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1 }}>안내데스크 응대 로그</Typography>
-      {data.desks.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.disabled', mb: 2 }}>안내데스크 세션이 없습니다.</Typography>}
+      {data.desks.length === 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 1.5, mb: 2 }}>
+          <EmptyHint icon={<RecordVoiceOverIcon sx={{ fontSize: 22 }} />} title="안내데스크 세션이 없습니다"
+            desc="'데스크 안내'에서 세션을 만들면 응대별 대화 기록이 여기에 쌓입니다." />
+        </Paper>
+      )}
       {data.desks.map((d) => {
         const cap = deskMore[d.id] || LOGS_DESK_CAP;
         const shown = d.logs.slice(0, cap);
@@ -389,6 +399,9 @@ function LogsPanel() {
       <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 1.5 }}>
         대화 로그에는 개인정보가 포함될 수 있습니다. 열람은 운영 목적으로만 하고, 보존 기간 정책에 따라 정리하세요.
       </Typography>
+      <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
+      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        message={snack} />
     </>
   );
 }
@@ -459,6 +472,16 @@ function aggregateDeskStats(stats) {
   return agg;
 }
 const kstToday = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+// 빈 상태 안내(아이콘+제목+설명) — 텅 빈 회색 문구 대신 다음 행동을 알려준다
+function EmptyHint({ icon, title, desc }) {
+  return (
+    <Box sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+      <Box sx={{ display: 'grid', placeItems: 'center', width: 44, height: 44, mx: 'auto', mb: 1.25, borderRadius: '50%', bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }}>{icon}</Box>
+      <Typography sx={{ fontSize: 14.5, fontWeight: 800, color: 'text.primary' }}>{title}</Typography>
+      <Typography sx={{ fontSize: 12.5, mt: 0.5 }}>{desc}</Typography>
+    </Box>
+  );
+}
 function DeskStats() {
   const [stats, setStats] = useState(null);
   const [sel, setSel] = useState('__all');
@@ -466,7 +489,15 @@ function DeskStats() {
   const [gran, setGran] = useState('day');   // 'day' | 'month'
   useEffect(() => { api.adminDeskStats().then(setStats).catch(() => setStats([])); }, []);
   if (!stats) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
-  if (!stats.length) return <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 1 }}>안내데스크 세션이 아직 없습니다. 데스크 안내에서 세션을 만들면 응대 통계가 집계됩니다.</Typography>;
+  if (!stats.length) {
+    return (
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1 }}>데스크 운영 통계</Typography>
+        <EmptyHint icon={<ForumOutlinedIcon sx={{ fontSize: 22 }} />} title="아직 응대 기록이 없습니다"
+          desc="좌측 메뉴의 '데스크 안내'에서 안내데스크 세션을 만들어 응대를 시작하면 여기에 통계가 쌓입니다." />
+      </Paper>
+    );
+  }
   const d = sel === '__all' ? aggregateDeskStats(stats) : (stats.find((x) => x.id === sel) || stats[0]);
   const langRows = Object.entries(d.byLang || {}).sort((a, b) => b[1].count - a[1].count);
   const hourly = (d.hourly || []).map((count, hour) => ({ hour, count }));
@@ -673,6 +704,8 @@ export default function AdminPage({ user }) {
   const [pwDlg, setPwDlg] = useState(null); // { id, name }
   const [pwVal, setPwVal] = useState('');
   const [pwErr, setPwErr] = useState('');
+  const [confirmReq, setConfirmReq] = useState(null); // 공용 확인 다이얼로그(브라우저 confirm 대체)
+  const [pageSnack, setPageSnack] = useState('');
 
   const reload = () => {
     api.adminUsers().then(setList).catch(() => setList([]));
@@ -697,11 +730,14 @@ export default function AdminPage({ user }) {
     } catch (e) { setErr(e.message || '생성 실패'); }
     finally { setBusy(false); }
   };
-  const remove = async (u) => {
-    if (!confirm(`'${u.username || u.id}' 사용자와 해당 사용자의 모든 세션을 삭제할까요?`)) return;
-    try { await api.adminDeleteUser(u.id); } catch (e) { alert('삭제 실패: ' + (e.message || '네트워크 오류')); }
-    reload();
-  };
+  const remove = (u) => setConfirmReq({
+    title: '사용자 삭제',
+    message: `'${u.username || u.id}' 사용자와 해당 사용자의 모든 세션을 삭제합니다. 되돌릴 수 없습니다.`,
+    onOk: async () => {
+      try { await api.adminDeleteUser(u.id); } catch (e) { setPageSnack('삭제 실패: ' + (e.message || '네트워크 오류')); }
+      reload();
+    },
+  });
 
   return (
     <>
@@ -814,6 +850,9 @@ export default function AdminPage({ user }) {
           <Button variant="contained" onClick={resetPw}>재설정</Button>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
+      <Snackbar open={!!pageSnack} autoHideDuration={4000} onClose={() => setPageSnack('')} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} message={pageSnack} />
     </>
   );
 }
