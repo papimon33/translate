@@ -2937,7 +2937,7 @@ function handleHost(ws) {
     const sens = Number(ws._sxSens), maxDelay = Number(ws._sxMaxDelay), latency = Number(ws._sxLatency);
     const A = 'ko'; // 안내원 언어(고정)
     const GUEST_LANGS = ['en', 'ja', 'zh', 'vi', 'th', 'id', 'ru']; // 손님(또는 호스트)이 고르는 언어(soniox two_way 지원, 한국어 제외)
-    const deskIdleMs = Math.min(120000, Math.max(5000, Number(ws._deskIdle) || 30000)); // 무음 → 대화 종료(기본 30초)
+    let deskIdleMs = Math.min(120000, Math.max(5000, Number(ws._deskIdle) || 30000)); // 무음 → 대화 종료(기본 30초). 'desk-idle' 메시지로 응대 중에도 변경 가능
     // 여객 태블릿 마이크 민감도(0~100, 50=기존 고정값과 동일) — 뷰어의 근접 게이트 임계로 변환돼 적용
     let guestSens = Math.min(100, Math.max(0, Number(ws._deskGuestSens) >= 0 ? Number(ws._deskGuestSens) : 50));
     const sendGuestSens = () => { const m = { type: 'desk-guest-sens', value: guestSens }; broadcast(sessionId, m); };
@@ -3339,6 +3339,14 @@ function handleHost(ws) {
         else if (m.type === 'desk-guest-sens') { // 여객 태블릿 마이크 민감도 변경(호스트 고급 설정)
           const v = Number(m.value);
           if (Number.isFinite(v)) { guestSens = Math.min(100, Math.max(0, v)); sendGuestSens(); }
+        }
+        else if (m.type === 'desk-idle') { // 무음 자동 종료 시간 변경 — 데스크는 상시 캡처라 세션 중 변경을 허용
+          const v = Number(m.value);
+          if (Number.isFinite(v)) {
+            deskIdleMs = Math.min(120000, Math.max(5000, v));
+            if (phase === 'active') armForeignTimer(); // 진행 중이면 새 시간으로 타이머 재장전
+            toHost({ type: 'status', message: `무음 자동 종료: ${deskIdleMs / 1000}초` });
+          }
         }
         else if (m.type === 'wayfind-show') { // 호스트가 길안내 제안 승인 → 뷰어에 지도 표시
           if (pendingWayfind) {

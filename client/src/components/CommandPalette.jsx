@@ -72,7 +72,8 @@ export default function CommandPalette({ open, onClose, user, onNavigate }) {
           sx={{ fontSize: 15 }} />
         <Chip size="small" label="ESC" sx={{ height: 20, fontSize: 10.5, color: 'text.disabled' }} />
       </Box>
-      <Box ref={listRef} sx={{ maxHeight: 360, overflowY: 'auto', py: 0.75 }}>
+      {/* 고정 높이 — 검색 결과 수에 따라 팔레트가 늘었다 줄었다 하지 않도록 */}
+      <Box ref={listRef} sx={{ height: 360, overflowY: 'auto', py: 0.75 }}>
         {items.length === 0 && <Typography sx={{ fontSize: 13.5, color: 'text.disabled', textAlign: 'center', py: 3 }}>결과가 없습니다.</Typography>}
         {items.map((it, i) => {
           const active = i === idx;

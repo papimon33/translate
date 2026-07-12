@@ -321,3 +321,9 @@
 - 사용자 피드백: 남색 고정 사이드바 폐기. 라이트 테마=사이드바도 밝게, 다크 테마=어둡게(Claude 앱처럼).
 - theme.js `SIDEBAR` 를 모드별 토큰으로 재구성: light(웜 그레이 #f6f5f4, 다크 텍스트, 회색 활성 필, 우측 보더) / dark(콘텐츠보다 어두운 #121116, 밝은 텍스트). Nav.jsx 는 `SIDEBAR[mode]` 로 소비(하드코딩 #fff 제거, NavItem 에 S 전달).
 - 검증: 라이트/다크 프리뷰 스크린샷 모두 확인, 빌드 OK.
+
+## 2026-07-12 (6) — ⌘K 크기 고정 · 데스크 무음 종료 설정 라이브 변경
+- **⌘K 팔레트 크기 고정**: 결과 리스트 maxHeight→height 360 — 검색 결과 수에 따라 늘었다 줄었다 하지 않음(빈 결과도 동일 크기, 프리뷰 418px 유지 확인).
+- **데스크 '세션 자동중지(무음)' 설정 disabled 해제**: 데스크는 진입 즉시 상시 캡처(recording=true)라 `disabled={recording}` 으로는 영영 변경 불가였음 →
+  서버 `desk-idle` 메시지 추가(deskIdleMs const→let, 수신 시 5초~120초 클램프 + 진행 중이면 armForeignTimer 재장전 + 상태 안내),
+  audio.js `setDeskIdle(ms)`, TranslateView 는 disabled 제거하고 변경 즉시 localStorage + 라이브 전송. desk-guest-sens 와 동일 패턴.

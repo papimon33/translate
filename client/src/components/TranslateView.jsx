@@ -719,11 +719,16 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
           {cfg.pipeline === 'desk' && (
             <Field label="세션 자동중지(무음)">
+              {/* 데스크는 진입 즉시 상시 캡처(recording=true)라 disabled 로 두면 영영 못 바꿈 → 라이브 변경 지원 */}
               <Select
                 size="small"
                 value={deskIdle}
-                disabled={recording}
-                onChange={(e) => { const v = Number(e.target.value); setDeskIdle(v); localStorage.setItem('kac-desk-idle', String(v)); }}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setDeskIdle(v);
+                  localStorage.setItem('kac-desk-idle', String(v));
+                  try { recRef.current && recRef.current.setDeskIdle && recRef.current.setDeskIdle(v * 1000); } catch {}
+                }}
                 sx={{ ...selSx, minWidth: 120 }}
               >
                 {DESK_IDLE.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
