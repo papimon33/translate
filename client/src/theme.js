@@ -10,14 +10,26 @@ export const GRAD = {
   dark: ['#8579ff', '#6354e0'],
   light: ['#7c6df2', '#5b4fe8'],
 };
-// 사이드바(다크 서피스) 토큰 — Nav 에서 사용
+// 사이드바 토큰 — Nav 에서 사용. (Claude 앱처럼) 테마를 따라감: 라이트=밝은 웜 그레이, 다크=콘텐츠보다 어두운 그레이.
 export const SIDEBAR = {
-  bg: { light: '#211d33', dark: '#17141f' },
-  text: 'rgba(255,255,255,0.88)',
-  muted: 'rgba(255,255,255,0.55)',
-  hover: 'rgba(255,255,255,0.07)',
-  active: 'rgba(255,255,255,0.14)',
-  divider: 'rgba(255,255,255,0.10)',
+  light: {
+    bg: '#f6f5f4',
+    text: 'rgba(29,28,29,0.85)',
+    textStrong: '#1d1c1d',
+    muted: 'rgba(29,28,29,0.52)',
+    hover: 'rgba(29,28,29,0.06)',
+    active: 'rgba(29,28,29,0.10)',
+    border: 'rgba(29,28,29,0.10)',
+  },
+  dark: {
+    bg: '#121116',
+    text: 'rgba(255,255,255,0.85)',
+    textStrong: '#ffffff',
+    muted: 'rgba(255,255,255,0.55)',
+    hover: 'rgba(255,255,255,0.07)',
+    active: 'rgba(255,255,255,0.12)',
+    border: 'rgba(255,255,255,0.09)',
+  },
 };
 
 export function buildTheme(mode) {

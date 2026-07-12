@@ -34,6 +34,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
   const [edit, setEdit] = useState(false);
   const isAdmin = user?.role === 'admin';
   const initial = (user?.username || user?.id || '?').trim().charAt(0).toUpperCase();
+  const S = SIDEBAR[mode] || SIDEBAR.light; // 사이드바는 테마를 따라감(라이트=밝게, 다크=어둡게)
 
   return (
     <Box
@@ -41,8 +42,10 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         width,
         minWidth: width,
         transition: 'width .2s ease, min-width .2s ease',
-        bgcolor: SIDEBAR.bg[mode] || SIDEBAR.bg.light, // 다크 사이드바 — 콘텐츠와 분리된 앱 아이덴티티
-        color: SIDEBAR.text,
+        bgcolor: S.bg,
+        color: S.text,
+        borderRight: 1,
+        borderColor: S.border,
         display: 'flex',
         flexDirection: 'column',
         p: 1.25,
@@ -65,14 +68,14 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
               sx={{ width: 38, height: 38, borderRadius: 2.5, flex: 'none', display: 'block' }}
             />
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontWeight: 800, fontSize: 16, lineHeight: 1.2, whiteSpace: 'nowrap', color: '#fff', letterSpacing: '-0.01em' }}>AirTalk</Typography>
+              <Typography sx={{ fontWeight: 800, fontSize: 16, lineHeight: 1.2, whiteSpace: 'nowrap', color: S.textStrong, letterSpacing: '-0.01em' }}>AirTalk</Typography>
             </Box>
           </>
         )}
         {!mobile && (
           <Tooltip title={collapsed ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
-            <IconButton onClick={onToggleCollapsed} sx={{ flex: 'none', '&:hover': { bgcolor: SIDEBAR.hover } }}>
-              <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" sx={{ width: 20, height: 20, color: SIDEBAR.muted }}>
+            <IconButton onClick={onToggleCollapsed} sx={{ flex: 'none', '&:hover': { bgcolor: S.hover } }}>
+              <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" sx={{ width: 20, height: 20, color: S.muted }}>
                 <rect x="3" y="4" width="18" height="16" rx="2.5" />
                 <path d="M9 4v16" />
               </Box>
@@ -82,14 +85,14 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
       </Box>
 
       {!collapsed && (
-        <Typography sx={{ px: 1.5, mb: 0.5, fontSize: 11, fontWeight: 700, color: SIDEBAR.muted, letterSpacing: '0.06em' }}>
+        <Typography sx={{ px: 1.5, mb: 0.5, fontSize: 11, fontWeight: 700, color: S.muted, letterSpacing: '0.06em' }}>
           메뉴
         </Typography>
       )}
-      <NavItem collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="실시간 번역" active={view === 'sessions'} onClick={onHome} />
-      <NavItem collapsed={collapsed} icon={<RecordVoiceOverIcon fontSize="small" />} label="데스크 안내" active={view === 'desk'} onClick={onDesk} />
+      <NavItem S={S} collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="실시간 번역" active={view === 'sessions'} onClick={onHome} />
+      <NavItem S={S} collapsed={collapsed} icon={<RecordVoiceOverIcon fontSize="small" />} label="데스크 안내" active={view === 'desk'} onClick={onDesk} />
       {isAdmin && (
-        <NavItem collapsed={collapsed} icon={<AdminPanelSettingsOutlinedIcon fontSize="small" />} label="관리자" active={view === 'admin'} onClick={onAdmin} />
+        <NavItem S={S} collapsed={collapsed} icon={<AdminPanelSettingsOutlinedIcon fontSize="small" />} label="관리자" active={view === 'admin'} onClick={onAdmin} />
       )}
 
       <Box sx={{ mt: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -100,7 +103,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
             display: 'flex', alignItems: 'center', gap: 1.25, cursor: 'pointer',
             px: collapsed ? 0 : 1, py: 1, borderRadius: 1.25,
             justifyContent: collapsed ? 'center' : 'flex-start',
-            '&:hover': { bgcolor: SIDEBAR.hover },
+            '&:hover': { bgcolor: S.hover },
           }}
         >
           <Avatar
@@ -113,10 +116,10 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           </Avatar>
           {!collapsed && (
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#fff' }}>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: S.textStrong }}>
                 {user?.username || user?.id}
               </Typography>
-              <Typography sx={{ fontSize: 11, color: SIDEBAR.muted, whiteSpace: 'nowrap' }}>
+              <Typography sx={{ fontSize: 11, color: S.muted, whiteSpace: 'nowrap' }}>
                 {user?.id}{isAdmin ? ' · 관리자' : ''}
               </Typography>
             </Box>
@@ -229,7 +232,7 @@ function ProfileEditDialog({ open, user, onClose, onSaved }) {
   );
 }
 
-function NavItem({ collapsed, icon, label, active, muted, onClick }) {
+function NavItem({ S, collapsed, icon, label, active, muted, onClick }) {
   const content = (
     <Box
       onClick={onClick}
@@ -242,10 +245,10 @@ function NavItem({ collapsed, icon, label, active, muted, onClick }) {
         justifyContent: collapsed ? 'center' : 'flex-start',
         borderRadius: 1.25,
         cursor: 'pointer',
-        color: active ? '#fff' : muted ? SIDEBAR.muted : SIDEBAR.text,
+        color: active ? S.textStrong : muted ? S.muted : S.text,
         fontWeight: active ? 800 : 600,
-        bgcolor: active ? SIDEBAR.active : 'transparent',
-        '&:hover': { bgcolor: active ? SIDEBAR.active : SIDEBAR.hover },
+        bgcolor: active ? S.active : 'transparent',
+        '&:hover': { bgcolor: active ? S.active : S.hover },
         whiteSpace: 'nowrap',
         transition: 'background .12s',
       }}
