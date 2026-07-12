@@ -353,3 +353,32 @@
 ### TTS 음성 검증
 - `scripts/verify_tts_samples.mjs`: tts_samples mp3 → **Soniox 비동기 전사 API**(stt-async-preview, mp3 직접 업로드 — ffmpeg 불필요) → CER(≤10% PASS) →
   `tts_samples/VERIFICATION.md` 리포트. **결과 10/10 PASS** (en/ja/zh/ru 0%, es 4.2%: esta→esto 경미 오인식).
+
+## 2026-07-12 (9) — 데스크 자동감지 정리 · 데스크 세션 관리자 전용 · 소프트 삭제 · Claude 스타일 목록·검색·최근 항목 · 뉴트럴 테마
+### 데스크(Other languages) 자동감지 — 2줄 중복 수정 + 여객 채널 감지
+- 증상: 'Other languages' 시작 시 같은 발화가 두 채널(데스크 sx + 여객 gsx)에 동시에 라이브 표시(2줄)됐다가 커밋에서 crossDup 로 합쳐짐.
+- 수정(server.js runDesk): ① `staffOwns/guestOwns` 에 autoDetect 케이스 추가 — 감지 중에도 '외국어=여객 채널, 한국어=데스크 채널' 소유권 적용(라이브 이중 표시 소멸).
+  ② 감지→잠금을 `lockDetected(src)` 로 분리, **staff commit + guestCommit 양쪽에서 호출**(드랍 판정과 무관하게 언어부터 잠금 — 이전엔 데스크 채널 커밋에서만 감지).
+  ③ 여객 채널 자동감지 중 힌트 광역화(`autoDetect ? GUEST_LANGS : [A]` — ko 고정이면 감지 불가였음).
+- 감지 후 재체결은 기존 로직(2채널이면 one_way×2, 단일이면 two_way) 재사용. desk.html 은 두 번째 desk-active 수신 시 curLang 갱신 처리 이미 있음(482행 가드).
+- 실 음성 검증은 현장 몫(엔진 왕복 필요). 코드 경로는 소유권·재체결 모두 기존 잠금 모드와 동일 분기라 회귀 위험 낮음.
+### 데스크 세션 = 관리자 전용 관리(공용 인프라)
+- POST/DELETE `/api/sessions` — pipeline=desk 는 admin 만(403 한글 메시지). PATCH 는 desk 면 전 직원 허용(층/방향 등 운영 조작), 단 title 변경은 admin 만(비관리자 body 에서 strip).
+- GET `/api/sessions` — desk 세션은 **모든 로그인 사용자에게 노출**(직원이 운영), 일반 세션은 본인 것만(기존 유지).
+- 클라(SessionList): `canManage = !deskMode || isAdmin` — 비관리자 데스크 화면에서 새 세션/FAB/선택(일괄 삭제)/행 삭제·제목변경/케밥 항목 숨김. 빈 상태 문구 분기.
+- curl 실검증: staff 생성 403, staff 목록에 desk 노출, staff 삭제 403, staff PATCH deskFloor OK + title 무시.
+### 세션 소프트 삭제(로그 보존)
+- DELETE = `deletedAt` 마킹(splice/스토어 삭제 제거). `getSession` 은 삭제분 제외(뷰어 404·WS·PATCH 차단), 관리자 로그/통계용 `getSessionAny` 분리.
+- 목록·`/api/desk-sessions` 제외, 관리자 로그·데스크 통계에는 계속 포함 + `deleted` 플래그(UI '삭제된 세션' 표기, 통계 셀렉터 '(삭제됨)').
+- **완전 정리 경로**: 관리자 로그 삭제 라우트(`DELETE /api/admin/logs/desk/:sid`, `/session/:id`)가 소프트 삭제된 세션이면 껍데기까지 제거(purgeIfDeleted, 스토어 포함).
+- curl 실검증: 삭제 후 본인 목록 제외·뷰어 404·admin logs deleted:true, 로그 삭제 시 통계에서 완전 소멸. 삭제 confirm 문구도 "기록은 관리자 로그에 보존"으로 정정.
+### UI — Claude 스타일 마무리
+- **다크 반전**: nav `#262624` ↔ 캔버스 `#1F1E1D`(카드 #30302E) — 라이트와 동일하게 'nav 가 항상 콘텐츠보다 밝게'. theme.js SIDEBAR.dark + bgDefault 교체.
+- **보라 폐기(로고 제외)**: primary = 뉴트럴 반전(라이트 `#1F1E1D` 검정 버튼/백색 글자, 다크 `#FAF9F5` 백색 버튼/검정 글자, hover #3d3b38/#e8e6df).
+  Nav 아바타 그라데이션→primary 뉴트럴, 모바일 AppBar 로고 박스→favicon.svg(로고만 바이올렛 유지). GRAD 토큰 삭제.
+- **세션 목록**: 카드→플랫 행(제목 flex·유형 텍스트·일자만, 모드 아이콘 삭제), hover 하이라이트, hover 액션은 **우측 오버레이**(absolute + paper 필 —
+  안 보일 때 자리 차지해 제목이 69px 로 짜부라지던 문제 → 169px). 페이지 제목 24px·탑마진 축소. 버튼 폰트 14 고정(theme).
+- **검색**: 목록 상단 검색바(돋보기, radius 20) → `GET /api/sessions?q=` 서버 검색(제목 + items/deskLog 의 source·texts, 250ms 디바운스). 검색 빈 결과 전용 문구.
+  실검증: '탑승'(내용에만 존재) → 해당 세션 1건 필터, 소유권 격리 유지(타 유저 세션 미노출).
+- **Nav 최근 항목**: 메뉴 아래 '최근 항목' 최근 세션 8개(view/세션 변경 시 재조회, 클릭 → 해당 화면으로 열기·활성 표시), 펼침 폭 248→288(모바일 드로어 300).
+- 프리뷰 실검증: 라이트/다크 스크린샷, 최근 항목 클릭→데스크 세션 열림, 검색 필터, 오버레이 액션 opacity/absolute 확인.

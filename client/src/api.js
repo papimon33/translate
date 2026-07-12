@@ -11,7 +11,7 @@ const json = async (r) => {
 };
 
 export const api = {
-  list: () => fetch('/api/sessions').then(json),
+  list: (q) => fetch('/api/sessions' + (q ? '?q=' + encodeURIComponent(q) : '')).then(json), // q=제목+대화내용 검색
   create: (body) =>
     fetch('/api/sessions', {
       method: 'POST',

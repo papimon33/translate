@@ -3,8 +3,8 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
-import CardActionArea from '@mui/material/CardActionArea';
 import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
 import Avatar from '@mui/material/Avatar';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
@@ -25,6 +25,7 @@ import { alpha } from '@mui/material/styles';
 import Snackbar from '@mui/material/Snackbar';
 import MuiAlert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add';
+import SearchIcon from '@mui/icons-material/Search';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -91,7 +92,10 @@ function uniqueName(base, titles) {
 
 export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const isAdmin = user?.role === 'admin';
+  // 안내데스크 세션은 관리자만 생성·삭제(직원은 운영만)
+  const canManage = !deskMode || isAdmin;
   const [list, setList] = useState(null);
+  const [q, setQ] = useState(''); // 검색어 — 제목+대화 내용(서버 검색)
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
@@ -107,8 +111,12 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const [showOnboard, setShowOnboard] = useState(() => localStorage.getItem('kac-onboard-v1') !== '1'); // 첫 사용 안내
   const dismissOnboard = () => { setShowOnboard(false); localStorage.setItem('kac-onboard-v1', '1'); };
 
-  const reload = () => api.list().then(setList);
-  useEffect(() => { reload(); }, []);
+  const reload = () => api.list(q.trim()).then(setList).catch(() => {});
+  // 검색어 변경 시 디바운스 재조회(내용 검색은 서버에서)
+  useEffect(() => {
+    const t = setTimeout(() => { api.list(q.trim()).then(setList).catch(() => {}); }, q ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
   // 명령 팔레트(⌘K)의 '새 세션 만들기' → 생성 모달 열기
   useEffect(() => { if (createSignal) openDlg(); }, [createSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -158,7 +166,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     setMenu(null);
     setConfirmReq({
       title: '세션 삭제',
-      message: `'${sess.title || '(제목 없음)'}' 세션과 대화 기록을 삭제합니다. 되돌릴 수 없습니다.`,
+      message: `'${sess.title || '(제목 없음)'}' 세션을 삭제합니다. 목록에서 사라지며, 대화 기록은 관리자 로그에 보존됩니다.`,
       onOk: async () => {
         try { await api.remove(sess.id); } catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
         reload();
@@ -174,7 +182,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     if (!ids.length) return;
     setConfirmReq({
       title: '선택 세션 삭제',
-      message: `선택한 ${ids.length}개 세션과 대화 기록을 삭제합니다. 되돌릴 수 없습니다.`,
+      message: `선택한 ${ids.length}개 세션을 삭제합니다. 목록에서 사라지며, 대화 기록은 관리자 로그에 보존됩니다.`,
       onOk: async () => {
         const results = await Promise.allSettled(ids.map((id) => api.remove(id)));
         const fail = results.filter((r) => r.status === 'rejected').length;
@@ -200,12 +208,13 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     <>
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
-          {/* 페이지 제목 — 좌측 정렬. 모바일은 새 세션이 FAB 라 툴바가 없으므로 목록을 바로 위로 붙임 */}
-          <Typography sx={{ textAlign: 'left', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mt: { xs: 2, sm: 5 }, mb: { xs: 2, sm: 4.5 } }}>
+          {/* 페이지 제목 — 좌측 정렬, 24px */}
+          <Typography sx={{ textAlign: 'left', fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em', mt: { xs: 1.5, sm: 2.5 }, mb: { xs: 1.5, sm: 2.5 } }}>
             {deskMode ? '데스크 안내' : '실시간 번역'}
           </Typography>
-          {/* 상단 툴바: 선택(일괄 삭제) + 새 세션 — 모바일에선 숨김(FAB 사용, 빈 줄 여백 제거) */}
-          <Box sx={{ display: { xs: selMode ? 'flex' : 'none', sm: 'flex' }, alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
+          {/* 상단 툴바: 선택(일괄 삭제) + 새 세션 — 데스크는 관리자만(직원은 운영만) */}
+          {canManage && (
+          <Box sx={{ display: { xs: selMode ? 'flex' : 'none', sm: 'flex' }, alignItems: 'center', gap: 1, mb: 1.5, minHeight: 36 }}>
             {selMode ? (
               <>
                 <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary' }}>{selIds.size}개 선택</Typography>
@@ -223,11 +232,25 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               </>
             )}
           </Box>
+          )}
           {/* 모바일: 선택 모드 진입 버튼(목록 위 얇은 줄) */}
-          {!selMode && shown.length > 0 && (
+          {canManage && !selMode && shown.length > 0 && (
             <Box sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'flex-end', mb: 1 }}>
               <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary', py: 0 }}>선택</Button>
             </Box>
+          )}
+
+          {/* 검색 — 제목·대화 내용(서버 검색, Claude 스타일) */}
+          {list && (shown.length > 0 || q.trim()) && (
+            <TextField
+              fullWidth
+              size="small"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="대화 검색 (제목·내용)"
+              InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ fontSize: 20, color: 'text.disabled' }} /></InputAdornment>) }}
+              sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2.5, bgcolor: 'background.paper' } }}
+            />
           )}
 
           {/* 첫 사용 온보딩: 모드 3종 안내(1회 표시) */}
@@ -251,13 +274,19 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
             </Card>
           )}
 
-          {empty && (
+          {empty && q.trim() && (
+            <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
+              <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'text.primary' }}>‘{q.trim()}’ 검색 결과가 없습니다</Typography>
+              <Typography sx={{ fontSize: 13, mt: 0.75 }}>제목과 대화 내용에서 찾습니다. 다른 검색어를 시도해 보세요.</Typography>
+            </Box>
+          )}
+          {empty && !q.trim() && (
             <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
               <Avatar
                 sx={{
                   width: 76, height: 76, mx: 'auto', mb: 2.5,
-                  bgcolor: (t) => alpha(t.palette.primary.main, 0.12),
-                  color: 'primary.main',
+                  bgcolor: (t) => alpha(t.palette.text.primary, 0.06),
+                  color: 'text.secondary',
                 }}
               >
                 <RecordVoiceOverIcon sx={{ fontSize: 38 }} />
@@ -266,100 +295,110 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                 {deskMode ? '안내데스크가 없어요' : '아직 세션이 없어요'}
               </Typography>
               <Typography sx={{ fontSize: 14, mt: 0.75, mb: 3 }}>
-                {deskMode ? '안내데스크를 만들어 대면 통역을 시작하세요. (데스크마다 별도 세션)' : '새 세션을 만들고 외국어를 실시간으로 번역해 보세요.'}
+                {deskMode
+                  ? (canManage ? '안내데스크를 만들어 대면 통역을 시작하세요. (데스크마다 별도 세션)' : '관리자가 안내데스크를 만들면 여기에 표시됩니다.')
+                  : '새 세션을 만들고 외국어를 실시간으로 번역해 보세요.'}
               </Typography>
-              <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
-                새 세션 만들기
-              </Button>
+              {canManage && (
+                <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
+                  새 세션 만들기
+                </Button>
+              )}
             </Box>
           )}
 
+          {/* 목록 — Claude 스타일 플랫 행: 제목 · 유형 · 일자만(아이콘 없음), hover 하이라이트 */}
           {shown.map((s) => {
-            const Ic = MODE_ICON[s.preset] || IconMode2;
             const checked = selIds.has(s.id);
             return (
-            <Card
+            <Box
               key={s.id}
+              onClick={() => (selMode ? toggleSel(s.id) : onOpen(s))}
               sx={{
-                mb: 1.5,
-                display: 'flex',
-                alignItems: 'center',
-                borderColor: selMode && checked ? 'primary.main' : undefined,
-                '&:hover': { borderColor: 'primary.main' },
-                '&:hover .rowActs': { opacity: 1 },
+                display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.75,
+                borderRadius: 2, cursor: 'pointer', position: 'relative',
+                bgcolor: selMode && checked ? (t) => alpha(t.palette.text.primary, 0.06) : 'transparent',
+                '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.05) },
+                '&:hover .rowActs': { opacity: 1, pointerEvents: 'auto' },
+                transition: 'background .12s',
               }}
             >
               {selMode && (
-                <Checkbox checked={checked} onChange={() => toggleSel(s.id)} sx={{ ml: 1 }} />
+                <Checkbox checked={checked} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
               )}
-              <CardActionArea onClick={() => (selMode ? toggleSel(s.id) : onOpen(s))} sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
-                <Avatar
-                  variant="rounded"
-                  sx={{ width: 44, height: 44, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}
-                >
-                  <Ic sx={{ width: 22, height: 22 }} />
-                </Avatar>
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography sx={{ fontWeight: 600, fontSize: 15.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.title || '(제목 없음)'}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                    {s.preset && TYPE_NAME[s.preset] && (
-                      <Chip size="small" label={TYPE_NAME[s.preset]} sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
-                    )}
-                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{rel(s.updatedAt)}</Typography>
-                  </Box>
-                </Box>
-              </CardActionArea>
+              <Typography sx={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.title || '(제목 없음)'}
+              </Typography>
+              {s.preset && TYPE_NAME[s.preset] && (
+                <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>
+                  {TYPE_NAME[s.preset]}
+                </Typography>
+              )}
+              <Typography sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right' }}>{rel(s.updatedAt)}</Typography>
               {!selMode && (
                 <>
-                  {/* 데스크톱: hover 시 인라인 액션(슬랙 스타일) */}
-                  <Box className="rowActs" sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 0.25, mr: 1, opacity: 0, transition: 'opacity .12s' }}>
-                    <Tooltip title="제목 변경"><IconButton size="small" onClick={() => startRename(s)}><EditOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+                  {/* 데스크톱: hover 시 우측 오버레이 액션(자리 차지 없음 — 제목 공간 확보) */}
+                  <Box
+                    className="rowActs"
+                    onClick={(e) => e.stopPropagation()}
+                    sx={{
+                      display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 0.25,
+                      position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                      px: 0.5, py: 0.25, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
+                      opacity: 0, pointerEvents: 'none', transition: 'opacity .12s',
+                    }}
+                  >
+                    {canManage && <Tooltip title="제목 변경"><IconButton size="small" onClick={() => startRename(s)}><EditOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>}
                     <Tooltip title="대화내역 저장"><IconButton size="small" onClick={() => exportSession(s)}><DownloadIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
-                    <Tooltip title="삭제"><IconButton size="small" onClick={() => removeSession(s)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+                    {canManage && <Tooltip title="삭제"><IconButton size="small" onClick={() => removeSession(s)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>}
                   </Box>
                   {/* 모바일: 케밥 메뉴 유지(hover 없음) */}
-                  <IconButton sx={{ mr: 1, display: { xs: 'inline-flex', sm: 'none' } }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
-                    <MoreVertIcon />
+                  <IconButton size="small" sx={{ display: { xs: 'inline-flex', sm: 'none' }, flex: 'none' }} onClick={(e) => { e.stopPropagation(); setMenu({ anchor: e.currentTarget, session: s }); }}>
+                    <MoreVertIcon sx={{ fontSize: 20 }} />
                   </IconButton>
                 </>
               )}
-            </Card>
+            </Box>
             );
           })}
         </Box>
       </Box>
 
-      {/* 모바일: 우하단 고정 + 버튼(화면 이동해도 위치 유지) */}
-      <Fab
-        color="primary"
-        aria-label="새 세션"
-        onClick={openDlg}
-        sx={{ position: 'fixed', right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', display: { xs: 'flex', sm: 'none' }, zIndex: 1200 }}
-      >
-        <AddIcon />
-      </Fab>
+      {/* 모바일: 우하단 고정 + 버튼(화면 이동해도 위치 유지) — 데스크는 관리자만 */}
+      {canManage && (
+        <Fab
+          color="primary"
+          aria-label="새 세션"
+          onClick={openDlg}
+          sx={{ position: 'fixed', right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', display: { xs: 'flex', sm: 'none' }, zIndex: 1200 }}
+        >
+          <AddIcon />
+        </Fab>
+      )}
 
       <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
-        <MenuItem onClick={() => startRename(menu.session)}>
-          <ListItemIcon>
-            <EditOutlinedIcon fontSize="small" />
-          </ListItemIcon>
-          제목 변경
-        </MenuItem>
+        {canManage && (
+          <MenuItem onClick={() => startRename(menu.session)}>
+            <ListItemIcon>
+              <EditOutlinedIcon fontSize="small" />
+            </ListItemIcon>
+            제목 변경
+          </MenuItem>
+        )}
         <MenuItem onClick={() => exportSession(menu.session)}>
           <ListItemIcon>
             <DownloadIcon fontSize="small" />
           </ListItemIcon>
           대화내역 저장
         </MenuItem>
-        <MenuItem onClick={() => removeSession(menu.session)} sx={{ color: 'error.main' }}>
-          <ListItemIcon>
-            <DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} />
-          </ListItemIcon>
-          삭제
-        </MenuItem>
+        {canManage && (
+          <MenuItem onClick={() => removeSession(menu.session)} sx={{ color: 'error.main' }}>
+            <ListItemIcon>
+              <DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} />
+            </ListItemIcon>
+            삭제
+          </MenuItem>
+        )}
       </Menu>
 
       {/* 새 세션 모달: 상단 제목칸(펜으로 수정) + 모드 선택 */}

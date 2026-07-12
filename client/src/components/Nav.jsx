@@ -23,7 +23,7 @@ import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlin
 import { SIDEBAR } from '../theme.js';
 import { api } from '../api.js';
 
-const W = 248;
+const W = 288; // 펼침 폭 — 최근 항목 표기를 위해 확대
 const WC = 72;
 
 /* 메뉴 아이콘 — 얇은 스트로크 아웃라인(모던, Claude 계열) */
@@ -56,13 +56,21 @@ export function IcoSliders(props) { // 관리자: 조절 슬라이더(운영 설
   );
 }
 
-export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, onHome, onDesk, onSummaries, onTerms, onAdmin, onLogout, onUserUpdate }) {
+export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, currentSessionId, onHome, onDesk, onSummaries, onTerms, onAdmin, onOpenSession, onLogout, onUserUpdate }) {
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
   const [edit, setEdit] = useState(false);
+  const [recents, setRecents] = useState([]); // 최근 항목(세션) — Claude 사이드바 스타일
   const isAdmin = user?.role === 'admin';
   const initial = (user?.username || user?.id || '?').trim().charAt(0).toUpperCase();
-  const S = SIDEBAR[mode] || SIDEBAR.light; // 사이드바는 테마를 따라감(라이트=밝게, 다크=어둡게)
+  const S = SIDEBAR[mode] || SIDEBAR.light; // 사이드바는 테마를 따라감(항상 콘텐츠보다 밝게)
+
+  // 최근 항목: 화면 전환·세션 열기 때마다 갱신(목록 API 는 가볍다)
+  React.useEffect(() => {
+    let alive = true;
+    api.list().then((l) => { if (alive && Array.isArray(l)) setRecents(l.slice(0, 8)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [view, currentSessionId]);
 
   return (
     <Box
@@ -118,6 +126,32 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         <NavItem S={S} collapsed={collapsed} icon={<IcoSliders />} label="관리자" active={view === 'admin'} onClick={onAdmin} />
       )}
 
+      {/* 최근 항목 — 최근 세션 바로가기(Claude 사이드바 스타일) */}
+      {!collapsed && recents.length > 0 && (
+        <Box sx={{ mt: 2.5, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <Typography sx={{ px: 1.5, mb: 0.5, fontSize: 11.5, fontWeight: 700, color: S.muted, letterSpacing: '0.02em' }}>최근 항목</Typography>
+          {recents.map((s) => {
+            const active = currentSessionId === s.id;
+            return (
+              <Box
+                key={s.id}
+                onClick={() => onOpenSession && onOpenSession(s)}
+                sx={{
+                  px: 1.5, py: 0.8, borderRadius: 1.25, cursor: 'pointer',
+                  color: active ? S.textStrong : S.text, fontWeight: active ? 700 : 500,
+                  bgcolor: active ? S.active : 'transparent',
+                  '&:hover': { bgcolor: active ? S.active : S.hover },
+                  fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  transition: 'background .12s',
+                }}
+              >
+                {s.title || '(제목 없음)'}
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
       <Box sx={{ mt: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
         {/* 프로필 (좌측 최하단) — 클릭 메뉴에 테마 토글 포함 */}
         <Box
@@ -130,10 +164,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           }}
         >
           <Avatar
-            sx={{
-              width: 32, height: 32, flex: 'none', fontWeight: 800, fontSize: 14, color: '#fff',
-              background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b8cff' : '#8b7cff'})`,
-            }}
+            sx={{ width: 32, height: 32, flex: 'none', fontWeight: 800, fontSize: 14, bgcolor: 'primary.main', color: 'primary.contrastText' }}
           >
             {initial}
           </Avatar>

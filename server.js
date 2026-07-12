@@ -747,6 +747,11 @@ function buildSonioxContext(langs, opts = {}) {
 }
 
 function getSession(id) {
+  // 소프트 삭제된 세션은 일반 경로(목록·뷰어·WS·수정)에서 존재하지 않는 것으로 취급
+  return sessions.find((s) => s.id === id && !s.deletedAt);
+}
+// 삭제된 세션 포함 조회 — 관리자 로그·통계 전용(세션을 지워도 대화 기록은 보존·열람)
+function getSessionAny(id) {
   return sessions.find((s) => s.id === id);
 }
 function newId() {
@@ -979,7 +984,7 @@ app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
     const wayfindTop = {};
     for (const w of wl) { if (w.catId) wayfindTop[w.catId] = (wayfindTop[w.catId] || 0) + 1; }
     return {
-      id: s.id, title: s.title || '안내데스크', owner: s.owner || null,
+      id: s.id, title: s.title || '안내데스크', owner: s.owner || null, deleted: !!s.deletedAt,
       count: log.length, interrupted, langs, avgMs: durN ? Math.round(durSum / durN) : 0, medianMs,
       byLang: Object.fromEntries(Object.entries(byLang).map(([lg, b]) => [lg, { count: b.count, avgMs: b.durN ? Math.round(b.durSum / b.durN) : 0, avgSent: b.count ? +(b.sent / b.count).toFixed(1) : 0 }])),
       sentences: { total: sentSum, avgPerConv: log.length ? +(sentSum / log.length).toFixed(1) : 0, staff: staffSent, guest: guestSent },
@@ -999,6 +1004,7 @@ app.get('/api/admin/logs', requireAdmin, (req, res) => {
   const desks = sessions.filter((s) => s.pipeline === 'desk').map((s) => ({
     id: s.id,
     title: s.title || '안내데스크',
+    deleted: !!s.deletedAt, // 소프트 삭제된 세션의 로그도 계속 열람 가능(표기용)
     logs: (Array.isArray(s.deskLog) ? s.deskLog : []).map((e, i) => ({
       idx: i,
       startedAt: e.startedAt || null,
@@ -1011,25 +1017,26 @@ app.get('/api/admin/logs', requireAdmin, (req, res) => {
   const others = sessions.filter((s) => s.pipeline !== 'desk').map((s) => ({
     id: s.id, title: s.title || '(제목 없음)', owner: s.owner || null, pipeline: s.pipeline || 'whisper', preset: s.preset || null,
     updatedAt: s.updatedAt || 0, count: Array.isArray(s.items) ? s.items.length : 0,
+    deleted: !!s.deletedAt,
   })).sort((a, b) => b.updatedAt - a.updatedAt);
   res.json({ desks, sessions: others });
 });
 app.get('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
-  const s = getSession(req.params.sid);
+  const s = getSessionAny(req.params.sid);
   if (!s || s.pipeline !== 'desk') return res.status(404).json({ error: 'not found' });
   const e = (s.deskLog || [])[Number(req.params.idx)];
   if (!e) return res.status(404).json({ error: 'not found' });
   res.json({ startedAt: e.startedAt || null, endedAt: e.endedAt || null, lang: e.lang || null, stats: e.stats || null, items: e.items || [] });
 });
 app.get('/api/admin/logs/session/:id', requireAdmin, (req, res) => {
-  const s = getSession(req.params.id);
+  const s = getSessionAny(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   res.json({ id: s.id, title: s.title || '', langs: s.langs || [], items: s.items || [] });
 });
 /* ---- 관리자: 로그 정리(삭제) — 시범운영 후 데이터 관리용 ---- */
 // 데스크 응대 1건 삭제
 app.delete('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
-  const s = getSession(req.params.sid);
+  const s = getSessionAny(req.params.sid);
   if (!s || s.pipeline !== 'desk' || !Array.isArray(s.deskLog)) return res.status(404).json({ error: 'not found' });
   const i = Number(req.params.idx);
   if (!(i >= 0 && i < s.deskLog.length)) return res.status(404).json({ error: 'not found' });
@@ -1037,23 +1044,31 @@ app.delete('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
   saveSessions();
   res.json({ ok: true, remaining: s.deskLog.length });
 });
+// 소프트 삭제된 세션의 로그까지 지우면 남는 게 없으므로 껍데기도 완전 제거(저장소 포함)
+const purgeIfDeleted = (s) => {
+  if (!s.deletedAt) return false;
+  sessions = sessions.filter((x) => x.id !== s.id);
+  deleteSessionStore(s.id);
+  if (!col) saveSessions();
+  return true;
+};
 // 데스크 응대 로그 전체 삭제(길안내 로그 포함)
 app.delete('/api/admin/logs/desk/:sid', requireAdmin, (req, res) => {
-  const s = getSession(req.params.sid);
+  const s = getSessionAny(req.params.sid);
   if (!s || s.pipeline !== 'desk') return res.status(404).json({ error: 'not found' });
   const n = (s.deskLog || []).length;
   s.deskLog = [];
   s.wayfindLog = [];
-  saveSessions();
+  if (!purgeIfDeleted(s)) saveSessions();
   res.json({ ok: true, deleted: n });
 });
-// 일반 세션 대화 기록 삭제(세션 자체는 유지)
+// 일반 세션 대화 기록 삭제(세션 자체는 유지 — 단, 이미 삭제된 세션은 완전 제거)
 app.delete('/api/admin/logs/session/:id', requireAdmin, (req, res) => {
-  const s = getSession(req.params.id);
+  const s = getSessionAny(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const n = (s.items || []).length;
   s.items = [];
-  saveSessions();
+  if (!purgeIfDeleted(s)) saveSessions();
   res.json({ ok: true, deleted: n });
 });
 
@@ -1820,8 +1835,23 @@ app.delete('/api/summaries/:id', requireAuth, (req, res) => {
 
 /* ---- 세션 REST API ---- */
 app.get('/api/sessions', requireAuth, (req, res) => {
+  // q= 검색: 제목 + 대화 내용(원문·번역, 데스크 응대 기록 포함)
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const hitItem = (it) => {
+    if (!it) return false;
+    if (it.source && String(it.source).toLowerCase().includes(q)) return true;
+    return !!(it.texts && Object.values(it.texts).some((v) => v && String(v).toLowerCase().includes(q)));
+  };
+  const matches = (s) => {
+    if ((s.title || '').toLowerCase().includes(q)) return true;
+    if (Array.isArray(s.items) && s.items.some(hitItem)) return true;
+    return Array.isArray(s.deskLog) && s.deskLog.some((e) => Array.isArray(e.items) && e.items.some(hitItem));
+  };
   const list = sessions
-    .filter((s) => s.owner === req.user.id) // 사용자마다 자기 세션만
+    .filter((s) => !s.deletedAt)
+    // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 전 직원이 공용으로 운영 → 모두에게 노출.
+    .filter((s) => (s.pipeline === 'desk' ? true : s.owner === req.user.id))
+    .filter((s) => (q ? matches(s) : true))
     .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
@@ -1831,6 +1861,8 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   const now = Date.now();
   const b = req.body || {};
   const pipeline = ['translate', 'deepgram', 'soniox', 'desk'].includes(b.pipeline) ? b.pipeline : 'soniox'; // whisper(구) 지원 종료 — 기본 soniox
+  // 안내데스크 세션은 관리자만 생성(공용 인프라) — 직원은 운영만
+  if (pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 세션은 관리자만 만들 수 있습니다.' });
   // translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장). soniox·deepgram 다국어.
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice());
@@ -1879,7 +1911,7 @@ app.get('/api/sessions/:id', (req, res) => {
 // 데스크 뷰어 랜딩(공개): 안내데스크 세션 목록(id·제목만) — 뷰어가 방을 선택해 접속
 app.get('/api/desk-sessions', (req, res) => {
   const list = sessions
-    .filter((s) => s.pipeline === 'desk')
+    .filter((s) => s.pipeline === 'desk' && !s.deletedAt)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     // active = 호스트(안내원)가 마이크 캡처 중(대기 가능). 비활성이면 손님이 선택 못 함.
     .map((s) => ({ id: s.id, title: s.title || '안내데스크', active: !!(rooms.get(s.id) && rooms.get(s.id).hosts.size > 0) }));
@@ -1889,7 +1921,10 @@ app.get('/api/desk-sessions', (req, res) => {
 app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
-  if (s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  // 데스크 세션은 전 직원이 운영(층/방향·화자명 등 조작) — 소유자 제한 없음. 그 외에는 본인/관리자만.
+  if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  // 데스크 세션 제목 변경(관리 행위)은 관리자만
+  if (s.pipeline === 'desk' && typeof (req.body || {}).title === 'string' && req.user.role !== 'admin') delete req.body.title;
   // pipeline 은 생성 시 고정. title·inLang 수정 허용. outLang 은 translate 의 타깃 변경용.
   const b = req.body || {};
   if (typeof b.title === 'string') s.title = b.title;
@@ -1924,11 +1959,15 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
 });
 
 app.delete('/api/sessions/:id', requireAuth, (req, res) => {
-  const i = sessions.findIndex((s) => s.id === req.params.id);
-  if (i >= 0) {
-    if (sessions[i].owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-    sessions.splice(i, 1);
-    deleteSessionStore(req.params.id);
+  const s = getSession(req.params.id);
+  if (s) {
+    // 안내데스크 세션 삭제(관리 행위)는 관리자만
+    if (s.pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 세션은 관리자만 삭제할 수 있습니다.' });
+    if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    // 소프트 삭제: 목록·뷰어에서만 사라지고 대화 기록(items·deskLog)은 관리자 로그·통계에 보존.
+    // 기록까지 지우려면 관리자 페이지의 로그 삭제를 사용.
+    s.deletedAt = Date.now();
+    saveSessions();
   }
   // 연결된 소켓을 먼저 정리 — rooms 만 지우면 이미 접속한 소켓들이 고아 room 상태를 들고
   // 좀비 스트리밍(비용)·발화 락 오염을 일으킨다.
@@ -3134,8 +3173,10 @@ function handleHost(ws) {
     // 같은 발화가 반대쪽 마이크에 새어 들어와 문장이 조금 다르게 전사되면 crossDup(유사도)이
     // 놓칠 수 있는데, 언어 기준 소유권은 전사 차이와 무관하게 결정적으로 걸러 준다.
     // (손님이 한국어를 고른 단일언어 응대에서는 언어로 구분 불가 → crossDup 만 사용)
-    const staffOwns = (src) => !(guestMicOn && lockedB && lockedB !== A && src && src !== A);
-    const guestOwns = (src) => !(lockedB && lockedB !== A && src === A);
+    // 자동 감지(Other languages) 중에도 적용: 언어가 아직 잠기지 않았을 뿐 '외국어=손님, 한국어=안내원'
+    // 원칙은 동일 — 미적용 시 같은 발화가 두 채널에 동시에 라이브 표시(2줄)됐다가 커밋에서 합쳐지는 문제.
+    const staffOwns = (src) => !(guestMicOn && src && src !== A && (autoDetect || (lockedB && lockedB !== A)));
+    const guestOwns = (src) => !(src === A && (autoDetect || (lockedB && lockedB !== A)));
 
     // langs = 이번 응대의 활성 언어(ko + 손님 언어) — 해당 언어의 용어 표기·번역쌍만 context 로 주입
     const baseConfig = (langs) => ({
@@ -3178,11 +3219,28 @@ function handleHost(ws) {
     const targetKeyFor = (src) => (lockedB && lockedB !== A ? (src === A ? lockedB : A) : A);
     const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; langVotes = {}; };
 
+    // 자동 감지 완료(Other languages): 첫 발화가 한국어가 아니면 그 언어로 잠그고 채널 재체결.
+    // 데스크·여객 어느 채널이 먼저 확정하든 여기로 모인다 — 표시 여부(소유권·누화 드랍)와 무관하게 언어부터 잠근다.
+    const lockDetected = (src) => {
+      if (!(autoDetect && phase === 'active' && src && src !== A && SONIOX_LANGS.includes(src))) return;
+      autoDetect = false;
+      lockedB = src;
+      setMeta();
+      armForeignTimer();
+      const m2 = { type: 'desk-active', lang: src };
+      broadcast(sessionId, m2); toHost(m2);
+      toHost({ type: 'status', message: `언어 감지: ${src} — ${guestMicOn ? '채널별 언어 고정(단방향×2)' : `양방향 통역(ko↔${src})`}으로 전환` });
+      closeSx(); connectSx();                       // 잠긴 언어 설정으로 재연결
+      if (guestMicOn) { closeGuest(); connectGuest(); } // 여객 채널도 감지 언어 힌트로 재연결
+    };
+
     const commit = () => {
       const id = curId, txt = finalText.trim(), src = curSrc;
       const tgt = (finalTrans.trim() || lastTrans).trim();
       resetUtterance();
       if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던 고스트 카드 제거
+      // 자동 감지: 소유권·누화 판정으로 드랍되더라도 언어는 먼저 잠근다(첫 발화 유실 방지)
+      lockDetected(src);
       // 언어 소유권: 2채널 모드에서 손님 언어 발화는 여객 채널 소유 → 데스크 마이크 누화로 드랍
       if (!staffOwns(src)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
       // 여객 채널이 이미 확정한 문장과 유사 → 데스크 마이크로 샌 누화, 드랍(화면 카드도 제거)
@@ -3193,18 +3251,6 @@ function handleHost(ws) {
       lastCommitText = out;
       lastCommitAt = Date.now();
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null);
-      // 자동 감지 완료: 첫 발화가 한국어가 아니면 그 언어로 two_way 재체결(단방향 종료 → 양방향 시작)
-      if (autoDetect && phase === 'active' && src && src !== A && SONIOX_LANGS.includes(src)) {
-        autoDetect = false;
-        lockedB = src;
-        setMeta();
-        armForeignTimer();
-        const m2 = { type: 'desk-active', lang: src };
-        broadcast(sessionId, m2); toHost(m2);
-        toHost({ type: 'status', message: `언어 감지: ${src} — 양방향 통역(ko↔${src})으로 전환` });
-        closeSx(); connectSx();                       // two_way 로 재연결
-        if (guestMicOn) { closeGuest(); connectGuest(); } // 여객 채널도 감지 언어 힌트로 재연결
-      }
       // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
       // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
       // 기계번역이 아닌 원어민 한국어 원문(txt)에서 매칭하므로 정확도가 높다.
@@ -3378,7 +3424,8 @@ function handleHost(ws) {
        누화 방어: ① 뷰어 근접 게이트(작은 소리는 무음 전송) ② crossDup(교차 중복 필터). */
     const guestConfig = () => ({
       ...baseConfig(lockedB && lockedB !== A ? [A, lockedB] : [A]),
-      language_hints: lockedB && lockedB !== A ? [lockedB] : [A],
+      // 자동 감지 중엔 여객 채널이 외국어를 소유 — 광역 힌트로 첫 발화 언어를 파악(ko 고정이면 감지 불가)
+      language_hints: lockedB && lockedB !== A ? [lockedB] : (autoDetect ? GUEST_LANGS : [A]),
       translation: { type: 'one_way', target_language: A },
     });
     function closeGuest() {
@@ -3415,6 +3462,8 @@ function handleHost(ws) {
       const tgt = (gFinalTrans.trim() || gLastTrans).trim();
       gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {};
       if (!id || !txt) { if (id) liveSend(id, {}, null, null, null, 'left'); return; } // 고스트 카드 제거
+      // 자동 감지(Other languages): 손님은 여객 태블릿에 대고 말하므로 이 채널에서 감지되는 게 정상 경로
+      lockDetected(gSrc);
       // 언어 소유권: 한국어로 감지된 발화는 안내원 채널 소유 → 여객 마이크 누화로 드랍
       if (!guestOwns(gSrc)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
       // 안내원 채널이 이미 확정한 문장과 유사 → 여객 마이크로 샌 누화, 드랍

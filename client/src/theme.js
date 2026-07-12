@@ -1,16 +1,13 @@
 import { createTheme, alpha } from '@mui/material/styles';
 
-/* ---- 디자인 토큰 (Slack 계열: 플랫·크리스프·다크 사이드바) ----
-   - 포인트 컬러는 바이올렛 유지하되 그라데이션·글로우 제거(플랫).
-   - 사이드바는 라이트/다크 공통의 딥 바이올렛 차콜 — 콘텐츠 영역과 확실히 분리.
+/* ---- 디자인 토큰 (Claude 앱 계열: 웜 뉴트럴, 플랫) ----
+   - 보라(바이올렛)는 로고(favicon.svg)에만 남기고 UI 는 전부 뉴트럴 —
+     주 버튼은 라이트=거의 검정(#1F1E1D 바탕·백색 글자), 다크=거의 백색(#FAF9F5 바탕·검정 글자).
    - radius 체계: shape 8 기준(sx borderRadius:1=8px, 1.5=12px). */
+// 로고 전용 색(favicon.svg 와 동일 계열) — UI 컴포넌트에는 사용하지 않는다.
 export const ACCENT = { dark: '#8579ff', light: '#5b4fe8' };
-// (구) 그라데이션 스톱 — 아바타 등 일부 장식에만 사용
-export const GRAD = {
-  dark: ['#8579ff', '#6354e0'],
-  light: ['#7c6df2', '#5b4fe8'],
-};
-// 사이드바 토큰 — Nav 에서 사용. Claude 앱과 동일 톤: 라이트=거의 백색(#FAF9F5, 콘텐츠보다 밝게), 다크=#1F1E1D(콘텐츠보다 어둡게).
+// 사이드바 토큰 — Nav 에서 사용. nav 는 항상 콘텐츠보다 밝게:
+// 라이트=거의 백색(#FAF9F5) / 캔버스 #F5F4EE, 다크=#262624 / 캔버스 #1F1E1D.
 export const SIDEBAR = {
   light: {
     bg: '#faf9f5',
@@ -22,7 +19,7 @@ export const SIDEBAR = {
     border: 'rgba(31,30,29,0.10)',
   },
   dark: {
-    bg: '#1f1e1d',
+    bg: '#262624',
     text: 'rgba(250,249,245,0.85)',
     textStrong: '#faf9f5',
     muted: 'rgba(250,249,245,0.52)',
@@ -34,9 +31,12 @@ export const SIDEBAR = {
 
 export function buildTheme(mode) {
   const dark = mode === 'dark';
-  const primary = dark ? ACCENT.dark : ACCENT.light;
-  // Claude 앱 팔레트와 동일(웜 뉴트럴). 라이트: 콘텐츠 캔버스 #F5F4EE(사이드바보다 살짝 어둡게), 카드 #FFF. 다크: #262624/#30302E.
-  const bgDefault = dark ? '#262624' : '#f5f4ee';
+  // 주 색상 = 뉴트럴 반전(Claude 버튼과 동일): 라이트=거의 검정 버튼, 다크=거의 백색 버튼.
+  const primary = dark ? '#faf9f5' : '#1f1e1d';
+  const primaryContrast = dark ? '#1f1e1d' : '#ffffff';
+  // Claude 앱 팔레트(웜 뉴트럴). nav 가 캔버스보다 항상 밝다:
+  // 라이트 캔버스 #F5F4EE·카드 #FFF, 다크 캔버스 #1F1E1D·카드 #30302E(nav #262624).
+  const bgDefault = dark ? '#1f1e1d' : '#f5f4ee';
   const bgPaper = dark ? '#30302e' : '#ffffff';
   const divider = dark ? 'rgba(250,249,245,0.10)' : 'rgba(31,30,29,0.12)';
   const textPrimary = dark ? '#faf9f5' : '#1f1e1d';
@@ -45,7 +45,7 @@ export function buildTheme(mode) {
   return createTheme({
     palette: {
       mode,
-      primary: { main: primary },
+      primary: { main: primary, contrastText: primaryContrast },
       success: { main: dark ? '#2eb67d' : '#007a5a' }, // Slack 그린 계열
       error: { main: dark ? '#f47c7c' : '#e01e5a' },
       warning: { main: dark ? '#e8a03e' : '#e8912d' },
@@ -61,7 +61,7 @@ export function buildTheme(mode) {
       h6: { fontWeight: 800, letterSpacing: '-0.015em', fontSize: 18 },
       subtitle1: { fontWeight: 700 },
       subtitle2: { fontWeight: 700 },
-      button: { fontWeight: 700, letterSpacing: 0 },
+      button: { fontWeight: 700, letterSpacing: 0, fontSize: 14 },
     },
     components: {
       MuiCssBaseline: {
@@ -79,11 +79,13 @@ export function buildTheme(mode) {
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
-          root: { textTransform: 'none', borderRadius: 8, paddingInline: 14 },
+          // 버튼 폰트는 크기(size) 무관 14 고정
+          root: { textTransform: 'none', borderRadius: 8, paddingInline: 14, fontSize: 14 },
           containedPrimary: {
             backgroundColor: primary,
+            color: primaryContrast,
             boxShadow: 'none',
-            '&:hover': { backgroundColor: dark ? '#948aff' : '#4a3fd4', boxShadow: 'none' },
+            '&:hover': { backgroundColor: dark ? '#e8e6df' : '#3d3b38', boxShadow: 'none' },
           },
           outlined: { borderColor: divider, '&:hover': { borderColor: alpha(textPrimary, 0.3), backgroundColor: alpha(textPrimary, 0.03) } },
         },

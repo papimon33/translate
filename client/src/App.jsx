@@ -9,7 +9,6 @@ import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import MenuIcon from '@mui/icons-material/Menu';
-import GraphicEqIcon from '@mui/icons-material/GraphicEq';
 import { alpha } from '@mui/material/styles';
 import { buildTheme } from './theme.js';
 import Nav from './components/Nav.jsx';
@@ -168,9 +167,11 @@ export default function App() {
       mode={mode}
       user={user}
       view={session ? (session.pipeline === 'desk' ? 'desk' : 'sessions') : view}
+      currentSessionId={session?.id || null}
       onHome={() => navTo({ view: 'sessions' })}
       onDesk={() => navTo({ view: 'desk' })}
       onAdmin={() => navTo({ view: 'admin' })}
+      onOpenSession={(s) => navTo({ session: s, view: s.pipeline === 'desk' ? 'desk' : 'sessions' })}
       onLogout={logout}
       onUserUpdate={(u) => setUser(u)}
     />
@@ -189,19 +190,12 @@ export default function App() {
               <IconButton edge="start" onClick={() => setDrawer(true)} aria-label="메뉴">
                 <MenuIcon />
               </IconButton>
-              <Box
-                sx={{
-                  width: 30, height: 30, borderRadius: 2, display: 'grid', placeItems: 'center', color: '#fff',
-                  background: (t) => `linear-gradient(135deg, ${t.palette.primary.main}, ${mode === 'dark' ? '#9b8cff' : '#8b7cff'})`,
-                }}
-              >
-                <GraphicEqIcon sx={{ fontSize: 18 }} />
-              </Box>
+              <Box component="img" src="/favicon.svg" alt="AirTalk" sx={{ width: 30, height: 30, borderRadius: 2 }} />
               <Typography sx={{ fontWeight: 800, fontSize: 16 }}>AirTalk</Typography>
             </Toolbar>
           </AppBar>
           )}
-          <Drawer open={drawer} onClose={() => setDrawer(false)} PaperProps={{ sx: { width: 268 } }}>
+          <Drawer open={drawer} onClose={() => setDrawer(false)} PaperProps={{ sx: { width: 300 } }}>
             {nav}
           </Drawer>
           <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

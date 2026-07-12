@@ -308,7 +308,11 @@ function LogsPanel() {
         return (
         <Paper key={d.id} variant="outlined" sx={{ borderRadius: 1.5, p: 2, mb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-            <Typography sx={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{d.title} <Box component="span" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: 12.5 }}>· 응대 {d.logs.length}건</Box></Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: 14, flex: 1 }}>
+              {d.title}
+              {d.deleted && <Box component="span" sx={{ ml: 0.75, color: 'warning.main', fontWeight: 700, fontSize: 11.5 }}>삭제된 세션</Box>}
+              {' '}<Box component="span" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: 12.5 }}>· 응대 {d.logs.length}건</Box>
+            </Typography>
             {d.logs.length > 0 && (
               <Button size="small" color="error" onClick={() => clearDeskLogs(d.id, d.logs.length)} sx={{ fontSize: 11.5, py: 0 }}>로그 전체 삭제</Button>
             )}
@@ -368,6 +372,7 @@ function LogsPanel() {
               <Box onClick={() => openSession(s.id)}
                 sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.75, px: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) } }}>
                 <Typography sx={{ fontWeight: 700, fontSize: 13.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{s.title}</Typography>
+                {s.deleted && <Typography sx={{ flex: 'none', color: 'warning.main', fontWeight: 700, fontSize: 11.5 }}>삭제된 세션</Typography>}
                 <Typography sx={{ fontSize: 12.5, color: 'text.secondary', flex: 1, whiteSpace: 'nowrap' }}>
                   {s.owner || '—'} · {s.count}문장 · {fmtTime(s.updatedAt)}
                 </Typography>
@@ -544,7 +549,7 @@ function DeskStats() {
         {/* 네이티브 select — MUI Select 가 일부 환경에서 클릭이 안 되던 문제로 교체 */}
         <Box component="select" value={sel} onChange={(e) => setSel(e.target.value)} sx={{ ...selStyle, minWidth: 150 }}>
           <option value="__all">전체</option>
-          {stats.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
+          {stats.map((x) => <option key={x.id} value={x.id}>{x.title}{x.deleted ? ' (삭제됨)' : ''}</option>)}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Tooltip title="응대 원자료 CSV 내려받기 (응대 1건 = 1행)">
