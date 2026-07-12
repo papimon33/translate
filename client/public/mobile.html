@@ -303,7 +303,9 @@ function applySxInfo(info){
 }
 async function loadSession(){
   let title = 'KAC Translator', sxInfo = null;
-  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; sessionViewerPTT = !!s.viewerPTT; } } catch {}
+  // 접속 순간 일시 네트워크 오류로 세션 타입을 whisper 기본값으로 오판한 채 굳지 않도록 — 실패 시 5초 뒤 재시도
+  try { const s = await fetch('/api/sessions/'+sessionId).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; sessionViewerPTT = !!s.viewerPTT; } }
+  catch { setTimeout(loadSession, 5000); }
   titleEl.textContent = title; $('lTitle').textContent = title;
   langSel.style.display='none';
   if (sessionPipeline === 'translate') {
@@ -446,7 +448,7 @@ function connect(){
   };
   ws.onclose = () => { if (ws === cur) { ws = null; setTimeout(connect, 1500); } };
   ws.onmessage = (ev) => {
-    const m = JSON.parse(ev.data);
+    let m; try { m = JSON.parse(ev.data); } catch { return; } // 비 JSON 프레임 방어
     if(m.type==='snapshot'){ m.items.forEach(it => upsert(it)); }
     else if(m.type==='partial'){ setPartial(m.text); }
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
@@ -517,7 +519,9 @@ async function pttStart(){
   try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
   catch(e){ pttStarting=false; alert('마이크 권한이 필요합니다. 브라우저 주소가 https 인지 확인해 주세요.'); return; }
   pttStarting=false;
-  if(pttActive){ try { stream.getTracks().forEach(t=>t.stop()); } catch {} return; }
+  // 권한 프롬프트 대기 중 상태가 바뀌었으면(호스트 중지·참여자 발화 꺼짐) 시작하지 않는다 —
+  // 버튼이 숨김/비활성이 된 뒤 녹음이 시작되면 사용자가 끌 방법이 없는 핫 마이크가 됨
+  if(pttActive || !hostOn || !sessionViewerPTT){ try { stream.getTracks().forEach(t=>t.stop()); } catch {} return; }
   pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec'); updatePttBtn();
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
   pttCtx = new (window.AudioContext||window.webkitAudioContext)();
@@ -547,6 +551,12 @@ $('pttBtn').addEventListener('click', () => { if(pttActive) pttStop(); else pttS
 // 화면 복귀(휴대폰 절전·앱 전환) 시 즉시 재접속 시도 — 재시도 타이머보다 빠르게 복구
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && (!ws || ws.readyState === 3)) { try { connect(); } catch {} }
+  // TTS: 잠금/앱 전환으로 AudioContext 가 suspended/interrupted 되면 복귀 시 재개하고
+  // 재생 커서를 리셋 — 잠금 시간만큼 밀린 옛 음성이 연달아 재생되던 문제 방지
+  if (!document.hidden && audioOn && actx) {
+    try { if (actx.state !== 'running') actx.resume(); } catch {}
+    outCursor = 0; // 다음 청크부터 현재 시각 기준으로 다시 스케줄
+  }
 });
 // 브라우저 오류 보고(관리자 시스템 상태) — 60초 스로틀
 let __errAt = 0;

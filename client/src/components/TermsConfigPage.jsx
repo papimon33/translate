@@ -23,6 +23,7 @@ import FileDownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import FileUploadIcon from '@mui/icons-material/FileUploadOutlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { alpha } from '@mui/material/styles';
 import { api } from '../api.js';
 
@@ -43,11 +44,22 @@ const DEFAULT_CAT_SCOPE = {
 let _uid = 0;
 const uid = () => 'c' + (_uid++).toString(36) + Math.random().toString(36).slice(2, 6);
 const cleanStr = (v) => String(v == null ? '' : v).trim().slice(0, 80);
+// 한 칸에 여러 표기를 쉼표로 병기: 첫 값=정식 명칭(양방향), 나머지=그 언어→한국어 단방향 표기
+const splitCell = (v) => String(v == null ? '' : v).split(/[,、，]/).map(cleanStr).filter(Boolean);
 const detectLang = (s) =>
   /[ぁ-んァ-ヶー]/.test(s) ? 'ja' : /[가-힣]/.test(s) ? 'ko' : /[一-鿿]/.test(s) ? 'zh' : /[؀-ۿ]/.test(s) ? 'ar' : 'en';
 
-/* ---- 화면 모델: 행(용어) + 키텀 ↔ 서버 entries(pair/inputOnly/recognize) 변환 ---- */
-// 서버 entries → 행 묶음. 같은 카테고리·한국어 표기를 한 행으로 합치고, inputOnly 는 해당 언어의 약칭 칩으로.
+// (i) 설명 아이콘 — 회색 문구 대신 툴팁으로 숨김
+function InfoTip({ title }) {
+  return (
+    <Tooltip title={title} placement="top" enterTouchDelay={0}>
+      <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled', verticalAlign: 'middle', cursor: 'help' }} />
+    </Tooltip>
+  );
+}
+
+/* ---- 화면 모델: 행(용어, 언어별 쉼표 병기 텍스트) + 주요 용어 ↔ 서버 entries 변환 ---- */
+// 서버 entries → 행. 같은 카테고리·한국어의 pair(정식)와 inputOnly(병기 표기)를 한 칸의 쉼표 목록으로 합침.
 function groupEntries(list) {
   const rows = []; const keyterms = []; const byKey = new Map();
   for (const e of list || []) {
@@ -56,33 +68,51 @@ function groupEntries(list) {
     if (e.mode === 'recognize') { keyterms.push({ _k: uid(), id: e.id || uid(), category: e.category, text: ko }); continue; }
     const key = e.category + '||' + ko;
     let r = byKey.get(key);
-    if (!r) { r = { _k: uid(), id: e.id || uid(), category: e.category, scope: ['*'], names: { ko }, alts: {} }; byKey.set(key, r); rows.push(r); }
+    if (!r) { r = { _k: uid(), id: e.id || uid(), category: e.category, scope: ['*'], formal: { ko }, variants: {} }; byKey.set(key, r); rows.push(r); }
     if (e.mode === 'inputOnly') {
       for (const lg of ALL_LANGS) {
         if (lg === 'ko') continue;
         const v = cleanStr(e.names[lg]);
-        if (v && !(r.alts[lg] || []).includes(v)) r.alts[lg] = [...(r.alts[lg] || []), v];
+        if (v && !(r.variants[lg] || []).includes(v)) r.variants[lg] = [...(r.variants[lg] || []), v];
       }
     } else {
-      for (const lg of ALL_LANGS) { const v = cleanStr(e.names[lg]); if (v && !r.names[lg]) r.names[lg] = v; }
+      for (const lg of ALL_LANGS) { const v = cleanStr(e.names[lg]); if (v && !r.formal[lg]) r.formal[lg] = v; }
       if (Array.isArray(e.scope) && !e.scope.includes('*')) r.scope = e.scope;
     }
   }
-  return { rows, keyterms };
+  // 편집용 텍스트(쉼표 병기)로 변환
+  return {
+    rows: rows.map((r) => {
+      const texts = {};
+      for (const lg of ALL_LANGS) {
+        const list2 = lg === 'ko' ? [r.formal.ko] : [r.formal[lg], ...(r.variants[lg] || [])];
+        const s = list2.filter(Boolean).join(', ');
+        if (s) texts[lg] = s;
+      }
+      return { _k: r._k, id: r.id, category: r.category, scope: r.scope, texts };
+    }),
+    keyterms,
+  };
 }
 
-// 행 묶음 → 서버 entries. 정식 명칭=pair(양방향), 약칭 칩=inputOnly(그 언어→ko 단방향), 키텀=recognize.
+// 행 → 서버 entries. 각 칸의 첫 표기=pair(양방향), 나머지=inputOnly(그 언어→ko 단방향), 주요 용어=recognize.
 function toEntries(rows, keyterms) {
   const out = [];
   for (const r of rows) {
-    const names = {}; for (const lg of ALL_LANGS) { const v = cleanStr(r.names[lg]); if (v) names[lg] = v; }
-    if (!names.ko) continue;
+    const ko = splitCell(r.texts.ko)[0] || '';
+    if (!ko) continue;
+    const names = { ko };
+    const variants = [];
+    for (const lg of ALL_LANGS) {
+      if (lg === 'ko') continue;
+      const toks = splitCell(r.texts[lg]);
+      if (toks[0]) names[lg] = toks[0];
+      toks.slice(1).forEach((v, i) => variants.push({ lg, v, i }));
+    }
     if (ALL_LANGS.some((lg) => lg !== 'ko' && names[lg]))
       out.push({ id: r.id, category: r.category, scope: r.scope && r.scope.length ? r.scope : ['*'], names, mode: 'pair' });
-    for (const lg of ALL_LANGS) (r.alts[lg] || []).forEach((alt, i) => {
-      const v = cleanStr(alt); if (!v) return;
-      out.push({ id: `${r.id}_a_${lg}${i}`, category: r.category, scope: [lg], names: { ko: names.ko, [lg]: v }, mode: 'inputOnly' });
-    });
+    for (const { lg, v, i } of variants)
+      out.push({ id: `${r.id}_a_${lg}${i}`, category: r.category, scope: [lg], names: { ko, [lg]: v }, mode: 'inputOnly' });
   }
   for (const t of keyterms) { const v = cleanStr(t.text); if (v) out.push({ id: t.id, category: t.category, scope: ['*'], names: { ko: v }, mode: 'recognize' }); }
   return out;
@@ -113,14 +143,11 @@ function contextSizeFor(entries, catScope, lang, desk) {
   return JSON.stringify(ctx).length;
 }
 
-// 미완성: 정식 외국어가 하나라도 있으면 운영 언어 전부 필수. 약칭만 있는 행(오인식 교정 전용)은 완성으로 본다.
+// 미완성: 한국어가 없거나, 운영 언어(스코프 내) 칸이 비어 있으면
 function isIncompleteRow(r, served) {
-  if (!cleanStr(r.names.ko)) return true;
-  const hasFormal = ALL_LANGS.some((lg) => lg !== 'ko' && cleanStr(r.names[lg]));
-  const hasAlt = ALL_LANGS.some((lg) => (r.alts[lg] || []).some((a) => cleanStr(a)));
-  if (!hasFormal) return !hasAlt;
+  if (!splitCell(r.texts.ko).length) return true;
   const scopeLangs = (Array.isArray(r.scope) && !r.scope.includes('*')) ? r.scope : served;
-  return scopeLangs.filter((lg) => lg !== 'ko' && served.includes(lg)).some((lg) => !cleanStr(r.names[lg]));
+  return scopeLangs.filter((lg) => lg !== 'ko' && served.includes(lg)).some((lg) => !splitCell(r.texts[lg]).length);
 }
 
 export default function TermsConfigPage({ user, embedded }) {
@@ -140,8 +167,6 @@ export default function TermsConfigPage({ user, embedded }) {
   const [okMsg, setOkMsg] = useState('');
   const [val, setVal] = useState(null); // 저장 시 soniox 검증 결과 { results:[{lang,ok,error}] }
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [altEdit, setAltEdit] = useState(null); // { k, lang } — 약칭 입력 중인 칸
-  const [altInput, setAltInput] = useState('');
   const [ktInput, setKtInput] = useState('');
   const fileRef = useRef(null);
 
@@ -155,15 +180,14 @@ export default function TermsConfigPage({ user, embedded }) {
     api.termsConfig().then(applyConfig).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const mark = () => { setDirty(true); setOkMsg(''); setVal(null); };
+  // 편집 세대 카운터 — 저장 응답이 돌아왔을 때 그 사이 입력이 있었으면 서버 스냅샷으로 덮어쓰지 않는다
+  const editGen = useRef(0);
+  const mark = () => { editGen.current++; setDirty(true); setOkMsg(''); setVal(null); };
   const servedForeign = served.filter((l) => l !== 'ko');
 
-  /* ---- 행/키텀 조작 ---- */
-  const patchRow = (k, fn) => { setRows((arr) => arr.map((r) => (r._k === k ? fn(r) : r))); mark(); };
-  const setRowName = (k, lg, v) => patchRow(k, (r) => ({ ...r, names: { ...r.names, [lg]: v } }));
-  const addAlt = (k, lg, v) => patchRow(k, (r) => (r.alts[lg] || []).includes(v) ? r : { ...r, alts: { ...r.alts, [lg]: [...(r.alts[lg] || []), v] } });
-  const removeAlt = (k, lg, i) => patchRow(k, (r) => ({ ...r, alts: { ...r.alts, [lg]: (r.alts[lg] || []).filter((_, j) => j !== i) } }));
-  const addRow = () => { setRows((arr) => [{ _k: uid(), id: uid(), category: tab, scope: ['*'], names: { ko: '' }, alts: {} }, ...arr]); mark(); };
+  /* ---- 행/주요 용어 조작 ---- */
+  const setCell = (k, lg, v) => { setRows((arr) => arr.map((r) => (r._k === k ? { ...r, texts: { ...r.texts, [lg]: v } } : r))); mark(); };
+  const addRow = () => { setRows((arr) => [{ _k: uid(), id: uid(), category: tab, scope: ['*'], texts: { ko: '' } }, ...arr]); mark(); };
   const removeRow = (k) => { setRows((arr) => arr.filter((r) => r._k !== k)); mark(); };
   const addKeyterm = () => {
     const v = cleanStr(ktInput); if (!v) return;
@@ -171,44 +195,57 @@ export default function TermsConfigPage({ user, embedded }) {
     setKtInput(''); mark();
   };
   const removeKeyterm = (k) => { setKeyterms((arr) => arr.filter((t) => t._k !== k)); mark(); };
-  const commitAlt = () => {
-    const v = cleanStr(altInput);
-    if (altEdit && v) addAlt(altEdit.k, altEdit.lang, v);
-    setAltEdit(null); setAltInput('');
-  };
 
   const flatEntries = useMemo(() => toEntries(rows, keyterms), [rows, keyterms]);
   const gauge = useMemo(() => servedForeign.map((lg) => ({ lang: lg, bytes: contextSizeFor(flatEntries, catScope, lg, false) })), [flatEntries, catScope, servedForeign]);
   const maxBytes = Math.max(0, ...gauge.map((g) => g.bytes));
 
   const kw = q.trim().toLowerCase();
-  const rowMatches = (r) => !kw ||
-    ALL_LANGS.some((lg) => cleanStr(r.names[lg]).toLowerCase().includes(kw)) ||
-    ALL_LANGS.some((lg) => (r.alts[lg] || []).some((a) => a.toLowerCase().includes(kw)));
   const shownRows = useMemo(() => rows.filter((r) => r.category === tab)
     .filter((r) => !onlyIncomplete || isIncompleteRow(r, served))
-    .filter(rowMatches), [rows, tab, onlyIncomplete, kw, served]);
+    .filter((r) => !kw || ALL_LANGS.some((lg) => String(r.texts[lg] || '').toLowerCase().includes(kw))), [rows, tab, onlyIncomplete, kw, served]);
   const shownKeyterms = useMemo(() => keyterms.filter((t) => t.category === tab && (!kw || t.text.toLowerCase().includes(kw))), [keyterms, tab, kw]);
   const incompleteCount = useMemo(() => rows.filter((r) => isIncompleteRow(r, served)).length, [rows, served]);
 
   /* ---- 저장(→ 자동 soniox 검증) ---- */
-  const doSave = async (payload) => {
+  const doSave = async (payload, keepRows) => {
+    // 같은 카테고리에 같은 한국어 용어가 2행이면 저장 후 재그룹핑 때 병합돼 표기가 유실됨 → 사전 차단
+    const dupKey = new Map();
+    for (const r of rows) {
+      const ko = splitCell(r.texts.ko)[0]; if (!ko) continue;
+      const k = r.category + '||' + ko;
+      if (dupKey.has(k)) { setErr(`같은 한국어 용어가 중복입니다: "${ko}" (${(CATS.find((c) => c.key === r.category) || {}).label}) — 한 행으로 합쳐 주세요.`); return; }
+      dupKey.set(k, true);
+    }
     setSaving(true); setErr(''); setOkMsg(''); setVal(null);
+    const genAtSave = editGen.current;
     try {
       const c = await api.saveTermsConfig(payload);
-      applyConfig(c);
-      setDirty(false); setSaving(false);
+      if (editGen.current === genAtSave) {
+        applyConfig(c);
+        // 미완성이라 서버 entries 가 안 만들어진 행(한국어 없음/외국어 전무)은 화면에 남겨 이어서 입력하게 함
+        const kept = (keepRows || rows).filter((r) => {
+          const ko = splitCell(r.texts.ko)[0];
+          return !ko || !ALL_LANGS.some((lg) => lg !== 'ko' && splitCell(r.texts[lg]).length);
+        }).filter((r) => ALL_LANGS.some((lg) => splitCell(r.texts[lg]).length)); // 완전 빈 행은 버림
+        if (kept.length) {
+          setRows((arr) => [...kept, ...arr]);
+          setOkMsg(`저장되었습니다. 미완성 ${kept.length}행은 저장에서 제외돼 화면에 남아 있습니다 — 채워서 다시 저장하세요.`);
+        }
+        setDirty(kept.length > 0);
+      }
+      setSaving(false);
       setValidating(true);
       try {
         const v = await api.validateTermsConfig(); setVal(v);
         const bad = (v.results || []).filter((x) => !x.ok);
         if (bad.length) setErr(`저장은 됐지만 soniox 검증에 실패한 언어가 있습니다: ${bad.map((b) => LANG_LABEL[b.lang] || b.lang).join(', ')} — 해당 언어의 항목 수를 줄여 주세요.`);
-        else setOkMsg('저장 완료 · soniox 검증 통과 — 다음 세션 시작부터 적용됩니다.');
-      } catch (e) { setOkMsg('저장되었습니다. (soniox 검증 생략: ' + (e.message || '연결 실패') + ')'); }
+        else setOkMsg((m) => m || '저장 완료 · soniox 검증 통과 — 다음 세션 시작부터 적용됩니다.');
+      } catch (e) { setOkMsg((m) => m || ('저장되었습니다. (soniox 검증 생략: ' + (e.message || '연결 실패') + ')')); }
       finally { setValidating(false); }
     } catch (e) { setErr(e.message || '저장 실패'); setSaving(false); }
   };
-  const save = () => doSave({ version: 3, servedLangs: served, categoryScope: catScope, entries: flatEntries });
+  const save = () => doSave({ version: 3, servedLangs: served, categoryScope: catScope, entries: flatEntries }, rows);
   const busy = saving || validating;
 
   const downloadJson = () => {
@@ -217,12 +254,12 @@ export default function TermsConfigPage({ user, embedded }) {
   };
   const uploadJson = async (file) => {
     if (!file) return;
-    try { await doSave(JSON.parse(await file.text())); } // 서버가 구형·신형 모두 정규화
+    try { await doSave(JSON.parse(await file.text()), []); } // 서버가 구형·신형 모두 정규화. 업로드는 화면 행을 남기지 않음
     catch (e) { setErr('JSON 을 읽을 수 없습니다: ' + (e.message || '')); }
     finally { if (fileRef.current) fileRef.current.value = ''; }
   };
 
-  /* ---- 오탈자·오번역 검사 → 채택 시 해당 용어의 약칭(단방향)으로 추가 ---- */
+  /* ---- 오탈자·오번역 검사 → 채택 시 해당 용어 칸에 쉼표 병기로 추가 ---- */
   const [sugBusy, setSugBusy] = useState(false);
   const [sugResult, setSugResult] = useState(null);
   const runSuggest = async () => {
@@ -234,16 +271,20 @@ export default function TermsConfigPage({ user, embedded }) {
     const hasKo = /[가-힣]/.test(s.source);
     const ko = cleanStr(hasKo ? s.source : s.target);
     const other = cleanStr(hasKo ? s.target : s.source);
-    const lg0 = detectLang(other);
+    // 언어는 서버가 로그의 [언어코드]로 판정한 값을 우선 — 문자셋 추정은 한자만으로 된 일본어를 중국어로 오판함
+    const lg0 = (s.lang && ALL_LANGS.includes(s.lang) && s.lang !== 'ko') ? s.lang : detectLang(other);
     const lg = lg0 === 'ko' ? 'en' : lg0;
     setRows((arr) => {
-      const idx = arr.findIndex((r) => cleanStr(r.names.ko) === ko);
+      const idx = arr.findIndex((r) => splitCell(r.texts.ko)[0] === ko);
       if (idx >= 0) {
-        const r = arr[idx]; const list = r.alts[lg] || [];
-        if (list.includes(other)) return arr;
-        const next = [...arr]; next[idx] = { ...r, alts: { ...r.alts, [lg]: [...list, other] } }; return next;
+        const r = arr[idx];
+        if (splitCell(r.texts[lg]).includes(other)) return arr;
+        const cur = String(r.texts[lg] || '').trim();
+        const next = [...arr];
+        next[idx] = { ...r, texts: { ...r.texts, [lg]: cur ? cur + ', ' + other : other } };
+        return next;
       }
-      return [{ _k: uid(), id: uid(), category: tab, scope: ['*'], names: { ko }, alts: { [lg]: [other] } }, ...arr];
+      return [{ _k: uid(), id: uid(), category: tab, scope: ['*'], texts: { ko, [lg]: other } }, ...arr];
     });
     setSugResult((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
     mark();
@@ -320,11 +361,13 @@ export default function TermsConfigPage({ user, embedded }) {
                 {isAdmin && <Button size="small" startIcon={<AddIcon />} onClick={addRow}>용어 추가</Button>}
               </Box>
 
-              {/* ---- 번역 용어 표 ---- */}
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 0.75 }}>
-                <b>번역 용어</b> — 각 언어의 정식 명칭은 서로 양방향 번역됩니다. 칸 아래 <b>약칭·오인식 칩</b>은 그 언어 → 한국어 <b>한 방향</b>으로만 적용됩니다(예: 东航→동방항공, キチン室→흡연실).
-                {tab === 'aviation' && !catScope.aviation.desk && ' · 항공용어는 안내데스크 세션에는 주입되지 않습니다.'}
-              </Typography>
+              {/* ---- 번역 설정 표 ---- */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 800 }}>번역 설정</Typography>
+                <InfoTip title={
+                  <>각 언어의 표기는 서로 양방향 번역됩니다. 한 칸에 쉼표로 여러 표기를 적으면 첫 표기가 정식 명칭(양방향), 나머지는 그 언어 → 한국어 한 방향으로만 인식·번역됩니다(약칭·오인식 교정). 예: 中国东方航空, 东航 · 喫煙室, きつえんしつ{tab === 'aviation' && !catScope.aviation.desk ? ' · 항공용어는 안내데스크 세션에는 주입되지 않습니다.' : ''}</>
+                } />
+              </Box>
               <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden', mb: 3 }}>
                 <Box sx={{ overflowX: 'auto' }}>
                   <Box sx={{ minWidth: tableMinWidth }}>
@@ -337,52 +380,22 @@ export default function TermsConfigPage({ user, embedded }) {
                     {shownRows.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 2.5, textAlign: 'center' }}>항목이 없습니다.</Typography>}
                     {shownRows.map((r) => {
                       const incomplete = isIncompleteRow(r, served);
-                      const hasFormal = ALL_LANGS.some((lg) => lg !== 'ko' && cleanStr(r.names[lg]));
                       return (
                         <Box key={r._k} sx={{
-                          display: 'grid', gridTemplateColumns: gridCols, gap: 1, px: 1.5, py: 1, alignItems: 'start',
+                          display: 'grid', gridTemplateColumns: gridCols, gap: 1, px: 1.5, py: 0.75, alignItems: 'center',
                           borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 },
                           bgcolor: incomplete ? (t) => alpha(t.palette.warning.main, 0.05) : 'transparent',
-                          '& .altAdd': { opacity: 0, transition: 'opacity .12s' }, '&:hover .altAdd': { opacity: 1 },
-                          '& .altEmpty': { display: 'none' }, '&:hover .altEmpty': { display: 'flex' },
                         }}>
-                          {/* 한국어 */}
-                          <TextField size="small" placeholder="한국어(필수)" value={r.names.ko || ''} disabled={!isAdmin}
-                            onChange={(ev) => setRowName(r._k, 'ko', ev.target.value)} error={!cleanStr(r.names.ko)}
+                          <TextField size="small" placeholder="한국어(필수)" value={r.texts.ko || ''} disabled={!isAdmin}
+                            onChange={(ev) => setCell(r._k, 'ko', ev.target.value)} error={!splitCell(r.texts.ko).length}
                             inputProps={{ style: { fontSize: 13.5, padding: '7px 10px' } }} />
-                          {/* 외국어(정식 + 약칭 칩) */}
-                          {servedForeign.map((lg) => {
-                            const alts = r.alts[lg] || [];
-                            const editing = altEdit && altEdit.k === r._k && altEdit.lang === lg;
-                            return (
-                              <Box key={lg} sx={{ minWidth: 0 }}>
-                                <TextField fullWidth size="small" placeholder={LANG_LABEL[lg]} value={r.names[lg] || ''} disabled={!isAdmin}
-                                  onChange={(ev) => setRowName(r._k, lg, ev.target.value)}
-                                  error={incomplete && hasFormal && !cleanStr(r.names[lg])}
-                                  inputProps={{ style: { fontSize: 13.5, padding: '7px 10px' } }} />
-                                <Box className={(alts.length || editing) ? undefined : 'altEmpty'} sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                                  {alts.map((a, i) => (
-                                    <Tooltip key={i} title={`${a} → ${cleanStr(r.names.ko) || '한국어'} (한 방향)`}>
-                                      <Chip size="small" label={a} onDelete={isAdmin ? () => removeAlt(r._k, lg, i) : undefined}
-                                        sx={{ height: 20, fontSize: 11, bgcolor: (t) => alpha(t.palette.info.main, 0.08) }} />
-                                    </Tooltip>
-                                  ))}
-                                  {editing ? (
-                                    <TextField autoFocus size="small" placeholder="약칭·오인식 표기" value={altInput}
-                                      onChange={(ev) => setAltInput(ev.target.value)}
-                                      onKeyDown={(ev) => { if (ev.key === 'Enter') commitAlt(); if (ev.key === 'Escape') { setAltEdit(null); setAltInput(''); } }}
-                                      onBlur={commitAlt}
-                                      inputProps={{ style: { fontSize: 11.5, padding: '2px 8px' } }} sx={{ width: 130 }} />
-                                  ) : (isAdmin && (
-                                    <Chip className={alts.length ? undefined : 'altAdd'} size="small" variant="outlined" label="+ 약칭"
-                                      onClick={() => { setAltEdit({ k: r._k, lang: lg }); setAltInput(''); }}
-                                      sx={{ height: 20, fontSize: 11, cursor: 'pointer', borderStyle: 'dashed', color: 'text.secondary' }} />
-                                  ))}
-                                </Box>
-                              </Box>
-                            );
-                          })}
-                          {isAdmin ? <IconButton size="small" onClick={() => removeRow(r._k)} sx={{ mt: 0.25 }}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton> : <Box />}
+                          {servedForeign.map((lg) => (
+                            <TextField key={lg} fullWidth size="small" placeholder={LANG_LABEL[lg]} value={r.texts[lg] || ''} disabled={!isAdmin}
+                              onChange={(ev) => setCell(r._k, lg, ev.target.value)}
+                              error={incomplete && !splitCell(r.texts[lg]).length}
+                              inputProps={{ style: { fontSize: 13.5, padding: '7px 10px' } }} />
+                          ))}
+                          {isAdmin ? <IconButton size="small" onClick={() => removeRow(r._k)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton> : <Box />}
                         </Box>
                       );
                     })}
@@ -390,17 +403,18 @@ export default function TermsConfigPage({ user, embedded }) {
                 </Box>
               </Paper>
 
-              {/* ---- 키텀(인식 전용) ---- */}
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 0.75 }}>
-                <b>키텀 (인식 전용)</b> — 번역 없이 음성 인식 힌트로만 사용됩니다(약어·고유명사, 예: ICAO).
-              </Typography>
+              {/* ---- 주요 용어(인식 힌트) ---- */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 800 }}>주요 용어</Typography>
+                <InfoTip title="번역 없이 음성 인식 힌트로만 사용됩니다(약어·고유명사, 예: ICAO)." />
+              </Box>
               <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 1.5, display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
                 {shownKeyterms.length === 0 && !isAdmin && <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>항목이 없습니다.</Typography>}
                 {shownKeyterms.map((t) => (
                   <Chip key={t._k} size="small" label={t.text} onDelete={isAdmin ? () => removeKeyterm(t._k) : undefined} sx={{ fontSize: 12 }} />
                 ))}
                 {isAdmin && (
-                  <TextField size="small" placeholder="키텀 입력 후 Enter" value={ktInput}
+                  <TextField size="small" placeholder="용어 입력 후 Enter" value={ktInput}
                     onChange={(e) => setKtInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') addKeyterm(); }}
                     inputProps={{ style: { fontSize: 12.5, padding: '4px 10px' } }} sx={{ width: 170 }} />
@@ -411,9 +425,9 @@ export default function TermsConfigPage({ user, embedded }) {
               {isAdmin && (
                 <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5, mt: 3 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ flex: 1 }}>
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                       <Typography sx={{ fontWeight: 800, fontSize: 15 }}>오탈자·오번역 검사</Typography>
-                      <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>대화 로그를 AI 로 단어 단위 대조해 오탈자·오역 후보를 찾습니다. 채택 시 해당 용어의 약칭·오인식 칩으로 추가됩니다. (OpenAI 전송)</Typography>
+                      <InfoTip title="대화 로그를 AI 로 단어 단위 대조해 오탈자·오역 후보를 찾습니다. 채택하면 해당 용어의 칸에 쉼표 병기 표기로 추가됩니다. (OpenAI 전송)" />
                     </Box>
                     <Button size="small" variant="outlined" onClick={runSuggest} disabled={sugBusy}>{sugBusy ? '검사 중…' : '검사'}</Button>
                   </Box>
@@ -442,8 +456,10 @@ export default function TermsConfigPage({ user, embedded }) {
       <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} PaperProps={{ sx: { width: 460, maxWidth: 460 } }}>
         <DialogTitle sx={{ fontWeight: 800 }}>운영 언어 · 카테고리 적용대상</DialogTitle>
         <DialogContent>
-          <Typography sx={{ fontWeight: 700, fontSize: 13.5, mb: 0.5 }}>운영 언어(필수 입력 대상)</Typography>
-          <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 1 }}>선택한 언어는 번역 용어에서 필수로 채워야 합니다. 한국어는 항상 포함.</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 13.5 }}>운영 언어</Typography>
+            <InfoTip title="선택한 언어는 번역 설정에서 필수로 채워야 합니다. 한국어는 항상 포함." />
+          </Box>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 2.5 }}>
             {ALL_LANGS.map((lg) => (
               <Chip key={lg} label={LANG_LABEL[lg]} size="small" color={served.includes(lg) ? 'primary' : 'default'} variant={served.includes(lg) ? 'filled' : 'outlined'}
@@ -451,8 +467,10 @@ export default function TermsConfigPage({ user, embedded }) {
                 sx={{ cursor: lg === 'ko' ? 'default' : 'pointer' }} />
             ))}
           </Box>
-          <Typography sx={{ fontWeight: 700, fontSize: 13.5, mb: 0.5 }}>카테고리 적용 대상</Typography>
-          <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: 1 }}>해당 카테고리를 어떤 세션에 주입할지. (항공용어는 데스크 손님 응대엔 불필요)</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 13.5 }}>카테고리 적용 대상</Typography>
+            <InfoTip title="해당 카테고리를 어떤 세션에 주입할지. (항공용어는 데스크 손님 응대엔 불필요)" />
+          </Box>
           {CATS.map((c) => (
             <Box key={c.key} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, width: 90 }}>{c.label}</Typography>

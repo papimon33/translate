@@ -73,15 +73,17 @@ function EmptyTab({ icon, title, desc }) {
 /* ---- 벤더 실사용량: Soniox(STT·번역) / Cartesia(TTS) / OpenAI(GPT) 사용량 API 직접 조회 ---- */
 function MiniBars({ days, valueOf, tipOf }) {
   const rows = days || [];
-  if (!rows.length) return <Typography sx={{ fontSize: 12, color: 'text.disabled', py: 2, textAlign: 'center' }}>기간 내 사용 기록 없음</Typography>;
-  const max = Math.max(...rows.map(valueOf), 1e-9);
+  if (!rows.length) return <Box sx={{ height: 56, mt: 1.5, display: 'grid', placeItems: 'center' }}><Typography sx={{ fontSize: 12, color: 'text.disabled' }}>기간 내 사용 기록 없음</Typography></Box>;
+  const val = (d) => Number(valueOf(d)) || 0;
+  const max = Math.max(...rows.map(val), 1e-9);
+  const labelEvery = Math.max(1, Math.ceil(rows.length / 10)); // 라벨은 최대 ~10개만(90일 겹침 방지)
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, height: 56, mt: 1.5 }}>
-      {rows.map((d) => (
+    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: rows.length > 40 ? 0.25 : 0.5, height: 56, mt: 1.5 }}>
+      {rows.map((d, i) => (
         <Tooltip key={d.date} title={tipOf(d)}>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
-            <Box sx={{ width: '68%', height: `${Math.max(2, (valueOf(d) / max) * 40)}px`, borderRadius: 0.5, bgcolor: 'primary.main', opacity: 0.75 }} />
-            <Typography sx={{ fontSize: 9, color: 'text.disabled', whiteSpace: 'nowrap' }}>{d.date.slice(8)}</Typography>
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3, height: '100%', justifyContent: 'flex-end' }}>
+            <Box sx={{ width: '68%', height: `${Math.max(2, (val(d) / max) * 40)}px`, borderRadius: 0.5, bgcolor: 'primary.main', opacity: val(d) ? 0.75 : 0.2 }} />
+            <Typography sx={{ fontSize: 9, color: 'text.disabled', whiteSpace: 'nowrap', height: 12 }}>{i % labelEvery === 0 ? d.date.slice(8) : ''}</Typography>
           </Box>
         </Tooltip>
       ))}
@@ -100,7 +102,8 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, ex
         </Typography>
       </>
     );
-    if (v.error) return (
+    // 조회 실패여도 자체 누적분이 있으면 데이터는 계속 보여준다(최신 갱신만 실패)
+    if (v.error && !(v.days || []).length) return (
       <>
         <Chip size="small" color="warning" label="조회 실패" sx={{ height: 20, fontSize: 11, my: 1 }} />
         <Typography sx={{ fontSize: 11.5, color: 'text.disabled', wordBreak: 'break-all' }}>{v.error}</Typography>
@@ -108,8 +111,12 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, ex
     );
     return (
       <>
-        <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, mt: 0.5 }}>{totalOf(v)}</Typography>
-        {subOf && <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>{subOf(v)}</Typography>}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, mt: 0.5 }}>{totalOf(v)}</Typography>
+          {v.error && <Tooltip title={`최신 갱신 실패(저장분 표시 중): ${v.error}`}><Chip size="small" color="warning" label="갱신 실패" sx={{ height: 18, fontSize: 10.5 }} /></Tooltip>}
+        </Box>
+        {/* 카드 간 차트 기준선 정렬: 보조 문구 줄은 항상 렌더링(비어도 높이 유지) */}
+        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25, minHeight: 18 }}>{subOf ? subOf(v) : ' '}</Typography>
         <MiniBars days={v.days} valueOf={valueOf} tipOf={tipOf} />
         {extra && extra(v)}
       </>
@@ -125,7 +132,15 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, ex
 function VendorUsage() {
   const [days, setDays] = useState(14);
   const [data, setData] = useState(null);
-  useEffect(() => { setData(null); api.adminVendorUsage(days).then(setData).catch(() => setData({ error: true })); }, [days]);
+  useEffect(() => {
+    // 기간 빠른 전환 시 늦게 도착한 이전 기간 응답이 화면을 덮지 않도록(stale 가드)
+    let cancelled = false;
+    setData(null);
+    api.adminVendorUsage(days)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setData({ error: true }); });
+    return () => { cancelled = true; };
+  }, [days]);
   const v = (k) => (data && !data.error ? data[k] : null);
   return (
     <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3, mb: 3 }}>
@@ -139,8 +154,9 @@ function VendorUsage() {
           {[7, 30, 90].map((d) => <ToggleButton key={d} value={d} sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>{d}일</ToggleButton>)}
         </ToggleButtonGroup>
       </Box>
-      {data && data.error && <Alert severity="error" sx={{ mb: 1 }}>벤더 사용량을 불러오지 못했습니다.</Alert>}
-      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+      {data && data.error && <Alert severity="error" sx={{ mb: 1 }}>벤더 사용량을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</Alert>}
+      {/* 요청 실패 시 '불러오는 중…' 카드가 영구히 남지 않도록 카드 영역 자체를 숨김 */}
+      <Box sx={{ display: data && data.error ? 'none' : 'flex', gap: 1.5, flexWrap: 'wrap' }}>
         <VendorCard name="Soniox" desc="음성인식·실시간 번역" v={v('soniox')} keyHint="SONIOX_API_KEY"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)} subOf={(x) => `오디오 ${fmtMin(x.totalAudioMin || 0)} · ${x.totalRequests || 0}회 연결`}
           valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtMin((d.audioMs || 0) / 60000)} · ${fmtCost(d.costUsd)}`}
@@ -158,9 +174,11 @@ function VendorUsage() {
           )} />
         <VendorCard name="Cartesia" desc="음성 합성(TTS)" v={v('cartesia')} keyHint="CARTESIA_ADMIN_API_KEY (sk_car_admin_…)"
           totalOf={(x) => `${(x.totalCredits || 0).toLocaleString()} 크레딧`}
+          subOf={(x) => `일평균 ${Math.round((x.totalCredits || 0) / Math.max(1, (x.days || []).length)).toLocaleString()} 크레딧`}
           valueOf={(d) => d.credits} tipOf={(d) => `${d.date} · ${(d.credits || 0).toLocaleString()} 크레딧`} />
         <VendorCard name="OpenAI" desc="GPT (요약·다듬기·검사)" v={v('openai')} keyHint="OPENAI_ADMIN_API_KEY (sk-admin-…)"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)}
+          subOf={(x) => `일평균 ${fmtCost((x.totalCostUsd || 0) / Math.max(1, (x.days || []).length))}`}
           valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtCost(d.costUsd)}`} />
       </Box>
       {data && !data.error && (v('soniox')?.earliest || v('cartesia')?.earliest || v('openai')?.earliest) && (
@@ -238,19 +256,21 @@ function LogsPanel() {
   const [deskMore, setDeskMore] = useState({}); // { [deskId]: 표시 수 }
   const [sessCap, setSessCap] = useState(LOGS_SESS_CAP);
   useEffect(() => { api.adminLogs().then(setData).catch(() => setData({ desks: [], sessions: [] })); }, []);
+  // 늦게 도착한 응답이 현재 선택(다른 항목/닫힘)을 덮지 않도록 — 여전히 같은 key 가 열려 있을 때만 반영
+  const settleOpen = (key, next) => setOpen((cur) => (cur && cur.key === key ? next : cur));
   const openDesk = async (sid, idx) => {
     const key = `d:${sid}:${idx}`;
     if (open && open.key === key) { setOpen(null); return; }
     setOpen({ kind: 'desk', key, loading: true });
-    try { setOpen({ kind: 'desk', key, detail: await api.adminDeskLog(sid, idx) }); }
-    catch (e) { setOpen({ kind: 'desk', key, error: e.message || '불러오기 실패' }); } // 조용히 접히지 않고 실패를 표시
+    try { const detail = await api.adminDeskLog(sid, idx); settleOpen(key, { kind: 'desk', key, detail }); }
+    catch (e) { settleOpen(key, { kind: 'desk', key, error: e.message || '불러오기 실패' }); } // 조용히 접히지 않고 실패를 표시
   };
   const openSession = async (id) => {
     const key = `s:${id}`;
     if (open && open.key === key) { setOpen(null); return; }
     setOpen({ kind: 'session', key, loading: true });
-    try { setOpen({ kind: 'session', key, detail: await api.adminSessionLog(id) }); }
-    catch (e) { setOpen({ kind: 'session', key, error: e.message || '불러오기 실패' }); }
+    try { const detail = await api.adminSessionLog(id); settleOpen(key, { kind: 'session', key, detail }); }
+    catch (e) { settleOpen(key, { kind: 'session', key, error: e.message || '불러오기 실패' }); }
   };
   if (!data) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
   const durOf = (e) => (e.startedAt && e.endedAt ? fmtDuration(e.endedAt - e.startedAt) : '—');
@@ -345,52 +365,53 @@ function LogsPanel() {
 const LANG_KO = { en: '영어', ja: '일본어', zh: '중국어', vi: '베트남어', th: '태국어', id: '인도네시아어', ru: '러시아어', ko: '한국어', unknown: '미상' };
 
 // 데스크 통계: 데스크별 응대 건수·언어 분포·평균 응대 시간·일별 추이 (대화 내용은 조회하지 않음)
+// 데스크가 여러 개여도 세로로 쌓지 않고, 셀렉터로 고른 데스크의 그래프 하나만 보여준다.
 function DeskStats() {
   const [stats, setStats] = useState(null);
+  const [sel, setSel] = useState('');
   useEffect(() => { api.adminDeskStats().then(setStats).catch(() => setStats([])); }, []);
   if (!stats) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
   if (!stats.length) return <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 1 }}>안내데스크 세션이 아직 없습니다. 데스크 안내에서 세션을 만들면 응대 통계가 집계됩니다.</Typography>;
   const total = stats.reduce((a, d) => a + d.count, 0);
+  const d = stats.find((x) => x.id === sel) || stats[0];
+  const langEntries = Object.entries(d.langs || {}).sort((a, b) => b[1] - a[1]);
+  const maxDay = Math.max(1, ...(d.daily || []).map((x) => x.count));
   return (
     <>
       <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
         <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="총 응대 건수" value={total} />
         <StatCard icon={<PeopleAltOutlinedIcon fontSize="small" />} label="안내데스크 수" value={stats.length} />
-        <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="평균 응대 시간" value={fmtDuration(stats.reduce((a, d) => a + d.avgMs * d.count, 0) / Math.max(1, total))} />
+        <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="평균 응대 시간" value={fmtDuration(stats.reduce((a, x) => a + x.avgMs * x.count, 0) / Math.max(1, total))} />
       </Box>
-      {stats.map((d) => {
-        const langEntries = Object.entries(d.langs || {}).sort((a, b) => b[1] - a[1]);
-        const maxDay = Math.max(1, ...(d.daily || []).map((x) => x.count));
-        return (
-          <Paper key={d.id} variant="outlined" sx={{ borderRadius: 1.5, p: 3, mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
-              <Typography sx={{ fontWeight: 800, fontSize: 16 }}>{d.title}</Typography>
-              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-                응대 {d.count}건 · 평균 {fmtDuration(d.avgMs)} · 길안내 감지 {d.wayfindDetected}건 중 표시 {d.wayfindShown}건
-              </Typography>
-            </Box>
-            {langEntries.length > 0 && (
-              <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
-                {langEntries.map(([lang, n]) => (
-                  <Chip key={lang} size="small" label={`${LANG_KO[lang] || lang} ${n}건`} sx={{ height: 22, fontSize: 12, fontWeight: 700 }} />
-                ))}
-              </Box>
-            )}
-            {(d.daily || []).length > 0 && (
-              <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 70 }}>
-                {d.daily.map((x) => (
-                  <Tooltip key={x.date} title={`${x.date} · ${x.count}건`}>
-                    <Box sx={{ flex: 1, maxWidth: 46, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.4 }}>
-                      <Box sx={{ width: '65%', height: `${Math.max(3, (x.count / maxDay) * 46)}px`, borderRadius: 0.75, bgcolor: 'primary.main', opacity: 0.75 }} />
-                      <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{x.date.slice(5)}</Typography>
-                    </Box>
-                  </Tooltip>
-                ))}
-              </Box>
-            )}
-          </Paper>
-        );
-      })}
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
+          <TextField select size="small" value={d.id} onChange={(e) => setSel(e.target.value)} SelectProps={{ native: true }} sx={{ minWidth: 180 }}>
+            {stats.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
+          </TextField>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+            응대 {d.count}건 · 평균 {fmtDuration(d.avgMs)} · 길안내 감지 {d.wayfindDetected}건 중 표시 {d.wayfindShown}건
+          </Typography>
+        </Box>
+        {langEntries.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
+            {langEntries.map(([lang, n]) => (
+              <Chip key={lang} size="small" label={`${LANG_KO[lang] || lang} ${n}건`} sx={{ height: 22, fontSize: 12, fontWeight: 700 }} />
+            ))}
+          </Box>
+        )}
+        {(d.daily || []).length > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 70 }}>
+            {d.daily.map((x) => (
+              <Tooltip key={x.date} title={`${x.date} · ${x.count}건`}>
+                <Box sx={{ flex: 1, maxWidth: 46, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.4 }}>
+                  <Box sx={{ width: '65%', height: `${Math.max(3, (x.count / maxDay) * 46)}px`, borderRadius: 0.75, bgcolor: 'primary.main', opacity: 0.75 }} />
+                  <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{x.date.slice(5)}</Typography>
+                </Box>
+              </Tooltip>
+            ))}
+          </Box>
+        )}
+      </Paper>
     </>
   );
 }

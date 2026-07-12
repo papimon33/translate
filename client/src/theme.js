@@ -1,42 +1,54 @@
 import { createTheme, alpha } from '@mui/material/styles';
 
-// 액센트: 보라 (Aurora) — 다크 #7c6df2 / 라이트 #6d5ef0
-export const ACCENT = { dark: '#7c6df2', light: '#6d5ef0' };
-// 그라데이션(로고·버튼·아바타) 보조 스톱
+/* ---- 디자인 토큰 (Slack 계열: 플랫·크리스프·다크 사이드바) ----
+   - 포인트 컬러는 바이올렛 유지하되 그라데이션·글로우 제거(플랫).
+   - 사이드바는 라이트/다크 공통의 딥 바이올렛 차콜 — 콘텐츠 영역과 확실히 분리.
+   - radius 체계: shape 8 기준(sx borderRadius:1=8px, 1.5=12px). */
+export const ACCENT = { dark: '#8579ff', light: '#5b4fe8' };
+// (구) 그라데이션 스톱 — 아바타 등 일부 장식에만 사용
 export const GRAD = {
-  dark: ['#8b7cff', '#6354e0'],
-  light: ['#8b7cff', '#6d5ef0'],
+  dark: ['#8579ff', '#6354e0'],
+  light: ['#7c6df2', '#5b4fe8'],
+};
+// 사이드바(다크 서피스) 토큰 — Nav 에서 사용
+export const SIDEBAR = {
+  bg: { light: '#211d33', dark: '#17141f' },
+  text: 'rgba(255,255,255,0.88)',
+  muted: 'rgba(255,255,255,0.55)',
+  hover: 'rgba(255,255,255,0.07)',
+  active: 'rgba(255,255,255,0.14)',
+  divider: 'rgba(255,255,255,0.10)',
 };
 
 export function buildTheme(mode) {
   const dark = mode === 'dark';
   const primary = dark ? ACCENT.dark : ACCENT.light;
-  const bgDefault = dark ? '#0e0f15' : '#f4f5f9';
-  const bgPaper = dark ? '#191c27' : '#ffffff';
-  const divider = dark ? 'rgba(255,255,255,0.07)' : 'rgba(18,22,45,0.09)';
+  const bgDefault = dark ? '#141317' : '#f8f8f8';
+  const bgPaper = dark ? '#1b1a20' : '#ffffff';
+  const divider = dark ? 'rgba(255,255,255,0.09)' : 'rgba(29,28,29,0.13)';
+  const textPrimary = dark ? '#f4f3f6' : '#1d1c1d';
+  const textSecondary = dark ? '#a6a3af' : '#616061';
 
   return createTheme({
     palette: {
       mode,
       primary: { main: primary },
-      success: { main: '#34d399' },
-      error: { main: dark ? '#fb7185' : '#f43f5e' },
-      warning: { main: '#fbbf24' },
+      success: { main: dark ? '#2eb67d' : '#007a5a' }, // Slack 그린 계열
+      error: { main: dark ? '#f47c7c' : '#e01e5a' },
+      warning: { main: dark ? '#e8a03e' : '#e8912d' },
       divider,
       background: { default: bgDefault, paper: bgPaper },
-      // 명도 상향(가독성): 본문/보조 대비 강화
-      text: dark
-        ? { primary: '#f3f4f8', secondary: '#a3a9bb' }
-        : { primary: '#161922', secondary: '#5b6175' },
+      text: { primary: textPrimary, secondary: textSecondary },
     },
-    shape: { borderRadius: 12 },
+    shape: { borderRadius: 8 },
     typography: {
       fontFamily: "'Pretendard', 'Noto Sans KR', system-ui, 'Segoe UI', sans-serif",
+      fontSize: 14,
       h5: { fontWeight: 800, letterSpacing: '-0.02em' },
-      h6: { fontWeight: 800, letterSpacing: '-0.02em' },
+      h6: { fontWeight: 800, letterSpacing: '-0.015em', fontSize: 18 },
       subtitle1: { fontWeight: 700 },
       subtitle2: { fontWeight: 700 },
-      button: { fontWeight: 700 },
+      button: { fontWeight: 700, letterSpacing: 0 },
     },
     components: {
       MuiCssBaseline: {
@@ -44,7 +56,7 @@ export function buildTheme(mode) {
           body: { backgroundColor: bgDefault },
           '*::-webkit-scrollbar': { width: 10, height: 10 },
           '*::-webkit-scrollbar-thumb': {
-            background: alpha(dark ? '#fff' : '#000', 0.14),
+            background: alpha(dark ? '#fff' : '#000', 0.16),
             borderRadius: 8,
             border: '2px solid transparent',
             backgroundClip: 'padding-box',
@@ -54,33 +66,50 @@ export function buildTheme(mode) {
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
-          root: { textTransform: 'none', borderRadius: 12, paddingInline: 16 },
+          root: { textTransform: 'none', borderRadius: 8, paddingInline: 14 },
           containedPrimary: {
-            background: `linear-gradient(135deg, ${GRAD[mode][0]}, ${GRAD[mode][1]})`,
-            boxShadow: `0 8px 22px ${alpha(primary, 0.38)}`,
+            backgroundColor: primary,
+            boxShadow: 'none',
+            '&:hover': { backgroundColor: dark ? '#948aff' : '#4a3fd4', boxShadow: 'none' },
           },
+          outlined: { borderColor: divider, '&:hover': { borderColor: alpha(textPrimary, 0.3), backgroundColor: alpha(textPrimary, 0.03) } },
         },
       },
       MuiCard: {
         styleOverrides: {
+          root: { borderRadius: 12, border: `1px solid ${divider}`, backgroundImage: 'none', boxShadow: 'none' },
+        },
+      },
+      MuiPaper: {
+        styleOverrides: {
+          root: { backgroundImage: 'none' },
+          outlined: { borderColor: divider },
+        },
+      },
+      MuiOutlinedInput: {
+        styleOverrides: {
           root: {
-            borderRadius: 14,
-            border: `1px solid ${divider}`,
-            backgroundImage: 'none',
-            transition: 'transform .15s ease, box-shadow .15s ease, border-color .15s ease',
+            borderRadius: 8,
+            '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(textPrimary, 0.3) },
+            '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderWidth: 1.5 },
           },
         },
       },
-      MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 10 } } },
-      MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
-      MuiMenu: { styleOverrides: { paper: { borderRadius: 12, border: `1px solid ${divider}`, marginTop: 6 } } },
-      MuiDialog: { styleOverrides: { paper: { borderRadius: 20 } } },
+      MuiMenu: { styleOverrides: { paper: { borderRadius: 10, border: `1px solid ${divider}`, marginTop: 6, boxShadow: dark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(29,28,29,0.12)' } } },
+      MuiDialog: { styleOverrides: { paper: { borderRadius: 14, border: `1px solid ${divider}` } } },
       MuiTooltip: {
         styleOverrides: {
-          tooltip: { borderRadius: 9, fontSize: 12, fontWeight: 600, paddingBlock: 7, paddingInline: 11, maxWidth: 260, lineHeight: 1.5 },
+          tooltip: {
+            borderRadius: 8, fontSize: 12.5, fontWeight: 500, paddingBlock: 7, paddingInline: 11, maxWidth: 300, lineHeight: 1.55,
+            backgroundColor: dark ? '#2e2c36' : '#1d1c1d', color: '#fff',
+          },
         },
       },
-      MuiChip: { styleOverrides: { root: { fontWeight: 700 } } },
+      MuiChip: { styleOverrides: { root: { fontWeight: 600, borderRadius: 6 } } },
+      MuiTab: { styleOverrides: { root: { textTransform: 'none', fontWeight: 700 } } },
+      MuiToggleButton: { styleOverrides: { root: { textTransform: 'none', borderRadius: 8 } } },
+      MuiAlert: { styleOverrides: { root: { borderRadius: 10 } } },
+      MuiTableCell: { styleOverrides: { root: { borderColor: divider } } },
     },
   });
 }

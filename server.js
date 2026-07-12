@@ -648,14 +648,24 @@ function buildSonioxContextRaw(langs, opts = {}) {
 function buildSonioxContext(langs, opts = {}) {
   const ctx = buildSonioxContextRaw(langs, opts);
   if (!ctx) return null;
-  // 한도 방어: 초과 시 번역쌍부터, 다음 인식 힌트를 뒤에서부터 잘라낸다(전부 잘리면 경고만)
-  let guard = 0;
-  while (JSON.stringify(ctx).length > 9500 && guard++ < 2000) {
-    if (ctx.translation_terms && ctx.translation_terms.length) { ctx.translation_terms.pop(); if (!ctx.translation_terms.length) delete ctx.translation_terms; }
-    else if (ctx.terms && ctx.terms.length) { ctx.terms.pop(); if (!ctx.terms.length) delete ctx.terms; }
-    else break;
+  // 한도 방어: 초과 시 번역쌍부터, 다음 인식 힌트를 뒤에서부터 잘라낸다(전부 잘리면 경고만).
+  // 초과분에 비례해 청크로 제거 — 대용량 업로드(수천 항목)여도 몇 번의 stringify 로 반드시 한도 안에 들어오고,
+  // 항목 1개씩 pop×전체 재직렬화로 이벤트루프를 수초 막던 문제도 없음.
+  let dropped = 0;
+  for (let pass = 0; pass < 60; pass++) {
+    const len = JSON.stringify(ctx).length;
+    if (len <= 9500) break;
+    const excess = len - 9500;
+    const arr = (ctx.translation_terms && ctx.translation_terms.length) ? ctx.translation_terms : ctx.terms;
+    if (!arr || !arr.length) break;
+    const avg = Math.max(8, Math.floor(len / (((ctx.translation_terms || []).length + (ctx.terms || []).length) || 1)));
+    const n = Math.min(arr.length, Math.max(1, Math.ceil(excess / avg)));
+    arr.splice(-n);
+    dropped += n;
+    if (ctx.translation_terms && !ctx.translation_terms.length) delete ctx.translation_terms;
+    if (ctx.terms && !ctx.terms.length) delete ctx.terms;
   }
-  if (guard > 0) console.warn(`[terms] Soniox context 한도 초과 — ${guard}개 항목 잘림(langs=${(langs || []).join(',')}${opts.desk ? ',desk' : ''})`);
+  if (dropped > 0) console.warn(`[terms] Soniox context 한도 초과 — ${dropped}개 항목 잘림(langs=${(langs || []).join(',')}${opts.desk ? ',desk' : ''})`);
   return Object.keys(ctx).length ? ctx : null;
 }
 
@@ -940,8 +950,8 @@ app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
     '검출 대상은 두 가지다: (1) 오탈자 — 맞춤법 오류·깨진 표기·잘못된 글자가 섞인 단어, (2) 잘못 번역된 단어 — 고유명사·시설명·전문용어가 원문과 다르게 옮겨졌거나 대화마다 다르게 번역된 경우. ' +
     '각 오류 항목은 반드시 정확히 하나의 단어(또는 「제1여객터미널」처럼 한 덩어리로 취급되는 용어) 여야 한다. 문장 전체의 어색함·문체·어순·의역 여부는 무시한다. ' +
     '반드시 JSON 하나만 출력한다: ' +
-    '{"suggestions":[{"source":"원문의 해당 단어","target":"올바른 단어","wrong":"현재 잘못된 단어","reason":"짧은 이유"}]} ' +
-    'source·target·wrong 은 각각 문장이 아니라 단어(또는 한 덩어리 용어) 하나여야 한다. 확실한 것만 최대 12개. 이미 등록된 용어는 제외: ' + (existing || '없음');
+    '{"suggestions":[{"source":"원문의 해당 단어","target":"올바른 단어","wrong":"현재 잘못된 단어","lang":"외국어 쪽 언어코드(en/ja/zh/es/fr/pt/ar) — 목록의 [코드] 참고","reason":"짧은 이유"}]} ' +
+    'source·target·wrong 은 각각 문장이 아니라 단어(또는 한 덩어리 용어) 하나여야 한다. lang 은 각 쌍 맨 앞의 [언어코드]를 그대로 쓴다(한자만으로 된 일본어를 중국어로 오판하지 말 것). 확실한 것만 최대 12개. 이미 등록된 용어는 제외: ' + (existing || '없음');
   try {
     const body = {
       model: REFINE_MODEL,
@@ -1159,6 +1169,18 @@ const CARTESIA_ADMIN_API_KEY = process.env.CARTESIA_ADMIN_API_KEY || '';
 const OPENAI_ADMIN_API_KEY = process.env.OPENAI_ADMIN_API_KEY || '';
 const kstDay = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 10);
 
+// 벤더 사용량 API 공용 fetch — 429(레이트리밋)면 Retry-After 만큼 기다렸다 1회 재시도.
+// (OpenAI costs API 는 30req/min 제한 — 재배포 직후 부팅 갱신이 겹치면 429 가 났다가 10분간 오류로 남던 문제)
+async function vendorFetch(url, opts) {
+  let r = await fetch(url, opts);
+  if (r.status === 429) {
+    const ra = Math.min(65, Math.max(2, Number(r.headers.get('retry-after')) || 20));
+    await new Promise((ok) => setTimeout(ok, ra * 1000));
+    r = await fetch(url, opts);
+  }
+  return r;
+}
+
 // 각 fetch 는 { byDay: {date: metrics} } 또는 { error } 를 반환. 미설정이면 null.
 async function fetchSonioxRange(startMs, endMs) {
   const byDay = {};
@@ -1166,7 +1188,7 @@ async function fetchSonioxRange(startMs, endMs) {
   for (let page = 0; page < 40; page++) { // 안전 상한(최대 40,000건)
     const qs = new URLSearchParams({ start_time: new Date(startMs).toISOString(), end_time: new Date(endMs).toISOString(), limit: '1000' });
     if (cursor) qs.set('cursor', cursor);
-    const r = await fetch('https://api.soniox.com/v1/usage-logs?' + qs, { headers: { Authorization: `Bearer ${SONIOX_API_KEY}` } });
+    const r = await vendorFetch('https://api.soniox.com/v1/usage-logs?' + qs, { headers: { Authorization: `Bearer ${SONIOX_API_KEY}` } });
     if (!r.ok) return { error: `Soniox ${r.status}: ${(await r.text()).slice(0, 120)}` };
     const d = await r.json();
     for (const e of d.usage_logs || []) {
@@ -1198,18 +1220,30 @@ async function fetchSoniox(spanDays) {
   const endMs = Date.now();
   const byDay = {};
   const CH = 30 * 86400e3;
+  // 청크 경계(임의 시각)에 걸친 KST 하루는 두 청크에 부분합으로 나뉨 → 덮어쓰지 말고 합산 병합
+  const mergeDay = (into, m) => {
+    into.audioMs += m.audioMs; into.costUsd += m.costUsd; into.requests += m.requests;
+    for (const [uid, u] of Object.entries(m.byUser || {})) {
+      const t = into.byUser[uid] || (into.byUser[uid] = { audioMs: 0, costUsd: 0, requests: 0 });
+      t.audioMs += u.audioMs; t.costUsd += u.costUsd; t.requests += u.requests;
+    }
+  };
   for (let s = endMs - spanDays * 86400e3; s < endMs; s += CH) {
     const r = await fetchSonioxRange(s, Math.min(s + CH, endMs));
     if (r.error) return r; // 에러면 저장분 보존
-    Object.assign(byDay, r.byDay);
+    for (const [date, m] of Object.entries(r.byDay)) {
+      if (byDay[date]) mergeDay(byDay[date], m);
+      else byDay[date] = m;
+    }
   }
+  for (const d of Object.values(byDay)) { d.costUsd = +d.costUsd.toFixed(4); for (const u of Object.values(d.byUser || {})) u.costUsd = +u.costUsd.toFixed(4); }
   return { byDay };
 }
 async function fetchCartesia(spanDays) {
   if (!CARTESIA_ADMIN_API_KEY) return null;
   const endMs = Date.now();
   const qs = new URLSearchParams({ start_ts: new Date(endMs - spanDays * 86400e3).toISOString(), end_ts: new Date(endMs).toISOString(), interval: 'day' });
-  const r = await fetch('https://api.cartesia.ai/usage/credits?' + qs, { headers: { Authorization: `Bearer ${CARTESIA_ADMIN_API_KEY}`, 'Cartesia-Version': '2025-04-16' } });
+  const r = await vendorFetch('https://api.cartesia.ai/usage/credits?' + qs, { headers: { Authorization: `Bearer ${CARTESIA_ADMIN_API_KEY}`, 'Cartesia-Version': '2025-04-16' } });
   if (!r.ok) return { error: `Cartesia ${r.status}: ${(await r.text()).slice(0, 120)}` };
   const d = await r.json();
   const byDay = {};
@@ -1221,10 +1255,12 @@ async function fetchOpenai(spanDays) {
   const endMs = Date.now();
   const byDay = {};
   let pageToken = null;
+  // limit=기간 전체(최대 180 버킷) — 페이지네이션 왕복을 없애 30req/min 레이트리밋(429)을 피한다
+  const limit = String(Math.min(180, spanDays + 2));
   for (let page = 0; page < 8; page++) {
-    const qs = new URLSearchParams({ start_time: String(Math.floor((endMs - spanDays * 86400e3) / 1000)), end_time: String(Math.floor(endMs / 1000)), bucket_width: '1d', limit: '31' });
+    const qs = new URLSearchParams({ start_time: String(Math.floor((endMs - spanDays * 86400e3) / 1000)), end_time: String(Math.floor(endMs / 1000)), bucket_width: '1d', limit });
     if (pageToken) qs.set('page', pageToken);
-    const r = await fetch('https://api.openai.com/v1/organization/costs?' + qs, { headers: { Authorization: `Bearer ${OPENAI_ADMIN_API_KEY}` } });
+    const r = await vendorFetch('https://api.openai.com/v1/organization/costs?' + qs, { headers: { Authorization: `Bearer ${OPENAI_ADMIN_API_KEY}` } });
     if (!r.ok) return { error: `OpenAI ${r.status}: ${(await r.text()).slice(0, 120)}` };
     const d = await r.json();
     for (const b of d.data || []) {
@@ -1255,20 +1291,27 @@ async function refreshVendorUsage(spanDays = 90) {
   vendorRefreshAt = Date.now();
   if (changed) { try { await persistVendorUsage(); } catch (e) { logErr('vendor-usage-persist', e); } }
 }
+// 갱신 단일화 — 라우트/부팅/주기 타이머가 모두 이 함수로 진입해 동시 실행(429 유발)을 막는다
+function kickVendorRefresh() {
+  if (!vendorRefreshing) vendorRefreshing = refreshVendorUsage().finally(() => { vendorRefreshing = null; });
+  return vendorRefreshing;
+}
 app.get('/api/admin/vendor-usage', requireAdmin, async (req, res) => {
   const days = Math.min(365, Math.max(1, Number(req.query.days) || 14));
   // 10분보다 오래됐으면 신선화(과금·쿼터 보호). 중복 호출은 한 번만 실행.
   if (Date.now() - vendorRefreshAt > 10 * 60e3) {
-    if (!vendorRefreshing) vendorRefreshing = refreshVendorUsage().finally(() => { vendorRefreshing = null; });
-    try { await vendorRefreshing; } catch {}
+    try { await kickVendorRefresh(); } catch {}
   }
   const cut = kstDay(Date.now() - (days - 1) * 86400e3);
   const svcKeys = { soniox: !!SONIOX_API_KEY, cartesia: !!CARTESIA_API_KEY, openai: !!OPENAI_API_KEY };
+  // 세 벤더의 일자 축을 동일하게(빈 날은 0) — 카드 간 막대가 날짜 기준으로 1:1 정렬되도록
+  const axis = [];
+  for (let i = days - 1; i >= 0; i--) axis.push(kstDay(Date.now() - i * 86400e3));
   const build = (k, extra) => {
     const st = { ...vendorStatus[k], serviceKey: svcKeys[k] }; // serviceKey=동작용 일반 키(사용량 조회 키와 별개)
     const all = Object.keys(vendorUsage[k]).sort();
-    const dates = all.filter((d) => d >= cut);
-    const days2 = dates.map((date) => ({ date, ...vendorUsage[k][date] }));
+    const hasData = all.some((d) => d >= cut);
+    const days2 = hasData ? axis.map((date) => ({ date, ...(vendorUsage[k][date] || {}) })) : [];
     return { ...st, days: days2, earliest: all[0] || null, ...extra(days2) };
   };
   res.json({
@@ -2158,6 +2201,7 @@ async function classifyFacility(koText, questionKo) {
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
+  try {
   const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
   const hostUser = pathname === '/ws/host' ? currentUser(req) : null;
   if (pathname === '/ws/host' && !hostUser) {
@@ -2195,6 +2239,11 @@ server.on('upgrade', (req, socket, head) => {
     });
   } else {
     socket.destroy();
+  }
+  } catch (e) {
+    // 비정상 Host 헤더(URL 파싱 실패)·깨진 % 쿠키 등 동기 예외 시 TCP 소켓을 방치하지 않는다(FD 누수 방지)
+    logErr('ws-upgrade', e);
+    try { socket.destroy(); } catch {}
   }
 });
 
@@ -2318,9 +2367,12 @@ function handleViewer(ws) {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
       else if (m.type === 'ptt') {
-        // 데스크 세션은 폰 PTT 파이프라인 대상이 아님(조작된 클라이언트가 기본 ko↔en 유료 엔진을 주입하는 것 차단)
+        // 뷰어 PTT 는 GET /api/sessions 가 viewerPTT=true 로 알려주는 세션(soniox 양방향 계열)에서만.
+        // 서버에서도 동일 조건을 강제 — 조작된 클라이언트가 임의/존재하지 않는 세션에 유료 엔진을 열거나
+        // 타인 세션 기록에 문장을 주입하는 것 차단.
         const sess = getSession(ws._session);
-        if (sess && sess.pipeline === 'desk') return;
+        const pttAllowed = sess && sess.pipeline === 'soniox' && ['twoway', 'mobile', 'field', 'meeting'].includes(sess.preset || '');
+        if (!pttAllowed) return;
         const r = getRoom(ws._session);
         if (m.on) {
           // 발화 배타: 호스트가 말하는 중이거나 다른 뷰어가 발화 중이면 거절
@@ -2395,9 +2447,12 @@ function handleHost(ws) {
     maybeGcRoom(sessionId);
   });
   // 사용량 집계: 호스트 WS 연결 시간 → 사용자별 누적 + 파이프라인별 일별 비용.
+  // 데스크는 예외 — 대기(idle)는 STT 미연결(비용 0)이므로 실제 통역(active) 시간만 집계.
   const usageStart = Date.now();
   ws.on('close', () => {
-    const ms = Date.now() - usageStart;
+    const ms = pipeline === 'desk'
+      ? (ws._deskActiveMs || 0) + (ws._deskActiveStart ? Date.now() - ws._deskActiveStart : 0)
+      : Date.now() - usageStart;
     addUsage(ws._userId, ms);
     recordUsage(pipeline, ms); // pipeline 은 아래에서 정의됨(close 시점엔 초기화 완료)
   });
@@ -2822,10 +2877,19 @@ function handleHost(ws) {
       ...((() => { const c = buildSonioxContext(langs, { desk: true }); return c ? { context: c } : {}; })()), // 데스크: 항공용어 카테고리 제외
     });
     // 손님이 한국어를 고르면 two_way 가 성립하지 않으므로 전부 한국어로 표기(one_way→ko)
-    const configFor = () => (lockedB && lockedB !== A
-      ? { ...baseConfig([A, lockedB]), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } }
+    // 2채널(여객 태블릿 마이크 on)에서는 이 채널이 안내원 전용 → one_way(ko→손님 언어) + 힌트 ko 고정.
+    //   기기=채널로 화자가 물리적으로 확정돼 있어 two_way 언어 자동판별의 방향 뒤집힘이 사라지고,
+    //   언어 힌트가 집중돼 인식도 좋아진다. 여객 채널(gsx)은 원래 one_way(손님 언어→ko) → 합쳐서 one_way×2.
+    //   단일 마이크 폴백(여객 마이크 off)은 한 스트림에 두 언어가 섞이므로 two_way 유지(그게 올바른 용처).
+    const configFor = () => {
+      if (lockedB && lockedB !== A) {
+        return guestMicOn
+          ? { ...baseConfig([A, lockedB]), language_hints: [A], translation: { type: 'one_way', target_language: lockedB } }
+          : { ...baseConfig([A, lockedB]), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } };
+      }
       // 자동 감지 중: 언어 미정 → one_way(→ko) + 광역 힌트로 첫 발화 언어를 파악
-      : { ...baseConfig([A]), language_hints: autoDetect ? [A, ...GUEST_LANGS] : [A], translation: { type: 'one_way', target_language: A } });
+      return { ...baseConfig([A]), language_hints: autoDetect ? [A, ...GUEST_LANGS] : [A], translation: { type: 'one_way', target_language: A } };
+    };
 
     const setMeta = () => {
       const sxInfo = phase === 'active'
@@ -2925,9 +2989,14 @@ function handleHost(ws) {
       clearTimeout(foreignTimer);
       clearTimeout(warnTimer);
       pendingWayfind = null;
+      // 종료 절차 중 commit() 의 자동감지 분기(양방향 재체결·desk-active 브로드캐스트)가 발동하지 않도록
+      autoDetect = false;
       // 승계(takeover)로 밀려난 구 파이프라인의 지연 close/타이머가 새 호스트의 진행 중 응대를
       // 아카이브·리셋하지 못하게 — 현재 등록된 컨트롤러만 공유 세션을 만진다.
       if (deskCtrl.get(sessionId) !== ctrl) { phase = 'idle'; lockedB = null; resetUtterance(); closeSx(); closeGuest(); return; }
+      // 사용량: 실제 통역(active) 시간만 누적 — 대기(idle) 시간이 사용량으로 집계되던 문제 수정
+      if (phase === 'active' && convStartedAt) ws._deskActiveMs = (ws._deskActiveMs || 0) + (Date.now() - convStartedAt);
+      ws._deskActiveStart = 0;
       guestCommit(); // 손님의 마지막 미확정 발화도 기록에 남김
       commit();
       if (session) {
@@ -2962,7 +3031,7 @@ function handleHost(ws) {
       const auto = B === 'auto'; // 'Other languages' — 첫 발화 언어를 감지해 two_way 전환
       const lang = auto ? null : (GUEST_LANGS.includes(B) ? B : 'en');
       if (phase === 'active' && !auto && lang === lockedB) return;
-      if (phase !== 'active') convStartedAt = Date.now(); // 응대 시작 시각(통계용)
+      if (phase !== 'active') { convStartedAt = Date.now(); ws._deskActiveStart = convStartedAt; } // 응대 시작 시각(통계·사용량용)
       phase = 'active'; lockedB = lang; autoDetect = auto; lastCommitText = ''; resetUtterance();
       pending = [];
       setMeta();
@@ -2995,6 +3064,7 @@ function handleHost(ws) {
       // 통역 중 연결이 예기치 않게 끊기면 자동 재연결 — 응대 중 멈춤 방지
       next.on('close', () => {
         if (sx === next && !closed && phase === 'active') {
+          sxReady = false; // 죽은 소켓으로 send 하지 않고 재연결까지 pending 큐에 쌓이도록(발화 앞부분 유실 방지)
           toHost({ type: 'status', message: '엔진 재연결 중…' });
           setTimeout(() => { if (sx === next && !closed && phase === 'active') connectSx(); }, 800);
         }
@@ -3063,6 +3133,7 @@ function handleHost(ws) {
       next.on('error', () => {});
       next.on('close', () => {
         if (gsx === next && !closed && phase === 'active' && guestMicOn) {
+          gsxReady = false; // 재연결까지 gPending 큐에 쌓이도록(여객 발화 앞부분 유실 방지)
           setTimeout(() => { if (gsx === next && !closed && phase === 'active' && guestMicOn) connectGuest(); }, 800);
         }
       });
@@ -3123,7 +3194,9 @@ function handleHost(ws) {
       toHost(m); broadcast(sessionId, m);
       if (guestMicOn && phase === 'active') connectGuest();
       if (!guestMicOn) closeGuest();
-      toHost({ type: 'status', message: guestMicOn ? '여객 태블릿 마이크 연결 — 2채널 화자 구분으로 동작합니다.' : '여객 태블릿 마이크 해제 — 데스크 마이크 단일 채널로 동작합니다.' });
+      // 채널별 언어 고정 전환: 2채널이 되면 호스트 채널을 one_way(ko→손님 언어)로, 해제되면 two_way 로 재체결
+      if (phase === 'active' && lockedB && lockedB !== A) { commit(); closeSx(); connectSx(); }
+      toHost({ type: 'status', message: guestMicOn ? '여객 태블릿 마이크 연결 — 2채널(채널별 언어 고정, 단방향×2)로 동작합니다.' : '여객 태블릿 마이크 해제 — 데스크 마이크 단일 채널(양방향)로 동작합니다.' });
     };
 
     ws.on('message', (data, isBinary) => {
@@ -3183,6 +3256,20 @@ function handleHost(ws) {
       },
     };
     deskCtrl.set(sessionId, ctrl);
+
+    // 승계 복구: 응대 도중 호스트가 새로고침하면 구 파이프라인은 (컨트롤러 불일치 가드로) 세션을 못 만져
+    // 진행 중이던 items 가 아카이브되지 않은 채 남는다 → 여기서 '중단된 응대'로 보존하고 뷰어를 초기화.
+    // (방치하면 다음 손님의 deskLog 한 건에 이전 손님 대화가 섞여 기록됨)
+    if (session && Array.isArray(session.items) && session.items.length) {
+      session.deskLog = session.deskLog || [];
+      session.deskLog.push({ startedAt: null, endedAt: Date.now(), lang: null, interrupted: true, items: session.items, stats: null });
+      if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200);
+      session.items = [];
+      saveSessions();
+      broadcast(sessionId, { type: 'desk-reset' });
+      broadcast(sessionId, { type: 'snapshot', items: [] });
+      toHost({ type: 'status', message: '이전 호스트의 진행 중 응대를 기록에 보존하고 대기 모드로 초기화했습니다.' });
+    }
 
     setMeta();
     toHost({ type: 'status', message: `데스크 대기 중 — 손님이 태블릿에서 언어를 선택하면 통역이 시작됩니다. (무음 ${deskIdleMs / 1000}초 시 자동 종료)` });
@@ -3264,7 +3351,7 @@ function handleHost(ws) {
       }
     });
     dg.on('error', (e) => toHost({ type: 'status', message: 'Deepgram 오류: ' + (e && e.message || e) }));
-    dg.on('close', () => toHost({ type: 'status', message: '엔진 연결 종료 (Deepgram)' }));
+    dg.on('close', () => { dgReady = false; toHost({ type: 'status', message: '엔진 연결 종료 (Deepgram)' }); }); // 죽은 소켓으로 send 방지
 
     ws.on('message', (data, isBinary) => {
       if (isBinary) {
@@ -3370,13 +3457,13 @@ function handleHost(ws) {
       }
     });
     oa.on('error', (e) => toHost({ type: 'status', message: 'OpenAI 연결 오류: ' + (e?.message || e) }));
-    oa.on('close', () => toHost({ type: 'status', message: '엔진 연결 종료' }));
+    oa.on('close', () => { oaReady = false; toHost({ type: 'status', message: '엔진 연결 종료' }); }); // 죽은 소켓으로 send 방지
 
     ws.on('message', (data, isBinary) => {
       if (isBinary) {
         const msg = JSON.stringify({ type: 'session.input_audio_buffer.append', audio: Buffer.from(data).toString('base64') });
         if (oaReady) oa.send(msg);
-        else pending.push(msg);
+        else { pending.push(msg); if (pending.length > 400) pending.shift(); } // 연결 전 큐 상한(~30초) — 엔진 미연결 장기화 시 메모리 폭증 방지
         return;
       }
       let m;
@@ -3416,6 +3503,6 @@ server.listen(PORT, () => {
 // 벤더 사용량 주기 신선화(12h) — 관리자가 화면을 안 봐도 일별 실사용량이 계속 누적되어
 // 벤더 API 보관기간(예: Soniox 91일)이 지나도 앱에는 기록이 남는다. 키가 하나라도 있을 때만.
 if (SONIOX_API_KEY || CARTESIA_ADMIN_API_KEY || OPENAI_ADMIN_API_KEY) {
-  setTimeout(() => refreshVendorUsage().catch((e) => logErr('vendor-usage-boot', e)), 8000); // 부팅 직후 1회
-  setInterval(() => refreshVendorUsage().catch((e) => logErr('vendor-usage-cron', e)), 12 * 3600e3);
+  setTimeout(() => kickVendorRefresh().catch((e) => logErr('vendor-usage-boot', e)), 8000); // 부팅 직후 1회
+  setInterval(() => kickVendorRefresh().catch((e) => logErr('vendor-usage-cron', e)), 12 * 3600e3); // 라우트 갱신과 동시 실행 방지(공용 가드)
 }

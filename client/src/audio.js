@@ -10,15 +10,23 @@ async function getSources(mode) {
     list.push({ src: 'mic', stream: mic });
   }
   if (mode === 'system' || mode === 'both') {
-    const sys = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface: 'monitor' },
-      audio: true,
-      systemAudio: 'include',
-      monitorTypeSurfaces: 'include',
-      surfaceSwitching: 'exclude',
-    });
+    let sys;
+    try {
+      sys = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'monitor' },
+        audio: true,
+        systemAudio: 'include',
+        monitorTypeSurfaces: 'include',
+        surfaceSwitching: 'exclude',
+      });
+    } catch (e) {
+      // '모두' 모드에서 화면공유 취소 시 먼저 획득한 마이크를 방치하지 않는다(녹음 표시등 계속 켜지던 문제)
+      list.forEach(({ stream }) => stream.getTracks().forEach((t) => t.stop()));
+      throw e;
+    }
     if (sys.getAudioTracks().length === 0) {
       sys.getTracks().forEach((t) => t.stop());
+      list.forEach(({ stream }) => stream.getTracks().forEach((t) => t.stop()));
       throw new Error('시스템 오디오가 선택되지 않았습니다. "전체 화면" 선택 후 "시스템 오디오 공유"를 켜주세요.');
     }
     sys.getVideoTracks().forEach((t) => t.stop());
@@ -161,6 +169,21 @@ export async function startRecorder(opts) {
     for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'activity' })); } catch {} }
   };
 
+  // (TDZ 수정) 루프 안에서 배선되는 onmessage/onended 가 참조하므로 루프보다 먼저 선언 —
+  // '모두' 모드에서 두 번째 소스 연결 대기 중 첫 소켓 메시지가 ReferenceError 나던 문제
+  let stopped = false;
+  // 녹음 중 변경된 제어 상태 — 자동 재연결 시 새 소켓은 시작 시점 URL 파라미터로 초기화되므로
+  // 변경분(TTS on/off, 발화멈춤, 여객 민감도)을 재전송해 서버 상태가 되돌아가는 문제를 막는다
+  const ctlState = { audioOut: null, tts: null, muted: null, guestSens: null };
+  const resendState = (sock) => {
+    try {
+      if (ctlState.muted != null) sock.send(JSON.stringify({ type: 'micState', muted: ctlState.muted }));
+      if (ctlState.tts != null) sock.send(JSON.stringify({ type: 'tts', on: ctlState.tts.on, ...(ctlState.tts.gender ? { gender: ctlState.tts.gender } : {}) }));
+      if (ctlState.audioOut != null) sock.send(JSON.stringify({ type: 'audioOut', on: ctlState.audioOut }));
+      if (ctlState.guestSens != null) sock.send(JSON.stringify({ type: 'desk-guest-sens', value: ctlState.guestSens }));
+    } catch {}
+  };
+
   for (const { src, stream } of sources) {
     streams.push(stream);
     const isAudioPipe = pipes.length === 0; // 서버 TTS 음성은 첫 연결에서만 재생(모두 모드 이중 재생 방지)
@@ -170,6 +193,8 @@ export async function startRecorder(opts) {
     // 소켓 배선 — 초기 연결과 자동 재연결이 공용
     const wire = (sock) => {
       sock.binaryType = 'arraybuffer';
+      // 재연결 소켓: 열리면 변경된 제어 상태 복원(초기 소켓 ws0 은 이미 OPEN 이라 안 걸림)
+      sock.onopen = () => resendState(sock);
       sock.onmessage = (ev) => {
         const m = JSON.parse(ev.data);
         // 중지 후 결과 수신 창(1.8초) 동안엔 자막 병합만 허용 — 구 소켓이 받은 takeover 등
@@ -196,12 +221,20 @@ export async function startRecorder(opts) {
 
     const ws0 = new WebSocket(wsUrl);
     pipe.ws = ws0;
-    await new Promise((res, rej) => {
-      // 연결이 영원히 매달리는(half-open) 경우 방지 — 12초 후 실패 처리
-      const to = setTimeout(() => { try { ws0.close(); } catch {} rej(new Error('연결 시간 초과 — 다시 시도해 주세요.')); }, 12000);
-      ws0.onopen = () => { clearTimeout(to); res(); };
-      ws0.onerror = () => { clearTimeout(to); rej(new Error('연결 실패 — 다시 시도해 주세요.')); };
-    });
+    try {
+      await new Promise((res, rej) => {
+        // 연결이 영원히 매달리는(half-open) 경우 방지 — 12초 후 실패 처리
+        const to = setTimeout(() => { try { ws0.close(); } catch {} rej(new Error('연결 시간 초과 — 다시 시도해 주세요.')); }, 12000);
+        ws0.onopen = () => { clearTimeout(to); res(); };
+        ws0.onerror = () => { clearTimeout(to); rej(new Error('연결 실패 — 다시 시도해 주세요.')); };
+      });
+    } catch (e) {
+      // 연결 실패 시 이미 획득한 마이크/스트림·오디오 자원을 정리하고 실패를 알린다(자원 누수 방지)
+      streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      pipes.forEach((p) => { try { p.ws.close(); } catch {} });
+      try { audioCtx.close(); } catch {}
+      throw e;
+    }
     wire(ws0);
 
     const node = audioCtx.createMediaStreamSource(stream);
@@ -279,7 +312,6 @@ export async function startRecorder(opts) {
     pipes.push(pipe);
   }
 
-  let stopped = false;
   function stop() {
     if (stopped) return;
     stopped = true;
@@ -304,6 +336,7 @@ export async function startRecorder(opts) {
   // 녹음 중에도 번역 음성 토글 가능: 로컬 재생 + 서버 전달 on/off
   function setAudioOut(on) {
     audioOutOn = !!on;
+    ctlState.audioOut = !!on;
     for (const p of pipes) {
       try {
         if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'audioOut', on: !!on }));
@@ -319,12 +352,14 @@ export async function startRecorder(opts) {
   // 서버에도 알림 → 발화 배타 락(호스트가 멈추면 뷰어가 발화 가능)
   function setMuted(on) {
     muted = !!on;
+    ctlState.muted = !!on;
     for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'micState', muted: !!on })); } catch {} }
   }
 
   // 녹음 중 TTS(음성 재생) 토글 — 로컬 재생 + 서버 합성/호스트 전송 on/off
   function setTts(on, genderSel) {
     audioOutOn = !!on;
+    ctlState.tts = { on: !!on, gender: genderSel || (ctlState.tts && ctlState.tts.gender) || null };
     for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'tts', on: !!on, ...(genderSel ? { gender: genderSel } : {}) })); } catch {} }
   }
 
@@ -338,7 +373,7 @@ export async function startRecorder(opts) {
   // 녹음 중 마이크 민감도 실시간 변경(0~100) — 클라이언트 볼륨 게이트만 조정, 연결 유지
   function setMicSens(v) { gateTh = sensToGate(Number(v)); }
   // 데스크: 여객 태블릿 마이크 민감도(0~100) — 서버 경유로 뷰어의 근접 게이트에 실시간 반영
-  function setGuestSens(v) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
+  function setGuestSens(v) { ctlState.guestSens = Number(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
 
   return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens };
 }

@@ -15,7 +15,6 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
-import { alpha } from '@mui/material/styles';
 import TranslateIcon from '@mui/icons-material/Translate';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -23,6 +22,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
+import { SIDEBAR } from '../theme.js';
 import { api } from '../api.js';
 
 const W = 248;
@@ -41,9 +41,8 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         width,
         minWidth: width,
         transition: 'width .2s ease, min-width .2s ease',
-        bgcolor: 'background.paper',
-        borderRight: 1,
-        borderColor: 'divider',
+        bgcolor: SIDEBAR.bg[mode] || SIDEBAR.bg.light, // 다크 사이드바 — 콘텐츠와 분리된 앱 아이덴티티
+        color: SIDEBAR.text,
         display: 'flex',
         flexDirection: 'column',
         p: 1.25,
@@ -66,15 +65,15 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
               sx={{ width: 38, height: 38, borderRadius: 2.5, flex: 'none', display: 'block' }}
             />
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontWeight: 800, fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap' }}>KAC Translator</Typography>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'nowrap' }}>실시간 음성 번역</Typography>
+              <Typography sx={{ fontWeight: 800, fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap', color: '#fff' }}>KAC Translator</Typography>
+              <Typography sx={{ fontSize: 11, color: SIDEBAR.muted, whiteSpace: 'nowrap' }}>실시간 음성 번역</Typography>
             </Box>
           </>
         )}
         {!mobile && (
           <Tooltip title={collapsed ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
-            <IconButton onClick={onToggleCollapsed} sx={{ flex: 'none' }}>
-              <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" sx={{ width: 20, height: 20, color: 'text.secondary' }}>
+            <IconButton onClick={onToggleCollapsed} sx={{ flex: 'none', '&:hover': { bgcolor: SIDEBAR.hover } }}>
+              <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" sx={{ width: 20, height: 20, color: SIDEBAR.muted }}>
                 <rect x="3" y="4" width="18" height="16" rx="2.5" />
                 <path d="M9 4v16" />
               </Box>
@@ -84,7 +83,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
       </Box>
 
       {!collapsed && (
-        <Typography sx={{ px: 1.5, mb: 0.5, fontSize: 11, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.04em' }}>
+        <Typography sx={{ px: 1.5, mb: 0.5, fontSize: 11, fontWeight: 700, color: SIDEBAR.muted, letterSpacing: '0.06em' }}>
           메뉴
         </Typography>
       )}
@@ -100,9 +99,9 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           onClick={(e) => setMenu(e.currentTarget)}
           sx={{
             display: 'flex', alignItems: 'center', gap: 1.25, cursor: 'pointer',
-            px: collapsed ? 0 : 1, py: 1, borderRadius: 2.5,
+            px: collapsed ? 0 : 1, py: 1, borderRadius: 1.25,
             justifyContent: collapsed ? 'center' : 'flex-start',
-            '&:hover': { bgcolor: 'action.hover' },
+            '&:hover': { bgcolor: SIDEBAR.hover },
           }}
         >
           <Avatar
@@ -115,10 +114,10 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           </Avatar>
           {!collapsed && (
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#fff' }}>
                 {user?.username || user?.id}
               </Typography>
-              <Typography sx={{ fontSize: 11, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+              <Typography sx={{ fontSize: 11, color: SIDEBAR.muted, whiteSpace: 'nowrap' }}>
                 {user?.id}{isAdmin ? ' · 관리자' : ''}
               </Typography>
             </Box>
@@ -240,14 +239,14 @@ function NavItem({ collapsed, icon, label, active, muted, onClick }) {
         alignItems: 'center',
         gap: 1.25,
         px: collapsed ? 0 : 1.5,
-        py: 1.15,
+        py: 1.05,
         justifyContent: collapsed ? 'center' : 'flex-start',
-        borderRadius: 2.5,
+        borderRadius: 1.25,
         cursor: 'pointer',
-        color: active ? 'primary.main' : muted ? 'text.secondary' : 'text.primary',
+        color: active ? '#fff' : muted ? SIDEBAR.muted : SIDEBAR.text,
         fontWeight: active ? 800 : 600,
-        bgcolor: (t) => (active ? alpha(t.palette.primary.main, t.palette.mode === 'dark' ? 0.16 : 0.1) : 'transparent'),
-        '&:hover': { bgcolor: 'action.hover' },
+        bgcolor: active ? SIDEBAR.active : 'transparent',
+        '&:hover': { bgcolor: active ? SIDEBAR.active : SIDEBAR.hover },
         whiteSpace: 'nowrap',
         transition: 'background .12s',
       }}

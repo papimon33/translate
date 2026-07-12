@@ -7,7 +7,6 @@ import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { api } from '../api.js';
 
 export default function Login({ onSuccess }) {
@@ -64,16 +63,16 @@ export default function Login({ onSuccess }) {
       <Paper
         component="form"
         onSubmit={submit}
-        elevation={3}
-        sx={{ p: 4, width: '100%', maxWidth: 360, borderRadius: 3 }}
+        variant="outlined"
+        sx={{ p: 4, width: '100%', maxWidth: 380, borderRadius: 2 }}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-          <LockOutlinedIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-          <Typography variant="h6" fontWeight={800}>
+          <Box component="img" src="/favicon.svg" alt="KAC" sx={{ width: 52, height: 52, borderRadius: 1.5, mb: 1.5 }} />
+          <Typography sx={{ fontWeight: 800, fontSize: 21, letterSpacing: '-0.02em' }}>
             KAC Translator
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            ID와 비밀번호로 로그인하세요
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+            실시간 음성 번역 · ID와 비밀번호로 로그인하세요
           </Typography>
         </Box>
         {err && (

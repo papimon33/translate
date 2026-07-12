@@ -236,3 +236,45 @@
 - `buildSonioxContextRaw` 에서 **`opts.desk` 일 때만** `ctx.general` 주입(일반세션·실시간엔 미주입). 한도 방어 루프는 translation_terms→terms 만 잘라 general 은 보존.
 - 검증: 실제 soniox WS 에 general 포함 데스크 config 전송 → ACCEPTED(수락). 서버 부팅 정상.
 - 편집하려면 server.js 의 DESK_GENERAL_CONTEXT 배열 수정(현재 코드 상수, 필요 시 termsConfig 로 승격해 UI 편집 가능하게 할 수 있음).
+
+## 2026-07-10 (9) — 데스크 2채널: 채널별 언어 고정 (one_way×2)
+- 배경: two_way 는 "한 스트림에 두 언어가 섞이는데 누가 말했는지 모를 때"의 도구. 2채널(호스트 마이크+여객 태블릿 마이크)은 기기=채널로 화자가 물리적으로 확정 → 언어 자동판별(확률)을 쓸 이유가 없음. soniox 는 토큰에 채널 식별자를 안 주므로 "한 세션에 두 기기 믹싱"은 화자 귀속 소실+동시발화 붕괴라 불가(검토 결론).
+- **configFor()** (runDesk): `lockedB && guestMicOn` 이면 호스트 채널을 `one_way(ko→손님 언어) + language_hints:[ko]` 로 고정. 여객 채널(gsx)은 원래 one_way(손님 언어→ko, 힌트 손님 언어) → **one_way×2 로 양방향 커버, 방향 뒤집힘 구조적 소멸 + 힌트 집중으로 인식 향상**. 단일 마이크 폴백(여객 마이크 off)은 two_way 유지.
+- **guestMic() 토글**: 응대 중 여객 마이크 on/off 로 모드가 바뀌면 `commit() → closeSx() → connectSx()` 로 호스트 세션 재체결(진행 중 발화는 커밋해 유실 방지). 상태 메시지에 "채널별 언어 고정, 단방향×2" 명시.
+- 자동 감지(Other languages) 흐름은 그대로 — 감지 완료 시 connectSx() 가 configFor() 를 다시 읽으므로 2채널이면 자연히 one_way 로 체결됨. 세션 수·비용은 기존 2채널과 동일(세션 2개, type 만 변경).
+- staffOwns/guestOwns·crossDup 누화 방어는 유지(one_way 라도 언어식별은 돌아서 새어 들어온 반대 언어 발화를 여전히 걸러 줌).
+- 검증: 실제 soniox 에 host one_way(ko→ja, 힌트 ko)·guest one_way(ja→ko, 힌트 ja) 각각 전송 → 둘 다 ACCEPTED. 서버 부팅 오류 0. **실 음성 2기기 테스트는 사용자 확인 필요.**
+
+## 2026-07-12 — UI 전면 개편(Slack 계열) + 용어 UI 단순화(쉼표 병기) + 코드 리뷰 수정 일괄
+### 용어 설정 UI 재단순화 (사용자 피드백: hover 약칭 칩 복잡)
+- **쉼표 병기 모델**: 약칭 칩·hover UI 전부 제거. 각 언어 칸에 `정식명, 약칭1, 약칭2` 로 입력 —
+  첫 표기=pair(양방향), 나머지=inputOnly(그 언어→ko 단방향) 로 저장 시 자동 변환(toEntries/groupEntries, splitCell 은 ,、， 모두 인식).
+  예: ja `日本航空, 日航, JAL` / zh `中国东方航空, 东航`. 서버 모델은 그대로.
+- 명칭: 키텀→**주요 용어**, 번역 용어→**번역 설정**. 회색 안내문구는 (i) 툴팁(InfoTip)으로 숨김.
+- 저장 안전장치: ① 같은 카테고리·같은 ko 중복 행 저장 차단(병합 유실 방지) ② 미완성 행은 저장에서 제외하되 화면에 남김(소리 없는 소멸 방지)
+  ③ 저장 중 편집하면 서버 스냅샷으로 덮지 않음(editGen 카운터) ④ 오탈자검사 lang 필드(서버 프롬프트에 추가) 우선 사용 — 한자만 일본어의 zh 오판 방지.
+- 참고: 구 테스트 행 '섬에어'(ko만 있던 미완성)는 과거 저장에서 소실된 상태였음 — ②로 재발 방지.
+### UI 전면 개편 (Slack 계열: 플랫·크리스프·다크 사이드바) — React 앱 전체
+- theme.js 재작성: shape 8(전역 radius 축소), 플랫 버튼(그라데이션·글로우 제거), Slack 그린/레드 계열 시맨틱 컬러,
+  다크 툴팁, 카드=1px 보더+무그림자, `SIDEBAR` 토큰 export.
+- Nav.jsx: **다크 사이드바**(라이트/다크 공통 딥 바이올렛 차콜) — 활성 항목 흰 필, hover 흰 7%, 로고·프로필 화이트 타이포.
+- Login.jsx: 로고+워드마크 중심, outlined 카드. 라이트/다크 모두 프리뷰 확인.
+### 벤더 사용량·데스크 통계
+- OpenAI 429 대응: `vendorFetch`(429 시 Retry-After 재시도) 전 벤더 적용, costs limit=기간 전체(페이지네이션 제거),
+  12h 타이머·라우트 갱신을 `kickVendorRefresh` 단일 가드로 통일(동시 실행 금지).
+- 차트 정렬: 서버가 세 벤더의 일자 축을 동일하게 채움(빈 날 0, 흐린 점) + 카드 보조문구 줄 상시 렌더 → 막대 기준선 1:1.
+  라벨은 최대 ~10개만(90일 겹침 방지). 조회 실패 시 저장분은 계속 표시(+갱신 실패 칩).
+- 데스크 통계: 데스크별 카드 나열 → **셀렉터로 1개만 표출**.
+- fetchSoniox 30일 청크 경계에 걸친 날짜 부분합 유실 → 합산 병합으로 수정(누적 데이터 정확성).
+### 코드 리뷰(서브에이전트 3, 발견 29건) → 수정 반영
+- 서버: ① 뷰어 PTT 서버측 강제(viewerPTT 조건 미검증 → 무인증 과금·타세션 주입 차단) ② translate/deepgram ready 미리셋+무상한 pending → close 시 리셋+상한 400
+  ③ desk sx/gsx close 시 ready 리셋(재연결 창 오디오 유실) ④ context 한도 방어 청크화(대용량 업로드 시 미절단·이벤트루프 블로킹)
+  ⑤ takeover 시 진행 중 응대 items 를 '중단된 응대(interrupted)'로 deskLog 보존+뷰어 리셋 ⑥ 데스크 사용량=active 시간만(대기 8시간이 과금 집계되던 문제)
+  ⑦ upgrade 핸들러 try/catch+socket.destroy(FD 누수) ⑧ endConversation 중 autoDetect 분기 차단.
+- 클라: audio.js `stopped` TDZ(모두 모드 초기 메시지 크래시), 시작 실패 시 마이크/AudioContext 정리(핫마이크 누수), 재연결 시 제어상태(tts/mute/guestSens) 재전송,
+  AdminPage 로그 열림·기간 토글 stale 응답 가드, 벤더 조회 실패 시 로딩 고착 해소.
+- desk.html: WS onclose 최신 소켓 가드(고아 소켓·여객 오디오 중단), removeMap 에서 `mapApi.destroy()`(rAF 누수 — 응대마다 누적되던 CPU/발열),
+  지도 에셋 실패 시 빈 카드 미표시, setGuestSens NaN 방어.
+- mobile.html: PTT 권한 대기 중 상태 변경 시 시작 취소(끌 수 없는 핫마이크), 복귀 시 actx.resume+outCursor 리셋(밀린 TTS 몰아 재생), JSON.parse 방어, loadSession 실패 5초 재시도.
+- **수정 보류(알려진 리스크)**: Mongo 디바운스 flush ↔ deleteOne 순서 미보장(삭제 항목 부활 가능, 타이밍 의존 희귀) / mobile 지도 rAF 는 인스턴스 재사용이라 누수 1개 고정(영향 미미).
+- 검증: 빌드 OK, 서버 부팅 오류 0, 용어 쉼표 왕복(东航+东方航空 추가→pair+inputOnly×2 확인→원복) + 저장 시 soniox 자동 검증 통과, 라이트/다크 프리뷰 스크린샷 확인.
