@@ -553,6 +553,47 @@ if (!termsConfig.updatedAt) {
   try { await persistTermsConfig(); console.log(`[terms] 구형 → v3 통합모델 마이그레이션 (${termsConfig.entries.length} entries)`); } catch (e) { console.error('[terms] 마이그레이션 저장 실패', e); }
 }
 
+/* ---- 용어 기본 번역 병합(부팅 시 1회, 멱등) ----
+   저장소(Mongo/파일) 어디에 있든, 아래 표의 한국어 용어에서 en/ja/zh 가 비어 있으면 채운다.
+   (파일만 고치면 Mongo 환경에 반영되지 않던 문제 — 코드 레벨 병합으로 로컬·배포 모두 보장) */
+const TERM_FILL = {
+  '주기장': { ja: '駐機場', zh: '停机坪' }, '램프': { ja: 'ランプ', zh: '机坪' }, '슬롯': { ja: 'スロット', zh: '时刻' },
+  '터미널': { ja: 'ターミナル', zh: '航站楼' }, '탑승구': { ja: '搭乗口', zh: '登机口' }, '항공기 유도': { ja: 'マーシャリング', zh: '飞机引导' },
+  '토잉': { ja: 'トーイング', zh: '拖曳' }, '토잉카': { ja: 'トーイングカー', zh: '拖车' }, '푸시백': { ja: 'プッシュバック', zh: '推出' },
+  '허브 공항': { ja: 'ハブ空港', zh: '枢纽机场' }, '커브사이드': { ja: 'カーブサイド', zh: '路边区' }, '랜드사이드': { ja: 'ランドサイド', zh: '陆侧' },
+  '에어사이드': { ja: 'エアサイド', zh: '空侧' }, '수하물 수취대': { ja: '手荷物受取台', zh: '行李转盘' },
+  '방빙유지시간': { ja: '防氷持続時間', zh: '防冰保持时间' }, '제빙 작업': { ja: '除氷作業', zh: '除冰作业' },
+  '지상 활주': { ja: '地上走行', zh: '滑行' }, '유도로': { ja: '誘導路', zh: '滑行道' }, '활주로': { ja: '滑走路', zh: '跑道' },
+  '주기장 번호': { ja: 'スポット番号', zh: '机位号' }, '보안검색': { ja: '保安検査', zh: '安检' }, '촉수검색': { ja: '接触検査', zh: '人身检查' },
+  '회항': { ja: 'ダイバート', zh: '备降' }, '체크인': { ja: 'チェックイン', zh: '值机' }, '탑승동': { ja: 'コンコース', zh: '登机廊' },
+  '턴어라운드': { ja: 'ターンアラウンド', zh: '过站' }, '지상조업 시간': { ja: 'ターンアラウンドタイム', zh: '过站时间' },
+  '세관': { ja: '税関', zh: '海关' }, '출입국심사': { ja: '出入国審査', zh: '边检' }, '검역': { ja: '検疫', zh: '检疫' },
+  '에어로케이': { zh: 'Aero K' }, '타이에어아시아엑스': { zh: '泰国亚洲航空长途' },
+  '섬에어': { en: 'Sum Air', ja: 'サムエア', zh: 'Sum Air' }, // 기존에 ko 만 있던 항목도 채움(추가 목록만으론 스킵됨)
+};
+const TERM_FILL_ADD = [ // 없으면 추가되는 항목
+  { category: 'airline', scope: ['*'], names: { ko: '섬에어', en: 'Sum Air', ja: 'サムエア', zh: 'Sum Air' }, mode: 'pair' },
+];
+{
+  let filled = 0, added = 0;
+  for (const e of termsConfig.entries || []) {
+    if (e.mode !== 'pair' || !e.names) continue;
+    const f = TERM_FILL[e.names.ko];
+    if (!f) continue;
+    for (const [lg, v] of Object.entries(f)) if (!e.names[lg]) { e.names[lg] = v; filled++; }
+  }
+  for (const add of TERM_FILL_ADD) {
+    if (!(termsConfig.entries || []).some((e) => e.mode === 'pair' && e.names && e.names.ko === add.names.ko)) {
+      termsConfig.entries.push({ id: 'fill' + Math.random().toString(36).slice(2, 8), ...add });
+      added++;
+    }
+  }
+  if (filled || added) {
+    termsConfig.updatedAt = Date.now();
+    try { await persistTermsConfig(); console.log(`[terms] 기본 번역 병합 — ${filled}칸 채움, ${added}항목 추가`); } catch (e) { console.error('[terms] 병합 저장 실패', e); }
+  }
+}
+
 /* ---- AI 요약 저장 ---- */
 let summarySaveTimer = null;
 function saveSummaries() {
@@ -917,7 +958,7 @@ app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
       crossDrops, crossDropRate: staffSent + guestSent + crossDrops > 0 ? +((crossDrops / (staffSent + guestSent + crossDrops)) * 100).toFixed(1) : 0,
       wayfindDetected: wl.length, wayfindShown: wl.filter((w) => w.shown).length,
       wayfindTop: Object.entries(wayfindTop).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([catId, count]) => ({ catId, count })),
-      daily: Object.entries(daily).sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-30).map(([date, count]) => ({ date, count })),
+      daily: Object.entries(daily).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, count]) => ({ date, count })), // 전체 — 기간·월별 뷰는 클라에서 필터/그룹핑
       hourly,
       rows: rows.slice(-500),
     };
@@ -1370,9 +1411,13 @@ function kickVendorRefresh() {
 }
 app.get('/api/admin/vendor-usage', requireAdmin, async (req, res) => {
   const days = Math.min(365, Math.max(1, Number(req.query.days) || 14));
-  // 10분보다 오래됐으면 신선화(과금·쿼터 보호). 중복 호출은 한 번만 실행.
-  if (Date.now() - vendorRefreshAt > 10 * 60e3) {
-    try { await kickVendorRefresh(); } catch {}
+  // 10분보다 오래됐으면 백그라운드로 신선화하고, 응답은 저장분으로 즉시 — 화면이 벤더 API 왕복(수 초)을 기다리지 않는다.
+  // 단, 저장분이 아예 없으면(첫 부팅 직후) 한 번은 기다려 빈 화면을 피한다.
+  const stale = Date.now() - vendorRefreshAt > 10 * 60e3;
+  const empty = !Object.keys(vendorUsage.soniox).length && !Object.keys(vendorUsage.cartesia).length && !Object.keys(vendorUsage.openai).length;
+  if (stale) {
+    const p = kickVendorRefresh();
+    if (empty) { try { await p; } catch {} }
   }
   const cut = kstDay(Date.now() - (days - 1) * 86400e3);
   const svcKeys = { soniox: !!SONIOX_API_KEY, cartesia: !!CARTESIA_API_KEY, openai: !!OPENAI_API_KEY };

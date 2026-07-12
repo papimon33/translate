@@ -294,3 +294,17 @@
 - **TTS 샘플 스크립트**: `scripts/gen_tts_samples.mjs` — en/ja/zh/ru/es('라틴어'→라틴어권 스페인어로 해석) 테스트 문장을 Cartesia mp3 로 `tts_samples/<lang>/` 에 생성.
   **로컬 .env 에 CARTESIA_API_KEY 없어 미실행** — 키 있는 환경에서 `CARTESIA_API_KEY=... node scripts/gen_tts_samples.mjs`.
 - 검증: 빌드·테스트(fail 0)·부팅 OK, desk-stats v2 응답 필드 확인, 삭제 API 404 방어 확인, es 폴백(대한항공→Korean Air) 확인, AirTalk 라이트/다크 프리뷰 확인.
+
+## 2026-07-12 (3) — 통계·목록 UI 다듬기 + 용어 Mongo 병합 + TTS 샘플 등 18건
+- **용어가 안 채워져 보이던 원인**: 로컬 .env 에 MONGODB_URI 가 있어 서버는 **Mongo**에서 용어를 읽는데, 이전 작업이 data/terms_config.json **파일만** 수정했음.
+  → **부팅 시 코드 레벨 병합**(`TERM_FILL`/`TERM_FILL_ADD`, 멱등): 표의 한국어 용어에서 en/ja/zh 빈 칸을 채움. Mongo 에 64칸 채워짐 + 섬에어(ko만 있던 기존 항목) 완성. 미완성 pair 0.
+- **OpenAI 429 후속**은 이전 커밋에서 수정(문자열 합계). **벤더 사용량 속도**: 조회가 갱신을 기다리지 않고 저장분 즉시 반환, 갱신은 백그라운드(빈 저장소일 때만 1회 대기).
+- **벤더 실사용량 UI**: 기본 기간 7일(토글과 일치), 설명 문구 삭제, 유저별 사용량은 인원수 표기+고정 높이 스크롤 목록(다수 유저 대응).
+- **데스크 운영 통계 UI**: 제목을 박스 안으로(벤더 카드와 통일), 셀렉터에 **전체**(클라 합산 aggregateDeskStats), '일별 응대 추이'→**기간별 통계**(7/30/90일/전체 × 일별/월별, 기본 7일·일별, 빈 날 0 채움 — 서버 daily 상한 제거),
+  시간대별(좌)+언어별(우) 1열 배치(언어별은 건수 막대그래프), CSV 는 아이콘만(전체 선택 시 desk 열 포함), 누화 드랍율 (i) 툴팁.
+- **세션 목록(실시간 번역·데스크 안내)**: ① 一括 선택 모드(선택 버튼 → 체크박스+n개 선택+일괄 삭제, Promise.allSettled) ② 데스크톱 hover 인라인 액션(제목변경/대화내역저장/삭제 — 슬랙 스타일), 모바일은 케밥 유지 ③ 모바일 빈 툴바 줄 제거(제목-목록 간격 축소, FAB 유지).
+- **Cartesia reference id 검토(#15)**: TTS bytes API 요청 본문은 model_id/transcript/voice/language/output_format/pronunciation_dict_id/generation_config 만 허용 — **유저 태깅 필드 없음**(헤더도 없음). 유저별 TTS 집계가 필요하면 서버 내부 집계(문자수/호출수)로만 가능.
+- **Mongo 보안 검토(#16)**: mongodb+srv(TLS 기본) + URI 에 user:pass 자격증명 포함 — "URL만 있으면 접근"은 URI 자체가 자격증명이기 때문(표준 방식). .env 는 gitignore, 실제 URI 커밋 이력 없음(.env.example 은 placeholder).
+  권고: ① Atlas Network Access 를 Render egress IP 로 제한(0.0.0.0/0 금지) ② DB 사용자 최소권한(readWrite@해당DB) ③ 유출 의심 시 비밀번호 교체 ④ Mongo 문서는 앱 레벨 평문(DATA_KEY 암호화는 파일 모드 전용) — 민감 필드 암호화는 필요 시 별도 작업.
+- **TTS 샘플 생성 완료(#17)**: `tts_samples/{en,ja,zh,ru,es}/<lang>_{female,male}.mp3` 10개 (Cartesia sonic-3.5, 미리듣기 문장. '라틴어'→스페인어 해석).
+- 검증: 부팅 병합 로그(64칸), 미완성 pair 0, 사용량 탭·데스크 통계·세션 목록(호버 액션/선택 모드/모바일 간격) 프리뷰 확인, 빌드 OK.

@@ -19,6 +19,7 @@ import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Select from '@mui/material/Select';
+import Checkbox from '@mui/material/Checkbox';
 import Fab from '@mui/material/Fab';
 import { alpha } from '@mui/material/styles';
 import Snackbar from '@mui/material/Snackbar';
@@ -99,6 +100,8 @@ export default function SessionList({ onOpen, user, deskMode }) {
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
   const [rename, setRename] = useState(null); // { id, val } 제목 변경
+  const [selMode, setSelMode] = useState(false); // 일괄 선택 모드
+  const [selIds, setSelIds] = useState(() => new Set());
   const [showOnboard, setShowOnboard] = useState(() => localStorage.getItem('kac-onboard-v1') !== '1'); // 첫 사용 안내
   const dismissOnboard = () => { setShowOnboard(false); localStorage.setItem('kac-onboard-v1', '1'); };
 
@@ -129,9 +132,9 @@ export default function SessionList({ onOpen, user, deskMode }) {
     }
   };
 
-  const exportSession = async () => {
+  const exportSession = async (sess) => {
     let s;
-    try { s = await api.get(menu.session.id); }
+    try { s = await api.get(sess.id); }
     catch (e) { setMenu(null); setSnack({ ok: false, msg: '내보내기 실패: ' + (e.message || '네트워크 오류') }); return; }
     setMenu(null);
     const lines = s.items.map((it) => {
@@ -147,14 +150,27 @@ export default function SessionList({ onOpen, user, deskMode }) {
     a.click();
     URL.revokeObjectURL(a.href);
   };
-  const removeSession = async () => {
-    const id = menu.session.id;
+  const removeSession = async (sess) => {
     setMenu(null);
     if (!confirm('이 세션을 삭제할까요?')) return;
-    try { await api.remove(id); } catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
+    try { await api.remove(sess.id); } catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
     reload();
   };
-  const startRename = () => { setRename({ id: menu.session.id, val: menu.session.title || '' }); setMenu(null); };
+  const startRename = (sess) => { setRename({ id: sess.id, val: sess.title || '' }); setMenu(null); };
+  // 일괄 선택 삭제
+  const toggleSel = (id) => setSelIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const exitSel = () => { setSelMode(false); setSelIds(new Set()); };
+  const bulkDelete = async () => {
+    const ids = [...selIds];
+    if (!ids.length) return;
+    if (!confirm(`선택한 ${ids.length}개 세션을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    const results = await Promise.allSettled(ids.map((id) => api.remove(id)));
+    const fail = results.filter((r) => r.status === 'rejected').length;
+    if (fail) setSnack({ ok: false, msg: `${fail}개 삭제 실패` });
+    else setSnack({ ok: true, msg: `${ids.length}개 세션을 삭제했습니다.` });
+    exitSel();
+    reload();
+  };
   const saveRename = async () => {
     const { id, val } = rename;
     setRename(null);
@@ -170,17 +186,35 @@ export default function SessionList({ onOpen, user, deskMode }) {
     <>
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
-          {/* 페이지 제목 — 좌측 정렬(상단 여백) */}
-          <Typography sx={{ textAlign: 'left', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mt: { xs: 2, sm: 5 }, mb: { xs: 3, sm: 4.5 } }}>
+          {/* 페이지 제목 — 좌측 정렬. 모바일은 새 세션이 FAB 라 툴바가 없으므로 목록을 바로 위로 붙임 */}
+          <Typography sx={{ textAlign: 'left', fontWeight: 800, fontSize: { xs: 23, sm: 28 }, letterSpacing: '-0.02em', mt: { xs: 2, sm: 5 }, mb: { xs: 2, sm: 4.5 } }}>
             {deskMode ? '데스크 안내' : '실시간 번역'}
           </Typography>
-          {/* 상단 툴바: 새 세션 */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
-            <Box sx={{ flex: 1 }} />
-            <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
-              새 세션
-            </Button>
+          {/* 상단 툴바: 선택(일괄 삭제) + 새 세션 — 모바일에선 숨김(FAB 사용, 빈 줄 여백 제거) */}
+          <Box sx={{ display: { xs: selMode ? 'flex' : 'none', sm: 'flex' }, alignItems: 'center', gap: 1, mb: 2, minHeight: 36 }}>
+            {selMode ? (
+              <>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary' }}>{selIds.size}개 선택</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" onClick={exitSel} sx={{ color: 'text.secondary' }}>취소</Button>
+                <Button size="small" variant="contained" color="error" disabled={!selIds.size} onClick={bulkDelete} startIcon={<DeleteOutlineIcon />}>삭제</Button>
+              </>
+            ) : (
+              <>
+                <Box sx={{ flex: 1 }} />
+                {shown.length > 0 && <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary' }}>선택</Button>}
+                <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+                  새 세션
+                </Button>
+              </>
+            )}
           </Box>
+          {/* 모바일: 선택 모드 진입 버튼(목록 위 얇은 줄) */}
+          {!selMode && shown.length > 0 && (
+            <Box sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'flex-end', mb: 1 }}>
+              <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary', py: 0 }}>선택</Button>
+            </Box>
+          )}
 
           {/* 첫 사용 온보딩: 모드 3종 안내(1회 표시) */}
           {!deskMode && showOnboard && (
@@ -228,6 +262,7 @@ export default function SessionList({ onOpen, user, deskMode }) {
 
           {shown.map((s) => {
             const Ic = MODE_ICON[s.preset] || IconMode2;
+            const checked = selIds.has(s.id);
             return (
             <Card
               key={s.id}
@@ -235,21 +270,26 @@ export default function SessionList({ onOpen, user, deskMode }) {
                 mb: 1.5,
                 display: 'flex',
                 alignItems: 'center',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6, borderColor: 'primary.main' },
+                borderColor: selMode && checked ? 'primary.main' : undefined,
+                '&:hover': { borderColor: 'primary.main' },
+                '&:hover .rowActs': { opacity: 1 },
               }}
             >
-              <CardActionArea onClick={() => onOpen(s)} sx={{ px: 2, py: 1.75, display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
+              {selMode && (
+                <Checkbox checked={checked} onChange={() => toggleSel(s.id)} sx={{ ml: 1 }} />
+              )}
+              <CardActionArea onClick={() => (selMode ? toggleSel(s.id) : onOpen(s))} sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'flex-start', gap: 2 }}>
                 <Avatar
                   variant="rounded"
-                  sx={{ width: 46, height: 46, borderRadius: 3, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}
+                  sx={{ width: 44, height: 44, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}
                 >
-                  <Ic sx={{ width: 23, height: 23 }} />
+                  <Ic sx={{ width: 22, height: 22 }} />
                 </Avatar>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography sx={{ fontWeight: 600, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Typography sx={{ fontWeight: 600, fontSize: 15.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.title || '(제목 없음)'}
                   </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.6 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                     {s.preset && TYPE_NAME[s.preset] && (
                       <Chip size="small" label={TYPE_NAME[s.preset]} sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
                     )}
@@ -257,9 +297,20 @@ export default function SessionList({ onOpen, user, deskMode }) {
                   </Box>
                 </Box>
               </CardActionArea>
-              <IconButton sx={{ mr: 1 }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
-                <MoreVertIcon />
-              </IconButton>
+              {!selMode && (
+                <>
+                  {/* 데스크톱: hover 시 인라인 액션(슬랙 스타일) */}
+                  <Box className="rowActs" sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 0.25, mr: 1, opacity: 0, transition: 'opacity .12s' }}>
+                    <Tooltip title="제목 변경"><IconButton size="small" onClick={() => startRename(s)}><EditOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+                    <Tooltip title="대화내역 저장"><IconButton size="small" onClick={() => exportSession(s)}><DownloadIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+                    <Tooltip title="삭제"><IconButton size="small" onClick={() => removeSession(s)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+                  </Box>
+                  {/* 모바일: 케밥 메뉴 유지(hover 없음) */}
+                  <IconButton sx={{ mr: 1, display: { xs: 'inline-flex', sm: 'none' } }} onClick={(e) => setMenu({ anchor: e.currentTarget, session: s })}>
+                    <MoreVertIcon />
+                  </IconButton>
+                </>
+              )}
             </Card>
             );
           })}
@@ -277,19 +328,19 @@ export default function SessionList({ onOpen, user, deskMode }) {
       </Fab>
 
       <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
-        <MenuItem onClick={startRename}>
+        <MenuItem onClick={() => startRename(menu.session)}>
           <ListItemIcon>
             <EditOutlinedIcon fontSize="small" />
           </ListItemIcon>
           제목 변경
         </MenuItem>
-        <MenuItem onClick={exportSession}>
+        <MenuItem onClick={() => exportSession(menu.session)}>
           <ListItemIcon>
             <DownloadIcon fontSize="small" />
           </ListItemIcon>
           대화내역 저장
         </MenuItem>
-        <MenuItem onClick={removeSession} sx={{ color: 'error.main' }}>
+        <MenuItem onClick={() => removeSession(menu.session)} sx={{ color: 'error.main' }}>
           <ListItemIcon>
             <DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} />
           </ListItemIcon>
