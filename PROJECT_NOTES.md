@@ -327,3 +327,9 @@
 - **데스크 '세션 자동중지(무음)' 설정 disabled 해제**: 데스크는 진입 즉시 상시 캡처(recording=true)라 `disabled={recording}` 으로는 영영 변경 불가였음 →
   서버 `desk-idle` 메시지 추가(deskIdleMs const→let, 수신 시 5초~120초 클램프 + 진행 중이면 armForeignTimer 재장전 + 상태 안내),
   audio.js `setDeskIdle(ms)`, TranslateView 는 disabled 제거하고 변경 즉시 localStorage + 라이브 전송. desk-guest-sens 와 동일 패턴.
+
+## 2026-07-12 (7) — Claude 앱 팔레트 정밀 적용 · Nav 다듬기 · 새 로고
+- **Claude 팔레트와 동일 톤**(웜 뉴트럴): 라이트 bg `#FAF9F5`/paper `#FFF`/사이드바 `#F5F4EE`, 다크 bg `#262624`/paper `#30302E`/사이드바 `#1F1E1D`, 텍스트 `#1F1E1D`↔`#FAF9F5`. 포인트 컬러(바이올렛)는 AirTalk 아이덴티티로 유지(테라코타로 바꾸려면 theme.js ACCENT 만 교체).
+- Nav: 로고 하단 "메뉴" 라벨 삭제, 메뉴 항목·프로필·프로필 팝오버 메뉴 폰트 13.
+- **새 로고**(favicon.svg): 말풍선 안 음성 파형 — '음성 대화 번역'을 한 형태로. 바이올렛 그라데이션 라운드 스퀘어(rx18). 탭 아이콘·Nav·로그인 공용.
+- 검증: 라이트/다크 프리뷰 스크린샷, 빌드 OK.

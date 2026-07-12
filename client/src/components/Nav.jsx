@@ -84,11 +84,6 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         )}
       </Box>
 
-      {!collapsed && (
-        <Typography sx={{ px: 1.5, mb: 0.5, fontSize: 11, fontWeight: 700, color: S.muted, letterSpacing: '0.06em' }}>
-          메뉴
-        </Typography>
-      )}
       <NavItem S={S} collapsed={collapsed} icon={<TranslateIcon fontSize="small" />} label="실시간 번역" active={view === 'sessions'} onClick={onHome} />
       <NavItem S={S} collapsed={collapsed} icon={<RecordVoiceOverIcon fontSize="small" />} label="데스크 안내" active={view === 'desk'} onClick={onDesk} />
       {isAdmin && (
@@ -116,7 +111,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           </Avatar>
           {!collapsed && (
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: S.textStrong }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: S.textStrong }}>
                 {user?.username || user?.id}
               </Typography>
               <Typography sx={{ fontSize: 11, color: S.muted, whiteSpace: 'nowrap' }}>
@@ -127,10 +122,11 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         </Box>
       </Box>
 
-      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} transformOrigin={{ vertical: 'bottom', horizontal: 'left' }} anchorOrigin={{ vertical: 'top', horizontal: 'left' }}>
+      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} transformOrigin={{ vertical: 'bottom', horizontal: 'left' }} anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { '& .MuiMenuItem-root': { fontSize: 13 } } } }}>
         <Box sx={{ px: 2, py: 1 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 14 }}>{user?.username || user?.id}</Typography>
-          <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{user?.id}{isAdmin ? ' · 관리자' : ''}</Typography>
+          <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{user?.username || user?.id}</Typography>
+          <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>{user?.id}{isAdmin ? ' · 관리자' : ''}</Typography>
         </Box>
         <Divider />
         <MenuItem onClick={() => { setMenu(null); onToggleTheme(); }}>
@@ -254,7 +250,7 @@ function NavItem({ S, collapsed, icon, label, active, muted, onClick }) {
       }}
     >
       {icon}
-      {!collapsed && <span style={{ fontSize: 14 }}>{label}</span>}
+      {!collapsed && <span style={{ fontSize: 13 }}>{label}</span>}
     </Box>
   );
   return collapsed ? (

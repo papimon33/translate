@@ -10,36 +10,37 @@ export const GRAD = {
   dark: ['#8579ff', '#6354e0'],
   light: ['#7c6df2', '#5b4fe8'],
 };
-// 사이드바 토큰 — Nav 에서 사용. (Claude 앱처럼) 테마를 따라감: 라이트=밝은 웜 그레이, 다크=콘텐츠보다 어두운 그레이.
+// 사이드바 토큰 — Nav 에서 사용. Claude 앱과 동일 톤: 라이트=웜 아이보리(#F5F4EE), 다크=#1F1E1D.
 export const SIDEBAR = {
   light: {
-    bg: '#f6f5f4',
-    text: 'rgba(29,28,29,0.85)',
-    textStrong: '#1d1c1d',
-    muted: 'rgba(29,28,29,0.52)',
-    hover: 'rgba(29,28,29,0.06)',
-    active: 'rgba(29,28,29,0.10)',
-    border: 'rgba(29,28,29,0.10)',
+    bg: '#f5f4ee',
+    text: 'rgba(31,30,29,0.85)',
+    textStrong: '#1f1e1d',
+    muted: 'rgba(31,30,29,0.52)',
+    hover: 'rgba(31,30,29,0.06)',
+    active: 'rgba(31,30,29,0.10)',
+    border: 'rgba(31,30,29,0.10)',
   },
   dark: {
-    bg: '#121116',
-    text: 'rgba(255,255,255,0.85)',
-    textStrong: '#ffffff',
-    muted: 'rgba(255,255,255,0.55)',
-    hover: 'rgba(255,255,255,0.07)',
-    active: 'rgba(255,255,255,0.12)',
-    border: 'rgba(255,255,255,0.09)',
+    bg: '#1f1e1d',
+    text: 'rgba(250,249,245,0.85)',
+    textStrong: '#faf9f5',
+    muted: 'rgba(250,249,245,0.52)',
+    hover: 'rgba(250,249,245,0.07)',
+    active: 'rgba(250,249,245,0.12)',
+    border: 'rgba(250,249,245,0.09)',
   },
 };
 
 export function buildTheme(mode) {
   const dark = mode === 'dark';
   const primary = dark ? ACCENT.dark : ACCENT.light;
-  const bgDefault = dark ? '#141317' : '#f8f8f8';
-  const bgPaper = dark ? '#1b1a20' : '#ffffff';
-  const divider = dark ? 'rgba(255,255,255,0.09)' : 'rgba(29,28,29,0.13)';
-  const textPrimary = dark ? '#f4f3f6' : '#1d1c1d';
-  const textSecondary = dark ? '#a6a3af' : '#616061';
+  // Claude 앱 팔레트와 동일: 라이트 #FAF9F5/#FFF, 다크 #262624/#30302E (웜 뉴트럴)
+  const bgDefault = dark ? '#262624' : '#faf9f5';
+  const bgPaper = dark ? '#30302e' : '#ffffff';
+  const divider = dark ? 'rgba(250,249,245,0.10)' : 'rgba(31,30,29,0.12)';
+  const textPrimary = dark ? '#faf9f5' : '#1f1e1d';
+  const textSecondary = dark ? '#b3b1a9' : '#6b6a63';
 
   return createTheme({
     palette: {
