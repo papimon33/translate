@@ -69,10 +69,10 @@ export default function Login({ onSuccess }) {
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
           <Box component="img" src="/favicon.svg" alt="KAC" sx={{ width: 52, height: 52, borderRadius: 1.5, mb: 1.5 }} />
           <Typography sx={{ fontWeight: 800, fontSize: 21, letterSpacing: '-0.02em' }}>
-            KAC Translator
+            AirTalk
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-            실시간 음성 번역 · ID와 비밀번호로 로그인하세요
+            ID와 비밀번호로 로그인하세요
           </Typography>
         </Box>
         {err && (

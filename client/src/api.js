@@ -140,6 +140,10 @@ export const api = {
   adminLogs: () => fetch('/api/admin/logs').then(json),
   adminDeskLog: (sid, idx) => fetch(`/api/admin/logs/desk/${encodeURIComponent(sid)}/${idx}`).then(json),
   adminSessionLog: (id) => fetch('/api/admin/logs/session/' + encodeURIComponent(id)).then(json),
+  // 로그 정리(삭제): 데스크 응대 1건 / 데스크 전체 / 일반 세션 대화 기록
+  adminDeleteDeskLog: (sid, idx) => fetch(`/api/admin/logs/desk/${encodeURIComponent(sid)}/${idx}`, { method: 'DELETE' }).then(json),
+  adminClearDeskLogs: (sid) => fetch(`/api/admin/logs/desk/${encodeURIComponent(sid)}`, { method: 'DELETE' }).then(json),
+  adminClearSessionLog: (id) => fetch('/api/admin/logs/session/' + encodeURIComponent(id), { method: 'DELETE' }).then(json),
   adminResetPassword: (id, password) =>
     fetch('/api/admin/users/' + encodeURIComponent(id) + '/password', {
       method: 'POST',

@@ -25,10 +25,9 @@ import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import LockResetIcon from '@mui/icons-material/LockReset';
-import PeopleAltOutlinedIcon from '@mui/icons-material/PeopleAltOutlined';
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
-import PaidOutlinedIcon from '@mui/icons-material/PaidOutlined';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import TermsConfigPage from './TermsConfigPage.jsx';
 import { api } from '../api.js';
 
@@ -255,7 +254,21 @@ function LogsPanel() {
   const [open, setOpen] = useState(null); // { kind:'desk'|'session', key, loading, detail }
   const [deskMore, setDeskMore] = useState({}); // { [deskId]: 표시 수 }
   const [sessCap, setSessCap] = useState(LOGS_SESS_CAP);
-  useEffect(() => { api.adminLogs().then(setData).catch(() => setData({ desks: [], sessions: [] })); }, []);
+  const load = () => api.adminLogs().then(setData).catch(() => setData({ desks: [], sessions: [] }));
+  useEffect(() => { load(); }, []);
+  // 로그 정리(삭제) — 시범운영 데이터 관리용. 삭제 후 목록·열람 상태 갱신
+  const delDeskLog = async (sid, idx) => {
+    if (!confirm('이 응대 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
+    try { await api.adminDeleteDeskLog(sid, idx); setOpen(null); await load(); } catch (e) { alert(e.message || '삭제 실패'); }
+  };
+  const clearDeskLogs = async (sid, n) => {
+    if (!confirm(`이 데스크의 응대 기록 ${n}건을 모두 삭제할까요? 통계도 초기화됩니다. 되돌릴 수 없습니다.`)) return;
+    try { await api.adminClearDeskLogs(sid); setOpen(null); await load(); } catch (e) { alert(e.message || '삭제 실패'); }
+  };
+  const clearSessionLog = async (id) => {
+    if (!confirm('이 세션의 대화 기록을 삭제할까요? 세션 자체는 유지됩니다. 되돌릴 수 없습니다.')) return;
+    try { await api.adminClearSessionLog(id); setOpen(null); await load(); } catch (e) { alert(e.message || '삭제 실패'); }
+  };
   // 늦게 도착한 응답이 현재 선택(다른 항목/닫힘)을 덮지 않도록 — 여전히 같은 key 가 열려 있을 때만 반영
   const settleOpen = (key, next) => setOpen((cur) => (cur && cur.key === key ? next : cur));
   const openDesk = async (sid, idx) => {
@@ -283,17 +296,26 @@ function LogsPanel() {
         const shown = d.logs.slice(0, cap);
         return (
         <Paper key={d.id} variant="outlined" sx={{ borderRadius: 1.5, p: 2, mb: 2 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 14, mb: 1 }}>{d.title} <Box component="span" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: 12.5 }}>· 응대 {d.logs.length}건</Box></Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{d.title} <Box component="span" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: 12.5 }}>· 응대 {d.logs.length}건</Box></Typography>
+            {d.logs.length > 0 && (
+              <Button size="small" color="error" onClick={() => clearDeskLogs(d.id, d.logs.length)} sx={{ fontSize: 11.5, py: 0 }}>로그 전체 삭제</Button>
+            )}
+          </Box>
           {d.logs.length === 0 && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>아직 응대 기록이 없습니다.</Typography>}
           {shown.map((e) => (
             <Box key={e.idx}>
               <Box onClick={() => openDesk(d.id, e.idx)}
-                sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.75, px: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) } }}>
+                sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.75, px: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) }, '&:hover .delBtn': { opacity: 1 } }}>
                 <Typography sx={{ fontSize: 12.5, color: 'text.secondary', minWidth: 96 }}>{fmtTime(e.endedAt)}</Typography>
                 <Chip size="small" label={LANG_KO[e.lang] || e.lang || '미상'} sx={{ height: 20, fontSize: 11, fontWeight: 700 }} />
-                <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
+                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', flex: 1 }}>
                   {durOf(e)} · {e.count}문장{e.stats ? ` · 누화드랍 ${e.stats.crossDrops}` : ''}
                 </Typography>
+                <IconButton size="small" className="delBtn" sx={{ opacity: 0, transition: 'opacity .12s' }}
+                  onClick={(ev) => { ev.stopPropagation(); delDeskLog(d.id, e.idx); }}>
+                  <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+                </IconButton>
               </Box>
               {open && open.key === `d:${d.id}:${e.idx}` && (
                 <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
@@ -343,7 +365,16 @@ function LogsPanel() {
                 <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
                   {open.loading ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', py: 1 }}>불러오는 중…</Typography>
                     : open.error ? <Typography sx={{ fontSize: 12.5, color: 'error.main', py: 1 }}>{open.error}</Typography>
-                    : <Box sx={{ maxHeight: 340, overflowY: 'auto' }}><TranscriptView items={open.detail?.items} /></Box>}
+                    : (
+                      <>
+                        {(open.detail?.items || []).length > 0 && (
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 0.5 }}>
+                            <Button size="small" color="error" sx={{ fontSize: 11.5, py: 0 }} onClick={() => clearSessionLog(s.id)}>대화 기록 삭제</Button>
+                          </Box>
+                        )}
+                        <Box sx={{ maxHeight: 340, overflowY: 'auto' }}><TranscriptView items={open.detail?.items} /></Box>
+                      </>
+                    )}
                 </Box>
               )}
             </Box>
@@ -364,55 +395,117 @@ function LogsPanel() {
 
 const LANG_KO = { en: '영어', ja: '일본어', zh: '중국어', vi: '베트남어', th: '태국어', id: '인도네시아어', ru: '러시아어', ko: '한국어', unknown: '미상' };
 
-// 데스크 통계: 데스크별 응대 건수·언어 분포·평균 응대 시간·일별 추이 (대화 내용은 조회하지 않음)
-// 데스크가 여러 개여도 세로로 쌓지 않고, 셀렉터로 고른 데스크의 그래프 하나만 보여준다.
+// 데스크 운영 통계(v2): 시범운영 보고서용 — 셀렉터로 데스크를 고르면 그 데스크의 상세 지표만 표출.
+// 지표: 응대 건수(중단 포함)·평균/중앙값 응대시간·평균 문장수·누화 드랍율·길안내 감지→표시율,
+// 일별 추이·시간대 분포·언어별 상세. 원자료는 CSV 로 내려받아 외부 분석/보고서에 사용.
+function BarRow({ items, height = 64, labelOf, valueOf, tipOf, labelEvery = 1 }) {
+  const max = Math.max(1e-9, ...items.map(valueOf));
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, height }}>
+      {items.map((x, i) => (
+        <Tooltip key={i} title={tipOf(x, i)}>
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.4, height: '100%', justifyContent: 'flex-end' }}>
+            <Box sx={{ width: '64%', height: `${Math.max(2, (valueOf(x) / max) * (height - 20))}px`, borderRadius: 0.75, bgcolor: 'primary.main', opacity: valueOf(x) ? 0.75 : 0.18 }} />
+            <Typography sx={{ fontSize: 9.5, color: 'text.disabled', whiteSpace: 'nowrap', height: 12 }}>{i % labelEvery === 0 ? labelOf(x, i) : ''}</Typography>
+          </Box>
+        </Tooltip>
+      ))}
+    </Box>
+  );
+}
+function MetricBox({ label, value, sub }) {
+  return (
+    <Box sx={{ flex: '1 1 130px', minWidth: 120, p: 1.5, borderRadius: 1.25, border: 1, borderColor: 'divider' }}>
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'text.secondary' }}>{label}</Typography>
+      <Typography sx={{ fontSize: 19, fontWeight: 800, lineHeight: 1.3, mt: 0.25 }}>{value}</Typography>
+      {sub && <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>{sub}</Typography>}
+    </Box>
+  );
+}
 function DeskStats() {
   const [stats, setStats] = useState(null);
   const [sel, setSel] = useState('');
   useEffect(() => { api.adminDeskStats().then(setStats).catch(() => setStats([])); }, []);
   if (!stats) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
   if (!stats.length) return <Typography sx={{ fontSize: 13, color: 'text.disabled', py: 1 }}>안내데스크 세션이 아직 없습니다. 데스크 안내에서 세션을 만들면 응대 통계가 집계됩니다.</Typography>;
-  const total = stats.reduce((a, d) => a + d.count, 0);
   const d = stats.find((x) => x.id === sel) || stats[0];
-  const langEntries = Object.entries(d.langs || {}).sort((a, b) => b[1] - a[1]);
-  const maxDay = Math.max(1, ...(d.daily || []).map((x) => x.count));
+  const langRows = Object.entries(d.byLang || {}).sort((a, b) => b[1].count - a[1].count);
+  const hourly = (d.hourly || []).map((count, hour) => ({ hour, count }));
+  const downloadCsv = () => {
+    const head = 'date,startedAt,endedAt,durSec,lang,sentences,staff,guest,crossDrops,interrupted';
+    const lines = (d.rows || []).map((r) => [
+      r.date, r.startedAt ? new Date(r.startedAt).toISOString() : '', r.endedAt ? new Date(r.endedAt).toISOString() : '',
+      r.durMs != null ? Math.round(r.durMs / 1000) : '', r.lang, r.sentences, r.staff ?? '', r.guest ?? '', r.crossDrops ?? '', r.interrupted ? 1 : 0,
+    ].join(','));
+    const blob = new Blob(['﻿' + [head, ...lines].join('\n')], { type: 'text/csv;charset=utf-8' }); // BOM: 엑셀 한글 인코딩
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `desk-stats-${d.id}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  };
   return (
-    <>
-      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
-        <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="총 응대 건수" value={total} />
-        <StatCard icon={<PeopleAltOutlinedIcon fontSize="small" />} label="안내데스크 수" value={stats.length} />
-        <StatCard icon={<ScheduleOutlinedIcon fontSize="small" />} label="평균 응대 시간" value={fmtDuration(stats.reduce((a, x) => a + x.avgMs * x.count, 0) / Math.max(1, total))} />
-      </Box>
-      <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
-          <TextField select size="small" value={d.id} onChange={(e) => setSel(e.target.value)} SelectProps={{ native: true }} sx={{ minWidth: 180 }}>
-            {stats.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
-          </TextField>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            응대 {d.count}건 · 평균 {fmtDuration(d.avgMs)} · 길안내 감지 {d.wayfindDetected}건 중 표시 {d.wayfindShown}건
-          </Typography>
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
+        {/* 네이티브 select — MUI Select 가 일부 환경에서 클릭이 안 되던 문제로 교체 */}
+        <Box component="select" value={d.id} onChange={(e) => setSel(e.target.value)}
+          sx={{ minWidth: 180, px: 1.25, py: 0.9, borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary', fontSize: 13.5, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
+          {stats.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
         </Box>
-        {langEntries.length > 0 && (
-          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
-            {langEntries.map(([lang, n]) => (
-              <Chip key={lang} size="small" label={`${LANG_KO[lang] || lang} ${n}건`} sx={{ height: 22, fontSize: 12, fontWeight: 700 }} />
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={downloadCsv} sx={{ color: 'text.secondary' }}>응대 원자료 CSV</Button>
+      </Box>
+
+      {/* 핵심 지표 */}
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2.5 }}>
+        <MetricBox label="응대 건수" value={d.count} sub={d.interrupted ? `중단 ${d.interrupted}건 포함` : undefined} />
+        <MetricBox label="평균 응대 시간" value={fmtDuration(d.avgMs)} sub={`중앙값 ${fmtDuration(d.medianMs)}`} />
+        <MetricBox label="응대당 평균 문장" value={(d.sentences && d.sentences.avgPerConv) || 0} sub={d.sentences ? `안내원 ${d.sentences.staff} · 손님 ${d.sentences.guest}` : undefined} />
+        <MetricBox label="누화 드랍율" value={`${d.crossDropRate || 0}%`} sub={`드랍 ${d.crossDrops || 0}건`} />
+        <MetricBox label="길안내" value={`${d.wayfindShown}/${d.wayfindDetected}`} sub="표시/감지" />
+      </Box>
+
+      {/* 일별 추이(최근 30일) + 시간대 분포 */}
+      {(d.daily || []).length > 0 && (
+        <>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', mb: 0.5 }}>일별 응대 추이</Typography>
+          <BarRow items={d.daily} labelOf={(x) => x.date.slice(5)} valueOf={(x) => x.count} tipOf={(x) => `${x.date} · ${x.count}건`} labelEvery={Math.max(1, Math.ceil(d.daily.length / 10))} />
+        </>
+      )}
+      {hourly.some((h) => h.count > 0) && (
+        <>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', mt: 2, mb: 0.5 }}>시간대별 분포 (KST)</Typography>
+          <BarRow items={hourly} height={54} labelOf={(x) => String(x.hour).padStart(2, '0')} valueOf={(x) => x.count} tipOf={(x) => `${x.hour}시 · ${x.count}건`} labelEvery={3} />
+        </>
+      )}
+
+      {/* 언어별 상세 */}
+      {langRows.length > 0 && (
+        <Box sx={{ mt: 2.5 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', mb: 0.75 }}>언어별 상세</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr 1fr', gap: 0.5, alignItems: 'center', maxWidth: 460 }}>
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>언어</Typography>
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>응대</Typography>
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>평균 시간</Typography>
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>평균 문장</Typography>
+            {langRows.map(([lang, b]) => (
+              <React.Fragment key={lang}>
+                <Chip size="small" label={LANG_KO[lang] || lang} sx={{ height: 20, fontSize: 11.5, fontWeight: 700, justifySelf: 'start' }} />
+                <Typography sx={{ fontSize: 13 }}>{b.count}건</Typography>
+                <Typography sx={{ fontSize: 13 }}>{fmtDuration(b.avgMs)}</Typography>
+                <Typography sx={{ fontSize: 13 }}>{b.avgSent}</Typography>
+              </React.Fragment>
             ))}
           </Box>
-        )}
-        {(d.daily || []).length > 0 && (
-          <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 70 }}>
-            {d.daily.map((x) => (
-              <Tooltip key={x.date} title={`${x.date} · ${x.count}건`}>
-                <Box sx={{ flex: 1, maxWidth: 46, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.4 }}>
-                  <Box sx={{ width: '65%', height: `${Math.max(3, (x.count / maxDay) * 46)}px`, borderRadius: 0.75, bgcolor: 'primary.main', opacity: 0.75 }} />
-                  <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>{x.date.slice(5)}</Typography>
-                </Box>
-              </Tooltip>
-            ))}
+        </Box>
+      )}
+
+      {/* 길안내 상위 시설 */}
+      {(d.wayfindTop || []).length > 0 && (
+        <Box sx={{ mt: 2.5 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', mb: 0.75 }}>길안내 상위 시설</Typography>
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {d.wayfindTop.map((w) => <Chip key={w.catId} size="small" label={`${w.catId} ${w.count}건`} sx={{ height: 22, fontSize: 12 }} />)}
           </Box>
-        )}
-      </Paper>
-    </>
+        </Box>
+      )}
+    </Paper>
   );
 }
 
@@ -551,17 +644,12 @@ export default function AdminPage({ user }) {
 
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 960, mx: 'auto' }}>
-          {/* ── 사용량: 벤더 실사용량(API 기반) + 데스크 통계 ── */}
+          {/* ── 사용량: 벤더 실사용량(API 기반) + 데스크 운영 통계 ── */}
           {tab === 'usage' && (
             <>
-              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
-                <StatCard icon={<PeopleAltOutlinedIcon fontSize="small" />} label="사용자" value={list ? list.length : '—'} />
-                <StatCard icon={<ForumOutlinedIcon fontSize="small" />} label="총 세션" value={list ? totalSessions : '—'} />
-              </Box>
-
               <VendorUsage />
 
-              <Typography sx={{ fontWeight: 800, fontSize: 15, mt: 4, mb: 1.5 }}>데스크 통계</Typography>
+              <Typography sx={{ fontWeight: 800, fontSize: 15, mt: 4, mb: 1.5 }}>데스크 운영 통계</Typography>
               <DeskStats />
             </>
           )}

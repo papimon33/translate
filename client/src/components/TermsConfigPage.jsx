@@ -119,12 +119,19 @@ function toEntries(rows, keyterms) {
 }
 
 // 서버 buildSonioxContextRaw 와 동일 규칙으로 언어쌍(ko↔lang) context 바이트 추정
+// (한·영·일 외 언어는 표기가 비면 영어로 폴백 — 서버와 동일)
 function contextSizeFor(entries, catScope, lang, desk) {
   const L = lang === 'ko' ? ['ko'] : ['ko', lang];
   const terms = new Set();
   const pairs = [];
   const seen = new Set();
   const add = (a, b) => { if (!a || !b || a === b) return; const k = a + '||' + b; if (!seen.has(k)) { seen.add(k); pairs.push([a, b]); } };
+  const nameFor = (names, lg) => {
+    const v = cleanStr(names[lg]);
+    if (v) return v;
+    if (lg === 'ko' || lg === 'en' || lg === 'ja') return '';
+    return cleanStr(names.en);
+  };
   for (const e of entries) {
     if (!e.names || !e.names.ko) continue;
     const cs = catScope[e.category] || { desk: true, session: true };
@@ -132,10 +139,10 @@ function contextSizeFor(entries, catScope, lang, desk) {
     const scoped = Array.isArray(e.scope) && !e.scope.includes('*');
     if (scoped && !e.scope.some((s) => L.includes(s))) continue;
     if (e.mode === 'recognize') { const v = cleanStr(e.names.ko); if (v) terms.add(v); continue; }
-    for (const lg of L) { const v = cleanStr(e.names[lg]); if (v) terms.add(v); }
+    for (const lg of L) { const v = nameFor(e.names, lg); if (v) terms.add(v); }
     const ko = cleanStr(e.names.ko);
     if (e.mode === 'inputOnly') { if (!ko || !L.includes('ko')) continue; for (const lg of L) { if (lg === 'ko') continue; add(cleanStr(e.names[lg]), ko); } }
-    else { for (const a of L) for (const b of L) if (a !== b) add(cleanStr(e.names[a]), cleanStr(e.names[b])); }
+    else { for (const a of L) for (const b of L) if (a !== b) add(nameFor(e.names, a), nameFor(e.names, b)); }
   }
   const ctx = {};
   if (terms.size) ctx.terms = [...terms];

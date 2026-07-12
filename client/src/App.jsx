@@ -165,7 +165,7 @@ export default function App() {
               >
                 <GraphicEqIcon sx={{ fontSize: 18 }} />
               </Box>
-              <Typography sx={{ fontWeight: 800, fontSize: 16 }}>KAC Translator</Typography>
+              <Typography sx={{ fontWeight: 800, fontSize: 16 }}>AirTalk</Typography>
             </Toolbar>
           </AppBar>
           )}

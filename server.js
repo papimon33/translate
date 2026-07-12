@@ -623,6 +623,14 @@ function buildSonioxContextRaw(langs, opts = {}) {
     const k = a + '||' + b;
     if (!seen.has(k)) { seen.add(k); pairs.push({ source: a, target: b }); }
   };
+  // 표기 결정: 한·영·일은 명시 표기만(비면 없음), 그 외 언어(zh 포함 미입력 시·es/fr/ru 등)는
+  // 영어 표기로 폴백 — 어떤 세션 언어에서도 고유명사가 최소 영어 브랜드명으로 일관 번역되도록 보장.
+  const nameFor = (names, lg) => {
+    const v = String(names[lg] || '').trim();
+    if (v) return v;
+    if (lg === 'ko' || lg === 'en' || lg === 'ja') return '';
+    return String(names.en || '').trim();
+  };
   for (const e of termsConfig.entries || []) {
     if (!e || !e.names || !e.names.ko) continue;
     const scope = cs[e.category] || { desk: true, session: true };
@@ -630,13 +638,13 @@ function buildSonioxContextRaw(langs, opts = {}) {
     const scoped = Array.isArray(e.scope) && !e.scope.includes('*');
     if (scoped && !e.scope.some((sl) => L.includes(sl))) continue;       // 언어 스코프
     if (e.mode === 'recognize') { const v = String(e.names.ko || '').trim(); if (v) terms.add(v); continue; }
-    for (const lg of L) { const v = String(e.names[lg] || '').trim(); if (v) terms.add(v); } // 활성 언어 표기 → 인식 힌트
+    for (const lg of L) { const v = nameFor(e.names, lg); if (v) terms.add(v); } // 활성 언어 표기 → 인식 힌트
     const ko = String(e.names.ko || '').trim();
     if (e.mode === 'inputOnly') {
       if (!ko || !L.includes('ko')) continue;
-      for (const lg of L) { if (lg === 'ko') continue; addPair(String(e.names[lg] || '').trim(), ko); } // 외국어 → ko 단방향
+      for (const lg of L) { if (lg === 'ko') continue; addPair(String(e.names[lg] || '').trim(), ko); } // 외국어 → ko 단방향(약칭은 폴백 없음)
     } else { // pair
-      for (const a of L) for (const b of L) { if (a !== b) addPair(String(e.names[a] || '').trim(), String(e.names[b] || '').trim()); }
+      for (const a of L) for (const b of L) { if (a !== b) addPair(nameFor(e.names, a), nameFor(e.names, b)); }
     }
   }
   const ctx = {};
@@ -860,25 +868,58 @@ app.post('/api/client-log', (req, res) => {
 });
 
 /* ---- 관리자: 데스크 통계(응대 건수·언어 분포·평균 응대 시간·일별) — 대화 내용은 노출하지 않음 ---- */
+/* 데스크 운영 통계 v2 — 시범운영 보고서용 상세 지표.
+   응대(deskLog) 단위로 집계: 언어별 건수·평균시간, 일별·시간대 분포, 응대시간 중앙값,
+   문장수(안내원/손님 비율), 누화 드랍율, 중단(interrupted) 응대, 길안내 감지→표시율,
+   그리고 원자료 rows(응대 1건=1행) — CSV 내려받기·외부 분석용. */
 app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
   const out = sessions.filter((s) => s.pipeline === 'desk').map((s) => {
     const log = Array.isArray(s.deskLog) ? s.deskLog : [];
     const langs = {};
-    let durSum = 0, durN = 0;
+    const byLang = {}; // lang -> { count, durSum, durN, sent }
     const daily = {};
+    const hourly = Array(24).fill(0);
+    const durs = [];
+    let durSum = 0, durN = 0, interrupted = 0;
+    let sentSum = 0, staffSent = 0, guestSent = 0, crossDrops = 0;
+    const rows = [];
     for (const e of log) {
       const lang = e.lang || 'unknown';
+      const sent = Array.isArray(e.items) ? e.items.length : 0;
+      const dur = e.startedAt && e.endedAt ? e.endedAt - e.startedAt : null;
       langs[lang] = (langs[lang] || 0) + 1;
-      if (e.startedAt && e.endedAt) { durSum += e.endedAt - e.startedAt; durN++; }
-      const d = new Date((e.endedAt || Date.now()) + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST 기준 일자(UTC 서버에서 새벽 응대가 전날로 집계되는 문제 방지)
+      const bl = byLang[lang] || (byLang[lang] = { count: 0, durSum: 0, durN: 0, sent: 0 });
+      bl.count++; bl.sent += sent;
+      if (dur != null) { durSum += dur; durN++; durs.push(dur); bl.durSum += dur; bl.durN++; }
+      if (e.interrupted) interrupted++;
+      sentSum += sent;
+      if (e.stats) { staffSent += e.stats.staff || 0; guestSent += e.stats.guest || 0; crossDrops += e.stats.crossDrops || 0; }
+      const kst = new Date((e.endedAt || Date.now()) + 9 * 3600 * 1000); // KST(UTC 서버에서 새벽 응대가 전날로 집계되는 문제 방지)
+      const d = kst.toISOString().slice(0, 10);
       daily[d] = (daily[d] || 0) + 1;
+      hourly[kst.getUTCHours()]++;
+      rows.push({
+        date: d, startedAt: e.startedAt || null, endedAt: e.endedAt || null, durMs: dur,
+        lang, sentences: sent, staff: e.stats ? e.stats.staff || 0 : null, guest: e.stats ? e.stats.guest || 0 : null,
+        crossDrops: e.stats ? e.stats.crossDrops || 0 : null, interrupted: !!e.interrupted,
+      });
     }
+    durs.sort((a, b) => a - b);
+    const medianMs = durs.length ? durs[Math.floor(durs.length / 2)] : 0;
     const wl = Array.isArray(s.wayfindLog) ? s.wayfindLog : [];
+    const wayfindTop = {};
+    for (const w of wl) { if (w.catId) wayfindTop[w.catId] = (wayfindTop[w.catId] || 0) + 1; }
     return {
       id: s.id, title: s.title || '안내데스크', owner: s.owner || null,
-      count: log.length, langs, avgMs: durN ? Math.round(durSum / durN) : 0,
+      count: log.length, interrupted, langs, avgMs: durN ? Math.round(durSum / durN) : 0, medianMs,
+      byLang: Object.fromEntries(Object.entries(byLang).map(([lg, b]) => [lg, { count: b.count, avgMs: b.durN ? Math.round(b.durSum / b.durN) : 0, avgSent: b.count ? +(b.sent / b.count).toFixed(1) : 0 }])),
+      sentences: { total: sentSum, avgPerConv: log.length ? +(sentSum / log.length).toFixed(1) : 0, staff: staffSent, guest: guestSent },
+      crossDrops, crossDropRate: staffSent + guestSent + crossDrops > 0 ? +((crossDrops / (staffSent + guestSent + crossDrops)) * 100).toFixed(1) : 0,
       wayfindDetected: wl.length, wayfindShown: wl.filter((w) => w.shown).length,
-      daily: Object.entries(daily).sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-14).map(([date, count]) => ({ date, count })),
+      wayfindTop: Object.entries(wayfindTop).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([catId, count]) => ({ catId, count })),
+      daily: Object.entries(daily).sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-30).map(([date, count]) => ({ date, count })),
+      hourly,
+      rows: rows.slice(-500),
     };
   });
   res.json(out);
@@ -915,6 +956,36 @@ app.get('/api/admin/logs/session/:id', requireAdmin, (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   res.json({ id: s.id, title: s.title || '', langs: s.langs || [], items: s.items || [] });
+});
+/* ---- 관리자: 로그 정리(삭제) — 시범운영 후 데이터 관리용 ---- */
+// 데스크 응대 1건 삭제
+app.delete('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
+  const s = getSession(req.params.sid);
+  if (!s || s.pipeline !== 'desk' || !Array.isArray(s.deskLog)) return res.status(404).json({ error: 'not found' });
+  const i = Number(req.params.idx);
+  if (!(i >= 0 && i < s.deskLog.length)) return res.status(404).json({ error: 'not found' });
+  s.deskLog.splice(i, 1);
+  saveSessions();
+  res.json({ ok: true, remaining: s.deskLog.length });
+});
+// 데스크 응대 로그 전체 삭제(길안내 로그 포함)
+app.delete('/api/admin/logs/desk/:sid', requireAdmin, (req, res) => {
+  const s = getSession(req.params.sid);
+  if (!s || s.pipeline !== 'desk') return res.status(404).json({ error: 'not found' });
+  const n = (s.deskLog || []).length;
+  s.deskLog = [];
+  s.wayfindLog = [];
+  saveSessions();
+  res.json({ ok: true, deleted: n });
+});
+// 일반 세션 대화 기록 삭제(세션 자체는 유지)
+app.delete('/api/admin/logs/session/:id', requireAdmin, (req, res) => {
+  const s = getSession(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  const n = (s.items || []).length;
+  s.items = [];
+  saveSessions();
+  res.json({ ok: true, deleted: n });
 });
 
 /* ---- 관리자: 오탈자·오번역 검사 — 최근 대화의 원문·번역 쌍을 GPT 로 단어 단위 대조 검수 ----
@@ -993,8 +1064,8 @@ app.get('/api/admin/2fa', requireAdmin, (req, res) => res.json({ enabled: !!admi
 app.post('/api/admin/2fa/setup', requireAdmin, async (req, res) => {
   if (process.env.ADMIN_TOTP_SECRET) return res.status(400).json({ error: '2FA 시크릿이 환경변수로 관리되고 있습니다.' });
   pending2faSecret = b32encode(crypto.randomBytes(20));
-  const label = encodeURIComponent(`KAC Translator:${req.user.id}`);
-  const url = `otpauth://totp/${label}?secret=${pending2faSecret}&issuer=${encodeURIComponent('KAC Translator')}`;
+  const label = encodeURIComponent(`AirTalk:${req.user.id}`);
+  const url = `otpauth://totp/${label}?secret=${pending2faSecret}&issuer=${encodeURIComponent('AirTalk')}`;
   try { res.json({ secret: pending2faSecret, qr: await QRCode.toDataURL(url, { width: 240, margin: 1 }) }); }
   catch (e) { res.status(500).json({ error: String(e) }); }
 });
@@ -1265,7 +1336,8 @@ async function fetchOpenai(spanDays) {
     const d = await r.json();
     for (const b of d.data || []) {
       const day = kstDay((b.start_time || 0) * 1000);
-      byDay[day] = { costUsd: +(b.results || []).reduce((a, x) => a + ((x.amount && x.amount.value) || 0), 0).toFixed(4) };
+      // amount.value 가 문자열로 오면 합계가 문자열 연결이 돼 .toFixed 크래시 → 숫자 강제
+      byDay[day] = { costUsd: +(b.results || []).reduce((a, x) => a + (Number(x.amount && x.amount.value) || 0), 0).toFixed(4) };
     }
     if (!d.has_more) break;
     pageToken = d.next_page;
@@ -2850,12 +2922,20 @@ function handleHost(ws) {
     // 교차 채널 누화 판정: 반대 채널이 8초 내 유사 문장을 확정했으면 누화(마이크로 샌 소리)로 드랍.
     // 근접 게이트·언어 소유권을 통과한 잔여 누화의 마지막 방어선.
     // (두 엔진의 endpoint 시점이 벌어져 5초 창을 새던 문제 → 8초, 짧은 발화도 → 4자)
-    const crossDup = (ch, txt) => {
+    // 원문뿐 아니라 번역문도 교차 대조 — 한 발화가 양쪽 마이크에 비슷한 음량으로 들어가 언어 판별까지
+    // 엇갈린 경우(예: 손님 발화가 데스크 채널에서 한국어로 오인식), 원문 문자는 서로 달라도
+    // "손님 채널의 한국어 번역 ↔ 데스크 채널의 한국어 원문"이 유사해 여기서 걸린다.
+    const crossDup = (ch, txt, tgt) => {
       const n = echoNorm(txt);
+      const nt = echoNorm(tgt || '');
       const now = Date.now();
       while (recentCommits.length && now - recentCommits[0].at > 8000) recentCommits.shift();
-      if (n.length >= 4 && recentCommits.some((e) => e.ch !== ch && echoMatch(n, e.n))) return true;
-      recentCommits.push({ n, at: now, ch });
+      const hit = recentCommits.some((e) => e.ch !== ch && (
+        (n.length >= 4 && (echoMatch(n, e.n) || (e.nt.length >= 4 && echoMatch(n, e.nt)))) ||
+        (nt.length >= 4 && (echoMatch(nt, e.n) || (e.nt.length >= 4 && echoMatch(nt, e.nt))))
+      ));
+      if (hit) return true;
+      recentCommits.push({ n, nt, at: now, ch });
       return false;
     };
     // 채널-언어 소유권(2채널 모드의 1차 방어): 여객 태블릿 마이크가 켜져 있으면
@@ -2915,7 +2995,7 @@ function handleHost(ws) {
       // 언어 소유권: 2채널 모드에서 손님 언어 발화는 여객 채널 소유 → 데스크 마이크 누화로 드랍
       if (!staffOwns(src)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
       // 여객 채널이 이미 확정한 문장과 유사 → 데스크 마이크로 샌 누화, 드랍(화면 카드도 제거)
-      if (guestMicOn && crossDup('staff', txt)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
+      if (guestMicOn && crossDup('staff', txt, tgt)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
       chStats.staff++;
       const out = tgt || txt;
       if (out && out === lastCommitText && Date.now() - lastCommitAt < 5000) return;
@@ -3147,7 +3227,7 @@ function handleHost(ws) {
       // 언어 소유권: 한국어로 감지된 발화는 안내원 채널 소유 → 여객 마이크 누화로 드랍
       if (!guestOwns(gSrc)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
       // 안내원 채널이 이미 확정한 문장과 유사 → 여객 마이크로 샌 누화, 드랍
-      if (crossDup('guest', txt)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
+      if (crossDup('guest', txt, tgt)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
       chStats.guest++;
       const out = tgt || txt;
       if (out && out === gLastCommitText && Date.now() - gLastCommitAt < 5000) return;
@@ -3495,7 +3575,7 @@ function handleHost(ws) {
 
 server.listen(PORT, () => {
   const ip = getLanIp();
-  console.log(`\n  KAC Translator 서버 실행 중`);
+  console.log(`\n  AirTalk 서버 실행 중`);
   console.log(`  · 데스크톱:  http://localhost:${PORT}`);
   console.log(`  · 같은 와이파이 모바일: http://${ip}:${PORT}\n`);
 });

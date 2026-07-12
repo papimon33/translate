@@ -278,3 +278,19 @@
 - mobile.html: PTT 권한 대기 중 상태 변경 시 시작 취소(끌 수 없는 핫마이크), 복귀 시 actx.resume+outCursor 리셋(밀린 TTS 몰아 재생), JSON.parse 방어, loadSession 실패 5초 재시도.
 - **수정 보류(알려진 리스크)**: Mongo 디바운스 flush ↔ deleteOne 순서 미보장(삭제 항목 부활 가능, 타이밍 의존 희귀) / mobile 지도 rAF 는 인스턴스 재사용이라 누수 1개 고정(영향 미미).
 - 검증: 빌드 OK, 서버 부팅 오류 0, 용어 쉼표 왕복(东航+东方航空 추가→pair+inputOnly×2 확인→원복) + 저장 시 soniox 자동 검증 통과, 라이트/다크 프리뷰 스크린샷 확인.
+
+## 2026-07-12 (2) — AirTalk 개명 · 데스크 운영통계 v2 · 로그 관리 · 용어 완성 등 13건
+- **개명**: KAC Translator → **AirTalk** (index/mobile/overlay title, Nav 로고, Login, 2FA issuer, 서버 콘솔). 로고의 "실시간 음성 번역" 서브타이틀 제거.
+- **OpenAI 사용량 429 후속 버그**: costs API 의 `amount.value` 가 문자열 → reduce 합계가 문자열이 돼 `.toFixed is not a function` 크래시. `Number()` 강제.
+- **관리자 정리**: 사용량 탭의 사용자/총 세션 카드 제거, 데스크 통계의 총 응대/데스크 수/평균 시간 카드 제거. 뷰어 랜딩 "0명 시청 중" 제거.
+- **데스크 운영 통계 v2** (`/api/admin/desk-stats`): 시범운영 보고서용 — 응대건수(중단 포함)·평균/중앙값 응대시간·응대당 평균 문장(안내원/손님 분리)·
+  누화 드랍율·길안내 감지→표시율·상위 시설, 일별(30d)·시간대(24h) 분포, 언어별 상세(count/avgMs/avgSent), **응대 원자료 rows(최근 500) + CSV 내려받기**(BOM, 엑셀 호환).
+  UI 셀렉터는 네이티브 `<select>` 로 교체(MUI Select 클릭 불가 문제).
+- **로그 관리**: DELETE `/api/admin/logs/desk/:sid/:idx`(응대 1건) · `/desk/:sid`(전체+wayfindLog) · `/session/:id`(대화 기록만, 세션 유지). 로그 탭에 행 hover 삭제·데스크 전체 삭제·세션 대화 삭제 버튼(confirm).
+- **2채널 동시발화 이중 표출 방어 강화**: crossDup 이 원문뿐 아니라 **번역문까지 교차 대조** — 한 발화가 양쪽 마이크에 들어가 언어 판별이 엇갈려도
+  "여객 채널 ko 번역 ↔ 데스크 채널 ko 원문" 유사로 걸림. 기존 방어: ①언어 소유권(staffOwns/guestOwns) ②근접 게이트 ③crossDup. **실 음성 2기기 검증 필요.**
+- **용어 폴백 보장**: 한·영·일 외 언어(중국어 미입력 포함, es/fr/ru 등 전부)는 표기가 비면 **영어 표기로 폴백**해 pair/terms 에 주입(buildSonioxContextRaw nameFor, 클라 게이지 미러 동일). 약칭(inputOnly)은 폴백 없음.
+- **용어 데이터 완성**: 항공용어 30개 ja/zh 전부 채움(駐機場/停机坪, 搭乗口/登机口 등), 에어로케이 zh=Aero K, 타이에어아시아엑스 zh=泰国亚洲航空长途, **섬에어 재등록**(en/zh=Sum Air, ja=サムエア). 잔여 미완성 pair 0. 검증 API 3언어 통과(en 7,022/ja 6,249/zh 5,967).
+- **TTS 샘플 스크립트**: `scripts/gen_tts_samples.mjs` — en/ja/zh/ru/es('라틴어'→라틴어권 스페인어로 해석) 테스트 문장을 Cartesia mp3 로 `tts_samples/<lang>/` 에 생성.
+  **로컬 .env 에 CARTESIA_API_KEY 없어 미실행** — 키 있는 환경에서 `CARTESIA_API_KEY=... node scripts/gen_tts_samples.mjs`.
+- 검증: 빌드·테스트(fail 0)·부팅 OK, desk-stats v2 응답 필드 확인, 삭제 API 404 방어 확인, es 폴백(대한항공→Korean Air) 확인, AirTalk 라이트/다크 프리뷰 확인.

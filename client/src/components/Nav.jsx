@@ -65,8 +65,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
               sx={{ width: 38, height: 38, borderRadius: 2.5, flex: 'none', display: 'block' }}
             />
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontWeight: 800, fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap', color: '#fff' }}>KAC Translator</Typography>
-              <Typography sx={{ fontSize: 11, color: SIDEBAR.muted, whiteSpace: 'nowrap' }}>실시간 음성 번역</Typography>
+              <Typography sx={{ fontWeight: 800, fontSize: 16, lineHeight: 1.2, whiteSpace: 'nowrap', color: '#fff', letterSpacing: '-0.01em' }}>AirTalk</Typography>
             </Box>
           </>
         )}
