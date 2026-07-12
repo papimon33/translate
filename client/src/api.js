@@ -126,6 +126,17 @@ export const api = {
       return r.json();
     }),
   adminDeskStats: () => fetch('/api/admin/desk-stats').then(json),
+  // 자주 묻는 질문(GPT 클러스터링) / 용어 적중 분석 / 정형 안내 멘트
+  adminFaqReport: () => fetch('/api/admin/faq-report').then(json),
+  adminFaqAnalyze: () => fetch('/api/admin/faq-analyze', { method: 'POST' }).then(json),
+  adminTermsHit: () => fetch('/api/admin/terms-hit').then(json),
+  canned: () => fetch('/api/canned').then(json),
+  saveCanned: (items) =>
+    fetch('/api/canned', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    }).then(json),
   adminHealth: () => fetch('/api/admin/health').then(json),
   adminTermsSuggest: (sessionIds) =>
     fetch('/api/admin/terms-suggest', {

@@ -150,6 +150,8 @@ const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
 const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
 const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
 const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
+const FAQ_FILE = path.join(DATA_DIR, 'faq_report.json');   // 자주 묻는 질문 분석 결과(관리자, GPT 클러스터링)
+const CANNED_FILE = path.join(DATA_DIR, 'canned.json');    // 정형 안내 멘트(원터치 재생용 문안)
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
@@ -163,6 +165,8 @@ let vendorUsage = { soniox: {}, cartesia: {}, openai: {} };
 // 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
 let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [], updatedAt: 0 };
 let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
+let faqReport = null; // { at, checked, topics:[{topic,count,examples[]}] } — 자주 묻는 질문 분석 결과
+let cannedConfig = { items: [] }; // 정형 안내 멘트 [{ id, title, texts:{ko,en,ja,zh} }]
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
@@ -170,6 +174,8 @@ let usageHourlyCol = null;
 let termsConfigCol = null;
 let summariesCol = null;
 let vendorUsageCol = null;
+let faqCol = null;
+let cannedCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
@@ -204,12 +210,18 @@ async function loadStore() {
         if (tc) { const { _id, ...rest } = tc; termsConfig = { ...rest, updatedAt: tc.updatedAt || 0 }; } // 전체 보존(entries/servedLangs/categoryScope), 구형은 부팅 마이그레이션
         const vu = await vendorUsageCol.findOne({ _id: 'singleton' });
         if (vu) vendorUsage = { soniox: vu.soniox || {}, cartesia: vu.cartesia || {}, openai: vu.openai || {} };
+        faqCol = db.collection('faqReport');
+        cannedCol = db.collection('canned');
+        const fr = await faqCol.findOne({ _id: 'singleton' });
+        if (fr) { const { _id, ...rest } = fr; faqReport = rest; }
+        const cn = await cannedCol.findOne({ _id: 'singleton' });
+        if (cn && Array.isArray(cn.items)) cannedConfig = { items: cn.items };
         summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
         console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = faqCol = cannedCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -251,6 +263,14 @@ async function loadStore() {
       const v = JSON.parse(readDataFile(VENDOR_USAGE_FILE));
       if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {} };
     }
+    if (fs.existsSync(FAQ_FILE)) {
+      const f = JSON.parse(readDataFile(FAQ_FILE));
+      if (f && typeof f === 'object') faqReport = f;
+    }
+    if (fs.existsSync(CANNED_FILE)) {
+      const c = JSON.parse(readDataFile(CANNED_FILE));
+      if (c && Array.isArray(c.items)) cannedConfig = { items: c.items };
+    }
   } catch (e) {
     console.error('[store] 로드 실패', e);
   }
@@ -258,6 +278,14 @@ async function loadStore() {
 async function persistVendorUsage() {
   if (vendorUsageCol) { await vendorUsageCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...vendorUsage }, { upsert: true }); }
   else { writeDataFile(VENDOR_USAGE_FILE, JSON.stringify(vendorUsage, null, 2)); }
+}
+async function persistFaqReport() {
+  if (faqCol) { await faqCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...faqReport }, { upsert: true }); }
+  else { writeDataFile(FAQ_FILE, JSON.stringify(faqReport, null, 2)); }
+}
+async function persistCanned() {
+  if (cannedCol) { await cannedCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...cannedConfig }, { upsert: true }); }
+  else { writeDataFile(CANNED_FILE, JSON.stringify(cannedConfig, null, 2)); }
 }
 
 let saveTimer = null;
@@ -1090,6 +1118,124 @@ app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
     logErr('terms-suggest', e);
     res.status(500).json({ error: '검사 실패' });
   }
+});
+
+/* ---- 관리자: 자주 묻는 질문 분석 — 데스크 응대 로그의 손님 질문을 GPT 로 주제 클러스터링 ----
+   시범운영 보고서용: "이번에 손님들이 무엇을 물었나" TOP 주제·건수·예시. 결과는 저장(자체 누적)해
+   분석 실행 없이도 마지막 결과를 다시 볼 수 있다. (OpenAI 과금 — 버튼으로만 실행) */
+app.get('/api/admin/faq-report', requireAdmin, (req, res) => {
+  res.json(faqReport || { at: 0, checked: 0, topics: [] });
+});
+app.post('/api/admin/faq-analyze', requireAdmin, async (req, res) => {
+  if (!OPENAI_API_KEY) return res.status(400).json({ error: 'OPENAI_API_KEY 미설정' });
+  // 손님 발화만 수집: 데스크 응대 로그에서 lang!==ko 인 화자(손님)의 한국어 번역(texts.ko) 우선
+  const questions = [];
+  for (const s of sessions) {
+    if (s.pipeline !== 'desk' || !Array.isArray(s.deskLog)) continue;
+    for (const e of s.deskLog) {
+      for (const it of e.items || []) {
+        const staff = it.lang ? it.lang === 'ko' : it.side === 'right';
+        if (staff) continue;
+        const q = ((it.texts && it.texts.ko) || it.source || '').trim();
+        if (q.length >= 2) questions.push(q.slice(0, 120));
+      }
+    }
+  }
+  const recent = questions.slice(-400); // 최근 위주
+  if (recent.length < 3) return res.json({ at: Date.now(), checked: recent.length, topics: [], note: '분석할 손님 발화가 부족합니다(3건 미만).' });
+  const sys =
+    '너는 공항 안내데스크 운영 분석가다. 아래는 손님 발화(한국어 번역) 목록이다. ' +
+    '비슷한 질문·요청을 주제로 묶어 자주 묻는 질문 TOP 을 만들어라. 인사말·잡담·불완전한 조각은 제외한다. ' +
+    '반드시 JSON 하나만 출력: {"topics":[{"topic":"주제(간결한 한국어 한 줄)","count":해당 발화 수,"examples":["대표 예시 1","대표 예시 2"]}]} ' +
+    'count 큰 순으로 최대 12개. examples 는 목록에 실제로 있는 문장에서 고른다.';
+  try {
+    const body = {
+      model: REFINE_MODEL,
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: recent.join('\n').slice(0, 14000) }],
+      max_completion_tokens: 1200,
+      response_format: { type: 'json_object' },
+    };
+    const re = reasoningEffort(REFINE_MODEL);
+    if (re) body.reasoning_effort = re;
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return res.status(500).json({ error: '분석 호출 실패: HTTP ' + r.status });
+    const d = await r.json();
+    const obj = JSON.parse(d?.choices?.[0]?.message?.content || '{}');
+    const topics = (Array.isArray(obj.topics) ? obj.topics : [])
+      .filter((t) => t && t.topic && (Number(t.count) || 0) > 0) // 0건 주제(모델 노이즈) 제거
+      .slice(0, 12)
+      .map((t) => ({ topic: String(t.topic).slice(0, 80), count: Number(t.count) || 0, examples: (Array.isArray(t.examples) ? t.examples : []).slice(0, 2).map((x) => String(x).slice(0, 120)) }));
+    faqReport = { at: Date.now(), checked: recent.length, topics };
+    try { await persistFaqReport(); } catch (e) { logErr('faq-persist', e); }
+    res.json(faqReport);
+  } catch (e) {
+    logErr('faq-analyze', e);
+    res.status(500).json({ error: '분석 실패' });
+  }
+});
+
+/* ---- 관리자: 용어 적중 분석 — 등록 용어가 실제 대화에서 몇 번 등장했는지(문자열 매칭, GPT 미사용) ----
+   0회 용어 = 정리 후보. 대상 코퍼스: 데스크 응대 로그 + 일반 세션 대화(원문·번역 텍스트). */
+app.get('/api/admin/terms-hit', requireAdmin, (req, res) => {
+  const corpus = [];
+  for (const s of sessions) {
+    const push = (it) => {
+      if (!it) return;
+      if (it.source) corpus.push(String(it.source));
+      if (it.texts) for (const v of Object.values(it.texts)) if (v) corpus.push(String(v));
+    };
+    (Array.isArray(s.items) ? s.items : []).forEach(push);
+    (Array.isArray(s.deskLog) ? s.deskLog : []).forEach((e) => (e.items || []).forEach(push));
+  }
+  const text = corpus.join('\n');
+  const lower = text.toLowerCase();
+  const countOf = (needle) => {
+    const n = String(needle || '').trim();
+    if (n.length < 2) return 0;
+    const hay = /[a-z]/i.test(n) ? lower : text; // 라틴 표기는 대소문자 무시
+    const nn = /[a-z]/i.test(n) ? n.toLowerCase() : n;
+    let cnt = 0, i = 0;
+    while ((i = hay.indexOf(nn, i)) !== -1) { cnt++; i += nn.length; }
+    return cnt;
+  };
+  const rows = (termsConfig.entries || []).map((e) => {
+    const byLang = {};
+    let hits = 0;
+    for (const [lg, name] of Object.entries(e.names || {})) {
+      const c = countOf(name);
+      if (c > 0) byLang[lg] = c;
+      hits += c;
+    }
+    return { ko: (e.names && e.names.ko) || '', category: e.category, mode: e.mode, hits, byLang };
+  });
+  // 같은 ko(정식+약칭 행)를 합쳐 보기 좋게
+  const merged = new Map();
+  for (const r of rows) {
+    const m = merged.get(r.ko) || { ko: r.ko, category: r.category, hits: 0, byLang: {} };
+    m.hits += r.hits;
+    for (const [lg, c] of Object.entries(r.byLang)) m.byLang[lg] = (m.byLang[lg] || 0) + c;
+    merged.set(r.ko, m);
+  }
+  const out = [...merged.values()].sort((a, b) => b.hits - a.hits);
+  res.json({ at: Date.now(), corpusLines: corpus.length, terms: out, zeroCount: out.filter((t) => t.hits === 0).length });
+});
+
+/* ---- 정형 안내 멘트(원터치 재생용 문안) — 열람은 로그인 전원, 수정은 관리자 ---- */
+app.get('/api/canned', requireAuth, (req, res) => res.json(cannedConfig));
+app.put('/api/canned', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((it, i) => ({
+    id: String(it.id || 'c' + i + Math.random().toString(36).slice(2, 6)).slice(0, 24),
+    title: String(it.title || '').trim().slice(0, 40),
+    texts: Object.fromEntries(['ko', 'en', 'ja', 'zh'].map((lg) => [lg, String((it.texts && it.texts[lg]) || '').trim().slice(0, 300)]).filter(([, v]) => v)),
+  })).filter((it) => it.title && it.texts.ko);
+  cannedConfig = { items };
+  try { await persistCanned(); } catch (e) { logErr('canned-persist', e); return res.status(500).json({ error: '저장 실패' }); }
+  res.json(cannedConfig);
 });
 
 /* ---- 관리자 2FA(TOTP, RFC 6238) ----

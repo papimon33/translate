@@ -99,7 +99,10 @@
   .msg.turn.staff .line { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:5px; }
   .msg.turn.self  .line { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:5px; }
   .msg.turn.staff .line.pending, .msg.turn.self .line.pending { opacity:.6; font-style:normal; }
-  .mapCard { margin:12px 0 4px; border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel); }
+  /* 길안내: 채팅 인라인이 아니라 화면 '상단' 고정 플로팅 — 새 발화가 이어져도 밀려나지 않음 */
+  .mapCard { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); left:12px; right:12px; z-index:60; margin:0;
+    border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel);
+    box-shadow:0 14px 44px rgba(0,0,0,.28); }
   .mapCard .mHead { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
   .mapCard .mHead .mIco { color:var(--accent); display:inline-flex; flex:0 0 auto; }
   .mapCard .mHead .mName { font-weight:800; font-size:calc(var(--fs) - 3px); color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -120,6 +123,10 @@
   #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:var(--muted); }
   #landing .lmeta .d.on { background:#22c55e; }
   #enterBtn { margin-top:30px; width:100%; padding:15px; border:none; border-radius:14px; background:var(--accent); color:#fff; font-family:inherit; font-size:17px; font-weight:800; cursor:pointer; }
+  /* 오프라인 안내 배너 — 연결이 끊긴 줄 모르고 대기하는 문제 방지 */
+  #netBanner { display:none; position:fixed; top:0; left:0; right:0; z-index:80; background:#e8912d; color:#fff;
+    text-align:center; padding:7px 10px calc(7px + env(safe-area-inset-top, 0px)); font-size:13px; font-weight:700; }
+  #netBanner.show { display:block; }
 </style>
 </head>
 <body>
@@ -234,7 +241,16 @@ function dt(k){ const d = DUI[k] || {}; return d[curLang] || d.en || d.ko || k; 
 function catLabel(m){ return (curLang === 'ko') ? (m.ko||'') : (CAT_EN[m.category] || m.ko || ''); }
 function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||''; return curLang==='ko' ? (n+'층') : (n+'F'); }
 
-let mapApi = null, mapLoading = false, mapBlock = null;
+let mapApi = null, mapLoading = false, mapBlock = null, mapHideTimer = null;
+const MAP_HIDE_MS = 10000;
+function removeMap(){
+  clearTimeout(mapHideTimer); mapHideTimer = null;
+  document.removeEventListener('click', mapTapClose, true);
+  if (mapApi) { try { mapApi.destroy(); } catch {} } // rAF 애니메이션 루프 정지(누수 방지)
+  if (mapBlock) { try { mapBlock.remove(); } catch {} }
+  mapBlock = null; mapApi = null;
+}
+function mapTapClose(){ removeMap(); } // 화면 아무 곳이나 탭 → 닫힘
 function loadMapScripts(cb){
   if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
   if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
@@ -260,10 +276,17 @@ function fillMapHead(m, res){
 }
 function showWayfind(m){
   loadMapScripts(() => {
-    const block = ensureMapBlock(); feed.appendChild(block); scrollDown();
-    const doRoute = () => { try { mapApi.setLang(curLang); const res = mapApi.showRoute({ deskFloor:m.deskFloor||'1F', deskSide:m.deskSide||'S', dest:m.dests }); fillMapHead(m,res); scrollDown(); } catch(e){} };
+    if (!window.AirportMap25D || !window.AIRPORT_DATA) return; // 에셋 실패 시 빈 카드 미표시
+    const block = ensureMapBlock();
+    if (!block.isConnected) document.body.appendChild(block); // 화면 상단 고정 플로팅(피드 인라인 아님)
+    // 10초 뒤 자동 닫힘(새 안내가 오면 리셋). 다음 발화로는 닫히지 않는다.
+    clearTimeout(mapHideTimer);
+    mapHideTimer = setTimeout(removeMap, MAP_HIDE_MS);
+    // 화면 아무 곳이나 탭 → 닫힘. 안내를 띄운 직후의 터치가 바로 닫아버리지 않게 300ms 후 등록.
+    document.removeEventListener('click', mapTapClose, true);
+    setTimeout(() => { if (mapBlock) document.addEventListener('click', mapTapClose, true); }, 300);
+    const doRoute = () => { try { mapApi.setLang(curLang); const res = mapApi.showRoute({ deskFloor:m.deskFloor||'1F', deskSide:m.deskSide||'S', dest:m.dests }); fillMapHead(m,res); } catch(e){} };
     if (mapApi) { doRoute(); return; }
-    if (!window.AirportMap25D || !window.AIRPORT_DATA) return;
     mapApi = AirportMap25D.create({ container: block._holder, data: window.AIRPORT_DATA, lang: curLang, onReady: doRoute });
   });
 }
@@ -409,7 +432,7 @@ function renderLine(c){
 }
 function rerender(){ cards.forEach(renderLine); }
 // 데스크: 대화 종료 시 화면 초기화(다음 손님)
-function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); if(mapBlock){ try{ mapBlock.remove(); }catch{} } if(empty) empty.style.display=''; }
+function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); removeMap(); if(empty) empty.style.display=''; }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
 
 /* ---- 번역 음성 재생 (translate, 24kHz PCM16) ---- */
@@ -569,6 +592,16 @@ applySrc();
 loadSession();
 loadQr();
 connect();
+</script>
+<script>
+/* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음) */
+(function(){
+  var b = document.createElement('div'); b.id = 'netBanner';
+  b.textContent = '인터넷 연결이 끊겼습니다 — 연결이 복구되면 자동으로 이어집니다.';
+  document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(b); if(!navigator.onLine) b.classList.add('show'); });
+  window.addEventListener('offline', function(){ b.classList.add('show'); });
+  window.addEventListener('online', function(){ b.classList.remove('show'); });
+})();
 </script>
 </body>
 </html>

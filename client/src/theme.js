@@ -10,10 +10,10 @@ export const GRAD = {
   dark: ['#8579ff', '#6354e0'],
   light: ['#7c6df2', '#5b4fe8'],
 };
-// 사이드바 토큰 — Nav 에서 사용. Claude 앱과 동일 톤: 라이트=웜 아이보리(#F5F4EE), 다크=#1F1E1D.
+// 사이드바 토큰 — Nav 에서 사용. Claude 앱과 동일 톤: 라이트=거의 백색(#FAF9F5, 콘텐츠보다 밝게), 다크=#1F1E1D(콘텐츠보다 어둡게).
 export const SIDEBAR = {
   light: {
-    bg: '#f5f4ee',
+    bg: '#faf9f5',
     text: 'rgba(31,30,29,0.85)',
     textStrong: '#1f1e1d',
     muted: 'rgba(31,30,29,0.52)',
@@ -35,8 +35,8 @@ export const SIDEBAR = {
 export function buildTheme(mode) {
   const dark = mode === 'dark';
   const primary = dark ? ACCENT.dark : ACCENT.light;
-  // Claude 앱 팔레트와 동일: 라이트 #FAF9F5/#FFF, 다크 #262624/#30302E (웜 뉴트럴)
-  const bgDefault = dark ? '#262624' : '#faf9f5';
+  // Claude 앱 팔레트와 동일(웜 뉴트럴). 라이트: 콘텐츠 캔버스 #F5F4EE(사이드바보다 살짝 어둡게), 카드 #FFF. 다크: #262624/#30302E.
+  const bgDefault = dark ? '#262624' : '#f5f4ee';
   const bgPaper = dark ? '#30302e' : '#ffffff';
   const divider = dark ? 'rgba(250,249,245,0.10)' : 'rgba(31,30,29,0.12)';
   const textPrimary = dark ? '#faf9f5' : '#1f1e1d';

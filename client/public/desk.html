@@ -165,6 +165,10 @@
     background:var(--card); color:var(--muted); display:flex; align-items:center; justify-content:center;
     cursor:pointer; opacity:0; pointer-events:none; transition:opacity .25s; }
   #endBtn.show { opacity:1; pointer-events:auto; }
+  /* 오프라인 안내 배너 — 연결이 끊긴 줄 모르고 대기하는 문제 방지 */
+  #netBanner { display:none; position:fixed; top:0; left:0; right:0; z-index:90; background:#e8912d; color:#fff;
+    text-align:center; padding:7px 10px calc(7px + env(safe-area-inset-top, 0px)); font-size:13px; font-weight:700; }
+  #netBanner.show { display:block; }
 </style>
 </head>
 <body>
@@ -376,13 +380,13 @@ function ensureMapBlock(){
   const holder = document.createElement('div'); holder.className = 'mapHolder';
   mapBlock.appendChild(head); mapBlock.appendChild(holder);
   mapBlock._holder = holder; mapBlock._head = head;
-  // 어디를 탭해도 닫힘(요구사항) — 상단 플로팅이라 대화를 가리는 시간을 최소화
-  mapBlock.addEventListener('click', () => removeMap());
   document.body.appendChild(mapBlock);
   return mapBlock;
 }
+function mapTapClose(){ removeMap(); } // 지도만이 아니라 '화면 아무 곳이나' 탭하면 닫힘
 function removeMap(){
   clearTimeout(mapHideTimer); mapHideTimer = null;
+  document.removeEventListener('click', mapTapClose, true);
   // destroy() 를 호출해야 코멧 애니메이션 rAF 루프가 멈춘다 — 응대마다 루프가 누적돼 CPU/발열이 점증하던 문제
   if (mapApi) { try { mapApi.destroy(); } catch {} }
   if (mapBlock) { try { mapBlock.remove(); } catch {} }
@@ -408,9 +412,12 @@ function showWayfind(m){
     // 에셋 로드 실패(404/오프라인) 시 빈 플로팅 카드가 10초간 화면을 덮지 않도록 — 카드 생성 전에 확인
     if (!window.AirportMap25D || !window.AIRPORT_DATA) return;
     const block = ensureMapBlock();
-    // 10초 뒤 자동 닫힘(새 안내가 오면 타이머 리셋)
+    // 10초 뒤 자동 닫힘(새 안내가 오면 타이머 리셋). 다음 발화로는 닫히지 않는다.
     clearTimeout(mapHideTimer);
     mapHideTimer = setTimeout(removeMap, MAP_HIDE_MS);
+    // 화면 아무 곳이나 탭 → 닫힘(오픈 직후 터치 오등록 방지 300ms)
+    document.removeEventListener('click', mapTapClose, true);
+    setTimeout(() => { if (mapBlock) document.addEventListener('click', mapTapClose, true); }, 300);
     const doRoute = () => {
       try {
         mapApi.setLang(curLang);
@@ -682,6 +689,16 @@ window.addEventListener('error', (e) => {
 // 진입: 세션 지정(QR) 시 해당 데스크 입장 화면, 아니면 랜딩(안내데스크 선택, 4초 갱신)
 if (sessionId) { loadTitle(); show('enterWrap'); }
 else { show('landing'); loadRooms(); roomsPoll = setInterval(loadRooms, 4000); }
+</script>
+<script>
+/* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음) */
+(function(){
+  var b = document.createElement('div'); b.id = 'netBanner';
+  b.textContent = '인터넷 연결이 끊겼습니다 — 연결이 복구되면 자동으로 이어집니다.';
+  document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(b); if(!navigator.onLine) b.classList.add('show'); });
+  window.addEventListener('offline', function(){ b.classList.add('show'); });
+  window.addEventListener('online', function(){ b.classList.remove('show'); });
+})();
 </script>
 </body>
 </html>

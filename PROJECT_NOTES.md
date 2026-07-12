@@ -333,3 +333,23 @@
 - Nav: 로고 하단 "메뉴" 라벨 삭제, 메뉴 항목·프로필·프로필 팝오버 메뉴 폰트 13.
 - **새 로고**(favicon.svg): 말풍선 안 음성 파형 — '음성 대화 번역'을 한 형태로. 바이올렛 그라데이션 라운드 스퀘어(rx18). 탭 아이콘·Nav·로그인 공용.
 - 검증: 라이트/다크 프리뷰 스크린샷, 빌드 OK.
+
+## 2026-07-12 (8) — FAQ 분석·용어 적중·정형 멘트 · 뷰어 길안내 상단 · 오프라인 배너 · TTS 검증
+### UI
+- **Nav 아이콘 교체**: 지구본(실시간 번역)/헤드셋(데스크 안내)/슬라이더(관리자) — 얇은 스트로크 커스텀 SVG(Nav.jsx export, CommandPalette 공용).
+- **라이트 색 반전**: 사이드바 #FAF9F5(거의 백색) ↔ 콘텐츠 캔버스 #F5F4EE(카드 #FFF). 다크는 기존(사이드바 #1F1E1D < 콘텐츠 #262624) 유지.
+- **뷰어(mobile.html) 길안내 상단 고정**: 원인 — desk.html 만 상단 플로팅이고 뷰어는 피드 하단 인라인이었음. `.mapCard` fixed top(12px)+z60 으로 변경,
+  10초 자동 닫힘 + **화면 아무 곳 탭 닫힘**(document click capture, 오픈 후 300ms 등록) + removeMap 이 mapApi.destroy()(rAF 누수도 해결) + clearAll 연동.
+  desk.html 도 지도만이 아니라 화면 아무 곳 탭으로 닫히게 통일. 다음 발화로는 닫히지 않음(fixed 오버레이 — 닫는 경로는 탭/10초/응대 종료뿐).
+  프리뷰 실검증: mapCard top=12px·fixed·피드 밖, 탭 → 닫힘.
+### 기능
+- **자주 묻는 질문**(사용량 탭 하단 FaqPanel): POST `/api/admin/faq-analyze` — 데스크 응대 손님 발화(ko 번역, 최근 400) GPT 클러스터링 →
+  {topics:[{topic,count,examples}]} 저장(faqReport, Mongo faqReport/파일 faq_report.json) · GET `/api/admin/faq-report`. 실검증: 160건 → "화장실 위치 문의 9건" 등.
+- **용어 적중 분석**(용어 설정 탭 TermsHitPanel): GET `/api/admin/terms-hit` — 전 대화 코퍼스(응대+세션, source+texts) 문자열 매칭, ko 기준 병합,
+  적중 상위 20 + 0회 필터(정리 후보). GPT 미사용. 실검증: 코퍼스 2,879줄, 터미널 66회, 0회 69개.
+- **정형 안내 멘트 설정창**(관리자 새 탭 '정형 안내'): GET `/api/canned`(로그인)/PUT(관리자) — items[{id,title,texts:{ko,en,ja,zh}}] ≤50,
+  ko·제목 필수, Mongo canned/파일 canned.json. CRUD UI(제목+4언어 멀티라인). **데스크 원터치 재생 버튼 연결은 다음 단계.** 실검증: 저장·조회 왕복.
+- **오프라인 안내 배너**: React App(전역 온라인/오프라인 리스너, 상단 주황 배너) + desk.html/mobile.html(#netBanner) — 연결 복구 시 자동 숨김(WS 재연결이 이어받음).
+### TTS 음성 검증
+- `scripts/verify_tts_samples.mjs`: tts_samples mp3 → **Soniox 비동기 전사 API**(stt-async-preview, mp3 직접 업로드 — ffmpeg 불필요) → CER(≤10% PASS) →
+  `tts_samples/VERIFICATION.md` 리포트. **결과 10/10 PASS** (en/ja/zh/ru 0%, es 4.2%: esta→esto 경미 오인식).

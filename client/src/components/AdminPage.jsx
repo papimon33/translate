@@ -197,6 +197,7 @@ const TABS = [
   { v: 'logs', label: '로그' },
   { v: 'accounts', label: '계정 관리' },
   { v: 'terms', label: '용어 설정' },
+  { v: 'canned', label: '정형 안내' },
   { v: 'system', label: '시스템·보안' },
 ];
 
@@ -611,6 +612,125 @@ function DeskStats() {
   );
 }
 
+/* 자주 묻는 질문 — 데스크 응대 로그의 손님 질문을 GPT 로 주제 클러스터링(버튼 실행, 결과 저장) */
+function FaqPanel() {
+  const [report, setReport] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { api.adminFaqReport().then(setReport).catch(() => setReport({ topics: [] })); }, []);
+  const run = async () => {
+    setBusy(true); setErr('');
+    try { setReport(await api.adminFaqAnalyze()); }
+    catch (e) { setErr(e.message || '분석 실패'); }
+    finally { setBusy(false); }
+  };
+  const topics = (report && report.topics) || [];
+  const maxCount = Math.max(1, ...topics.map((t) => t.count || 0));
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3, mt: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>자주 묻는 질문</Typography>
+        <Tooltip title="데스크 응대 로그의 손님 발화(한국어 번역)를 AI 로 주제별 클러스터링합니다. 안내판 개선·인력 배치의 근거 데이터로 사용하세요. (OpenAI 전송·과금 — 버튼으로만 실행)" placement="top">
+          <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled', cursor: 'help' }} />
+        </Tooltip>
+        <Box sx={{ flex: 1 }} />
+        {report && report.at > 0 && <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>{fmtTime(report.at)} · {report.checked}건 분석</Typography>}
+        <Button size="small" variant="outlined" onClick={run} disabled={busy}>{busy ? '분석 중…' : '분석 실행'}</Button>
+      </Box>
+      {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
+      {report && report.note && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>{report.note}</Typography>}
+      {topics.length === 0 && !report?.note && (
+        <EmptyHint icon={<ForumOutlinedIcon sx={{ fontSize: 22 }} />} title="아직 분석 결과가 없습니다"
+          desc="응대 로그가 쌓인 뒤 '분석 실행'을 누르면 손님 질문 TOP 주제가 여기에 표시됩니다." />
+      )}
+      {topics.map((t, i) => (
+        <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.9, borderTop: i ? 1 : 0, borderColor: 'divider' }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.disabled', width: 20, flex: 'none' }}>{i + 1}</Typography>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>{t.topic}</Typography>
+            {(t.examples || []).length > 0 && (
+              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                “{t.examples.join('” · “')}”
+              </Typography>
+            )}
+          </Box>
+          <Box sx={{ width: 120, flex: 'none', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ flex: 1, height: 6, borderRadius: 3, bgcolor: (th) => alpha(th.palette.primary.main, 0.15) }}>
+              <Box sx={{ width: `${Math.round(((t.count || 0) / maxCount) * 100)}%`, height: '100%', borderRadius: 3, bgcolor: 'primary.main', opacity: 0.8 }} />
+            </Box>
+            <Typography sx={{ fontSize: 12.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', width: 34, textAlign: 'right' }}>{t.count}건</Typography>
+          </Box>
+        </Box>
+      ))}
+    </Paper>
+  );
+}
+
+/* 정형 안내 멘트 설정 — 데스크 원터치 재생용 문안(제목 + 언어별 텍스트) CRUD */
+const CANNED_LANGS = [['ko', '한국어'], ['en', '영어'], ['ja', '일본어'], ['zh', '중국어']];
+function CannedPanel() {
+  const [items, setItems] = useState(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  useEffect(() => { api.canned().then((c) => setItems((c.items || []).map((it, i) => ({ ...it, _k: 'k' + i })))).catch(() => setItems([])); }, []);
+  const mark = () => { setDirty(true); setMsg(''); };
+  const patch = (k, fn) => { setItems((arr) => arr.map((it) => (it._k === k ? fn(it) : it))); mark(); };
+  const add = () => { setItems((arr) => [{ _k: 'k' + Date.now(), id: 'c' + Date.now().toString(36), title: '', texts: {} }, ...arr]); mark(); };
+  const remove = (k) => { setItems((arr) => arr.filter((it) => it._k !== k)); mark(); };
+  const save = async () => {
+    setSaving(true); setErr('');
+    try {
+      const c = await api.saveCanned(items.map(({ _k, ...it }) => it));
+      setItems((c.items || []).map((it, i) => ({ ...it, _k: 'k' + i })));
+      setDirty(false); setMsg('저장되었습니다.');
+    } catch (e) { setErr(e.message || '저장 실패'); }
+    finally { setSaving(false); }
+  };
+  if (!items) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
+  return (
+    <>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>정형 안내 멘트</Typography>
+        <Tooltip title="반복 안내(수하물 규정·교통편 등)를 미리 문안으로 등록해 두는 곳입니다. 제목과 한국어는 필수, 외국어 문안은 손님 언어에 맞춰 표시·재생에 사용됩니다. 데스크 화면의 원터치 재생 버튼은 다음 단계에서 연결됩니다." placement="top">
+          <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled', cursor: 'help' }} />
+        </Tooltip>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" startIcon={<AddIcon />} onClick={add}>멘트 추가</Button>
+        <Button size="small" variant="contained" onClick={save} disabled={saving || !dirty}>{saving ? '저장 중…' : '저장'}</Button>
+      </Box>
+      {msg && <Alert severity="success" sx={{ mb: 1.5 }}>{msg}</Alert>}
+      {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
+      {items.length === 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 1.5 }}>
+          <EmptyHint icon={<ForumOutlinedIcon sx={{ fontSize: 22 }} />} title="등록된 멘트가 없습니다"
+            desc="'멘트 추가'로 자주 쓰는 안내 문안(예: 수하물 규정, 공항버스 안내)을 등록해 두세요." />
+        </Paper>
+      )}
+      {items.map((it) => (
+        <Paper key={it._k} variant="outlined" sx={{ borderRadius: 1.5, p: 2, mb: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <TextField size="small" placeholder="제목 (예: 수하물 규정 안내)" value={it.title}
+              onChange={(e) => patch(it._k, (x) => ({ ...x, title: e.target.value }))} sx={{ width: 280 }}
+              inputProps={{ style: { fontSize: 13.5, fontWeight: 700 } }} />
+            <Box sx={{ flex: 1 }} />
+            <IconButton size="small" onClick={() => remove(it._k)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton>
+          </Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
+            {CANNED_LANGS.map(([lg, label]) => (
+              <TextField key={lg} size="small" multiline minRows={2} label={label + (lg === 'ko' ? ' (필수)' : '')}
+                value={(it.texts && it.texts[lg]) || ''}
+                onChange={(e) => patch(it._k, (x) => ({ ...x, texts: { ...x.texts, [lg]: e.target.value } }))}
+                InputProps={{ sx: { fontSize: 13 } }} />
+            ))}
+          </Box>
+        </Paper>
+      ))}
+    </>
+  );
+}
+
 // 시스템 상태 + 관리자 2FA 설정
 function SystemPanel() {
   const [health, setHealth] = useState(null);
@@ -756,8 +876,12 @@ export default function AdminPage({ user }) {
             <>
               <VendorUsage />
               <Box sx={{ mt: 3 }}><DeskStats /></Box>
+              <FaqPanel />
             </>
           )}
+
+          {/* ── 정형 안내 멘트 ── */}
+          {tab === 'canned' && <CannedPanel />}
 
           {/* ── 계정 관리 ── */}
           {tab === 'accounts' && (

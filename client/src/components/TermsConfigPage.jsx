@@ -58,6 +58,53 @@ function InfoTip({ title }) {
   );
 }
 
+/* 용어 적중 분석 — 등록 용어가 실제 대화(응대 로그·세션)에서 몇 번 등장했는지. 0회 = 정리 후보. */
+function TermsHitPanel() {
+  const [data, setData] = useState(null); // { corpusLines, terms:[{ko,category,hits,byLang}], zeroCount }
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [showZero, setShowZero] = useState(false);
+  const run = async () => {
+    setBusy(true); setErr('');
+    try { setData(await api.adminTermsHit()); }
+    catch (e) { setErr(e.message || '분석 실패'); }
+    finally { setBusy(false); }
+  };
+  const terms = (data && data.terms) || [];
+  const shown = showZero ? terms.filter((t) => t.hits === 0) : terms.filter((t) => t.hits > 0).slice(0, 20);
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5, mt: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>용어 적중 분석</Typography>
+        <InfoTip title="등록한 용어가 실제 대화 기록(데스크 응대·세션)에 몇 번 등장했는지 셉니다. 0회 용어는 정리 후보, 자주 나오는데 등록 안 된 용어는 오탈자 검사로 찾으세요. (서버 내 문자열 매칭 — 외부 전송 없음)" />
+        <Box sx={{ flex: 1 }} />
+        {data && (
+          <Chip size="small" label={`0회 ${data.zeroCount}개`} color={showZero ? 'warning' : 'default'} variant={showZero ? 'filled' : 'outlined'}
+            onClick={() => setShowZero((v) => !v)} sx={{ cursor: 'pointer', height: 22, fontSize: 11.5 }} />
+        )}
+        <Button size="small" variant="outlined" onClick={run} disabled={busy}>{busy ? '분석 중…' : '분석'}</Button>
+      </Box>
+      {err && <Alert severity="error" sx={{ mb: 1 }}>{err}</Alert>}
+      {!data && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>'분석'을 누르면 전체 대화 기록과 대조합니다.</Typography>}
+      {data && shown.length === 0 && (
+        <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>{showZero ? '0회 용어가 없습니다 — 모두 사용 중입니다.' : '아직 적중된 용어가 없습니다. 응대 로그가 쌓인 뒤 다시 분석하세요.'}</Typography>
+      )}
+      {data && shown.length > 0 && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {shown.map((t) => (
+            <Tooltip key={t.ko} title={Object.entries(t.byLang || {}).map(([lg, c]) => `${LANG_LABEL[lg] || lg} ${c}회`).join(' · ') || '적중 없음'}>
+              <Chip size="small"
+                label={`${t.ko} ${t.hits > 0 ? t.hits + '회' : '0회'}`}
+                sx={{ fontSize: 12, bgcolor: (th) => t.hits > 0 ? alpha(th.palette.primary.main, 0.08) : alpha(th.palette.warning.main, 0.12) }} />
+            </Tooltip>
+          ))}
+        </Box>
+      )}
+      {data && <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 1 }}>대조 코퍼스 {data.corpusLines.toLocaleString()}줄 · 적중 상위 20개 표시{showZero ? ' (0회 필터 중)' : ''}</Typography>}
+    </Paper>
+  );
+}
+
 /* ---- 화면 모델: 행(용어, 언어별 쉼표 병기 텍스트) + 주요 용어 ↔ 서버 entries 변환 ---- */
 // 서버 entries → 행. 같은 카테고리·한국어의 pair(정식)와 inputOnly(병기 표기)를 한 칸의 쉼표 목록으로 합침.
 function groupEntries(list) {
@@ -427,6 +474,9 @@ export default function TermsConfigPage({ user, embedded }) {
                     inputProps={{ style: { fontSize: 12.5, padding: '4px 10px' } }} sx={{ width: 170 }} />
                 )}
               </Paper>
+
+              {/* ---- 용어 적중 분석 ---- */}
+              {isAdmin && <TermsHitPanel />}
 
               {/* ---- 오탈자·오번역 검사 ---- */}
               {isAdmin && (

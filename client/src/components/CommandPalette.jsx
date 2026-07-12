@@ -7,12 +7,10 @@ import Chip from '@mui/material/Chip';
 import Avatar from '@mui/material/Avatar';
 import { alpha } from '@mui/material/styles';
 import SearchIcon from '@mui/icons-material/Search';
-import TranslateIcon from '@mui/icons-material/Translate';
-import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
-import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import { api } from '../api.js';
 import { TYPE_NAME, MODE_ICON, IconMode2 } from './SessionList.jsx';
+import { IcoGlobe, IcoHeadset, IcoSliders } from './Nav.jsx';
 
 /* ⌘K / Ctrl+K 명령 팔레트 — 세션 검색·이동 + 화면 이동 액션.
    App 에서 전역 키 리스너로 열고, 선택 시 navTo 로 이동한다. */
@@ -32,9 +30,9 @@ export default function CommandPalette({ open, onClose, user, onNavigate }) {
   const items = useMemo(() => {
     const kw = q.trim().toLowerCase();
     const acts = [
-      { kind: 'act', key: 'go-sessions', label: '실시간 번역으로 이동', icon: <TranslateIcon sx={{ fontSize: 18 }} />, run: () => onNavigate({ view: 'sessions' }) },
-      { kind: 'act', key: 'go-desk', label: '데스크 안내로 이동', icon: <RecordVoiceOverIcon sx={{ fontSize: 18 }} />, run: () => onNavigate({ view: 'desk' }) },
-      ...(isAdmin ? [{ kind: 'act', key: 'go-admin', label: '관리자 페이지로 이동', icon: <AdminPanelSettingsOutlinedIcon sx={{ fontSize: 18 }} />, run: () => onNavigate({ view: 'admin' }) }] : []),
+      { kind: 'act', key: 'go-sessions', label: '실시간 번역으로 이동', icon: <IcoGlobe sx={{ width: 18, height: 18 }} />, run: () => onNavigate({ view: 'sessions' }) },
+      { kind: 'act', key: 'go-desk', label: '데스크 안내로 이동', icon: <IcoHeadset sx={{ width: 18, height: 18 }} />, run: () => onNavigate({ view: 'desk' }) },
+      ...(isAdmin ? [{ kind: 'act', key: 'go-admin', label: '관리자 페이지로 이동', icon: <IcoSliders sx={{ width: 18, height: 18 }} />, run: () => onNavigate({ view: 'admin' }) }] : []),
       { kind: 'act', key: 'new-session', label: '새 세션 만들기', icon: <AddIcon sx={{ fontSize: 18 }} />, run: () => onNavigate({ view: 'sessions', openCreate: true }) },
     ].filter((a) => !kw || a.label.toLowerCase().includes(kw));
     const sess = sessions
@@ -84,7 +82,7 @@ export default function CommandPalette({ open, onClose, user, onNavigate }) {
               <Box key={it.key} onClick={() => runItem(it)} onMouseEnter={() => setIdx(i)}
                 sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, cursor: 'pointer', bgcolor: active ? (t) => alpha(t.palette.primary.main, 0.09) : 'transparent' }}>
                 <Avatar variant="rounded" sx={{ width: 30, height: 30, borderRadius: 1, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>
-                  {s.pipeline === 'desk' ? <RecordVoiceOverIcon sx={{ fontSize: 16 }} /> : <Ic sx={{ width: 16, height: 16 }} />}
+                  {s.pipeline === 'desk' ? <IcoHeadset sx={{ width: 16, height: 16 }} /> : <Ic sx={{ width: 16, height: 16 }} />}
                 </Avatar>
                 <Typography sx={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title || '(제목 없음)'}</Typography>
                 <Typography sx={{ fontSize: 11.5, color: 'text.disabled', flex: 'none' }}>{s.pipeline === 'desk' ? '안내데스크' : (TYPE_NAME[s.preset] || '세션')}</Typography>

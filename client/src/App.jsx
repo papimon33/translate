@@ -103,6 +103,21 @@ export default function App() {
     else navTo(next);
   };
 
+  // 인터넷 연결 감지 — 끊기면 상단에 안내 배너(끊긴 줄 모르고 무한 대기하는 문제 방지)
+  const [offline, setOffline] = useState(!navigator.onLine);
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+  const offlineBanner = offline && (
+    <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2000, bgcolor: '#e8912d', color: '#fff', textAlign: 'center', py: 0.6, fontSize: 13, fontWeight: 700 }}>
+      인터넷 연결이 끊겼습니다 — 연결이 복구되면 자동으로 이어집니다.
+    </Box>
+  );
+
   if (user === undefined) {
     return (
       <ThemeProvider theme={theme}>
@@ -167,6 +182,7 @@ export default function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+          {offlineBanner}
           {!isFs && (
           <AppBar position="static" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
             <Toolbar sx={{ gap: 1, minHeight: 56 }}>
@@ -202,6 +218,7 @@ export default function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        {offlineBanner}
         {!isFs && nav}
         <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           {mainEl}
