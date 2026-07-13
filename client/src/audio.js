@@ -1,11 +1,14 @@
 /* 오디오 캡처 + 무음감지(VAD) + 서버 WS 송신.
    mic=오른쪽, system=왼쪽. system 은 전체화면+시스템오디오 공유로 PC 전체 소리. */
 
-async function getSources(mode) {
+async function getSources(mode, agcOff) {
   const list = [];
   if (mode === 'mic' || mode === 'both') {
+    // autoGainControl(AGC): 볼륨 게이트(민감도<100) 사용 시엔 반드시 꺼야 한다 —
+    // 브라우저 AGC 가 속삭임·먼 소리를 보통 음량으로 증폭한 '뒤에' 게이트에 도달해
+    // RMS 임계를 아무리 낮춰도(1이어도) 걸러지지 않던 원인. 100(게이트 없음)이면 기존대로 켠다.
     const mic = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: !agcOff },
     });
     list.push({ src: 'mic', stream: mic });
   }
@@ -69,7 +72,9 @@ export async function startRecorder(opts) {
   //  · 녹음 중에도 setMicSens 로 실시간 변경 가능(데스크는 상시 캡처라 이 경로가 유일한 조절 수단).
   const sensToGate = (v) => (typeof v === 'number' && v < 100 ? (1 - v / 100) * 0.05 : 0);
   let gateTh = sensToGate(micSens);
-  const sources = await getSources(mode); // 권한 거부 시 throw
+  const sources = await getSources(mode, gateTh > 0); // 권한 거부 시 throw. 게이트 사용 시 AGC off
+  // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용)
+  const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m ? m.stream.getAudioTracks()[0] : null; })();
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const inRate = audioCtx.sampleRate;
@@ -376,7 +381,11 @@ export async function startRecorder(opts) {
   function wayfindShow() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-show' })); } catch {} } }
   function wayfindDismiss() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-dismiss' })); } catch {} } }
   // 녹음 중 마이크 민감도 실시간 변경(0~100) — 클라이언트 볼륨 게이트만 조정, 연결 유지
-  function setMicSens(v) { gateTh = sensToGate(Number(v)); }
+  function setMicSens(v) {
+    gateTh = sensToGate(Number(v));
+    // 게이트 사용 중엔 AGC(자동 게인) off — 속삭임을 증폭해 게이트를 무력화하던 원인. 100이면 원복.
+    if (micTrack && micTrack.applyConstraints) micTrack.applyConstraints({ autoGainControl: !(gateTh > 0) }).catch(() => {});
+  }
   // 데스크: 여객 태블릿 마이크 민감도(0~100) — 서버 경유로 뷰어의 근접 게이트에 실시간 반영
   function setGuestSens(v) { ctlState.guestSens = Number(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
   // 데스크: 무음 자동 종료 시간(ms) 실시간 변경 — 상시 캡처 중에도 설정 가능

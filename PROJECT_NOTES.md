@@ -424,3 +424,15 @@
 - Windows 빌드/릴리스는 이미 라이브(desktop-v1.0.0, exe 81.9MB, /download?platform=win 302→200 확인).
 ### 라이트 배경 흰색화
 - theme.js: 라이트 캔버스 #F5F4EE→**#FAFAF8**(거의 흰색), nav #FAF9F5→**#FFF**(카드와 함께 최상단 밝기). 다크 불변. nav≥content 밝기 순서 유지.
+
+## 2026-07-13 (12) — 마이크 게이트 무력화 원인: 브라우저 AGC(자동 게인)
+- 증상: 민감도를 1까지 낮춰도 속삭임·작은 목소리가 전부 인식됨(RMS 게이트 전환 후에도).
+- 원인: getUserMedia 에 `autoGainControl` 미지정 → 기본 on. 크롬 AGC 가 속삭임·먼 소리를 보통 음량으로
+  **증폭한 뒤** 게이트에 도달 — 음량 차이가 이미 지워져 임계가 무의미했다.
+- 수정:
+  · audio.js(호스트 마이크): 게이트 사용(민감도<100) 시 `autoGainControl:false` 로 캡처, 슬라이더 변경 시
+    micTrack.applyConstraints 로 실시간 토글(100=AGC 원복). getSources(mode, agcOff) 시그니처 확장.
+  · desk.html(여객 태블릿): AGC 항상 off(근접 판별이 이 채널의 존재 이유) + 근접 게이트 peak→RMS 전환,
+    스케일 0.08(peak)→0.04(RMS), 기본 50=0.02 RMS(~30cm 발화 통과·먼 소리 차단).
+  · mobile.html PTT 는 누르는 동안만 발화(게이트 없음) — AGC 유지가 이득이라 그대로 둠.
+- 실음성 검증은 현장 몫: 민감도 50~70에서 속삭임 차단, 보통 목소리 통과 확인. 안 맞으면 슬라이더로 보정.
