@@ -382,3 +382,26 @@
   실검증: '탑승'(내용에만 존재) → 해당 세션 1건 필터, 소유권 격리 유지(타 유저 세션 미노출).
 - **Nav 최근 항목**: 메뉴 아래 '최근 항목' 최근 세션 8개(view/세션 변경 시 재조회, 클릭 → 해당 화면으로 열기·활성 표시), 펼침 폭 248→288(모바일 드로어 300).
 - 프리뷰 실검증: 라이트/다크 스크린샷, 최근 항목 클릭→데스크 세션 열림, 검색 필터, 오버레이 액션 opacity/absolute 확인.
+
+## 2026-07-13 (10) — 추임새(간투사) 제거 · 데스크톱 앱 웹 다운로드(프로필 메뉴 → 모달 → exe)
+### 추임새(간투사) 제거 — server.js stripFillers()
+- 실시간 STT 가 잡는 무의미 간투사를 인식 확정(commit) 시점에 원문·번역문 공통 제거. 라이브(비확정)는 두고 확정 때만(깜빡임 방지).
+- 2단계: ① 순수 잡음(항상 제거) `um/uh/hmm/mm/erm·음/어/으음·えっと/えー/あー/うー/んー·嗯/呃/唔` — 발화 전체가 이것뿐이면 카드째 드랍.
+  ② 소프트 간투사(내용이 남을 때만) `yeah/yep/yup/y'know` — 단독 "Yeah"(=네) 답변은 보존.
+- 오작동 회피: 영어 'well'(실단어)·한국어 조사 '에'는 제외. 단어경계·한글 인접(lookbehind/ahead)로 정상어(음악·어디·album·hummingbird) 보존.
+- 적용: soniox commit / desk staff·guest commit / translate finalize(+spacingPolish 결과). 유닛테스트 17종 통과.
+### 데스크톱 앱 웹 다운로드 (프로필 → '데스크톱 앱' 모달 → 설치 exe)
+- 기존 `desktop/`(Electron 통합 앱: 웹앱 래핑 + 줌 오버레이 자막)을 웹에서 바로 내려받게 연결. 사용자 결정: **GitHub Releases + CI 빌드**, **모든 로그인 사용자 노출**.
+- 서버(server.js):
+  - `fetchLatestDesktop()` — GitHub `/releases?per_page=20` 목록에서 설치본(.exe→.dmg→.zip) 있는 첫 릴리스 선택(무관 태그 릴리스 섞여도 OK), 10분 캐시.
+  - `GET /api/desktop/info`(requireAuth) — available/version/filename/size/platform/reason.
+  - `GET /download/desktop`(requireAuth) — env URL 있으면 리다이렉트 / 공개+토큰없음이면 browser_download_url 리다이렉트 /
+    **비공개면 서버가 GITHUB_TOKEN 으로 에셋을 받아 스트리밍**(사용자 GitHub 인증 불필요, `Readable.fromWeb` 파이프).
+  - env: `GITHUB_TOKEN`(Contents read), `DESKTOP_REPO`(기본 papimon33/translate), `DESKTOP_DOWNLOAD_URL`(사내·S3 직결). .env.example 반영.
+- 클라: Nav 프로필 메뉴에 **'데스크톱 앱'**(모든 사용자) → `DesktopAppDialog`(기능 3종·설치 3단계·버전/크기 칩·다운로드 버튼). api.desktopInfo().
+  - 버튼: available 이면 `<a href="/download/desktop">`(같은 창 attachment 다운로드), 미배포면 '준비 중' 비활성 + 안내(Alert).
+- CI: `.github/workflows/desktop-build.yml` — windows-latest, `npm ci`+`electron-builder --win nsis`, desktop/package.json 버전으로
+  `desktop-v<ver>` Release 생성/에셋 교체(gh CLI). workflow_dispatch + `desktop-v*` 태그 트리거. 새 버전은 package.json version 올리고 수동 실행.
+- 프리뷰 실검증: 프로필 메뉴 '데스크톱 앱' 표시, 모달 렌더, 준비중(no-release) 비활성 + info=available:false, /download/desktop 404, 미인증 401,
+  fetch 목으로 available 상태 → 다운로드 앵커 href=/download/desktop·버전 칩·"Windows · KAC-Translator-Setup-1.0.0.exe · 81 MB" 확인.
+- 남은 일(사용자): 최초 릴리스 발행 — Actions 에서 Desktop Build 1회 실행. 비공개 repo 유지 시 Render env 에 GITHUB_TOKEN 설정 필요.

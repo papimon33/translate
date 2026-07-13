@@ -10,6 +10,7 @@ import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from '
 import { b32encode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from './security_util.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { Readable } from 'node:stream';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -40,6 +41,14 @@ function cartesiaVoiceId(lang, gender) {
 }
 // 미리듣기용 짧은 테스트 문장(언어별)
 const TTS_TEST_PHRASE = { ko: '안녕하세요, 음성 테스트입니다.', en: 'Hello, this is a voice test.', ja: 'こんにちは、音声テストです。', zh: '你好，这是语音测试。' };
+
+// 데스크톱 앱(Electron) 배포 — GitHub Release 에 올린 설치본을 프로필 메뉴에서 내려받게 한다.
+//  · 비공개 repo 라도 서버가 GITHUB_TOKEN 으로 에셋을 받아 스트리밍 → 사용자는 GitHub 인증 불필요.
+//  · 공개 repo 로 바꾸면 토큰 없이 browser_download_url 로 리다이렉트.
+//  · DESKTOP_DOWNLOAD_URL 을 주면 GitHub 을 거치지 않고 그 주소로 바로 보냄(사내 서버·S3 등).
+const DESKTOP_REPO = process.env.DESKTOP_REPO || 'papimon33/translate';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
+const DESKTOP_DOWNLOAD_URL = process.env.DESKTOP_DOWNLOAD_URL || '';
 
 const LANG_NAMES = {
   ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어',
@@ -2096,6 +2105,79 @@ function getLanIp() {
   }
   return 'localhost';
 }
+
+/* ---- 데스크톱 앱 배포 (GitHub Release 최신 설치본) ----
+   info: 최신 릴리스의 설치파일 존재·버전·크기를 반환(10분 캐시).
+   download: 비공개 repo 는 서버가 토큰으로 에셋을 받아 스트리밍(사용자 GitHub 인증 불필요),
+             공개 repo/토큰 없음이면 browser_download_url 로 리다이렉트, env 지정 시 그 주소로. */
+let _desktopCache = { at: 0, data: null };
+async function fetchLatestDesktop() {
+  if (DESKTOP_DOWNLOAD_URL) return { available: true, source: 'env', url: DESKTOP_DOWNLOAD_URL, filename: (DESKTOP_DOWNLOAD_URL.split('/').pop() || 'KAC-Translator-Setup.exe').split('?')[0] };
+  if (_desktopCache.data && Date.now() - _desktopCache.at < 10 * 60 * 1000) return _desktopCache.data;
+  let data;
+  try {
+    const h = { Accept: 'application/vnd.github+json', 'User-Agent': 'kac-translator', 'X-GitHub-Api-Version': '2022-11-28' };
+    if (GITHUB_TOKEN) h.Authorization = `Bearer ${GITHUB_TOKEN}`;
+    // 최신순 릴리스 목록에서 '설치본 에셋이 있는' 첫 릴리스를 고른다 —
+    // 앱과 무관한 태그 릴리스가 섞여 있어도 데스크톱 설치본을 정확히 찾는다.
+    const r = await fetch(`https://api.github.com/repos/${DESKTOP_REPO}/releases?per_page=20`, { headers: h });
+    if (!r.ok) {
+      data = { available: false, reason: r.status === 404 ? 'no-release' : `gh-${r.status}` };
+    } else {
+      const rels = await r.json();
+      const pick = (rel) => {
+        const assets = Array.isArray(rel.assets) ? rel.assets : [];
+        return assets.find((a) => /\.exe$/i.test(a.name)) || assets.find((a) => /\.(dmg|zip)$/i.test(a.name)) || null;
+      };
+      let found = null;
+      for (const rel of (Array.isArray(rels) ? rels : [])) {
+        if (rel.draft) continue;
+        const asset = pick(rel);
+        if (asset) { found = { rel, asset }; break; }
+      }
+      data = found
+        ? { available: true, source: 'github', version: found.rel.tag_name || found.rel.name || null, filename: found.asset.name, size: found.asset.size || null, assetId: found.asset.id, browserUrl: found.asset.browser_download_url || null, publishedAt: found.rel.published_at || null }
+        : { available: false, reason: 'no-asset' };
+    }
+  } catch (e) {
+    data = { available: false, reason: (e && e.message) || 'error' };
+  }
+  _desktopCache = { at: Date.now(), data };
+  return data;
+}
+app.get('/api/desktop/info', requireAuth, async (req, res) => {
+  const d = await fetchLatestDesktop();
+  res.json({
+    available: !!d.available,
+    version: d.version || null,
+    filename: d.filename || null,
+    size: d.size || null,
+    publishedAt: d.publishedAt || null,
+    platform: /\.dmg$/i.test(d.filename || '') ? 'mac' : 'windows',
+    reason: d.available ? null : (d.reason || null),
+  });
+});
+app.get('/download/desktop', requireAuth, async (req, res) => {
+  const d = await fetchLatestDesktop();
+  if (!d.available) return res.status(404).send('데스크톱 설치파일이 아직 준비되지 않았습니다. 관리자에게 문의하세요.');
+  if (d.source === 'env') return res.redirect(d.url);
+  // 공개 repo 이고 서버 토큰이 없으면 GitHub 다운로드 URL 로 바로 보냄
+  if (!GITHUB_TOKEN && d.browserUrl) return res.redirect(d.browserUrl);
+  // 비공개 repo: 서버가 토큰으로 에셋 바이너리를 받아 그대로 흘려보냄(사용자 인증 불필요)
+  try {
+    const gh = await fetch(`https://api.github.com/repos/${DESKTOP_REPO}/releases/assets/${d.assetId}`, {
+      headers: { Accept: 'application/octet-stream', 'User-Agent': 'kac-translator', Authorization: `Bearer ${GITHUB_TOKEN}` },
+      redirect: 'follow',
+    });
+    if (!gh.ok || !gh.body) return res.status(502).send('다운로드 실패: GitHub ' + gh.status);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${(d.filename || 'KAC-Translator-Setup.exe').replace(/"/g, '')}"`);
+    if (d.size) res.setHeader('Content-Length', String(d.size));
+    Readable.fromWeb(gh.body).pipe(res);
+  } catch (e) {
+    res.status(502).send('다운로드 실패: ' + ((e && e.message) || '오류'));
+  }
+});
 
 /* ---- QR (세션별 모바일 URL) ---- */
 app.get('/api/qr', async (req, res) => {

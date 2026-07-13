@@ -20,8 +20,10 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
+import InstallDesktopOutlinedIcon from '@mui/icons-material/InstallDesktopOutlined';
 import { SIDEBAR } from '../theme.js';
 import { api } from '../api.js';
+import DesktopAppDialog from './DesktopAppDialog.jsx';
 
 const W = 288; // 펼침 폭 — 최근 항목 표기를 위해 확대
 const WC = 72;
@@ -60,6 +62,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
   const [edit, setEdit] = useState(false);
+  const [desktopApp, setDesktopApp] = useState(false); // 데스크톱 앱 안내·다운로드 모달
   const [recents, setRecents] = useState([]); // 최근 항목(세션) — Claude 사이드바 스타일
   const isAdmin = user?.role === 'admin';
   const initial = (user?.username || user?.id || '?').trim().charAt(0).toUpperCase();
@@ -204,6 +207,10 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
             관리자 페이지
           </MenuItem>
         )}
+        <MenuItem onClick={() => { setMenu(null); setDesktopApp(true); }}>
+          <ListItemIcon><InstallDesktopOutlinedIcon fontSize="small" /></ListItemIcon>
+          데스크톱 앱
+        </MenuItem>
         <MenuItem onClick={() => { setMenu(null); onLogout(); }}>
           <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
           로그아웃
@@ -216,6 +223,8 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         onClose={() => setEdit(false)}
         onSaved={(u) => { setEdit(false); onUserUpdate && onUserUpdate(u); }}
       />
+
+      <DesktopAppDialog open={desktopApp} onClose={() => setDesktopApp(false)} />
     </Box>
   );
 }

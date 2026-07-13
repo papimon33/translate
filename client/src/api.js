@@ -27,6 +27,7 @@ export const api = {
     }).then(json),
   remove: (id) => fetch('/api/sessions/' + id, { method: 'DELETE' }).then(json),
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
+  desktopInfo: () => fetch('/api/desktop/info').then(json), // 데스크톱 앱 최신 설치본 정보
 
   me: () => fetch('/api/me').then(json),
   login: (id, password, remember, otp) =>

@@ -67,6 +67,23 @@ npm run dist:mac     # → dist/KAC-Translator-1.0.0-arm64.dmg 등
 
 (참고: 예전 방식의 폴더형 포터블 빌드는 `npm run dist:portable` 로 여전히 가능)
 
+## 웹앱에서 자동 배포·다운로드 (권장 흐름)
+
+수동 빌드 대신, **GitHub Actions** 로 설치본을 만들어 웹앱의 **프로필 → '데스크톱 앱'** 모달에서 바로 내려받게 해 두었습니다.
+
+1. **버전 올리기** — 새로 배포할 땐 `desktop/package.json` 의 `"version"` 을 올린다.
+2. **빌드 실행** — GitHub 저장소 **Actions 탭 → "Desktop Build" → Run workflow**.
+   (또는 `desktop-v*` 태그를 푸시하면 자동 실행)
+   - `windows-latest` 러너에서 `electron-builder --win nsis` 로 설치본을 만들고,
+     `desktop-v<version>` 태그의 **Release** 에 `KAC-Translator-Setup-<version>.exe` 를 올린다.
+3. **다운로드** — 웹앱에 로그인 → 좌하단 프로필 → **데스크톱 앱** → **설치파일 다운로드**.
+   - 서버(`/download/desktop`)가 최신 Release 의 설치본을 찾아 내보낸다.
+   - **비공개 저장소**면 서버가 `GITHUB_TOKEN`(Contents read) 으로 에셋을 받아 사용자에게 스트리밍하므로,
+     받는 사람은 GitHub 계정이 없어도 된다. 공개 저장소면 토큰 없이 바로 리다이렉트.
+   - GitHub 대신 사내 서버·S3 등에 두려면 서버 env `DESKTOP_DOWNLOAD_URL` 에 exe 주소만 지정하면 된다.
+
+> 관련 서버 env: `GITHUB_TOKEN`, `DESKTOP_REPO`(기본 `papimon33/translate`), `DESKTOP_DOWNLOAD_URL` — `.env.example` 참고.
+
 ## 참고
 - 메인 창의 오버레이 버튼·투명도 슬라이더는 **Electron 앱에서만** 보입니다(일반 브라우저에선 자동 숨김).
 - 새 기능(오버레이 버튼 등)은 **배포 사이트에 반영(재배포)된 뒤** exe에서 보입니다. exe는 코드를 원격 로드하기 때문입니다.
