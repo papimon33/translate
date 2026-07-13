@@ -2149,7 +2149,9 @@ async function fetchLatestDesktop() {
         if (rel.draft) continue;
         const assets = Array.isArray(rel.assets) ? rel.assets : [];
         const win = assets.find((a) => /\.exe$/i.test(a.name));
-        const mac = assets.find((a) => /\.dmg$/i.test(a.name));
+        // mac: universal(인텔+애플실리콘 겸용) 우선, 없으면 첫 dmg
+        const macs = assets.filter((a) => /\.dmg$/i.test(a.name));
+        const mac = macs.find((a) => /universal/i.test(a.name)) || macs[0];
         if (win || mac) { found = { rel, win, mac }; break; }
       }
       data = found
