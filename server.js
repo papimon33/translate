@@ -2106,37 +2106,39 @@ function getLanIp() {
   return 'localhost';
 }
 
-/* ---- 데스크톱 앱 배포 (GitHub Release 최신 설치본) ----
-   info: 최신 릴리스의 설치파일 존재·버전·크기를 반환(10분 캐시).
-   download: 비공개 repo 는 서버가 토큰으로 에셋을 받아 스트리밍(사용자 GitHub 인증 불필요),
+/* ---- 데스크톱 앱 배포 (GitHub Release 최신 설치본) — Windows(.exe) + macOS(.dmg) ----
+   info: 최신 릴리스의 플랫폼별 설치파일 존재·버전·크기를 반환(10분 캐시).
+   download?platform=win|mac: 비공개 repo 는 서버가 토큰으로 에셋을 스트리밍(사용자 GitHub 인증 불필요),
              공개 repo/토큰 없음이면 browser_download_url 로 리다이렉트, env 지정 시 그 주소로. */
 let _desktopCache = { at: 0, data: null };
 async function fetchLatestDesktop() {
-  if (DESKTOP_DOWNLOAD_URL) return { available: true, source: 'env', url: DESKTOP_DOWNLOAD_URL, filename: (DESKTOP_DOWNLOAD_URL.split('/').pop() || 'KAC-Translator-Setup.exe').split('?')[0] };
+  if (DESKTOP_DOWNLOAD_URL) {
+    const fn = (DESKTOP_DOWNLOAD_URL.split('/').pop() || 'KAC-Translator-Setup.exe').split('?')[0];
+    return { available: true, source: 'env', url: DESKTOP_DOWNLOAD_URL, win: { filename: fn }, mac: null };
+  }
   if (_desktopCache.data && Date.now() - _desktopCache.at < 10 * 60 * 1000) return _desktopCache.data;
   let data;
   try {
     const h = { Accept: 'application/vnd.github+json', 'User-Agent': 'kac-translator', 'X-GitHub-Api-Version': '2022-11-28' };
     if (GITHUB_TOKEN) h.Authorization = `Bearer ${GITHUB_TOKEN}`;
-    // 최신순 릴리스 목록에서 '설치본 에셋이 있는' 첫 릴리스를 고른다 —
+    // 최신순 릴리스 목록에서 '설치본 에셋(.exe/.dmg)이 하나라도 있는' 첫 릴리스를 고른다 —
     // 앱과 무관한 태그 릴리스가 섞여 있어도 데스크톱 설치본을 정확히 찾는다.
     const r = await fetch(`https://api.github.com/repos/${DESKTOP_REPO}/releases?per_page=20`, { headers: h });
     if (!r.ok) {
       data = { available: false, reason: r.status === 404 ? 'no-release' : `gh-${r.status}` };
     } else {
       const rels = await r.json();
-      const pick = (rel) => {
-        const assets = Array.isArray(rel.assets) ? rel.assets : [];
-        return assets.find((a) => /\.exe$/i.test(a.name)) || assets.find((a) => /\.(dmg|zip)$/i.test(a.name)) || null;
-      };
+      const assetInfo = (a) => (a ? { filename: a.name, size: a.size || null, assetId: a.id, browserUrl: a.browser_download_url || null } : null);
       let found = null;
       for (const rel of (Array.isArray(rels) ? rels : [])) {
         if (rel.draft) continue;
-        const asset = pick(rel);
-        if (asset) { found = { rel, asset }; break; }
+        const assets = Array.isArray(rel.assets) ? rel.assets : [];
+        const win = assets.find((a) => /\.exe$/i.test(a.name));
+        const mac = assets.find((a) => /\.dmg$/i.test(a.name));
+        if (win || mac) { found = { rel, win, mac }; break; }
       }
       data = found
-        ? { available: true, source: 'github', version: found.rel.tag_name || found.rel.name || null, filename: found.asset.name, size: found.asset.size || null, assetId: found.asset.id, browserUrl: found.asset.browser_download_url || null, publishedAt: found.rel.published_at || null }
+        ? { available: true, source: 'github', version: found.rel.tag_name || found.rel.name || null, publishedAt: found.rel.published_at || null, win: assetInfo(found.win), mac: assetInfo(found.mac) }
         : { available: false, reason: 'no-asset' };
     }
   } catch (e) {
@@ -2145,15 +2147,15 @@ async function fetchLatestDesktop() {
   _desktopCache = { at: Date.now(), data };
   return data;
 }
+const platMeta = (a) => (a ? { filename: a.filename || null, size: a.size || null } : null);
 app.get('/api/desktop/info', requireAuth, async (req, res) => {
   const d = await fetchLatestDesktop();
   res.json({
     available: !!d.available,
     version: d.version || null,
-    filename: d.filename || null,
-    size: d.size || null,
     publishedAt: d.publishedAt || null,
-    platform: /\.dmg$/i.test(d.filename || '') ? 'mac' : 'windows',
+    windows: d.available ? platMeta(d.win) : null,
+    mac: d.available ? platMeta(d.mac) : null,
     reason: d.available ? null : (d.reason || null),
   });
 });
@@ -2161,18 +2163,21 @@ app.get('/download/desktop', requireAuth, async (req, res) => {
   const d = await fetchLatestDesktop();
   if (!d.available) return res.status(404).send('데스크톱 설치파일이 아직 준비되지 않았습니다. 관리자에게 문의하세요.');
   if (d.source === 'env') return res.redirect(d.url);
+  const plat = req.query.platform === 'mac' ? 'mac' : 'win';
+  const asset = plat === 'mac' ? d.mac : d.win;
+  if (!asset) return res.status(404).send(`${plat === 'mac' ? 'macOS' : 'Windows'} 설치파일이 아직 준비되지 않았습니다.`);
   // 공개 repo 이고 서버 토큰이 없으면 GitHub 다운로드 URL 로 바로 보냄
-  if (!GITHUB_TOKEN && d.browserUrl) return res.redirect(d.browserUrl);
+  if (!GITHUB_TOKEN && asset.browserUrl) return res.redirect(asset.browserUrl);
   // 비공개 repo: 서버가 토큰으로 에셋 바이너리를 받아 그대로 흘려보냄(사용자 인증 불필요)
   try {
-    const gh = await fetch(`https://api.github.com/repos/${DESKTOP_REPO}/releases/assets/${d.assetId}`, {
+    const gh = await fetch(`https://api.github.com/repos/${DESKTOP_REPO}/releases/assets/${asset.assetId}`, {
       headers: { Accept: 'application/octet-stream', 'User-Agent': 'kac-translator', Authorization: `Bearer ${GITHUB_TOKEN}` },
       redirect: 'follow',
     });
     if (!gh.ok || !gh.body) return res.status(502).send('다운로드 실패: GitHub ' + gh.status);
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${(d.filename || 'KAC-Translator-Setup.exe').replace(/"/g, '')}"`);
-    if (d.size) res.setHeader('Content-Length', String(d.size));
+    res.setHeader('Content-Disposition', `attachment; filename="${(asset.filename || 'KAC-Translator-Setup').replace(/"/g, '')}"`);
+    if (asset.size) res.setHeader('Content-Length', String(asset.size));
     Readable.fromWeb(gh.body).pipe(res);
   } catch (e) {
     res.status(502).send('다운로드 실패: ' + ((e && e.message) || '오류'));

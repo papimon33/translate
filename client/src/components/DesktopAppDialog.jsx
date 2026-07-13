@@ -19,6 +19,13 @@ function fmtSize(n) {
   return mb >= 1 ? `${mb.toFixed(0)} MB` : `${(n / 1024).toFixed(0)} KB`;
 }
 
+// 사용자 OS 추정 — 해당 플랫폼 다운로드를 먼저(주 버튼) 보여준다.
+function detectOS() {
+  const s = `${navigator.userAgentData?.platform || ''} ${navigator.platform || ''} ${navigator.userAgent || ''}`.toLowerCase();
+  if (/mac|iphone|ipad|ipod/.test(s)) return 'mac';
+  return 'windows';
+}
+
 // 데스크톱 앱 안내 + 다운로드 모달. 프로필 메뉴 '데스크톱 앱'에서 열림.
 export default function DesktopAppDialog({ open, onClose }) {
   const [info, setInfo] = useState(null); // null=로딩, {available,...}
@@ -30,8 +37,16 @@ export default function DesktopAppDialog({ open, onClose }) {
     api.desktopInfo().then(setInfo).catch(() => setErr(true));
   }, [open]);
 
-  const isMac = info?.platform === 'mac';
-  const available = !!info?.available;
+  const os = detectOS();
+  const win = info?.windows || null;
+  const mac = info?.mac || null;
+  const available = !!info?.available && (!!win || !!mac);
+  // 주 다운로드 = 사용자 OS(가능하면), 없으면 있는 쪽. 보조 = 나머지 플랫폼.
+  const primaryPlat = (os === 'mac' && mac) ? 'mac' : (os === 'windows' && win) ? 'win' : (win ? 'win' : mac ? 'mac' : null);
+  const secondaryPlat = primaryPlat === 'win' ? (mac ? 'mac' : null) : primaryPlat === 'mac' ? (win ? 'win' : null) : null;
+  const platLabel = (p) => (p === 'mac' ? 'macOS' : 'Windows');
+  const platAsset = (p) => (p === 'mac' ? mac : win);
+  const dlHref = (p) => `/download/desktop?platform=${p}`;
 
   const FEATURES = [
     { t: '통합 실행 창', d: '로그인·세션·녹음 전체 기능을 브라우저 없이 앱 하나로.' },
@@ -54,7 +69,7 @@ export default function DesktopAppDialog({ open, onClose }) {
           <Box sx={{ minWidth: 0 }}>
             <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.25 }}>데스크톱 앱</Typography>
             <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-              Windows 설치본 · 줌 오버레이 자막 지원
+              Windows · macOS 설치본 · 줌 오버레이 자막 지원
             </Typography>
           </Box>
         </Box>
@@ -97,22 +112,38 @@ export default function DesktopAppDialog({ open, onClose }) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               {info.version && <Chip size="small" label={info.version} sx={{ height: 22, fontSize: 11.5, fontWeight: 700 }} />}
               <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
-                {isMac ? 'macOS' : 'Windows'}{info.filename ? ` · ${info.filename}` : ''}{info.size ? ` · ${fmtSize(info.size)}` : ''}
+                {[win && 'Windows', mac && 'macOS'].filter(Boolean).join(' · ')} 설치본 제공
               </Typography>
             </Box>
           )}
+          {available && primaryPlat === 'mac' && (
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 0.75 }}>
+              macOS는 서명되지 않은 앱이라 첫 실행 시 <b>우클릭 → 열기</b>로 한 번 허용해야 합니다.
+            </Typography>
+          )}
         </Box>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+      <DialogActions sx={{ px: 3, pb: 2.5, flexWrap: 'wrap' }}>
         <Button onClick={onClose} sx={{ color: 'text.secondary' }}>닫기</Button>
+        {/* 보조 플랫폼(다른 OS) 다운로드 링크 */}
+        {available && secondaryPlat && (
+          <Button
+            variant="text"
+            href={dlHref(secondaryPlat)}
+            sx={{ color: 'text.secondary' }}
+          >
+            {platLabel(secondaryPlat)}용 받기{platAsset(secondaryPlat)?.size ? ` (${fmtSize(platAsset(secondaryPlat).size)})` : ''}
+          </Button>
+        )}
+        {/* 주 다운로드(사용자 OS) */}
         <Button
           variant="contained"
           startIcon={<DownloadIcon />}
-          disabled={!available}
-          href={available ? '/download/desktop' : undefined}
+          disabled={!available || !primaryPlat}
+          href={available && primaryPlat ? dlHref(primaryPlat) : undefined}
           // 같은 창에서 attachment 응답을 받으면 다운로드만 시작되고 페이지는 유지됨
         >
-          {available ? '설치파일 다운로드' : '준비 중'}
+          {available && primaryPlat ? `${platLabel(primaryPlat)}용 다운로드${platAsset(primaryPlat)?.size ? ` (${fmtSize(platAsset(primaryPlat).size)})` : ''}` : '준비 중'}
         </Button>
       </DialogActions>
     </Dialog>
