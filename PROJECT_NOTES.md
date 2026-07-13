@@ -405,3 +405,22 @@
 - 프리뷰 실검증: 프로필 메뉴 '데스크톱 앱' 표시, 모달 렌더, 준비중(no-release) 비활성 + info=available:false, /download/desktop 404, 미인증 401,
   fetch 목으로 available 상태 → 다운로드 앵커 href=/download/desktop·버전 칩·"Windows · KAC-Translator-Setup-1.0.0.exe · 81 MB" 확인.
 - 남은 일(사용자): 최초 릴리스 발행 — Actions 에서 Desktop Build 1회 실행. 비공개 repo 유지 시 Render env 에 GITHUB_TOKEN 설정 필요.
+
+## 2026-07-13 (11) — 마이크 게이트 RMS화 · 세션 …메뉴(내역/세션 삭제) · 데스크톱 mac · 라이트 배경 흰색화
+### 마이크 민감도 게이트 — peak→RMS
+- 문제: 게이트가 peak(순간 최대)로 열려 속삭임의 자음 스파이크(ㅅ·ㅌ)에도 열림 → 속삭임이 그대로 인식. 또 기본 100은 게이트 자체가 off(`v<100`일 때만).
+- audio.js: 게이트 판정을 RMS(프레임 평균 음량)로 변경(rms 계산 후 onMeter·게이트 공용). sensToGate 범위 0.08→0.05(RMS 스케일). 300ms hold 유지.
+- TranslateView: 기본 micSens 100→**70**(미저장 기기), 힌트 문구 갱신("속삭임 잡히면 더 낮추고, 작게 말하는데 끊기면 높이세요"). 저장값 있으면 유지.
+- 실오디오 검증은 현장 몫(프리뷰 마이크 차단). RMS 임계 대략: 보통대화 0.03~0.1 통과 / 속삭임 0.005~0.02·실내소음 차단.
+### 세션 헤더 '…' 메뉴 (연필 대체)
+- TranslateView 제목 옆 연필 IconButton → MoreVert '…' → Menu: **세션 이름 수정 / 대화 내역 삭제 / 세션 삭제**(비desk 한정, 기존 연필 조건 유지).
+- 대화 내역 삭제: **신규 서버 라우트 `DELETE /api/sessions/:id/items`**(requireAuth, 본인/관리자·desk는 관리자만) — items 비우고 `broadcast snapshot:[]`로 뷰어 화면도 초기화. setMessages([]).
+- 세션 삭제: 기존 소프트 삭제(api.remove) → onBack(). ConfirmDialog + Snackbar(성공/실패). api.clearItems 추가.
+- 검증: 임시 세션 clear→{ok,deleted:0}, 미인증 401, 메뉴 3항목 렌더 확인(실데이터 미삭제).
+### 데스크톱 앱 macOS
+- 서버 fetchLatestDesktop 이 win(.exe)·mac(.dmg) 에셋 각각 반환, `/download/desktop?platform=win|mac` 분기(비공개=토큰 스트리밍/공개=리다이렉트).
+- DesktopAppDialog: 사용자 OS 감지(navigator) → 주 버튼(내 OS)+보조 링크(다른 OS), macOS 미서명 안내. desktop/package.json mac 타깃 universal 단일 dmg + identity:null.
+- **워크플로 main.yml 에 macos 빌드 잡 추가는 사용자 몫**(토큰 workflow 스코프로 서버측 푸시 불가) — 매트릭스(win/mac)+release 잡 분리 안 전달함.
+- Windows 빌드/릴리스는 이미 라이브(desktop-v1.0.0, exe 81.9MB, /download?platform=win 302→200 확인).
+### 라이트 배경 흰색화
+- theme.js: 라이트 캔버스 #F5F4EE→**#FAFAF8**(거의 흰색), nav #FAF9F5→**#FFF**(카드와 함께 최상단 밝기). 다크 불변. nav≥content 밝기 순서 유지.

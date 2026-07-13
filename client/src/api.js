@@ -26,6 +26,7 @@ export const api = {
       body: JSON.stringify(body),
     }).then(json),
   remove: (id) => fetch('/api/sessions/' + id, { method: 'DELETE' }).then(json),
+  clearItems: (id) => fetch('/api/sessions/' + id + '/items', { method: 'DELETE' }).then(json), // 대화 내역만 비우기(세션 유지)
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
   desktopInfo: () => fetch('/api/desktop/info').then(json), // 데스크톱 앱 최신 설치본 정보
 

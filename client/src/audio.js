@@ -62,9 +62,12 @@ function downsampleTo24k(f32, inRate) {
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
   const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
-  // 마이크 음성인식 민감도(0~100): 100=가장 민감(게이트 없음, 기본), 낮출수록 더 큰 소리(peak)만 인식.
-  // 녹음 중에도 setMicSens 로 실시간 변경 가능(데스크는 상시 캡처라 이 경로가 유일한 조절 수단).
-  const sensToGate = (v) => (typeof v === 'number' && v < 100 ? (1 - v / 100) * 0.08 : 0);
+  // 마이크 음성인식 민감도(0~100): 100=가장 민감(게이트 없음), 낮출수록 조용한 소리를 무시.
+  //  · 게이트 기준은 RMS(프레임 평균 음량) — peak(순간 최대) 는 속삭임의 자음(ㅅ·ㅌ) 스파이크에도
+  //    열려 버려 소용없었다. RMS 는 '지속적으로 일정 음량 이상'일 때만 열려 속삭임·주변소음을 잘 거른다.
+  //  · 임계 범위 0~0.05(RMS): 보통 대화(≈0.03~0.1)는 통과, 속삭임(≈0.005~0.02)·실내소음은 차단.
+  //  · 녹음 중에도 setMicSens 로 실시간 변경 가능(데스크는 상시 캡처라 이 경로가 유일한 조절 수단).
+  const sensToGate = (v) => (typeof v === 'number' && v < 100 ? (1 - v / 100) * 0.05 : 0);
   let gateTh = sensToGate(micSens);
   const sources = await getSources(mode); // 권한 거부 시 throw
 
@@ -263,7 +266,8 @@ export async function startRecorder(opts) {
         sum += input[i] * input[i];
         if (v > peak) peak = v;
       }
-      if (src === 'mic' && onMeter) onMeter(Math.sqrt(sum / input.length), peak);
+      const rms = Math.sqrt(sum / input.length);
+      if (src === 'mic' && onMeter) onMeter(rms, peak);
 
       const w = pipe.ws; // 재연결로 소켓이 바뀌어도 항상 현재 소켓 사용
       const wOpen = w && w.readyState === WebSocket.OPEN;
@@ -280,10 +284,11 @@ export async function startRecorder(opts) {
         return;
       }
 
-      // 볼륨 게이트(마이크만): 임계 이상이면 열고 300ms hold, 이하이면 무음(0) 전송으로 번역 억제
+      // 볼륨 게이트(마이크만): RMS 가 임계 이상이면 열고 300ms hold, 이하이면 무음(0) 전송으로 번역 억제.
+      // RMS 기준이라 속삭임의 순간 스파이크로는 열리지 않는다(지속 음량이 있어야 열림).
       let gated = false;
       if (src === 'mic' && gateTh > 0) {
-        if (peak >= gateTh) gateOpenUntil = Date.now() + 300;
+        if (rms >= gateTh) gateOpenUntil = Date.now() + 300;
         if (Date.now() >= gateOpenUntil) gated = true;
       }
       if (wOpen) {

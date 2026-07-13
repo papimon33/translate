@@ -6,6 +6,10 @@ import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import Menu from '@mui/material/Menu';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import Snackbar from '@mui/material/Snackbar';
+import MuiAlert from '@mui/material/Alert';
 import Switch from '@mui/material/Switch';
 import Slider from '@mui/material/Slider';
 import Fab from '@mui/material/Fab';
@@ -43,6 +47,11 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
+import ConfirmDialog from './ConfirmDialog.jsx';
 import { api } from '../api.js';
 
 function VolumeIcon({ level }) {
@@ -257,7 +266,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [micSens, setMicSens] = useState(() => {
     const s = localStorage.getItem('kac-mic-sens'); // 미저장 시 Number(null)=0 으로 오인되지 않게 원문 확인
     const v = s == null ? NaN : Number(s);
-    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100; // 마이크 음성인식 민감도 0~100 (100=가장 민감, 낮출수록 큰 소리만). 기기 저장
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 70; // 마이크 음성인식 민감도 0~100 (100=가장 민감, 낮출수록 조용한 소리 무시). 기본 70=속삭임·주변소음 걸러냄. 기기 저장
   });
   const [guestSens, setGuestSens] = useState(() => {
     const s = localStorage.getItem('kac-desk-guest-sens');
@@ -334,6 +343,34 @@ export default function TranslateView({ session: initial, onBack }) {
   const [renameVal, setRenameVal] = useState('');
   const openRename = () => { setRenameVal(sessTitle || ''); setRenameOpen(true); };
   const saveRename = () => { const v = (renameVal || '').trim() || '제목 없음'; setSessTitle(v); setRenameOpen(false); api.patch(initial.id, { title: v }).catch(() => {}); };
+  // 세션 헤더 '…' 메뉴: 이름 수정 / 대화 내역 삭제 / 세션 삭제
+  const [hdrMenu, setHdrMenu] = useState(null); // anchorEl
+  const [confirmReq, setConfirmReq] = useState(null);
+  const [snack, setSnack] = useState(null); // { ok, msg }
+  const clearHistory = () => {
+    setHdrMenu(null);
+    setConfirmReq({
+      title: '대화 내역 삭제',
+      message: '이 세션의 지금까지 번역·대화 내역을 모두 삭제합니다. 세션은 그대로 유지됩니다. 되돌릴 수 없습니다.',
+      confirmLabel: '내역 삭제',
+      onOk: async () => {
+        try { await api.clearItems(initial.id); setMessages([]); setSnack({ ok: true, msg: '대화 내역을 삭제했습니다.' }); }
+        catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
+      },
+    });
+  };
+  const deleteSession = () => {
+    setHdrMenu(null);
+    setConfirmReq({
+      title: '세션 삭제',
+      message: `'${sessTitle || '제목 없음'}' 세션을 삭제합니다. 목록에서 사라지며, 대화 기록은 관리자 로그에 보존됩니다.`,
+      confirmLabel: '세션 삭제',
+      onOk: async () => {
+        try { await api.remove(initial.id); onBack(); }
+        catch (e) { setSnack({ ok: false, msg: '삭제 실패: ' + (e.message || '네트워크 오류') }); }
+      },
+    });
+  };
   const [speakers, setSpeakers] = useState(initial.speakers || {}); // 화자번호 -> 지정이름(다운로드 표기용)
   const [notice, setNotice] = useState('');
   const [connecting, setConnecting] = useState(false);
@@ -634,9 +671,9 @@ export default function TranslateView({ session: initial, onBack }) {
               {sessTitle}
             </Typography>
             {cfg.pipeline !== 'desk' && (
-              <Tooltip title="제목 수정">
-                <IconButton onClick={openRename} sx={{ width: 30, height: 30, flex: 'none', borderRadius: '9px', border: 1, borderColor: 'divider', color: 'text.secondary' }}>
-                  <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" sx={{ width: 15, height: 15 }}><path d="M4 20h4L19 9l-4-4L4 16v4z" /></Box>
+              <Tooltip title="세션 관리">
+                <IconButton onClick={(e) => setHdrMenu(e.currentTarget)} sx={{ width: 30, height: 30, flex: 'none', borderRadius: '9px', border: 1, borderColor: 'divider', color: 'text.secondary' }}>
+                  <MoreVertIcon sx={{ fontSize: 18 }} />
                 </IconButton>
               </Tooltip>
             )}
@@ -1184,7 +1221,7 @@ export default function TranslateView({ session: initial, onBack }) {
             fmt={(v) => Math.round(v * 100) + '%'}
             onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
           {/* 녹음(캡처) 중에도 실시간 조절 — 데스크는 상시 캡처라 비활성화하면 아예 바꿀 수 없었음 */}
-          <SxSlider label="마이크 음성인식 민감도" hint="100=가장 민감(모든 소리), 낮출수록 큰 소리에만 반응(주변 소음 무시). 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
+          <SxSlider label="마이크 음성인식 민감도" hint="100=모든 소리, 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 기본 70. 속삭임이 잡히면 더 낮추고, 작게 말하는데 끊기면 높이세요. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
             fmt={(v) => String(v)}
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
           {cfg.pipeline === 'desk' && (
@@ -1269,6 +1306,33 @@ export default function TranslateView({ session: initial, onBack }) {
           <Button variant="contained" onClick={saveRename}>저장</Button>
         </DialogActions>
       </Dialog>
+
+      {/* 세션 헤더 '…' 메뉴 */}
+      <Menu anchorEl={hdrMenu} open={!!hdrMenu} onClose={() => setHdrMenu(null)} transformOrigin={{ vertical: 'top', horizontal: 'left' }}>
+        <MenuItem onClick={() => { setHdrMenu(null); openRename(); }}>
+          <ListItemIcon><DriveFileRenameOutlineIcon fontSize="small" /></ListItemIcon>
+          세션 이름 수정
+        </MenuItem>
+        <MenuItem onClick={clearHistory} disabled={messages.length === 0}>
+          <ListItemIcon><DeleteSweepOutlinedIcon fontSize="small" /></ListItemIcon>
+          대화 내역 삭제
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={deleteSession} sx={{ color: 'error.main' }}>
+          <ListItemIcon><DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+          세션 삭제
+        </MenuItem>
+      </Menu>
+
+      <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
+
+      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        {snack ? (
+          <MuiAlert elevation={6} variant="filled" severity={snack.ok ? 'success' : 'error'} onClose={() => setSnack(null)}>
+            {snack.msg}
+          </MuiAlert>
+        ) : undefined}
+      </Snackbar>
     </Box>
   );
 }

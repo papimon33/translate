@@ -1967,6 +1967,21 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   res.json(s);
 });
 
+// 세션 대화 내역만 비우기(세션 자체는 유지) — 세션 화면의 '…' 메뉴에서 사용자가 직접.
+//  본인 세션(또는 관리자), 데스크는 관리자만. 라이브 뷰어 화면도 비운다.
+app.delete('/api/sessions/:id/items', requireAuth, (req, res) => {
+  const s = getSession(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  if (s.pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 대화 내역은 관리자만 삭제할 수 있습니다.' });
+  if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const n = Array.isArray(s.items) ? s.items.length : 0;
+  s.items = [];
+  s.updatedAt = Date.now();
+  saveSessions();
+  broadcast(req.params.id, { type: 'snapshot', items: [] }); // 접속 중인 뷰어 화면도 비움
+  res.json({ ok: true, deleted: n });
+});
+
 app.delete('/api/sessions/:id', requireAuth, (req, res) => {
   const s = getSession(req.params.id);
   if (s) {

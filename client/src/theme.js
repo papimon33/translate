@@ -10,7 +10,7 @@ export const ACCENT = { dark: '#8579ff', light: '#5b4fe8' };
 // 라이트=거의 백색(#FAF9F5) / 캔버스 #F5F4EE, 다크=#262624 / 캔버스 #1F1E1D.
 export const SIDEBAR = {
   light: {
-    bg: '#faf9f5',
+    bg: '#ffffff',
     text: 'rgba(31,30,29,0.85)',
     textStrong: '#1f1e1d',
     muted: 'rgba(31,30,29,0.52)',
@@ -35,8 +35,8 @@ export function buildTheme(mode) {
   const primary = dark ? '#faf9f5' : '#1f1e1d';
   const primaryContrast = dark ? '#1f1e1d' : '#ffffff';
   // Claude 앱 팔레트(웜 뉴트럴). nav 가 캔버스보다 항상 밝다:
-  // 라이트 캔버스 #F5F4EE·카드 #FFF, 다크 캔버스 #1F1E1D·카드 #30302E(nav #262624).
-  const bgDefault = dark ? '#1f1e1d' : '#f5f4ee';
+  // 라이트 캔버스 #FAFAF8(거의 흰색)·카드/nav #FFF, 다크 캔버스 #1F1E1D·카드 #30302E(nav #262624).
+  const bgDefault = dark ? '#1f1e1d' : '#fafaf8';
   const bgPaper = dark ? '#30302e' : '#ffffff';
   const divider = dark ? 'rgba(250,249,245,0.10)' : 'rgba(31,30,29,0.12)';
   const textPrimary = dark ? '#faf9f5' : '#1f1e1d';
