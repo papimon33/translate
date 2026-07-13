@@ -70,24 +70,22 @@ export async function startRecorder(opts) {
   //    열려 버려 소용없었다. RMS 는 '지속적으로 일정 음량 이상'일 때만 열려 속삭임·주변소음을 잘 거른다.
   //  · 임계 범위 0~0.05(RMS): 보통 대화(≈0.03~0.1)는 통과, 속삭임(≈0.005~0.02)·실내소음은 차단.
   //  · 녹음 중에도 setMicSens 로 실시간 변경 가능(데스크는 상시 캡처라 이 경로가 유일한 조절 수단).
-  //  · 임계 스케일은 기기의 '실제' AGC 상태로 자동 선택 — iOS 사파리 등은 autoGainControl:false 요청을
-  //    무시(OS 레벨 AGC)해서 증폭된 신호가 들어온다. 그런 기기에서 저임계(0.05)면 슬라이더를 끝까지
-  //    내려도 작은 소리가 전부 통과하므로 0.12 로 상향해 증폭 후 음량 기준으로 거른다.
+  //  · 적응형 게이트: 절대 RMS 임계는 기기·AGC(iOS 는 off 요청 무시)마다 값이 제각각이라 무의미했다.
+  //    대신 '주변 소음 바닥(noiseFloor) 대비 몇 배 큰가'로 판정 → 기기 게인과 무관하게 근접/원거리 구분.
+  //    슬라이더(민감도)는 '바닥 대비 배수(ratio)'와 '절대 하한(absMin)'을 조절. 100=게이트 없음.
   let micSensVal = typeof micSens === 'number' ? micSens : 100;
-  let agcScale = 0.05; // AGC off 확인 시 0.05, 못 끄는 기기(iOS 등) 0.12
-  const sensToGate = (v) => (typeof v === 'number' && v < 100 ? (1 - v / 100) * agcScale : 0);
-  let gateTh = sensToGate(micSensVal);
-  const sources = await getSources(mode, gateTh > 0); // 권한 거부 시 throw. 게이트 사용 시 AGC off
+  let micRatio = 0, micAbsMin = 0;
+  const calcGate = (v) => {
+    if (!(typeof v === 'number' && v < 100)) { micRatio = 0; micAbsMin = 0; return; }
+    const k = (100 - v) / 100;         // 0(민감)~1(엄격)
+    micRatio = 1 + k * 7;              // 바닥의 1~8배 이상이어야 열림
+    micAbsMin = 0.004 + k * 0.03;      // 절대 하한 0.004~0.034(완전 무음·미세잡음 차단)
+  };
+  calcGate(micSensVal);
+  const sources = await getSources(mode, micRatio > 0); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
   // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용)
   const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m ? m.stream.getAudioTracks()[0] : null; })();
-  const syncAgcScale = () => {
-    try {
-      const st = micTrack && micTrack.getSettings ? micTrack.getSettings() : null;
-      agcScale = st && st.autoGainControl === false ? 0.05 : 0.12; // off 로 '확인'될 때만 저임계
-    } catch { agcScale = 0.12; }
-    gateTh = sensToGate(micSensVal);
-  };
-  if (gateTh > 0) syncAgcScale();
+  let noiseFloor = 0.005; // 적응형 소음 바닥(조용할 때로 빠르게 수렴, 소리날 때 아주 느리게 상승)
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const inRate = audioCtx.sampleRate;
@@ -302,11 +300,14 @@ export async function startRecorder(opts) {
         return;
       }
 
-      // 볼륨 게이트(마이크만): RMS 가 임계 이상이면 열고 300ms hold, 이하이면 무음(0) 전송으로 번역 억제.
-      // RMS 기준이라 속삭임의 순간 스파이크로는 열리지 않는다(지속 음량이 있어야 열림).
+      // 볼륨 게이트(마이크만): 적응형 — 소음 바닥(noiseFloor) 대비 micRatio 배 이상이고 절대 하한도 넘을 때만 열림.
+      // 조용할 땐 바닥으로 빠르게 수렴, 소리날 땐 아주 느리게 상승 → 근접 발화(바닥보다 훨씬 큼)만 통과.
       let gated = false;
-      if (src === 'mic' && gateTh > 0) {
-        if (rms >= gateTh) gateOpenUntil = Date.now() + 300;
+      if (src === 'mic' && micRatio > 0) {
+        if (rms < noiseFloor) noiseFloor += (rms - noiseFloor) * 0.3; // 조용 → 빠르게 수렴
+        else noiseFloor += (rms - noiseFloor) * 0.002;                // 소리 → 아주 느리게 상승(발화로 바닥이 안 튐)
+        if (noiseFloor < 0.0003) noiseFloor = 0.0003;
+        if (rms >= micAbsMin && rms >= noiseFloor * micRatio) gateOpenUntil = Date.now() + 300;
         if (Date.now() >= gateOpenUntil) gated = true;
       }
       if (wOpen) {
@@ -396,14 +397,9 @@ export async function startRecorder(opts) {
   // 녹음 중 마이크 민감도 실시간 변경(0~100) — 클라이언트 볼륨 게이트만 조정, 연결 유지
   function setMicSens(v) {
     micSensVal = Number(v);
-    gateTh = sensToGate(micSensVal);
-    // 게이트 사용 중엔 AGC(자동 게인) off — 속삭임을 증폭해 게이트를 무력화하던 원인. 100이면 원복.
-    // 적용 결과가 반영된 뒤 실제 상태를 다시 읽어 임계 스케일 갱신(못 끄는 기기는 자동 상향).
-    if (micTrack && micTrack.applyConstraints) {
-      micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) })
-        .catch(() => {})
-        .then(() => { if (micSensVal < 100) syncAgcScale(); });
-    } else if (micSensVal < 100) syncAgcScale();
+    calcGate(micSensVal);
+    // 게이트 사용 중엔 AGC(자동 게인) off 시도 — 켜져 있으면 원거리음까지 증폭해 근접 판별을 흐린다. 100이면 원복.
+    if (micTrack && micTrack.applyConstraints) micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) }).catch(() => {});
   }
   // 데스크: 여객 태블릿 마이크 민감도(0~100) — 서버 경유로 뷰어의 근접 게이트에 실시간 반영
   function setGuestSens(v) { ctlState.guestSens = Number(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }

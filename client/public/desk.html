@@ -512,16 +512,19 @@ let thanksTimer = null;
 /* ---- 여객 마이크(2채널 화자 귀속): 통역 중 상시 캡처 → 서버 여객 채널로 전송 ----
    근접 게이트: 여객 입은 태블릿에서 ~30cm, 안내원·주변음은 멀어서 작게 잡힘 →
    임계(GM_GATE) 미만이면 무음을 보내 누화·안내방송을 차단(무음 전송은 엔드포인트 판정 유지용). */
-/* 근접 게이트 임계 — 호스트 고급 설정(여객 태블릿 마이크 민감도 0~100)로 실시간 조절.
-   기준은 RMS(프레임 평균 음량) — peak 는 먼 소리의 순간 스파이크에도 열려 근접 판별이 무력했다.
-   임계 스케일은 기기의 실제 AGC 상태에 따라 자동 선택:
-   · AGC 를 껐다고 확인된 기기(안드로이드 크롬 등): 0.04 — 50=0.02 RMS(~30cm 발화 통과·먼 소리 차단)
-   · AGC 를 못 끄는 기기(iOS 사파리 등, autoGainControl 미지원): 신호가 증폭돼 들어오므로 0.12 로 상향 —
-     안 그러면 임계를 끝까지 내려도 증폭된 작은 소리가 전부 통과한다(휴대폰 뷰어에서 민감도가 안 듣던 원인). */
-let gmSens = 50;      // 호스트가 준 민감도(0~100)
-let gmScale = 0.04;   // 캡처 시작 시 실제 AGC 상태를 보고 갱신
-let gmGate = 0.02;
-function gmCalc(){ gmGate = gmSens >= 100 ? 0 : (1 - gmSens / 100) * gmScale; }
+/* 근접 게이트(적응형) — 호스트 고급 설정(여객 태블릿 마이크 민감도 0~100)로 실시간 조절.
+   절대 RMS 임계는 기기·AGC(iOS 는 off 요청 무시)마다 값이 제각각이라 무력했다(휴대폰에서 민감도가 안 듣던 원인).
+   대신 '주변 소음 바닥(gmFloor) 대비 몇 배 큰가'로 판정 → 기기 게인 무관하게 근접(태블릿 앞)/원거리 구분.
+   민감도는 바닥 대비 배수(gmRatio)+절대 하한(gmAbsMin) 조절. 50=기본, 100=게이트 없음, 0=아주 큰 소리만. */
+let gmSens = 50;                 // 호스트가 준 민감도(0~100)
+let gmRatio = 4, gmAbsMin = 0.017;
+function gmCalc(){
+  if (gmSens >= 100) { gmRatio = 0; gmAbsMin = 0; return; } // 0=게이트 없음
+  const k = (100 - gmSens) / 100; // 0(민감)~1(엄격)
+  gmRatio = 1 + k * 7;            // 바닥의 1~8배 이상이어야 열림
+  gmAbsMin = 0.004 + k * 0.03;    // 절대 하한 0.004~0.034
+}
+let gmFloor = 0.005;             // 적응형 소음 바닥
 function setGuestSens(v){ const n = Number(v); if (!Number.isFinite(n)) return; gmSens = Math.min(100, Math.max(0, n)); gmCalc(); } // NaN 이면 무시(게이트 영구 잠김 방지)
 let gm = null; // { stream, ctx, proc }
 let gmStarting = false; // getUserMedia 대기 중 재진입 가드(파이프라인 이중 생성·마이크 누수 방지)
@@ -537,11 +540,7 @@ async function guestMicStart(){
   catch { gmStarting = false; toast('태블릿 마이크를 사용할 수 없어 안내데스크 마이크로만 인식합니다.'); return; }
   gmStarting = false;
   if (!started || gm) { try { stream.getTracks().forEach((t) => t.stop()); } catch {} return; } // 권한 대기 중 종료/중복 생성된 경우
-  // 실제 AGC 상태 확인 — off 로 확인돼야만 저임계 스케일. 못 껐거나 확인 불가(iOS 등)면 증폭 신호 기준으로 상향.
-  try {
-    const st = stream.getAudioTracks()[0].getSettings ? stream.getAudioTracks()[0].getSettings() : null;
-    gmScale = st && st.autoGainControl === false ? 0.04 : 0.12;
-  } catch { gmScale = 0.12; }
+  gmFloor = 0.005; // 캡처마다 소음 바닥 초기화(적응형 게이트가 새 환경에 다시 수렴)
   gmCalc();
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   try { ctx.resume(); } catch {}
@@ -559,8 +558,11 @@ async function guestMicStart(){
     const input = e.inputBuffer.getChannelData(0);
     let sum = 0;
     for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
-    const rms = Math.sqrt(sum / input.length); // 지속 음량(RMS) — 먼 소리의 순간 스파이크로는 안 열림
-    if (gmGate <= 0 || rms >= gmGate) openUntil = Date.now() + 300; // 근접 발화 감지 → 300ms 홀드 (게이트 0=항상 통과)
+    const rms = Math.sqrt(sum / input.length); // 지속 음량(RMS)
+    // 적응형: 조용할 땐 바닥으로 빠르게 수렴, 소리날 땐 아주 느리게 상승 → 근접 발화(바닥보다 훨씬 큼)만 통과
+    if (rms < gmFloor) gmFloor += (rms - gmFloor) * 0.3; else gmFloor += (rms - gmFloor) * 0.002;
+    if (gmFloor < 0.0003) gmFloor = 0.0003;
+    if (gmRatio <= 0 || (rms >= gmAbsMin && rms >= gmFloor * gmRatio)) openUntil = Date.now() + 300; // 근접 발화 → 300ms 홀드
     const ds = ds24(input, rate);
     ws.send(Date.now() < openUntil ? f32to16(ds) : new ArrayBuffer(ds.length * 2));
   };
