@@ -1,13 +1,5 @@
 name: Desktop Build
 
-# 데스크톱 앱(Electron) Windows 설치본을 빌드해 GitHub Release 에 올린다.
-# 웹앱 프로필 → '데스크톱 앱' 모달의 다운로드 버튼이 이 릴리스의 설치본을 자동으로 가리킨다.
-#
-# 실행 방법:
-#   · 수동: Actions 탭에서 'Desktop Build' → Run workflow (버전은 desktop/package.json 을 따름)
-#   · 자동: desktop-v* 태그를 푸시하면 실행
-# 새 버전을 낼 땐 desktop/package.json 의 "version" 을 올린 뒤 수동 실행하면 된다.
-
 on:
   workflow_dispatch:
   push:
@@ -17,39 +9,51 @@ permissions:
   contents: write
 
 jobs:
-  build-win:
-    runs-on: windows-latest
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+      - id: ver
+        run: echo "tag=desktop-v$(node -p "require('./desktop/package.json').version")" >> "$GITHUB_OUTPUT"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.ver.outputs.tag }}"
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" \
+              --title "KAC Translator 데스크톱 $tag" \
+              --notes "데스크톱 앱 설치본. 웹앱 프로필 → '데스크톱 앱'에서 자동으로 내려받습니다."
 
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: "--win nsis"
+            glob: "desktop/dist/*.exe"
+          - os: macos-latest
+            target: "--mac dmg"
+            glob: "desktop/dist/*.dmg"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - name: Install desktop deps
         working-directory: desktop
         run: npm ci
-
-      - name: Build Windows installer (NSIS)
+      - name: Build installer
         working-directory: desktop
-        run: npx electron-builder --win nsis --publish never
-
-      - name: Read version
-        id: ver
-        shell: bash
-        run: echo "version=$(node -p "require('./desktop/package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Publish to GitHub Release
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder ${{ matrix.target }} --publish never
+      - name: Upload to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="desktop-v${{ steps.ver.outputs.version }}"
-          # 같은 태그 릴리스가 있으면 설치본만 교체, 없으면 새로 만든다.
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" desktop/dist/*.exe --clobber
-          else
-            gh release create "$tag" desktop/dist/*.exe \
-              --title "KAC Translator 데스크톱 $tag" \
-              --notes "데스크톱 앱(Windows) 설치본입니다. 웹앱 프로필 → '데스크톱 앱'에서 자동으로 이 설치본을 내려받습니다."
-          fi
+        run: gh release upload "${{ needs.release.outputs.tag }}" ${{ matrix.glob }} --clobber
