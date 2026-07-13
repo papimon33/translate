@@ -462,3 +462,16 @@
   AGC 는 여전히 off 시도(켜지면 원거리음 증폭으로 판별 흐려짐)하되, 게이트 자체는 AGC 성공/실패와 무관하게 동작.
 - 시뮬 검증: 근접(0.12) 전 구간 통과, 원거리(0.03) sens30↓ 차단, 상시소음(0.02) sens50↓ 차단.
 - 실오디오 검증은 현장 몫. #2 가 근접 발화에서도 재현되면(주변소음 아님) soniox 결정론 이슈 → 별도 대응 필요.
+
+## 2026-07-13 (15) — #2 재검토: STT 인식 컨텍스트 고착 → 무음 시 조용한 재연결로 플러시
+- 재정의된 증상: 번역이 아니라 **STT 인식** 문제. 같은 환경·같은 발화라도 세션(=별도 soniox 연결)마다 결과가 다르고,
+  한 연결 안에서 오인식이 한 번 굳으면 그 발음을 계속 같게 인식. → soniox 스트리밍 연결에 누적되는 인식 컨텍스트가 원인.
+- 해법: **발화 확정 후 일정 무음(2.6s)이 지속되면 soniox 소켓을 '조용히' 재연결**해 누적 컨텍스트를 비운다.
+  · 무음 구간에만 재연결 → 오디오 손실 없음(pending 큐가 재연결 중 프레임 보관). 상태 메시지·지연 최소(quiet).
+  · 발화 중(토큰 도착)이면 예약 취소(clearFlush), 진행 중 발화(curId)·클라 이탈(ws.readyState)이면 스킵(좀비 재연결 방지).
+- 적용:
+  · runSoniox(일반 실시간 번역): flushTimer/quietFlush, onmessage 에서 clearFlush, commit 에서 armFlush, close 핸들러 quiet 분기(200ms).
+  · runDesk(안내데스크 양 채널): deskFlushTimer, onSxMessage·onGuestMsg 에서 clearDeskFlush, staff commit·guestCommit 에서 armDeskFlush,
+    발동 시 closeSx()+connectSx()(+guestMicOn 이면 closeGuest()+connectGuest()) — 기존 안전 재연결 프리미티브 재사용. endConversation·stop 에서 clearDeskFlush.
+- 검증: 문법 OK, 부팅 OK, 데스크 host WS 연결 시 런타임 에러 없음(플러시 클로저 정상). 실오디오 재현은 현장 몫.
+- 남은 여지: 여전히 재현되면 (a) FLUSH_MS 조정 (b) 수동 '인식 초기화' 버튼 (c) 오인식 잦은 발음은 용어(주요 용어)에 등록해 인식 힌트 제공.
