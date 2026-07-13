@@ -475,3 +475,28 @@
     발동 시 closeSx()+connectSx()(+guestMicOn 이면 closeGuest()+connectGuest()) — 기존 안전 재연결 프리미티브 재사용. endConversation·stop 에서 clearDeskFlush.
 - 검증: 문법 OK, 부팅 OK, 데스크 host WS 연결 시 런타임 에러 없음(플러시 클로저 정상). 실오디오 재현은 현장 몫.
 - 남은 여지: 여전히 재현되면 (a) FLUSH_MS 조정 (b) 수동 '인식 초기화' 버튼 (c) 오인식 잦은 발음은 용어(주요 용어)에 등록해 인식 힌트 제공.
+
+## 2026-07-14 — 발화 필터 v2(간투사 확장·저신뢰 하이라이트·응답어 옵션·토큰 기록) + 다국어 회의(multi) 프리셋
+### 발화 필터 v2 (사용자 지시: 드롭 대신 하이라이트, 중복 접기 제외)
+- **간투사 사전 확장**(stripFillers): NOISE 에 en oh/ah/huh·ko 아/앗/핫/헉/흠 추가(단어경계·한글 인접 가드로 아이스크림/ohio/ahead 보존),
+  FILLER_WHOLE_RE 신설 — 단독 あ/え/ん/啊/哦/唉 는 '발화 전체일 때만' 드롭(가나·한자 단어 내부 오작동 방지). 유닛 28/28.
+- **저신뢰 단어 하이라이트**(드롭 아님): soniox 원문 확정 토큰의 confidence 를 [[text,conf],...] 로 기록,
+  TranslateView 원문 줄에서 **conf<0.6 단어를 warning(주황)색 + 점선 밑줄**로 표시(TokenizedSource). 번역문은 대상 아님.
+- **단독 응답어 생략 = 고급옵션(dropAcks)**: ACK_WORDS(네/예/응/Yes/Okay/はい/好 등) 단독 발화를 기록에서 제외 —
+  기본 꺼짐(모두 보존). 고급 설정 토글, WS 파라미터 + {type:'dropAcks'} 라이브 메시지(soniox·desk 양쪽). 문장에 섞인 응답어는 불변.
+- **토큰 기록(평가용)**: item.toks = [[text,conf],...] (≤120 토큰) — 세션 items·데스크 deskLog 에 저장돼
+  추후 confidence 기반 인식 품질 평가 가능. sentence 브로드캐스트에도 포함(뷰어는 무시, 무변화).
+- 연속 중복 접기는 **구현하지 않음**(사용자 지시).
+### 다국어 회의(3개국어+) — 별도 세션 프리셋 'multi' (테스트)
+- 새 세션 모달 4번째 카드 '다국어 회의(3개국어+ 테스트)'. 기존 세션 유형·뷰어 로직 무변경(신규 분기만).
+- 서버 runSoniox sxMode='multi': soniox **전사+언어감지만**(translation 미포함, hints=선택 언어), commit 에서
+  **GPT(gpt-5-nano) 병렬 팬아웃** — 원문을 모든 언어 칸에 즉시 확정 후 각 언어 번역 도착 시 교체(deepgram 패턴 재사용).
+  라이브는 원문을 전 언어 칸에 스트리밍. TTS 미지원(강제 off). session.langs=선택 언어(뷰어 언어 선택 자동 연동), sxInfo={mode:'multi',langs}.
+- 클라: multiLangs 칩 다중선택(2~4개, kac-multi-langs 저장) + 표시 언어 셀렉터, 모드 변경 셀렉터에 '다국어 회의' 추가.
+  WS 파라미터 multiLangs=ko,en,... POST/PATCH preset 허용목록에 'multi'.
+- 검증: 프리뷰에서 카드 표시→생성→언어 칩/표시 언어/고급 설정(단독 응답어 생략) 렌더 확인, multi WS 스모크(엔진 연결 OK),
+  session.langs=['ko','en','ja','zh'] 반영 확인, 콘솔 무에러, 테스트 세션 완전 정리. 실음성 팬아웃 검증은 현장 몫.
+### 데스크 음성크기 네이티브 검토(답변만) — 요지
+- 입력(마이크 게인): 웹은 AGC on/off 요청뿐(iOS 무시). 네이티브는 iOS AVAudioSession.setInputGain·Android VOICE_RECOGNITION/UNPROCESSED
+  소스로 결정적 제어 → **입력 제어는 네이티브가 명확히 우월**. 출력: 웹 GainNode(페이지 내)로 충분, 기기 마스터 볼륨은 Android 네이티브만(setStreamVolume), iOS 는 네이티브도 불가.
+- 권고: 풀 네이티브 재작성 불필요 — 필요 시 **Capacitor 로 웹앱 래핑 + 오디오 네이티브 플러그인**(데스크 태블릿용, Electron 데스크톱 전례와 동일 패턴).

@@ -98,9 +98,9 @@ export async function startRecorder(opts) {
     pipeline === 'soniox'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}&sxMode=${encodeURIComponent(sxMode || 'one')}&sxTarget=${encodeURIComponent(sxTarget || 'en')}&sxA=${encodeURIComponent(sxA || 'ko')}&sxB=${encodeURIComponent(sxB || 'en')}${
           tts ? `&tts=1&gender=${encodeURIComponent(gender || 'f')}` : ''
-        }${diar ? '&diar=1' : ''}`
+        }${diar ? '&diar=1' : ''}${opts.multiLangs ? `&multiLangs=${encodeURIComponent(opts.multiLangs)}` : ''}`
       : ''
-  }${
+  }${opts.dropAcks ? '&dropAcks=1' : ''}${
     pipeline === 'desk'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}${
           deskLangs ? `&deskLangs=${encodeURIComponent(deskLangs)}` : ''
@@ -405,6 +405,8 @@ export async function startRecorder(opts) {
   function setGuestSens(v) { ctlState.guestSens = Number(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
   // 데스크: 무음 자동 종료 시간(ms) 실시간 변경 — 상시 캡처 중에도 설정 가능
   function setDeskIdle(ms) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-idle', value: Number(ms) })); } catch {} } }
+  // 고급옵션: 단독 응답어(네/Yes) 기록 생략 — 녹음 중 실시간 토글
+  function setDropAcks(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'dropAcks', on: !!on })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle, setDropAcks };
 }
