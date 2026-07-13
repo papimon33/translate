@@ -2163,6 +2163,38 @@ app.get('*', (req, res, next) => {
 /*   - 머리말("…다음과 같습니다"), 불릿(-), 화살표(원문 → 번역),         */
 /*     "참고:/제안:/주의:/Note:" 줄, 끝의 메타 괄호주석 등.              */
 /* ------------------------------------------------------------------ */
+/* ---- 추임새(간투사·filler) 제거 ----
+   실시간 STT 가 잡아내는 "yeah, umm, 어…, えっと" 류 무의미 간투사를 인식 결과에서 뺀다.
+   2단계로 분리 — 오답 위험을 최소화:
+   ① 순수 잡음(um/uh/음/えっと 등): 항상 제거. 발화 전체가 이것뿐이면 카드째 사라진다.
+   ② 소프트 간투사(yeah/well 등): 제거 후에도 '실질 내용'이 남을 때만 제거.
+      발화 전체가 "Yeah." 처럼 소프트 간투사 하나면 실제 대답이므로 보존한다.
+   원문(모든 언어)·번역문 공통 적용. 라이브(비확정) 중엔 두지 않고 확정 시점에만 정리(깜빡임 방지). */
+// 순수 잡음: 영어 um/uh/hmm/mm/erm, 한국어 음/어/으음(조사로 흔한 '에'는 오작동 위험 → 제외),
+//            일본어 えっと/えー/あー/うー/んー, 중국어 嗯/呃/唔
+const FILLER_NOISE_RE = /\b(?:u+m+|u+h+|uh+m+|hm+|mm+|mhm|e+r+m*)\b|(?<![가-힣])(?:음+|어+|으+음*)(?![가-힣])|(?:え[ーっ]?と|えー+|あー+|うー+|んー+)|(?:嗯+|呃+|唔+)/gi;
+// 소프트 간투사: 영어 yeah/yep/yup/y'know (발화 전체면 보존). 'well'은 실단어 의미가 있어 제외.
+const FILLER_SOFT_RE = /\b(?:yeah|yep|yup|y'?know)\b/gi;
+function cleanFillerSpacing(s) {
+  return String(s)
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.!?。、！？…])/g, '$1')       // 구두점 앞 공백 제거
+    .replace(/([,、])\s*(?=[,、])/g, '')            // 연속 쉼표 정리
+    .replace(/^[\s,.、。，！？!?：；…·\-]+/, '')       // 앞쪽에 남은 구두점/공백 제거(전각 포함)
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+function stripFillers(text) {
+  const original = String(text == null ? '' : text);
+  if (!original.trim()) return original;
+  let s = original.replace(FILLER_NOISE_RE, ' ');       // ① 순수 잡음 — 항상 제거
+  const soft = s.replace(FILLER_SOFT_RE, ' ');          // ② 소프트 간투사 — 내용이 남을 때만
+  if (/[\p{L}\p{N}]/u.test(cleanFillerSpacing(soft))) s = soft;
+  s = cleanFillerSpacing(s);
+  if (/^[a-z]/.test(s)) s = s[0].toUpperCase() + s.slice(1); // 앞 간투사 제거로 소문자 시작이면 첫 글자 복원
+  return s;
+}
+
 function sanitizeTranslation(out) {
   let s = String(out || '').trim();
   if (!s) return '';
@@ -2974,8 +3006,8 @@ function handleHost(ws) {
 
     // 현재 누적분을 한 문장으로 확정 (GPT 호출 없음)
     const commit = () => {
-      const id = curId, txt = finalText.trim(), src = curSrc, spk = curSpeaker;
-      const tgt = (finalTrans.trim() || lastTrans).trim();
+      const id = curId, txt = stripFillers(finalText.trim()), src = curSrc, spk = curSpeaker;
+      const tgt = stripFillers((finalTrans.trim() || lastTrans).trim());
       const tail = ttsPending;            // 종결부호 없이 남은 마지막 조각
       const hadFinal = !!finalTrans.trim(); // 발화 중 확정 번역이 흘러갔는지
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = ''; langVotes = {};
@@ -3235,10 +3267,10 @@ function handleHost(ws) {
     };
 
     const commit = () => {
-      const id = curId, txt = finalText.trim(), src = curSrc;
-      const tgt = (finalTrans.trim() || lastTrans).trim();
+      const id = curId, txt = stripFillers(finalText.trim()), src = curSrc;
+      const tgt = stripFillers((finalTrans.trim() || lastTrans).trim());
       resetUtterance();
-      if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던 고스트 카드 제거
+      if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던(또는 추임새뿐인) 고스트 카드 제거
       // 자동 감지: 소유권·누화 판정으로 드랍되더라도 언어는 먼저 잠근다(첫 발화 유실 방지)
       lockDetected(src);
       // 언어 소유권: 2채널 모드에서 손님 언어 발화는 여객 채널 소유 → 데스크 마이크 누화로 드랍
@@ -3458,10 +3490,10 @@ function handleHost(ws) {
       try { if (old && old !== next) old.close(); } catch {}
     }
     const guestCommit = () => {
-      const id = gCurId, txt = gFinalText.trim(), gSrc = gCurSrc;
-      const tgt = (gFinalTrans.trim() || gLastTrans).trim();
+      const id = gCurId, txt = stripFillers(gFinalText.trim()), gSrc = gCurSrc;
+      const tgt = stripFillers((gFinalTrans.trim() || gLastTrans).trim());
       gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {};
-      if (!id || !txt) { if (id) liveSend(id, {}, null, null, null, 'left'); return; } // 고스트 카드 제거
+      if (!id || !txt) { if (id) liveSend(id, {}, null, null, null, 'left'); return; } // 고스트(또는 추임새뿐인) 카드 제거
       // 자동 감지(Other languages): 손님은 여객 태블릿에 대고 말하므로 이 채널에서 감지되는 게 정상 경로
       lockDetected(gSrc);
       // 언어 소유권: 한국어로 감지된 발화는 안내원 채널 소유 → 여객 마이크 누화로 드랍
@@ -3721,14 +3753,14 @@ function handleHost(ws) {
     // 확정: 세션에 저장하고, 다듬기 켜져 있으면 다듬어 교체
     const finalize = () => {
       clearTimeout(idleTimer);
-      const text = buf.trim();
+      const text = stripFillers(buf.trim()); // 추임새(간투사) 제거
       const id = curId;
       buf = '';
       curId = null;
       if (!text || !id) return;
       upsertItem(id, { [targetLang]: text }, null);
       // translate 다듬기: 띄어쓰기만 교정 (단어·어순·내용 보존)
-      spacingPolish(text).then((p) => p && upsertItem(id, { [targetLang]: p.trim() }, null));
+      spacingPolish(text).then((p) => p && upsertItem(id, { [targetLang]: stripFillers(p.trim()) }, null));
     };
 
     oa.on('open', () => {
