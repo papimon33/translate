@@ -513,10 +513,16 @@ let thanksTimer = null;
    근접 게이트: 여객 입은 태블릿에서 ~30cm, 안내원·주변음은 멀어서 작게 잡힘 →
    임계(GM_GATE) 미만이면 무음을 보내 누화·안내방송을 차단(무음 전송은 엔드포인트 판정 유지용). */
 /* 근접 게이트 임계 — 호스트 고급 설정(여객 태블릿 마이크 민감도 0~100)로 실시간 조절.
-   기준은 RMS(프레임 평균 음량, AGC off 전제) — peak 는 먼 소리의 순간 스파이크에도 열려 근접 판별이 무력했다.
-   50=기본(0.02 RMS: ~30cm 발화 통과·먼 소리 차단), 100=게이트 없음(모든 소리), 0=아주 큰 소리만. */
+   기준은 RMS(프레임 평균 음량) — peak 는 먼 소리의 순간 스파이크에도 열려 근접 판별이 무력했다.
+   임계 스케일은 기기의 실제 AGC 상태에 따라 자동 선택:
+   · AGC 를 껐다고 확인된 기기(안드로이드 크롬 등): 0.04 — 50=0.02 RMS(~30cm 발화 통과·먼 소리 차단)
+   · AGC 를 못 끄는 기기(iOS 사파리 등, autoGainControl 미지원): 신호가 증폭돼 들어오므로 0.12 로 상향 —
+     안 그러면 임계를 끝까지 내려도 증폭된 작은 소리가 전부 통과한다(휴대폰 뷰어에서 민감도가 안 듣던 원인). */
+let gmSens = 50;      // 호스트가 준 민감도(0~100)
+let gmScale = 0.04;   // 캡처 시작 시 실제 AGC 상태를 보고 갱신
 let gmGate = 0.02;
-function setGuestSens(v){ const n = Number(v); if (!Number.isFinite(n)) return; const x = Math.min(100, Math.max(0, n)); gmGate = x >= 100 ? 0 : (1 - x / 100) * 0.04; } // NaN 이면 무시(게이트 영구 잠김 방지)
+function gmCalc(){ gmGate = gmSens >= 100 ? 0 : (1 - gmSens / 100) * gmScale; }
+function setGuestSens(v){ const n = Number(v); if (!Number.isFinite(n)) return; gmSens = Math.min(100, Math.max(0, n)); gmCalc(); } // NaN 이면 무시(게이트 영구 잠김 방지)
 let gm = null; // { stream, ctx, proc }
 let gmStarting = false; // getUserMedia 대기 중 재진입 가드(파이프라인 이중 생성·마이크 누수 방지)
 function f32to16(f32){ const b = new ArrayBuffer(f32.length * 2), v = new DataView(b); for (let i = 0; i < f32.length; i++){ let s = Math.max(-1, Math.min(1, f32[i])); s = s < 0 ? s * 0x8000 : s * 0x7fff; v.setInt16(i * 2, s, true); } return b; }
@@ -531,6 +537,12 @@ async function guestMicStart(){
   catch { gmStarting = false; toast('태블릿 마이크를 사용할 수 없어 안내데스크 마이크로만 인식합니다.'); return; }
   gmStarting = false;
   if (!started || gm) { try { stream.getTracks().forEach((t) => t.stop()); } catch {} return; } // 권한 대기 중 종료/중복 생성된 경우
+  // 실제 AGC 상태 확인 — off 로 확인돼야만 저임계 스케일. 못 껐거나 확인 불가(iOS 등)면 증폭 신호 기준으로 상향.
+  try {
+    const st = stream.getAudioTracks()[0].getSettings ? stream.getAudioTracks()[0].getSettings() : null;
+    gmScale = st && st.autoGainControl === false ? 0.04 : 0.12;
+  } catch { gmScale = 0.12; }
+  gmCalc();
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   try { ctx.resume(); } catch {}
   const rate = ctx.sampleRate;

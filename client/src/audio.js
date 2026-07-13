@@ -70,11 +70,24 @@ export async function startRecorder(opts) {
   //    열려 버려 소용없었다. RMS 는 '지속적으로 일정 음량 이상'일 때만 열려 속삭임·주변소음을 잘 거른다.
   //  · 임계 범위 0~0.05(RMS): 보통 대화(≈0.03~0.1)는 통과, 속삭임(≈0.005~0.02)·실내소음은 차단.
   //  · 녹음 중에도 setMicSens 로 실시간 변경 가능(데스크는 상시 캡처라 이 경로가 유일한 조절 수단).
-  const sensToGate = (v) => (typeof v === 'number' && v < 100 ? (1 - v / 100) * 0.05 : 0);
-  let gateTh = sensToGate(micSens);
+  //  · 임계 스케일은 기기의 '실제' AGC 상태로 자동 선택 — iOS 사파리 등은 autoGainControl:false 요청을
+  //    무시(OS 레벨 AGC)해서 증폭된 신호가 들어온다. 그런 기기에서 저임계(0.05)면 슬라이더를 끝까지
+  //    내려도 작은 소리가 전부 통과하므로 0.12 로 상향해 증폭 후 음량 기준으로 거른다.
+  let micSensVal = typeof micSens === 'number' ? micSens : 100;
+  let agcScale = 0.05; // AGC off 확인 시 0.05, 못 끄는 기기(iOS 등) 0.12
+  const sensToGate = (v) => (typeof v === 'number' && v < 100 ? (1 - v / 100) * agcScale : 0);
+  let gateTh = sensToGate(micSensVal);
   const sources = await getSources(mode, gateTh > 0); // 권한 거부 시 throw. 게이트 사용 시 AGC off
   // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용)
   const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m ? m.stream.getAudioTracks()[0] : null; })();
+  const syncAgcScale = () => {
+    try {
+      const st = micTrack && micTrack.getSettings ? micTrack.getSettings() : null;
+      agcScale = st && st.autoGainControl === false ? 0.05 : 0.12; // off 로 '확인'될 때만 저임계
+    } catch { agcScale = 0.12; }
+    gateTh = sensToGate(micSensVal);
+  };
+  if (gateTh > 0) syncAgcScale();
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const inRate = audioCtx.sampleRate;
@@ -382,9 +395,15 @@ export async function startRecorder(opts) {
   function wayfindDismiss() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-dismiss' })); } catch {} } }
   // 녹음 중 마이크 민감도 실시간 변경(0~100) — 클라이언트 볼륨 게이트만 조정, 연결 유지
   function setMicSens(v) {
-    gateTh = sensToGate(Number(v));
+    micSensVal = Number(v);
+    gateTh = sensToGate(micSensVal);
     // 게이트 사용 중엔 AGC(자동 게인) off — 속삭임을 증폭해 게이트를 무력화하던 원인. 100이면 원복.
-    if (micTrack && micTrack.applyConstraints) micTrack.applyConstraints({ autoGainControl: !(gateTh > 0) }).catch(() => {});
+    // 적용 결과가 반영된 뒤 실제 상태를 다시 읽어 임계 스케일 갱신(못 끄는 기기는 자동 상향).
+    if (micTrack && micTrack.applyConstraints) {
+      micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) })
+        .catch(() => {})
+        .then(() => { if (micSensVal < 100) syncAgcScale(); });
+    } else if (micSensVal < 100) syncAgcScale();
   }
   // 데스크: 여객 태블릿 마이크 민감도(0~100) — 서버 경유로 뷰어의 근접 게이트에 실시간 반영
   function setGuestSens(v) { ctlState.guestSens = Number(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
