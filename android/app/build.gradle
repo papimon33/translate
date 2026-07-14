@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'kr.co.kac.airtalk'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'kr.co.kac.airtalk'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    // 사이드로드(안내데스크 태블릿 직접 설치) 전용 서명 —
+    // 같은 키로 서명해야 덮어쓰기 업데이트가 되므로 키를 repo 에 커밋해 CI 빌드 간 서명을 고정한다.
+    // 스토어 배포용 비밀키가 아니며, 유출돼도 스토어 계정과 무관하다.
+    signingConfigs {
+        release {
+            storeFile file('airtalk-release.p12')
+            storeType 'pkcs12'
+            storePassword 'airtalk-sideload'
+            keyAlias 'airtalk'
+            keyPassword 'airtalk-sideload'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+
+    applicationVariants.configureEach { variant ->
+        variant.outputs.configureEach {
+            outputFileName = "AirTalk-${variant.versionName}-android.apk"
+        }
+    }
+}

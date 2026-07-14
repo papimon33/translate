@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 전경: 말풍선(대화) 안의 음성 파형 — favicon.svg 의 심볼을 어댑티브 안전영역(중앙 66/108)에 배치.
+     파형 막대는 라운드 캡 스트로크 선으로 표현(원본 rx=1.9 라운드 사각과 동일한 형태). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.9"
+        android:scaleY="0.9"
+        android:translateX="25.2"
+        android:translateY="25.2">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M32,13.5c-10.8,0 -19.5,7.2 -19.5,16.1c0,5.1 2.9,9.7 7.5,12.6c-0.25,2.5 -1.3,4.7 -3.1,6.6c-0.5,0.55 -0.1,1.45 0.65,1.35c4,-0.5 7.3,-2.05 9.85,-4c1.5,0.25 3,0.4 4.6,0.4c10.8,0 19.5,-7.2 19.5,-16.1S42.8,13.5 32,13.5z" />
+        <path
+            android:strokeColor="#6656EE"
+            android:strokeWidth="3.8"
+            android:strokeLineCap="round"
+            android:pathData="M23.5,28.3L23.5,31.7" />
+        <path
+            android:strokeColor="#6656EE"
+            android:strokeWidth="3.8"
+            android:strokeLineCap="round"
+            android:pathData="M29.3,24.3L29.3,35.7" />
+        <path
+            android:strokeColor="#6656EE"
+            android:strokeWidth="3.8"
+            android:strokeLineCap="round"
+            android:pathData="M35.1,26.7L35.1,33.3" />
+        <path
+            android:strokeColor="#6656EE"
+            android:strokeWidth="3.8"
+            android:strokeLineCap="round"
+            android:pathData="M40.9,29.1L40.9,30.9" />
+    </group>
+</vector>

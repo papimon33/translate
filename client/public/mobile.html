@@ -535,8 +535,25 @@ let pttActive=false, pttStream=null, pttCtx=null, pttProc=null;
 function f32to16(f32){ const b=new ArrayBuffer(f32.length*2), v=new DataView(b); for(let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); s=s<0?s*0x8000:s*0x7fff; v.setInt16(i*2,s,true);} return b; }
 function ds24(f32,rate){ if(rate===24000) return f32; const r=rate/24000, n=Math.round(f32.length/r), o=new Float32Array(n); for(let i=0;i<n;i++){ const idx=i*r, i0=Math.floor(idx), i1=Math.min(i0+1,f32.length-1); o[i]=f32[i0]*(1-(idx-i0))+f32[i1]*(idx-i0);} return o; }
 let pttStarting=false; // 권한 프롬프트 대기 중 이중 탭 가드(파이프라인 중복·마이크 누수 방지)
+let pttNative=false;   // 안드로이드 앱 네이티브 캡처 사용 중(getUserMedia 미사용)
 async function pttStart(){
   if(pttActive || pttStarting) return;
+  if(window.AndroidAudio){
+    // 안드로이드 앱: 네이티브 AudioRecord(AGC 차단)가 24kHz PCM16 청크를 base64 로 전달
+    if(!hostOn || !sessionViewerPTT) return;
+    window.__kacNA = (b64)=>{
+      if(!pttActive || !ws || ws.readyState!==1) return;
+      if(ws.bufferedAmount > 131072) return; // 백프레셔: 밀린 오디오는 버림
+      const bin=atob(b64); const nb=bin.length & ~1; if(!nb) return;
+      const buf=new ArrayBuffer(nb); const u8=new Uint8Array(buf);
+      for(let i=0;i<nb;i++) u8[i]=bin.charCodeAt(i);
+      ws.send(buf);
+    };
+    if(!window.AndroidAudio.start()){ window.__kacNA=null; alert('마이크를 사용할 수 없습니다. 앱의 마이크 권한을 허용해 주세요.'); return; }
+    pttNative=true; pttActive=true; $('pttBtn').classList.add('rec'); updatePttBtn();
+    try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
+    return;
+  }
   pttStarting=true;
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
@@ -562,6 +579,7 @@ function pttStop(){
   if(!pttActive) return; pttActive=false;
   $('pttBtn').classList.remove('rec');
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:false})); } catch {}
+  if(pttNative){ try { window.AndroidAudio.stop(); } catch {} window.__kacNA=null; pttNative=false; updatePttBtn(); return; }
   try { pttProc.onaudioprocess=null; } catch {}
   try { pttStream.getTracks().forEach(t=>t.stop()); } catch {}
   try { pttCtx.close(); } catch {}

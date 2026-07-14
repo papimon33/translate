@@ -500,3 +500,30 @@
 - 입력(마이크 게인): 웹은 AGC on/off 요청뿐(iOS 무시). 네이티브는 iOS AVAudioSession.setInputGain·Android VOICE_RECOGNITION/UNPROCESSED
   소스로 결정적 제어 → **입력 제어는 네이티브가 명확히 우월**. 출력: 웹 GainNode(페이지 내)로 충분, 기기 마스터 볼륨은 Android 네이티브만(setStreamVolume), iOS 는 네이티브도 불가.
 - 권고: 풀 네이티브 재작성 불필요 — 필요 시 **Capacitor 로 웹앱 래핑 + 오디오 네이티브 플러그인**(데스크 태블릿용, Electron 데스크톱 전례와 동일 패턴).
+
+## 2026-07-14 (2) — 안드로이드 네이티브 앱(안내데스크 태블릿) — WebView + 네이티브 마이크(AGC 완전 차단)
+- 배경: 브라우저(WebView 포함)는 autoGainControl:false 요청을 기기에 따라 무시(특히 iOS/일부 안드로이드) →
+  적응형 게이트로도 잔여 편차. **안내데스크는 안드로이드 태블릿 통일 + 네이티브 앱**으로 입력을 OS 레벨에서 제어(직전 세션 검토안의 하이브리드 구현).
+- **`android/` 순수 Gradle 프로젝트**(Android Studio 불요, minSdk 26/target 34, Kotlin):
+  · `MainActivity.kt` — WebView 키오스크: 서버 주소 저장(첫 실행 입력, 전체 URL 허용 → 뷰어 태블릿은 desk.html?session=… 직접 지정),
+    몰입 전체화면·화면 꺼짐 방지·회전 시 재생성 안 함(WS 유지), 렌더러 크래시 recreate 복구, **페이지 이동 시 네이티브 캡처 강제 종료**(고아 마이크 방지),
+    onPermissionRequest 마이크 승인(getUserMedia 폴백용), 다운로드는 외부 브라우저로, WebView 원격 디버깅 상시 허용(chrome://inspect).
+    **뒤로가기 = 관리 메뉴**(새로고침/서버 주소 변경/마이크 입력 게인/앱 정보).
+  · `NativeAudio.kt` — `window.AndroidAudio` 브리지: AudioRecord **VOICE_RECOGNITION**(CDD상 AGC 미적용) + AutomaticGainControl 명시 off,
+    AEC(자기 TTS 에코 제거)·NS 지원 기기만 on, 48k(폴백 44.1k/24k/16k) 캡처→선형보간 24kHz PCM16, **소프트웨어 게인 0.1~8.0×**(앱 메뉴, prefs 저장),
+    100ms base64 청크 → `window.__kacNA(b64)` (evaluateJavascript). setMediaVolume/getMediaVolume(STREAM_MUSIC) 브리지도 포함(추후 호스트 원격 볼륨용).
+  · 서명: `app/airtalk-release.p12`(openssl PKCS12, 사이드로드 전용, repo 커밋 — CI 빌드 간 서명 고정으로 덮어쓰기 업데이트 가능). 아이콘: favicon 심볼 어댑티브 벡터.
+- **웹 3곳 연동(window.AndroidAudio 있으면 getUserMedia 대신 네이티브, 없으면 기존 그대로)**:
+  · audio.js(호스트): getSources 가 {native:true} 소스 반환, 루프에서 __kacNA 핸들러가 게이트(noiseFloor/micRatio/micAbsMin 동일)·VAD(ms 카운터)·
+    mute/TTS 음소거·activity·commit 를 브라우저 경로와 동일 수행. **네이티브면 AEC 루프백 생략**(기기 AEC + 재생 중 음소거 폴백). stop 에서 브리지 정지.
+  · desk.html(여객 마이크): guestMicStartNative — gm 근접 게이트(gmFloor/gmRatio) 동일 적용 + 백프레셔. guestMicStop native 분기.
+  · mobile.html(참여자 PTT): pttNative 분기(백프레셔 포함).
+  · 서버 24kHz PCM16 LE 프로토콜 완전 무변경(리틀엔디언 Int16Array.buffer 그대로 송신).
+- **배포 체인**: fetchLatestDesktop 에 .apk 에셋 → /api/desktop/info android + /download/desktop?platform=android(MIME
+  application/vnd.android.package-archive — 브라우저가 바로 설치 화면), 모달 '앱 설치'(3플랫폼, Android 는 '알 수 없는 앱 설치 허용' 안내),
+  Nav 라벨 '앱 설치 (PC·태블릿)'. main.yml 에 android 잡(setup-java 17 + setup-gradle 8.7 → `gradle -p android assembleRelease` → 릴리스 업로드).
+- 검증: vite 빌드 OK·테스트 8/8·desk/mobile 인라인 스크립트 문법 OK. **프리뷰 E2E(가짜 AndroidAudio 스텁 main world 주입)**:
+  양방향 세션에서 시작→getUserMedia 0회·start() 1회·__kacNA 등록·청크 전송·'진행 중' 상태, 중지→stop() 1회·핸들러 해제. 콘솔·서버 에러 0. 테스트 세션 purge.
+  ⚠ 실기기(APK 설치) 검증은 CI 빌드 후 현장 몫: 게이트 체감, 여객 태블릿 2채널, TTS 에코(AEC 기기 편차).
+- 주의: 프리뷰 pane 에선 getDisplayMedia/getUserMedia 프롬프트가 영구 보류됨 → '온라인 회의'(시스템 오디오) 프리셋으로 시작하면 startingRef 가
+  고착돼 이후 시작 클릭이 무시됨(페이지 새로고침으로 해소). 앱/실브라우저에선 프롬프트가 항상 settle 되므로 해당 없음.

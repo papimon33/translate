@@ -2152,10 +2152,11 @@ async function fetchLatestDesktop() {
         // mac: universal(인텔+애플실리콘 겸용) 우선, 없으면 첫 dmg
         const macs = assets.filter((a) => /\.dmg$/i.test(a.name));
         const mac = macs.find((a) => /universal/i.test(a.name)) || macs[0];
-        if (win || mac) { found = { rel, win, mac }; break; }
+        const android = assets.find((a) => /\.apk$/i.test(a.name));
+        if (win || mac || android) { found = { rel, win, mac, android }; break; }
       }
       data = found
-        ? { available: true, source: 'github', version: found.rel.tag_name || found.rel.name || null, publishedAt: found.rel.published_at || null, win: assetInfo(found.win), mac: assetInfo(found.mac) }
+        ? { available: true, source: 'github', version: found.rel.tag_name || found.rel.name || null, publishedAt: found.rel.published_at || null, win: assetInfo(found.win), mac: assetInfo(found.mac), android: assetInfo(found.android) }
         : { available: false, reason: 'no-asset' };
     }
   } catch (e) {
@@ -2173,16 +2174,18 @@ app.get('/api/desktop/info', requireAuth, async (req, res) => {
     publishedAt: d.publishedAt || null,
     windows: d.available ? platMeta(d.win) : null,
     mac: d.available ? platMeta(d.mac) : null,
+    android: d.available ? platMeta(d.android) : null,
     reason: d.available ? null : (d.reason || null),
   });
 });
 app.get('/download/desktop', requireAuth, async (req, res) => {
   const d = await fetchLatestDesktop();
-  if (!d.available) return res.status(404).send('데스크톱 설치파일이 아직 준비되지 않았습니다. 관리자에게 문의하세요.');
+  if (!d.available) return res.status(404).send('설치파일이 아직 준비되지 않았습니다. 관리자에게 문의하세요.');
   if (d.source === 'env') return res.redirect(d.url);
-  const plat = req.query.platform === 'mac' ? 'mac' : 'win';
-  const asset = plat === 'mac' ? d.mac : d.win;
-  if (!asset) return res.status(404).send(`${plat === 'mac' ? 'macOS' : 'Windows'} 설치파일이 아직 준비되지 않았습니다.`);
+  const plat = req.query.platform === 'mac' ? 'mac' : req.query.platform === 'android' ? 'android' : 'win';
+  const asset = plat === 'mac' ? d.mac : plat === 'android' ? d.android : d.win;
+  const platName = { mac: 'macOS', android: 'Android', win: 'Windows' }[plat];
+  if (!asset) return res.status(404).send(`${platName} 설치파일이 아직 준비되지 않았습니다.`);
   // 공개 repo 이고 서버 토큰이 없으면 GitHub 다운로드 URL 로 바로 보냄
   if (!GITHUB_TOKEN && asset.browserUrl) return res.redirect(asset.browserUrl);
   // 비공개 repo: 서버가 토큰으로 에셋 바이너리를 받아 그대로 흘려보냄(사용자 인증 불필요)
@@ -2192,7 +2195,8 @@ app.get('/download/desktop', requireAuth, async (req, res) => {
       redirect: 'follow',
     });
     if (!gh.ok || !gh.body) return res.status(502).send('다운로드 실패: GitHub ' + gh.status);
-    res.setHeader('Content-Type', 'application/octet-stream');
+    // APK 는 전용 MIME 이어야 안드로이드 브라우저가 다운로드 후 바로 설치 화면을 띄운다
+    res.setHeader('Content-Type', plat === 'android' ? 'application/vnd.android.package-archive' : 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${(asset.filename || 'KAC-Translator-Setup').replace(/"/g, '')}"`);
     if (asset.size) res.setHeader('Content-Length', String(asset.size));
     Readable.fromWeb(gh.body).pipe(res);

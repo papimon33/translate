@@ -22,6 +22,7 @@ function fmtSize(n) {
 // 사용자 OS 추정 — 해당 플랫폼 다운로드를 먼저(주 버튼) 보여준다.
 function detectOS() {
   const s = `${navigator.userAgentData?.platform || ''} ${navigator.platform || ''} ${navigator.userAgent || ''}`.toLowerCase();
+  if (/android/.test(s)) return 'android';
   if (/mac|iphone|ipad|ipod/.test(s)) return 'mac';
   return 'windows';
 }
@@ -38,20 +39,23 @@ export default function DesktopAppDialog({ open, onClose }) {
   }, [open]);
 
   const os = detectOS();
-  const win = info?.windows || null;
-  const mac = info?.mac || null;
-  const available = !!info?.available && (!!win || !!mac);
-  // 주 다운로드 = 사용자 OS(가능하면), 없으면 있는 쪽. 보조 = 나머지 플랫폼.
-  const primaryPlat = (os === 'mac' && mac) ? 'mac' : (os === 'windows' && win) ? 'win' : (win ? 'win' : mac ? 'mac' : null);
-  const secondaryPlat = primaryPlat === 'win' ? (mac ? 'mac' : null) : primaryPlat === 'mac' ? (win ? 'win' : null) : null;
-  const platLabel = (p) => (p === 'mac' ? 'macOS' : 'Windows');
-  const platAsset = (p) => (p === 'mac' ? mac : win);
+  const assets = { win: info?.windows || null, mac: info?.mac || null, android: info?.android || null };
+  const { win, mac, android } = assets;
+  const available = !!info?.available && (!!win || !!mac || !!android);
+  // 주 다운로드 = 사용자 OS(가능하면), 없으면 있는 쪽 순서대로. 보조 = 나머지 플랫폼 전부.
+  const order = [os === 'android' ? 'android' : os === 'mac' ? 'mac' : 'win', 'win', 'mac', 'android'];
+  const plats = [...new Set(order)].filter((p) => assets[p]);
+  const primaryPlat = plats[0] || null;
+  const secondaryPlats = plats.slice(1);
+  const platLabel = (p) => (p === 'mac' ? 'macOS' : p === 'android' ? 'Android' : 'Windows');
+  const platAsset = (p) => assets[p];
   const dlHref = (p) => `/download/desktop?platform=${p}`;
 
   const FEATURES = [
     { t: '통합 실행 창', d: '로그인·세션·녹음 전체 기능을 브라우저 없이 앱 하나로.' },
-    { t: '줌 오버레이 자막', d: '투명·항상 위·클릭 통과 자막 창을 Zoom 화면 위에 겹쳐 표시.' },
-    { t: '시스템 오디오 캡처', d: 'PC로 나오는 온라인 회의 소리도 앱에서 바로 잡아 번역.' },
+    { t: '줌 오버레이 자막', d: '투명·항상 위·클릭 통과 자막 창을 Zoom 화면 위에 겹쳐 표시. (PC)' },
+    { t: '시스템 오디오 캡처', d: 'PC로 나오는 온라인 회의 소리도 앱에서 바로 잡아 번역. (PC)' },
+    { t: '안내데스크 태블릿 앱', d: '자동 증폭(AGC) 없는 네이티브 마이크로 민감도가 그대로 듣는 대로 적용. (Android)' },
   ];
 
   return (
@@ -67,9 +71,9 @@ export default function DesktopAppDialog({ open, onClose }) {
             <InstallDesktopOutlinedIcon sx={{ fontSize: 26 }} />
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.25 }}>데스크톱 앱</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.25 }}>앱 설치</Typography>
             <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-              Windows · macOS 설치본 · 줌 오버레이 자막 지원
+              Windows · macOS · Android(안내데스크 태블릿) 설치본
             </Typography>
           </Box>
         </Box>
@@ -112,7 +116,7 @@ export default function DesktopAppDialog({ open, onClose }) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               {info.version && <Chip size="small" label={info.version} sx={{ height: 22, fontSize: 11.5, fontWeight: 700 }} />}
               <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>
-                {[win && 'Windows', mac && 'macOS'].filter(Boolean).join(' · ')} 설치본 제공
+                {[win && 'Windows', mac && 'macOS', android && 'Android'].filter(Boolean).join(' · ')} 설치본 제공
               </Typography>
             </Box>
           )}
@@ -121,20 +125,27 @@ export default function DesktopAppDialog({ open, onClose }) {
               macOS는 서명되지 않은 앱이라 첫 실행 시 <b>우클릭 → 열기</b>로 한 번 허용해야 합니다.
             </Typography>
           )}
+          {available && android && (
+            <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 0.75 }}>
+              Android(태블릿)는 스토어 밖 설치라 <b>알 수 없는 앱 설치 허용</b>을 한 번 켜야 합니다. 첫 실행에서
+              서버 주소(또는 뷰어 링크)를 입력하고 마이크 권한을 허용하세요.
+            </Typography>
+          )}
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5, flexWrap: 'wrap' }}>
         <Button onClick={onClose} sx={{ color: 'text.secondary' }}>닫기</Button>
         {/* 보조 플랫폼(다른 OS) 다운로드 링크 */}
-        {available && secondaryPlat && (
+        {available && secondaryPlats.map((p) => (
           <Button
+            key={p}
             variant="text"
-            href={dlHref(secondaryPlat)}
+            href={dlHref(p)}
             sx={{ color: 'text.secondary' }}
           >
-            {platLabel(secondaryPlat)}용 받기{platAsset(secondaryPlat)?.size ? ` (${fmtSize(platAsset(secondaryPlat).size)})` : ''}
+            {platLabel(p)}용 받기{platAsset(p)?.size ? ` (${fmtSize(platAsset(p).size)})` : ''}
           </Button>
-        )}
+        ))}
         {/* 주 다운로드(사용자 OS) */}
         <Button
           variant="contained"

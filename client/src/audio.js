@@ -4,13 +4,19 @@
 async function getSources(mode, agcOff) {
   const list = [];
   if (mode === 'mic' || mode === 'both') {
-    // autoGainControl(AGC): 볼륨 게이트(민감도<100) 사용 시엔 반드시 꺼야 한다 —
-    // 브라우저 AGC 가 속삭임·먼 소리를 보통 음량으로 증폭한 '뒤에' 게이트에 도달해
-    // RMS 임계를 아무리 낮춰도(1이어도) 걸러지지 않던 원인. 100(게이트 없음)이면 기존대로 켠다.
-    const mic = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: !agcOff },
-    });
-    list.push({ src: 'mic', stream: mic });
+    if (window.AndroidAudio) {
+      // 안드로이드 앱: 네이티브 AudioRecord(AGC 를 OS 레벨에서 차단)가 마이크를 대신한다.
+      // WebView 의 getUserMedia 는 AGC off 요청을 기기에 따라 무시하므로 쓰지 않는다.
+      list.push({ src: 'mic', stream: null, native: true });
+    } else {
+      // autoGainControl(AGC): 볼륨 게이트(민감도<100) 사용 시엔 반드시 꺼야 한다 —
+      // 브라우저 AGC 가 속삭임·먼 소리를 보통 음량으로 증폭한 '뒤에' 게이트에 도달해
+      // RMS 임계를 아무리 낮춰도(1이어도) 걸러지지 않던 원인. 100(게이트 없음)이면 기존대로 켠다.
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: !agcOff },
+      });
+      list.push({ src: 'mic', stream: mic });
+    }
   }
   if (mode === 'system' || mode === 'both') {
     let sys;
@@ -24,12 +30,12 @@ async function getSources(mode, agcOff) {
       });
     } catch (e) {
       // '모두' 모드에서 화면공유 취소 시 먼저 획득한 마이크를 방치하지 않는다(녹음 표시등 계속 켜지던 문제)
-      list.forEach(({ stream }) => stream.getTracks().forEach((t) => t.stop()));
+      list.forEach(({ stream }) => stream && stream.getTracks().forEach((t) => t.stop()));
       throw e;
     }
     if (sys.getAudioTracks().length === 0) {
       sys.getTracks().forEach((t) => t.stop());
-      list.forEach(({ stream }) => stream.getTracks().forEach((t) => t.stop()));
+      list.forEach(({ stream }) => stream && stream.getTracks().forEach((t) => t.stop()));
       throw new Error('시스템 오디오가 선택되지 않았습니다. "전체 화면" 선택 후 "시스템 오디오 공유"를 켜주세요.');
     }
     sys.getVideoTracks().forEach((t) => t.stop());
@@ -83,8 +89,9 @@ export async function startRecorder(opts) {
   };
   calcGate(micSensVal);
   const sources = await getSources(mode, micRatio > 0); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
-  // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용)
-  const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m ? m.stream.getAudioTracks()[0] : null; })();
+  const nativeMic = sources.some((s) => s.native); // 안드로이드 앱 네이티브 마이크 사용 여부
+  // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용) — 네이티브 마이크는 트랙이 없다(항상 AGC off)
+  const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m && m.stream ? m.stream.getAudioTracks()[0] : null; })();
   let noiseFloor = 0.005; // 적응형 소음 바닥(조용할 때로 빠르게 수렴, 소리날 때 아주 느리게 상승)
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -153,8 +160,9 @@ export async function startRecorder(opts) {
       aecActive = false;
     }
   }
-  // TTS 를 나중에 켤 수도 있으므로(녹음 중 토글) 음성 재생 가능 파이프라인이면 미리 준비
-  if (audioOut || opts.tts || pipeline === 'soniox' || pipeline === 'translate') setupAecLoopback();
+  // TTS 를 나중에 켤 수도 있으므로(녹음 중 토글) 음성 재생 가능 파이프라인이면 미리 준비.
+  // 네이티브 마이크는 브라우저 AEC 참조 경로 밖이라 루프백이 무의미 — 기기 자체 AEC + 재생 중 자동 음소거 폴백을 쓴다.
+  if (!nativeMic && (audioOut || opts.tts || pipeline === 'soniox' || pipeline === 'translate')) setupAecLoopback();
   const playPcm24 = (b64) => {
     try {
       const bin = atob(b64);
@@ -191,6 +199,7 @@ export async function startRecorder(opts) {
   // (TDZ 수정) 루프 안에서 배선되는 onmessage/onended 가 참조하므로 루프보다 먼저 선언 —
   // '모두' 모드에서 두 번째 소스 연결 대기 중 첫 소켓 메시지가 ReferenceError 나던 문제
   let stopped = false;
+  let nativeMicUsed = false; // 네이티브 캡처가 실제로 시작됐는지(stop 에서 브리지 정지용)
   // 녹음 중 변경된 제어 상태 — 자동 재연결 시 새 소켓은 시작 시점 URL 파라미터로 초기화되므로
   // 변경분(TTS on/off, 발화멈춤, 여객 민감도)을 재전송해 서버 상태가 되돌아가는 문제를 막는다
   const ctlState = { audioOut: null, tts: null, muted: null, guestSens: null };
@@ -203,8 +212,8 @@ export async function startRecorder(opts) {
     } catch {}
   };
 
-  for (const { src, stream } of sources) {
-    streams.push(stream);
+  for (const { src, stream, native } of sources) {
+    if (stream) streams.push(stream);
     const isAudioPipe = pipes.length === 0; // 서버 TTS 음성은 첫 연결에서만 재생(모두 모드 이중 재생 방지)
     const wsUrl = `${proto}://${location.host}/ws/host?src=${src}&${q}`;
     const pipe = { src, ws: null, proc: null };
@@ -255,6 +264,70 @@ export async function startRecorder(opts) {
       throw e;
     }
     wire(ws0);
+
+    if (native) {
+      // 네이티브 마이크(안드로이드 앱): AudioRecord(AGC 없음)가 24kHz PCM16 청크를 base64 로 전달.
+      // 게이트·VAD·음소거는 브라우저 경로와 동일 로직 — 카운터만 프레임 수 대신 ms 로 센다(청크 길이 가변).
+      const TH = 0.015;
+      const vad = { speaking: false, silenceMs: 0, sinceMs: 0 };
+      let lastActivitySent = 0;
+      let gateOpenUntil = 0;
+      window.__kacNA = (b64) => {
+        const bin = atob(b64);
+        const nb = bin.length & ~1;
+        if (!nb) return;
+        const ab = new ArrayBuffer(nb);
+        const u8 = new Uint8Array(ab);
+        for (let i = 0; i < nb; i++) u8[i] = bin.charCodeAt(i);
+        const i16 = new Int16Array(ab); // ARM=리틀엔디언, 서버 규격(LE) 그대로
+        const n = i16.length;
+        let sum = 0, peak = 0;
+        for (let i = 0; i < n; i++) { const v = Math.abs(i16[i]) / 32768; sum += v * v; if (v > peak) peak = v; }
+        const rms = Math.sqrt(sum / n);
+        if (onMeter) onMeter(rms, peak);
+        const frameMs = (n / 24000) * 1000;
+        const w = pipe.ws;
+        const wOpen = w && w.readyState === WebSocket.OPEN;
+        if (muted || (!aecActive && audioCtx.currentTime < ttsMutedUntil)) {
+          if (wOpen) {
+            w.send(new ArrayBuffer(n * 2));
+            const t = Date.now();
+            if (t - lastActivitySent > 5000) { lastActivitySent = t; notifyActivityAll(); }
+          }
+          return;
+        }
+        let gated = false;
+        if (micRatio > 0) {
+          if (rms < noiseFloor) noiseFloor += (rms - noiseFloor) * 0.3;
+          else noiseFloor += (rms - noiseFloor) * 0.002;
+          if (noiseFloor < 0.0003) noiseFloor = 0.0003;
+          if (rms >= micAbsMin && rms >= noiseFloor * micRatio) gateOpenUntil = Date.now() + 300;
+          if (Date.now() >= gateOpenUntil) gated = true;
+        }
+        if (wOpen) w.send(gated ? new ArrayBuffer(n * 2) : ab);
+        if (peak > TH) notifyActivityAll();
+        vad.sinceMs += frameMs;
+        if (peak > TH) { vad.speaking = true; vad.silenceMs = 0; } else vad.silenceMs += frameMs;
+        if (vad.speaking && (vad.silenceMs >= 800 || vad.sinceMs >= 2500)) {
+          if (wOpen) w.send(JSON.stringify({ type: 'commit' }));
+          vad.speaking = false;
+          vad.silenceMs = 0;
+          vad.sinceMs = 0;
+        }
+      };
+      if (!window.AndroidAudio.start()) {
+        // 시작 실패(권한 미허용 등) — 이미 연 자원을 정리하고 getUserMedia 거부와 동일하게 실패 전파
+        window.__kacNA = null;
+        streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+        pipes.forEach((p) => { try { p.ws.close(); } catch {} });
+        try { ws0.close(); } catch {}
+        try { audioCtx.close(); } catch {}
+        throw new Error('마이크를 사용할 수 없습니다 — 앱의 마이크 권한을 허용한 뒤 다시 시도해 주세요.');
+      }
+      nativeMicUsed = true;
+      pipes.push(pipe);
+      continue;
+    }
 
     const node = audioCtx.createMediaStreamSource(stream);
     const proc = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -347,6 +420,7 @@ export async function startRecorder(opts) {
       if (p.proc) p.proc.onaudioprocess = null;
     }
     streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    if (nativeMicUsed) { try { window.AndroidAudio.stop(); } catch {} window.__kacNA = null; }
     if (aecParts) { try { aecParts.audioEl.pause(); } catch {} try { aecParts.pc1.close(); } catch {} try { aecParts.pc2.close(); } catch {} aecParts = null; }
     if (audioCtx) audioCtx.close();
     // 마지막 발화 결과가 도착하도록 잠시 후 닫기

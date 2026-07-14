@@ -209,7 +209,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         )}
         <MenuItem onClick={() => { setMenu(null); setDesktopApp(true); }}>
           <ListItemIcon><InstallDesktopOutlinedIcon fontSize="small" /></ListItemIcon>
-          데스크톱 앱
+          앱 설치 (PC·태블릿)
         </MenuItem>
         <MenuItem onClick={() => { setMenu(null); onLogout(); }}>
           <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
