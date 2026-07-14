@@ -328,6 +328,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [micStaffId, setMicStaffId] = useState(() => localStorage.getItem('kac-desk-mic-staff') || '');
   const [micGuestId, setMicGuestId] = useState(() => localStorage.getItem('kac-desk-mic-guest') || '');
   const [micDevs, setMicDevs] = useState([]); // 사용 가능한 입력 장치 목록(연결 확인)
+  // RNNoise(신경망 잡음 억제, β): 켜면 브라우저 기본 NS 대신 사용 — 지향성 마이크 없는 데스크 보조용
+  const [rnnoise, setRnnoiseOpt] = useState(() => localStorage.getItem('kac-rnnoise') === '1');
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [sxSettingsOpen, setSxSettingsOpen] = useState(false);
@@ -619,6 +621,7 @@ export default function TranslateView({ session: initial, onBack }) {
         dropAcks, // 고급옵션: 단독 응답어(네/Yes) 기록 생략
         // 데스크 마이크 2대(PC): 여객 장치가 지정된 경우에만 — 여객 오디오는 src=guestmic 별도 연결로 공급
         mic2: cfg.pipeline === 'desk' && mic2On && micGuestId && !window.AndroidAudio ? { staff: micStaffId || null, guest: micGuestId } : undefined,
+        rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
         model,
         onMessage,
         onMeter: (rms, peak, src) => {
@@ -648,18 +651,22 @@ export default function TranslateView({ session: initial, onBack }) {
       startingRef.current = false;
     }
   };
-  // 데스크 마이크 2대: 설정 변경(토글·장치 교체)을 저장하고, 캡처 중이면 새 구성으로 재시작.
-  // recorder 의 stop 만 직접 호출(컴포넌트 stop() 은 stopReq 를 세워 재시작을 막으므로 사용하지 않음).
-  const applyMic2 = (p) => {
-    if ('on' in p) { setMic2On(p.on); localStorage.setItem('kac-desk-mic2', p.on ? '1' : '0'); }
-    if ('staff' in p) { setMicStaffId(p.staff); localStorage.setItem('kac-desk-mic-staff', p.staff); }
-    if ('guest' in p) { setMicGuestId(p.guest); localStorage.setItem('kac-desk-mic-guest', p.guest); }
+  // 캡처 설정 변경 후 재시작(데스크 상시 캡처용) — recorder 의 stop 만 직접 호출
+  // (컴포넌트 stop() 은 stopReq 를 세워 재시작을 막으므로 사용하지 않음).
+  const restartCapture = () => {
     if (!recRef.current) return;
     try { recRef.current.stop(); } catch {}
     recRef.current = null;
     setRecording(false);
     setLevel(0); setGuestLevel(0);
-    setTimeout(() => { start(); }, 600); // 상태 반영(리렌더) 후 새 장치 구성으로 재캡처
+    setTimeout(() => { start(); }, 600); // 상태 반영(리렌더) 후 새 구성으로 재캡처
+  };
+  // 데스크 마이크 2대: 설정 변경(토글·장치 교체)을 저장하고, 캡처 중이면 새 구성으로 재시작.
+  const applyMic2 = (p) => {
+    if ('on' in p) { setMic2On(p.on); localStorage.setItem('kac-desk-mic2', p.on ? '1' : '0'); }
+    if ('staff' in p) { setMicStaffId(p.staff); localStorage.setItem('kac-desk-mic-staff', p.staff); }
+    if ('guest' in p) { setMicGuestId(p.guest); localStorage.setItem('kac-desk-mic-guest', p.guest); }
+    restartCapture();
   };
   const stop = () => {
     stopReqRef.current = true; // 연결 중이면 시작 완료 시점에 정리되도록 표시
@@ -1361,6 +1368,20 @@ export default function TranslateView({ session: initial, onBack }) {
           <SxSlider label="마이크 음성인식 민감도" hint="100=모든 소리, 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 기본 70. 속삭임이 잡히면 더 낮추고, 작게 말하는데 끊기면 높이세요. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
             fmt={(v) => String(v)}
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
+          {!window.AndroidAudio && (
+            <InfoToggle
+              label="잡음 제거 강화 (RNNoise·β)"
+              hint="브라우저 기본 잡음 억제 대신 신경망(RNNoise)으로 배경 소음(에어컨·웅성거림)을 걸러냅니다. 지향성 마이크가 없는 곳에서 배경 소음이 심할 때 켜 보세요. 사람 목소리 누화는 못 거르므로 민감도 게이트는 그대로 필요합니다. 데스크는 즉시 재적용, 일반 세션은 다음 시작부터. 이 기기에 저장됩니다."
+              checked={rnnoise}
+              disabled={false}
+              onChange={(e) => {
+                const v = e.target.checked;
+                setRnnoiseOpt(v);
+                localStorage.setItem('kac-rnnoise', v ? '1' : '0');
+                if (cfg.pipeline === 'desk') restartCapture(); // 상시 캡처는 새 구성으로 재시작
+              }}
+            />
+          )}
           {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
             <InfoToggle
               label="단독 응답어 생략"

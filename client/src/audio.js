@@ -1,7 +1,59 @@
 /* 오디오 캡처 + 무음감지(VAD) + 서버 WS 송신.
    mic=오른쪽, system=왼쪽. system 은 전체화면+시스템오디오 공유로 PC 전체 소리. */
 
-async function getSources(mode, agcOff, mic2) {
+/* ---- RNNoise(신경망 잡음 억제, 옵션) ----
+   브라우저 기본 NS 대신 사용한다(이중 적용 금지 — 켜면 getUserMedia noiseSuppression:false).
+   48kHz·480샘플 프레임 전용이라 AudioContext 를 48kHz 로 강제해 리샘플 없이 처리한다.
+   wasm(≈1.9MB 별도 청크)은 옵션을 켠 세션에서만 동적 로드. 마이크 계열 소스에만 적용(시스템 오디오 제외). */
+let rnnModP = null;
+function loadRnnoise() {
+  if (!rnnModP) {
+    rnnModP = import('@jitsi/rnnoise-wasm/dist/rnnoise-sync.js').then(async (m) => {
+      const mod = m.default();
+      try { await mod.ready; } catch {}
+      return mod;
+    });
+    rnnModP.catch(() => { rnnModP = null; }); // 로드 실패 시 다음 시작에서 재시도
+  }
+  return rnnModP;
+}
+const RNN_FRAME = 480; // RNNoise 고정 프레임(48kHz 기준 10ms)
+function createDenoiser(mod) {
+  const st = mod._rnnoise_create(0);
+  const inPtr = mod._malloc(RNN_FRAME * 4);
+  const outPtr = mod._malloc(RNN_FRAME * 4);
+  let carry = new Float32Array(0);
+  let dead = false;
+  return {
+    // 입력 Float32(±1) → 정제된 Float32(±1). 480샘플 정렬 잔여분은 다음 호출로 이월(≤10ms 지연)
+    process(input) {
+      if (dead) return input;
+      const buf = new Float32Array(carry.length + input.length);
+      buf.set(carry);
+      buf.set(input, carry.length);
+      const nFrames = Math.floor(buf.length / RNN_FRAME);
+      const out = new Float32Array(nFrames * RNN_FRAME);
+      for (let f = 0; f < nFrames; f++) {
+        // RNNoise 는 ±32768 스케일 float 를 기대. HEAPF32 는 메모리 증가 시 바뀌므로 매 프레임 새로 잡는다
+        const ih = mod.HEAPF32.subarray(inPtr >> 2, (inPtr >> 2) + RNN_FRAME);
+        for (let i = 0; i < RNN_FRAME; i++) ih[i] = buf[f * RNN_FRAME + i] * 32768;
+        mod._rnnoise_process_frame(st, outPtr, inPtr);
+        const oh = mod.HEAPF32.subarray(outPtr >> 2, (outPtr >> 2) + RNN_FRAME);
+        for (let i = 0; i < RNN_FRAME; i++) out[f * RNN_FRAME + i] = oh[i] / 32768;
+      }
+      carry = buf.slice(nFrames * RNN_FRAME);
+      return out;
+    },
+    destroy() {
+      if (dead) return;
+      dead = true;
+      try { mod._rnnoise_destroy(st); } catch {}
+      try { mod._free(inPtr); mod._free(outPtr); } catch {}
+    },
+  };
+}
+
+async function getSources(mode, agcOff, mic2, nsOff) {
   const list = [];
   if (mode === 'mic' || mode === 'both') {
     if (window.AndroidAudio) {
@@ -11,7 +63,8 @@ async function getSources(mode, agcOff, mic2) {
     } else if (mic2 && mic2.guest) {
       // 데스크 2마이크(PC): 직원·여객 지향성 마이크를 각각의 입력 장치로 연다 —
       // 여객 오디오는 별도 WS(src=guestmic)로 서버 여객 채널에 공급(뷰어 태블릿 마이크와 동일 경로).
-      const base = { echoCancellation: true, noiseSuppression: true };
+      // nsOff(RNNoise 사용 시): 브라우저 NS 를 꺼서 이중 잡음처리로 음성이 뭉개지는 것 방지
+      const base = { echoCancellation: true, noiseSuppression: !nsOff };
       let staff;
       try {
         staff = await navigator.mediaDevices.getUserMedia({
@@ -36,7 +89,7 @@ async function getSources(mode, agcOff, mic2) {
       // 브라우저 AGC 가 속삭임·먼 소리를 보통 음량으로 증폭한 '뒤에' 게이트에 도달해
       // RMS 임계를 아무리 낮춰도(1이어도) 걸러지지 않던 원인. 100(게이트 없음)이면 기존대로 켠다.
       const mic = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: !agcOff },
+        audio: { echoCancellation: true, noiseSuppression: !nsOff, autoGainControl: !agcOff },
       });
       list.push({ src: 'mic', stream: mic });
     }
@@ -113,7 +166,27 @@ export async function startRecorder(opts) {
   calcGate(micSensVal);
   // 데스크 2마이크(PC): 직원/여객 장치 지정 — 데스크 파이프라인 + 브라우저 환경에서만
   const mic2 = pipeline === 'desk' && !window.AndroidAudio && opts.mic2 && opts.mic2.guest ? opts.mic2 : null;
-  const sources = await getSources(mode, micRatio > 0, mic2); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
+  // RNNoise(옵션): 마이크 캡처에만 적용(네이티브 앱 제외). 로드 실패 시 브라우저 NS 유지로 폴백
+  let rnnMod = null;
+  if (opts.rnnoise && !window.AndroidAudio && (mode === 'mic' || mode === 'both')) {
+    try { rnnMod = await loadRnnoise(); }
+    catch { try { onMessage({ type: 'status', message: 'RNNoise 로드 실패 — 브라우저 기본 잡음 억제로 동작합니다.' }); } catch {} }
+  }
+  // RNNoise 는 48kHz·480샘플 고정 — AudioContext 를 48kHz 로 강제(미지원이면 RNNoise 포기, NS 복귀)
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let audioCtx;
+  try { audioCtx = rnnMod ? new AC({ sampleRate: 48000 }) : new AC(); } catch { audioCtx = new AC(); }
+  if (rnnMod && audioCtx.sampleRate !== 48000) {
+    rnnMod = null;
+    try { onMessage({ type: 'status', message: '이 브라우저는 48kHz 캡처를 지원하지 않아 RNNoise 없이 동작합니다.' }); } catch {}
+  }
+  let sources;
+  try {
+    sources = await getSources(mode, micRatio > 0, mic2, !!rnnMod); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
+  } catch (e) {
+    try { audioCtx.close(); } catch {} // 먼저 만든 오디오 컨텍스트 회수(권한 거부 시 누수 방지)
+    throw e;
+  }
   const nativeMic = sources.some((s) => s.native); // 안드로이드 앱 네이티브 마이크 사용 여부
   if (sources.guestFail) {
     try { onMessage({ type: 'status', message: '여객 마이크 장치를 열지 못했습니다 — 단일 채널(또는 태블릿 마이크)로 동작합니다.' }); } catch {}
@@ -133,7 +206,6 @@ export async function startRecorder(opts) {
   };
   calcGuestGate(deskGuestSens != null ? deskGuestSens : 50);
 
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const inRate = audioCtx.sampleRate;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const q = `session=${sessionId}&out=${encodeURIComponent(outLang)}&in=${encodeURIComponent(
@@ -370,6 +442,8 @@ export async function startRecorder(opts) {
 
     const node = audioCtx.createMediaStreamSource(stream);
     const proc = audioCtx.createScriptProcessor(4096, 1, 1);
+    // RNNoise: 마이크 계열 소스만 정제(시스템 오디오는 음악·회의음이라 잡음 억제 부적합)
+    if (rnnMod && src !== 'system') pipe.den = createDenoiser(rnnMod);
     node.connect(proc);
     const g = audioCtx.createGain();
     g.gain.value = 0;
@@ -386,7 +460,9 @@ export async function startRecorder(opts) {
     let gateOpenUntil = 0; // 게이트가 열려 있는(전송) 시한 — 마지막 큰 소리 이후 hold
 
     proc.onaudioprocess = (e) => {
-      const input = e.inputBuffer.getChannelData(0);
+      // RNNoise 사용 시 정제된 신호로 게이트·VAD·전송을 판단(480샘플 정렬 잔여분은 다음 콜백으로 이월)
+      const input = pipe.den ? pipe.den.process(e.inputBuffer.getChannelData(0)) : e.inputBuffer.getChannelData(0);
+      if (!input.length) return;
       let sum = 0,
         peak = 0;
       for (let i = 0; i < input.length; i++) {
@@ -473,6 +549,7 @@ export async function startRecorder(opts) {
         if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'stop' }));
       } catch {}
       if (p.proc) p.proc.onaudioprocess = null;
+      if (p.den) p.den.destroy(); // RNNoise 상태·wasm 힙 반납
     }
     streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
     if (nativeMicUsed) { try { window.AndroidAudio.stop(); } catch {} window.__kacNA = null; }

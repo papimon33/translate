@@ -552,3 +552,26 @@
   뷰어 desk-mic2 true → 통역 시작(meta two·mic2=true) → 뷰어 desk-mic on 시도 무시(소유권 유지) → 피더 종료→desk-mic2 false+단일채널 폴백. 테스트 세션 purge.
   프리뷰 UI: 스위치→직원/여객 Select+미터+'선택 필요' 칩 렌더 확인. (프리뷰는 마이크 권한 불가라 장치 라벨은 실PC에서만 정상 노출)
 - ⚠ 실기기 확인: 실제 USB 지향성 마이크 2대에서 장치 선택·레벨 확인·양 채널 동시 인식, 뷰어 표출 전용 전환, PC 마이크 탈락 시 태블릿 폴백.
+
+## 2026-07-14 (4) — TTS 상시 WebSocket + RNNoise 잡음 제거 옵션(β)
+### Cartesia 상시 WS (문장별 HTTP 연결 비용 제거)
+- 배경: TTS 지연 검토에서 스트리밍 번역·문장 단위 즉시 합성·오디오 큐는 기구현 확인 → 남은 지연 성분 중
+  '문장마다 새 HTTP POST(/tts/bytes) 연결 비용'을 제거(리스크 0 항목만 채택, 문장 내부 청크 continuation 은 보류).
+- server.js: 전역 `cartesiaSock` 1개 유지(`cartesiaConnect` — 연결 합류·8s 타임아웃·close 시 진행 요청 일괄 실패),
+  `cartesiaTTSWs`(context_id 다중화, chunk/done/error, 0.2s 청크 정렬은 HTTP 와 동일), `cartesiaTTSStream` = WS 우선 +
+  **오디오를 하나도 못 내보낸 경우에만 HTTP 폴백**(부분 재생 후 재시도하면 문장이 겹쳐 들림). 기존 HTTP 는 `cartesiaTTSHttp` 로 개명.
+  `cartesiaWarmup` 은 새 경로로 짧은 합성 1회(WS 프리커넥트+키/보이스 검증, 오디오 무시·got 플래그로 실패 감지).
+- 실측(실키): WS 재사용 첫 청크 311~376ms vs HTTP 412~529ms — **문장당 ~100~180ms 절감**, 완료도 ~650ms vs ~1000ms.
+  연결 835ms 는 warmup 때 1회. 실서버 스모크: tts=1 호스트 연결 → '음성(Cartesia) 준비됨' + `[cartesia] ws 실패` 로그 0(폴백 미발동).
+### RNNoise 잡음 제거 옵션 (고급 설정 '잡음 제거 강화(RNNoise·β)', kac-rnnoise, 기본 꺼짐)
+- 위치: 지향성 마이크 없는 환경의 배경 소음(에어컨·웅성거림) 보조 — **사람 목소리 누화는 못 거르므로 근접 게이트는 유지**.
+- `@jitsi/rnnoise-wasm`(sync 빌드, wasm 인라인) — **동적 import 로 별도 청크(1.9MB)**, 옵션 켠 세션에서만 로드. 메인 번들 무영향.
+- audio.js: `loadRnnoise`/`createDenoiser`(480샘플 프레임, ±32768 스케일, HEAPF32 매 프레임 재획득(메모리 증가 대응), carry 이월 ≤10ms,
+  destroy 로 상태·힙 반납). rnnoise on 시: **AudioContext 48kHz 강제**(미지원이면 자동 포기+안내) → getUserMedia `noiseSuppression:false`
+  (이중 NS 방지, RNNoise 로드 실패 시엔 브라우저 NS 유지 폴백) → 파이프별 디노이저(직원 mic + 여객 guestmic 각자 상태, system 오디오 제외)
+  → **게이트·VAD·미터는 정제된 신호로 판별**. AudioContext 를 getSources 앞으로 이동(권한 거부 시 close 누수 가드 추가).
+- TranslateView: 고급 설정 토글(AndroidAudio 환경 숨김 — 네이티브는 자체 NS), 데스크는 변경 즉시 재캡처(`restartCapture` 로 applyMic2 와 공용화),
+  일반 세션은 다음 시작부터. start() opts.rnnoise.
+- 검증: node 에서 wasm 직접 구동 — 무성 백색소음 **-76.8dB** 억제·VAD 0·API(create/process/destroy/malloc/free) 계약 확인.
+  빌드 OK(rnnoise-sync 별도 청크), 8/8 테스트, 프리뷰 고급 설정에 토글 렌더 확인.
+- ⚠ 실환경 A/B 권장: STT 앞 과처리는 인식률을 떨어뜨릴 수 있음 — 켜고/끄고 실발화 인식률 비교 후 데스크별 선택.
