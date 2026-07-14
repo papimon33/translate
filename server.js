@@ -2271,6 +2271,114 @@ app.get('*', (req, res, next) => {
 /*   - 머리말("…다음과 같습니다"), 불릿(-), 화살표(원문 → 번역),         */
 /*     "참고:/제안:/주의:/Note:" 줄, 끝의 메타 괄호주석 등.              */
 /* ------------------------------------------------------------------ */
+/* ---- 저신뢰 자동 교정(confFix, 고급옵션) ----
+   soniox 원문 토큰의 confidence 로 '오인식 의심 발화'만 골라 GPT(REFINE_MODEL)가 대화 맥락·용어를
+   보고 원문을 교정 → 재번역해 카드를 덮어쓴다(같은 id upsert). TTS 는 이미 재생됐을 수 있어 텍스트만 교정.
+
+   ⚠ 임계 선택 근거(재튜닝 시 필독 — 상세는 PROJECT_NOTES '2026-07-14 (5)', 재분석은 eval/conf-analyze.mjs):
+   실로그 3세션(테스트 81발화·Le train 68·Bonjour 50, 실단어 토큰 ~4,700)으로 규칙별 발동률을 시뮬레이션한 결과 —
+   · '단발 최소 conf ≤ 0.35' 는 세션별 15%/24%/58% 로 편차 극심 → 폐기.
+     원인: soniox 는 ①한국어 어절 첫 음절 ②조사·구두점 ③언어 전환 경계(한↔영 코드스위칭)에
+     '정상 인식인데도' 낮은 conf 를 주는 구조적 편향이 있다(안0.13/여0.05/당0.05 전부 정상이었음).
+   · 진짜 오인식(찝찝대는/측측대는/逆 등)은 음절이 줄줄이 틀려 저신뢰가 '연속'된다 →
+     '연속 2개 이상 conf<0.4' 규칙은 3세션에서 0%/0%/8% 로 안정 발동(이 규칙 채택 = 규칙 C).
+   · 연속 규칙도 오탐 가능(담당인력 0.11/0.09 연속인데 정상) → GPT 의 changed=false 가 최종 거름망.
+   · 표본이 전부 한국어 지배 발화라, 데스크 외국어 손님 발화가 쌓이면 eval/conf-analyze.mjs 로 재측정할 것. */
+const CONFFIX = {
+  REAL_MIN: 3, // 가드: 실단어(문자·숫자 포함 토큰) 최소 개수 — 인사·응답어 등 짧은 발화 제외
+  RUN_CONF: 0.4, // 연속 저신뢰 판정 임계
+  RUN_LEN: 2, // 이 개수 이상 '연속'되면 발동(단발 저신뢰는 구조적 편향이라 무시)
+  EXTREME: 0.12, // 단발이라도 이 이하면 발동(극단값 — 3세션 기준 정상 최소값 0.05 존재하므로 GPT 거름망 필수)
+  LOW: 0.55, // '저신뢰 단어' 마킹·비율 계산 임계(UI 하이라이트 0.6과 별도)
+  NOISE_RATIO: 0.7, // 저신뢰 실단어 비율이 이걸 넘으면 발동 안 함(횡설수설/소음 — 교정 시 GPT 가 지어냄)
+};
+const confFixReal = (toks) => (toks || []).filter(([t, c]) => typeof c === 'number' && /[\p{L}\p{N}]/u.test(String(t || '').trim()));
+function confFixTrigger(toks) {
+  const real = confFixReal(toks);
+  if (real.length < CONFFIX.REAL_MIN) return false;
+  const lowN = real.filter(([, c]) => c < CONFFIX.LOW).length;
+  if (lowN / real.length > CONFFIX.NOISE_RATIO) return false; // 상한 가드
+  let run = 0;
+  let minC = 1;
+  for (const [, c] of real) {
+    if (c < CONFFIX.RUN_CONF) { run++; if (run >= CONFFIX.RUN_LEN) return true; } else run = 0;
+    if (c < minC) minC = c;
+  }
+  return minC <= CONFFIX.EXTREME;
+}
+// 저신뢰 구간을 «»로 마킹한 원문(토큰 원본 이어붙임 — 표시용 source 와 미세하게 다를 수 있음)
+const confFixMark = (toks) => (toks || [])
+  .map(([t, c]) => (typeof c === 'number' && c < CONFFIX.LOW && /[\p{L}\p{N}]/u.test(String(t || '').trim()) ? `«${t}»` : t))
+  .join('');
+// 활성 용어를 프롬프트용으로: 외국어 원문이면 '표기=한국어' 쌍, 한국어 원문이면 표기 목록(상위 30개)
+function confFixTerms(srcLang) {
+  try {
+    const out = [];
+    for (const e of (termsConfig && termsConfig.entries) || []) {
+      const ko = e.names && e.names.ko;
+      if (!ko) continue;
+      if (srcLang && srcLang !== 'ko') {
+        const v = e.names[srcLang];
+        if (v && v !== ko) out.push(`${v}=${ko}`);
+      } else out.push(ko);
+      if (out.length >= 30) break;
+    }
+    return out.join(', ');
+  } catch { return ''; }
+}
+/* GPT 판정: 저신뢰 구간이 오인식인지 '치환 목록'만 제안받는다(문장 재작성 금지 — 프롬프트 실험에서
+   nano 가 문장을 다시 쓰게 하면 마킹 밖 글자를 훼손하거나 직전 대화를 번역하는 오류가 재현됐음).
+   치환 적용·가드는 서버(maybeConfFix)가 수행하고, 번역은 검증된 translateText 경로로 다시 뽑는다. */
+async function confFixLLM({ srcLang, marked, lowWords, history, terms, desk }) {
+  if (!OPENAI_API_KEY) return null;
+  const srcName = LANG_NAMES[srcLang] || srcLang || '원문 언어';
+  const sys = `너는 공항 실시간 음성인식(STT) 교정기다. STT 가 «...»로 표시한 구간을 낮은 신뢰도로 인식했다. 표시 구간이 오인식인지 판단하라.
+
+판단 기준:
+- 표시 구간을 포함한 단어가 실제로 없는 말이거나 문맥에 안 맞고, '관련 용어'나 맥락상 자연스러운 단어와 발음이 비슷하면 → 오인식이므로 교체를 제안한다(changed=true).
+- 원문 그대로도 문장이 자연스럽고 뜻이 통하면 → 절대 고치지 않는다(changed=false, replacements=[]). 저신뢰 표시는 정상 단어에도 흔히 붙는다.
+- 무엇으로 고칠지 확신이 없으면 지어내지 말고 changed=false. 발화가 소음/무의미해도 changed=false.
+
+교체 형식: replacements 는 [{"from":"원문에 실제로 있는 연속 문자열","to":"교체할 문자열"}] 목록이다.
+from 은 표시 구간을 포함한 '2글자 이상'의 최소 덩어리만 담는다(1글자 교체 금지). 문장 전체를 다시 쓰지 마라.
+
+예시1(교정): 관련 용어에 '喫煙室=흡연실', 직전 대화가 흡연 얘기, 현재 발화 "«긴»«옌»실이 어디예요?"
+→ '긴옌실'은 없는 말이고 '흡연실'과 발음이 비슷: {"changed":true,"replacements":[{"from":"긴옌실","to":"흡연실"}]}
+예시2(정상): "« 가»상«공»간을 통한 시뮬레이션" — '가상공간'은 자연스러운 단어
+→ {"changed":false,"replacements":[]}
+
+원문 언어는 ${srcName}다. 번역은 하지 마라.
+출력은 JSON 하나만: {"changed":true|false,"replacements":[{"from":"...","to":"..."}]}`;
+  const user = [
+    desk ? '상황: 공항 안내데스크 응대(김포국제공항 — 시설 안내·항공편·교통 문의가 대부분)' : '상황: 실시간 통역 세션',
+    terms ? `관련 용어: ${terms}` : '',
+    history ? `직전 대화:\n${history}` : '',
+    `현재 발화(«»=저신뢰 구간): ${marked}`,
+    `저신뢰 단어(신뢰도): ${lowWords}`,
+  ].filter(Boolean).join('\n');
+  const body = {
+    model: REFINE_MODEL,
+    messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
+    max_completion_tokens: 400,
+    response_format: { type: 'json_object' },
+  };
+  const re = reasoningEffort(REFINE_MODEL);
+  if (re) body.reasoning_effort = re;
+  try {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000), // 실시간 파이프 — 늦은 판정은 포기
+    });
+    if (!r.ok) { console.error('[confFix] HTTP', r.status); return null; }
+    const data = await r.json();
+    const j = JSON.parse(data?.choices?.[0]?.message?.content || 'null');
+    if (!j || typeof j.changed !== 'boolean') return null;
+    return { changed: j.changed, replacements: Array.isArray(j.replacements) ? j.replacements : [] };
+  } catch (e) { console.error('[confFix] error', e.message); return null; }
+}
+
 /* ---- 추임새(간투사·filler) 제거 ----
    실시간 STT 가 잡아내는 "yeah, umm, 어…, えっと" 류 무의미 간투사를 인식 결과에서 뺀다.
    2단계로 분리 — 오답 위험을 최소화:
@@ -2786,6 +2894,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._deskIdle = searchParams.get('deskIdle');   // desk 외국어 무음 리셋(ms)
       ws._deskGuestSens = searchParams.get('deskGuestSens'); // desk 여객 태블릿 마이크 민감도(0~100)
       ws._dropAcks = searchParams.get('dropAcks');   // 단독 응답어(네/Yes) 기록 생략(고급옵션)
+      ws._confFix = searchParams.get('confFix');     // 저신뢰 자동 교정(고급옵션)
       ws._multiLangs = searchParams.get('multiLangs'); // 다국어 회의(multi) 선택 언어(콤마구분)
       wss.emit('connection', ws, req);
     });
@@ -3146,6 +3255,57 @@ function handleHost(ws) {
     broadcast(sessionId, buildMsg(id, item));
   };
 
+  // 저신뢰 자동 교정(고급옵션 confFix): 트리거(연속 저신뢰) 발화만 GPT 재검토 → 명백한 오인식이면
+  // 같은 id 로 카드 덮어쓰기(원문+번역). runSoniox·runDesk(직원/여객) 커밋에서 호출.
+  // TTS 재발화는 하지 않는다(이미 재생된 음성을 되돌릴 수 없어 텍스트만 교정).
+  const maybeConfFix = (id, toks, txt, src, targetKey) => {
+    try {
+      if (!confFixTrigger(toks)) return;
+      const low = confFixReal(toks)
+        .filter(([, c]) => c < CONFFIX.LOW)
+        .map(([t, c]) => `${String(t).trim()}(${c})`)
+        .join(' ');
+      // 직전 대화 2~3턴(현재 발화 제외) — 대화 흐름으로 오인식 단어를 유추할 근거
+      const hist = (session && Array.isArray(session.items) ? session.items.slice(-4) : [])
+        .filter((x) => x.id !== id && x.source)
+        .slice(-3)
+        .map((x) => `${x.source} → ${(x.texts && (x.texts.ko || Object.values(x.texts)[0])) || ''}`.trim())
+        .join('\n');
+      confFixLLM({
+        srcLang: src,
+        marked: confFixMark(toks),
+        lowWords: low,
+        history: hist,
+        terms: confFixTerms(src),
+        desk: pipeline === 'desk',
+      }).then(async (r) => {
+        if (!r || !r.changed) return;
+        // 치환 적용 가드: 1글자·no-op·원문에 없는 치환은 폐기 — 프롬프트 실험에서 nano 가
+        // 정상 발화(어절 첫 음절 저신뢰)에 '가→가상' 류 무의미 1글자 치환을 내는 오탐이 재현됐고,
+        // 이 가드만으로 전부 걸러졌다(진짜 오인식은 '긴옌실→흡연실'처럼 2글자+ 덩어리로 나옴).
+        let corrected = txt;
+        let applied = 0;
+        for (const rep of r.replacements) {
+          const from = String((rep && rep.from) || '');
+          const to = String((rep && rep.to) || '');
+          if (from.trim().length < 2 || !to.trim() || to === from || !corrected.includes(from)) continue;
+          corrected = corrected.replace(from, to);
+          applied++;
+        }
+        if (!applied || corrected === txt) return;
+        // 응대 종료(deskLog 아카이브)·세션 정리로 카드가 사라졌으면 폐기 — 다음 손님 화면에 유령 카드 방지
+        if (!(session && Array.isArray(session.items) && session.items.some((x) => x.id === id))) return;
+        // 번역은 검증된 경로로 다시 생성(판정 모델의 번역은 언어 섞임 등 품질이 불안정했음)
+        const tr = await translateText(corrected, targetKey, true, [], REFINE_MODEL).catch(() => null);
+        if (!tr) return;
+        if (!(session && Array.isArray(session.items) && session.items.some((x) => x.id === id))) return; // 번역 대기 중 정리된 경우
+        console.log('[confFix] 교정:', JSON.stringify(txt), '→', JSON.stringify(corrected));
+        upsertItem(id, { [targetKey]: tr }, corrected);
+        toHost({ type: 'status', message: '저신뢰 구간 자동 교정 적용' });
+      }).catch(() => {});
+    } catch {}
+  };
+
   if (pipeline === 'translate') runTranslate();
   else if (pipeline === 'deepgram') runDeepgram();
   else if (pipeline === 'soniox') runSoniox();
@@ -3248,6 +3408,7 @@ function handleHost(ws) {
     let noSpkWarned = false; // 화자 미반환 1회 경고
     let srcToks = [];        // 원문 확정 토큰 [[text, confidence], ...] — 저신뢰 하이라이트 + 추후 평가용
     let dropAcks = ws._dropAcks === '1'; // 고급옵션: 단독 응답어(네/Yes/Okay) 기록 생략(라이브 토글 가능)
+    let confFix = ws._confFix === '1'; // 고급옵션: 저신뢰 자동 교정(라이브 토글 가능)
 
     const targetKeyFor = (src) => (sxMode === 'two' ? (src === sxA ? sxB : sxA) : sxTarget);
     const spkLabel = (s) => (s != null && s !== '' ? String(s) : null); // 화자 번호만 전송(표시는 클라가 아이콘+번호)
@@ -3337,6 +3498,7 @@ function handleHost(ws) {
       }
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt, spkLabel(spk), null, undefined, toks);
+      if (confFix) maybeConfFix(id, toks, txt, src, target); // 저신뢰 자동 교정(고급옵션)
       // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
       //  재입력은 브라우저 AEC(마이크 경로) + 서버 에코 텍스트 필터(시스템 캡처·기기 간 경로)로 차단.
       if (ttsOn) {
@@ -3454,6 +3616,8 @@ function handleHost(ws) {
           try { sx && sx.close(); } catch {}
         } else if (m.type === 'dropAcks') { // 고급옵션: 단독 응답어 생략 라이브 토글
           dropAcks = !!m.on;
+        } else if (m.type === 'confFix') { // 고급옵션: 저신뢰 자동 교정 라이브 토글
+          confFix = !!m.on;
         } else if (m.type === 'tts') {
           // 녹음 중 TTS 토글: 호스트 재생 여부 + 합성 on/off
           ws._audioOut = !!m.on;
@@ -3593,6 +3757,7 @@ function handleHost(ws) {
     let langVotes = {}; // 입력 언어 다수결(첫 단어 오인식 교정)
     let srcToks = []; // 원문 확정 토큰 [[text, confidence], ...] — 저신뢰 하이라이트 + 추후 평가용
     let dropAcks = ws._dropAcks === '1'; // 고급옵션: 단독 응답어 기록 생략(라이브 토글 가능)
+    let confFix = ws._confFix === '1'; // 고급옵션: 저신뢰 자동 교정(라이브 토글 가능)
     const targetKeyFor = (src) => (lockedB && lockedB !== A ? (src === A ? lockedB : A) : A);
     const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; langVotes = {}; srcToks = []; };
 
@@ -3631,6 +3796,7 @@ function handleHost(ws) {
       lastCommitText = out;
       lastCommitAt = Date.now();
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null, undefined, toks);
+      if (confFix) maybeConfFix(id, toks, txt, src, targetKeyFor(src)); // 저신뢰 자동 교정(고급옵션)
       armDeskFlush(); // 발화 확정 → 무음 지속 시 컨텍스트 플러시 예약
       // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
       // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
@@ -3863,6 +4029,7 @@ function handleHost(ws) {
       gLastCommitText = out;
       gLastCommitAt = Date.now();
       upsertItem(id, { [A]: out }, txt, null, lockedB || null, 'left', toks);
+      if (confFix) maybeConfFix(id, toks, txt, gSrc, A); // 저신뢰 자동 교정(고급옵션) — 여객 채널
       armDeskFlush(); // 발화 확정 → 무음 지속 시 컨텍스트 플러시 예약
     };
     function onGuestMsg(raw) {
@@ -3950,6 +4117,7 @@ function handleHost(ws) {
           if (Number.isFinite(v)) { guestSens = Math.min(100, Math.max(0, v)); sendGuestSens(); }
         }
         else if (m.type === 'dropAcks') { dropAcks = !!m.on; } // 고급옵션: 단독 응답어 생략 라이브 토글
+        else if (m.type === 'confFix') { confFix = !!m.on; } // 고급옵션: 저신뢰 자동 교정 라이브 토글
         else if (m.type === 'desk-idle') { // 무음 자동 종료 시간 변경 — 데스크는 상시 캡처라 세션 중 변경을 허용
           const v = Number(m.value);
           if (Number.isFinite(v)) {

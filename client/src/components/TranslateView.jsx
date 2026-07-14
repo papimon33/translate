@@ -330,6 +330,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [micDevs, setMicDevs] = useState([]); // 사용 가능한 입력 장치 목록(연결 확인)
   // RNNoise(신경망 잡음 억제, β): 켜면 브라우저 기본 NS 대신 사용 — 지향성 마이크 없는 데스크 보조용
   const [rnnoise, setRnnoiseOpt] = useState(() => localStorage.getItem('kac-rnnoise') === '1');
+  // 저신뢰 자동 교정(β): 연속 저신뢰 발화만 GPT 가 맥락 보고 원문 교정→재번역해 카드 덮어쓰기
+  const [confFix, setConfFix] = useState(() => localStorage.getItem('kac-conf-fix') === '1');
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [sxSettingsOpen, setSxSettingsOpen] = useState(false);
@@ -619,6 +621,7 @@ export default function TranslateView({ session: initial, onBack }) {
         sxB,
         multiLangs: sxMode === 'multi' ? multiLangs.join(',') : undefined, // 다국어 회의 선택 언어
         dropAcks, // 고급옵션: 단독 응답어(네/Yes) 기록 생략
+        confFix, // 고급옵션: 저신뢰 자동 교정(GPT) — 연속 저신뢰 발화만 맥락 교정
         // 데스크 마이크 2대(PC): 여객 장치가 지정된 경우에만 — 여객 오디오는 src=guestmic 별도 연결로 공급
         mic2: cfg.pipeline === 'desk' && mic2On && micGuestId && !window.AndroidAudio ? { staff: micStaffId || null, guest: micGuestId } : undefined,
         rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
@@ -1389,6 +1392,15 @@ export default function TranslateView({ session: initial, onBack }) {
               checked={dropAcks}
               disabled={false}
               onChange={(e) => { const v = e.target.checked; setDropAcks(v); localStorage.setItem('kac-drop-acks', v ? '1' : '0'); if (recRef.current && recRef.current.setDropAcks) recRef.current.setDropAcks(v); }}
+            />
+          )}
+          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
+            <InfoToggle
+              label="저신뢰 자동 교정 (GPT·β)"
+              hint="음성인식이 연속으로 흔들린 발화만 GPT가 대화 맥락·용어를 보고 원문을 교정해 다시 번역합니다(카드가 잠시 후 바뀜). 명백한 오인식만 고치고 불확실하면 그대로 둡니다. 교정 시 GPT 호출 비용이 추가되며, 이미 재생된 TTS 음성은 바뀌지 않습니다. 번역 중에도 바로 적용. 기본 꺼짐."
+              checked={confFix}
+              disabled={false}
+              onChange={(e) => { const v = e.target.checked; setConfFix(v); localStorage.setItem('kac-conf-fix', v ? '1' : '0'); if (recRef.current && recRef.current.setConfFix) recRef.current.setConfFix(v); }}
             />
           )}
           {cfg.pipeline === 'desk' && (

@@ -218,7 +218,7 @@ export async function startRecorder(opts) {
           tts ? `&tts=1&gender=${encodeURIComponent(gender || 'f')}` : ''
         }${diar ? '&diar=1' : ''}${opts.multiLangs ? `&multiLangs=${encodeURIComponent(opts.multiLangs)}` : ''}`
       : ''
-  }${opts.dropAcks ? '&dropAcks=1' : ''}${
+  }${opts.dropAcks ? '&dropAcks=1' : ''}${opts.confFix ? '&confFix=1' : ''}${
     pipeline === 'desk'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}${
           deskLangs ? `&deskLangs=${encodeURIComponent(deskLangs)}` : ''
@@ -613,6 +613,8 @@ export async function startRecorder(opts) {
   function setDeskIdle(ms) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-idle', value: Number(ms) })); } catch {} } }
   // 고급옵션: 단독 응답어(네/Yes) 기록 생략 — 녹음 중 실시간 토글
   function setDropAcks(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'dropAcks', on: !!on })); } catch {} } }
+  // 고급옵션: 저신뢰 자동 교정(GPT) — 녹음 중 실시간 토글
+  function setConfFix(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'confFix', on: !!on })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle, setDropAcks };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle, setDropAcks, setConfFix };
 }
