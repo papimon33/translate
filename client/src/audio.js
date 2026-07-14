@@ -1,13 +1,36 @@
 /* 오디오 캡처 + 무음감지(VAD) + 서버 WS 송신.
    mic=오른쪽, system=왼쪽. system 은 전체화면+시스템오디오 공유로 PC 전체 소리. */
 
-async function getSources(mode, agcOff) {
+async function getSources(mode, agcOff, mic2) {
   const list = [];
   if (mode === 'mic' || mode === 'both') {
     if (window.AndroidAudio) {
       // 안드로이드 앱: 네이티브 AudioRecord(AGC 를 OS 레벨에서 차단)가 마이크를 대신한다.
       // WebView 의 getUserMedia 는 AGC off 요청을 기기에 따라 무시하므로 쓰지 않는다.
       list.push({ src: 'mic', stream: null, native: true });
+    } else if (mic2 && mic2.guest) {
+      // 데스크 2마이크(PC): 직원·여객 지향성 마이크를 각각의 입력 장치로 연다 —
+      // 여객 오디오는 별도 WS(src=guestmic)로 서버 여객 채널에 공급(뷰어 태블릿 마이크와 동일 경로).
+      const base = { echoCancellation: true, noiseSuppression: true };
+      let staff;
+      try {
+        staff = await navigator.mediaDevices.getUserMedia({
+          audio: { ...base, autoGainControl: !agcOff, ...(mic2.staff ? { deviceId: { exact: mic2.staff } } : {}) },
+        });
+      } catch {
+        // 지정한 직원 마이크가 뽑힌 경우 기본 장치로 폴백(캡처 전체가 죽는 것 방지)
+        staff = await navigator.mediaDevices.getUserMedia({ audio: { ...base, autoGainControl: !agcOff } });
+      }
+      list.push({ src: 'mic', stream: staff });
+      try {
+        // 여객 마이크: 근접 게이트가 음량으로 판별하므로 AGC 는 항상 끈다(데스크톱 크롬은 준수)
+        const guest = await navigator.mediaDevices.getUserMedia({
+          audio: { ...base, autoGainControl: false, deviceId: { exact: mic2.guest } },
+        });
+        list.push({ src: 'guestmic', stream: guest });
+      } catch {
+        list.guestFail = true; // 여객 장치를 못 열면 단일 채널로 폴백(뷰어 태블릿 마이크 경로는 유지)
+      }
     } else {
       // autoGainControl(AGC): 볼륨 게이트(민감도<100) 사용 시엔 반드시 꺼야 한다 —
       // 브라우저 AGC 가 속삭임·먼 소리를 보통 음량으로 증폭한 '뒤에' 게이트에 도달해
@@ -88,11 +111,27 @@ export async function startRecorder(opts) {
     micAbsMin = 0.004 + k * 0.03;      // 절대 하한 0.004~0.034(완전 무음·미세잡음 차단)
   };
   calcGate(micSensVal);
-  const sources = await getSources(mode, micRatio > 0); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
+  // 데스크 2마이크(PC): 직원/여객 장치 지정 — 데스크 파이프라인 + 브라우저 환경에서만
+  const mic2 = pipeline === 'desk' && !window.AndroidAudio && opts.mic2 && opts.mic2.guest ? opts.mic2 : null;
+  const sources = await getSources(mode, micRatio > 0, mic2); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
   const nativeMic = sources.some((s) => s.native); // 안드로이드 앱 네이티브 마이크 사용 여부
+  if (sources.guestFail) {
+    try { onMessage({ type: 'status', message: '여객 마이크 장치를 열지 못했습니다 — 단일 채널(또는 태블릿 마이크)로 동작합니다.' }); } catch {}
+  }
   // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용) — 네이티브 마이크는 트랙이 없다(항상 AGC off)
   const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m && m.stream ? m.stream.getAudioTracks()[0] : null; })();
   let noiseFloor = 0.005; // 적응형 소음 바닥(조용할 때로 빠르게 수렴, 소리날 때 아주 느리게 상승)
+  // 여객 마이크(2마이크 모드) 근접 게이트 — 뷰어 태블릿(desk.html gmCalc)과 동일 공식, 여객 민감도(0~100)로 조절
+  let gRatio = 4, gAbsMin = 0.017, gFloor = 0.005;
+  const calcGuestGate = (v) => {
+    const n = Number(v);
+    const s = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 50;
+    if (s >= 100) { gRatio = 0; gAbsMin = 0; return; }
+    const k = (100 - s) / 100;
+    gRatio = 1 + k * 7;
+    gAbsMin = 0.004 + k * 0.03;
+  };
+  calcGuestGate(deskGuestSens != null ? deskGuestSens : 50);
 
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const inRate = audioCtx.sampleRate;
@@ -356,10 +395,26 @@ export async function startRecorder(opts) {
         if (v > peak) peak = v;
       }
       const rms = Math.sqrt(sum / input.length);
-      if (src === 'mic' && onMeter) onMeter(rms, peak);
+      if ((src === 'mic' || src === 'guestmic') && onMeter) onMeter(rms, peak, src);
 
       const w = pipe.ws; // 재연결로 소켓이 바뀌어도 항상 현재 소켓 사용
       const wOpen = w && w.readyState === WebSocket.OPEN;
+
+      // 여객 마이크(2마이크 모드): 근접 게이트+백프레셔로 상시 스트림 — 커밋 없음(soniox 엔드포인트가 확정).
+      // 발화멈춤(muted)은 직원 마이크 전용(손님 말은 호스트 일시정지와 무관), TTS 재생 중 음소거는 공유
+      // (PC 스피커의 TTS 가 여객 마이크로도 들어가므로).
+      if (src === 'guestmic') {
+        if (!wOpen) return;
+        if (w.bufferedAmount > 131072) return; // 백프레셔: 밀린 오디오는 버림(지연 누적 방지)
+        const ds = downsampleTo24k(input, inRate);
+        if (!aecActive && audioCtx.currentTime < ttsMutedUntil) { w.send(new ArrayBuffer(ds.length * 2)); return; }
+        if (rms < gFloor) gFloor += (rms - gFloor) * 0.3; else gFloor += (rms - gFloor) * 0.002;
+        if (gFloor < 0.0003) gFloor = 0.0003;
+        if (gRatio <= 0 || (rms >= gAbsMin && rms >= gFloor * gRatio)) pipe.gOpenUntil = Date.now() + 300;
+        w.send(Date.now() < (pipe.gOpenUntil || 0) ? floatTo16BitPCM(ds) : new ArrayBuffer(ds.length * 2));
+        if (peak > TH) notifyActivityAll();
+        return;
+      }
 
       // 발화 일시정지(mute), 또는 (AEC 미지원 폴백일 때만) TTS 재생 중 자동 음소거: 무음 전송 + keepalive
       // AEC 루프백이 켜져 있으면 재생음이 마이크에서 제거되므로 TTS 중에도 발화 가능(음소거 안 함)
@@ -475,8 +530,8 @@ export async function startRecorder(opts) {
     // 게이트 사용 중엔 AGC(자동 게인) off 시도 — 켜져 있으면 원거리음까지 증폭해 근접 판별을 흐린다. 100이면 원복.
     if (micTrack && micTrack.applyConstraints) micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) }).catch(() => {});
   }
-  // 데스크: 여객 태블릿 마이크 민감도(0~100) — 서버 경유로 뷰어의 근접 게이트에 실시간 반영
-  function setGuestSens(v) { ctlState.guestSens = Number(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
+  // 데스크: 여객 마이크 민감도(0~100) — 뷰어 태블릿엔 서버 경유로, 2마이크 모드의 로컬 여객 게이트엔 즉시 반영
+  function setGuestSens(v) { ctlState.guestSens = Number(v); calcGuestGate(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
   // 데스크: 무음 자동 종료 시간(ms) 실시간 변경 — 상시 캡처 중에도 설정 가능
   function setDeskIdle(ms) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-idle', value: Number(ms) })); } catch {} } }
   // 고급옵션: 단독 응답어(네/Yes) 기록 생략 — 녹음 중 실시간 토글

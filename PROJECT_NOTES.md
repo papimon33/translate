@@ -527,3 +527,28 @@
   ⚠ 실기기(APK 설치) 검증은 CI 빌드 후 현장 몫: 게이트 체감, 여객 태블릿 2채널, TTS 에코(AEC 기기 편차).
 - 주의: 프리뷰 pane 에선 getDisplayMedia/getUserMedia 프롬프트가 영구 보류됨 → '온라인 회의'(시스템 오디오) 프리셋으로 시작하면 startingRef 가
   고착돼 이후 시작 클릭이 무시됨(페이지 새로고침으로 해소). 앱/실브라우저에선 프롬프트가 항상 settle 되므로 해당 없음.
+
+## 2026-07-14 (3) — 데스크 2안: PC 호스트 + 지향성 마이크 2대 직결 (뷰어는 표출 전용)
+- 배경: 고정 안내데스크는 태블릿 2대(각자 캡처)보다 **PC 1대가 마이크 2대를 직접 잡는 구조**가 운영 안정성 우위
+  (유선 전원·PC급 오디오 스택·장애면 1개·데스크톱 크롬은 AGC off 준수). 마이크별 별도 스트림 유지로 one_way×2(채널=화자)는 그대로.
+- **서버**: `/ws/host?src=guestmic` = 여객 오디오 공급 전용 연결(`runDeskGuestFeed`) —
+  컨트롤러·usage·발화락·유휴타이머 미접촉, 기존 `ctrl.guestMic/feedGuest`(뷰어 desk-mic 와 동일 경로) 재사용.
+  room.hosts 에 넣지 않고 `room.guestFeeder` 슬롯(hostTalking/host-active 오염 방지), 같은 src 재접속은 takeover.
+  컨트롤러 없을 때 0.5s×20 재시도 부착(두 파이프 동시 오픈 레이스).
+  · `guestMic` 소유권에 **호스트 공급 우선**: PC 직결 활성 중 뷰어 desk-mic on 은 무시(스모크로 확인), 소유 소켓 죽었으면 readyState 로 즉시 승계.
+  · 뷰어 신호 `{type:'desk-mic2',on}` + meta.mic2 (setMeta/뷰어 접속 시 ctrl.mic2()) — on=태블릿 캡처 중지(표출 전용), off=응대 중이면 태블릿 마이크 자동 복귀(폴백).
+  · 상태문구 '여객 마이크(PC 직결/태블릿) 연결'.
+- **audio.js**: `opts.mic2={staff,guest}`(desk+브라우저 한정) → getSources 가 장치 2개(getUserMedia deviceId exact, 직원은 실패 시 기본 폴백,
+  여객은 실패 시 단일채널 폴백+status) → 여객 파이프(src=guestmic): 근접 게이트(gmCalc 동일 공식, guestSens)+백프레셔+TTS 재생 중 음소거 공유,
+  발화멈춤(muted) 비적용(손님 말은 호스트 일시정지와 무관), **커밋 미전송**(soniox 엔드포인트 확정). onMeter(rms,peak,src) 로 채널별 레벨.
+  setGuestSens 는 로컬 여객 게이트 즉시 갱신 + 서버 경유 뷰어 반영(양쪽 공통).
+- **TranslateView**: 데스크 옵션 바에 '마이크 2대 (PC)' 스위치(kac-desk-mic2) + 직원/여객 장치 Select(enumerateDevices,
+  devicechange 자동 갱신, kac-desk-mic-staff/guest 저장) + **채널별 실측 레벨 미터**(말해서 연결 확인) + 경고 칩(선택 필요/미연결/직원과 같은 장치).
+  설정 변경 시 applyMic2 가 캡처 재시작(recorder.stop→600ms→start, stopReq 미사용). 여객 장치 미선택이면 mic2 미적용. AndroidAudio 환경에선 숨김.
+  고급설정 슬라이더 라벨 '여객 태블릿 마이크 민감도'→'여객 마이크 민감도'(태블릿·PC 직결 공통).
+- **desk.html**: hostMic2 플래그(meta.mic2 / desk-mic2) — true 면 guestMicStart 차단+진행 중 캡처 중지(표출 전용),
+  false 복귀 시 응대 중이면 자동 재캡처(PC 마이크 뽑힘 → 태블릿 폴백). 권한 대기 레이스 가드에 hostMic2 추가.
+- 검증: 빌드·8/8 테스트·인라인 스크립트 문법 OK. **WS 스모크**(host+guestmic+viewer 실서버): 피더 접속→desk-guest-mic true+'PC 직결' 상태문구+
+  뷰어 desk-mic2 true → 통역 시작(meta two·mic2=true) → 뷰어 desk-mic on 시도 무시(소유권 유지) → 피더 종료→desk-mic2 false+단일채널 폴백. 테스트 세션 purge.
+  프리뷰 UI: 스위치→직원/여객 Select+미터+'선택 필요' 칩 렌더 확인. (프리뷰는 마이크 권한 불가라 장치 라벨은 실PC에서만 정상 노출)
+- ⚠ 실기기 확인: 실제 USB 지향성 마이크 2대에서 장치 선택·레벨 확인·양 채널 동시 인식, 뷰어 표출 전용 전환, PC 마이크 탈락 시 태블릿 폴백.

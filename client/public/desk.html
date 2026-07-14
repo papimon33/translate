@@ -463,8 +463,9 @@ function ensureWs(){
     if (m.type === 'snapshot') (m.items||[]).forEach(upsert);
     else if (m.type === 'sentence') upsert(m);
     else if (m.type === 'host') hostActive = !!m.active;
-    else if (m.type === 'meta') { applySxInfo(m.sxInfo); if (m.guestSens != null) setGuestSens(m.guestSens); }
+    else if (m.type === 'meta') { applySxInfo(m.sxInfo); if (m.guestSens != null) setGuestSens(m.guestSens); if (m.mic2 != null) setHostMic2(!!m.mic2); }
     else if (m.type === 'desk-guest-sens') setGuestSens(m.value); // 호스트가 여객 마이크 민감도 변경
+    else if (m.type === 'desk-mic2') setHostMic2(!!m.on); // PC 호스트가 여객 마이크 직접 공급(2대 모드) — 이 태블릿은 표출 전용
     else if (m.type === 'desk-active') enterStage(m.lang);   // 통역 시작(손님 선택 또는 호스트 시작)
     else if (m.type === 'wayfind') showWayfind(m);           // 시설 안내(호스트 승인 후) → 채팅 아래 인라인 지도
     else if (m.type === 'desk-idle-warn') showIdleWarn(m.secondsLeft || 10); // 무음 종료 예고(터치로 연장)
@@ -528,9 +529,20 @@ let gmFloor = 0.005;             // 적응형 소음 바닥
 function setGuestSens(v){ const n = Number(v); if (!Number.isFinite(n)) return; gmSens = Math.min(100, Math.max(0, n)); gmCalc(); } // NaN 이면 무시(게이트 영구 잠김 방지)
 let gm = null; // { stream, ctx, proc }
 let gmStarting = false; // getUserMedia 대기 중 재진입 가드(파이프라인 이중 생성·마이크 누수 방지)
+/* PC 호스트가 지향성 마이크 2대로 여객 채널까지 직접 공급하는 모드(2안) —
+   이 태블릿은 화면 표출 전용: 자기 마이크를 캡처하지 않는다. 호스트 공급이 꺼지면(마이크 뽑힘 등)
+   응대 중일 때 태블릿 마이크로 자동 복귀(2채널 유지). */
+let hostMic2 = false;
+function setHostMic2(on){
+  if (hostMic2 === !!on) return;
+  hostMic2 = !!on;
+  if (hostMic2 && gm) guestMicStop();
+  if (!hostMic2 && started && !gm) guestMicStart();
+}
 function f32to16(f32){ const b = new ArrayBuffer(f32.length * 2), v = new DataView(b); for (let i = 0; i < f32.length; i++){ let s = Math.max(-1, Math.min(1, f32[i])); s = s < 0 ? s * 0x8000 : s * 0x7fff; v.setInt16(i * 2, s, true); } return b; }
 function ds24(f32, rate){ if (rate === 24000) return f32; const r = rate / 24000, n = Math.round(f32.length / r), o = new Float32Array(n); for (let i = 0; i < n; i++){ const idx = i * r, i0 = Math.floor(idx), i1 = Math.min(i0 + 1, f32.length - 1); o[i] = f32[i0] * (1 - (idx - i0)) + f32[i1] * (idx - i0); } return o; }
 async function guestMicStart(){
+  if (hostMic2) return; // PC 호스트가 여객 마이크를 직접 공급 중 — 이 태블릿은 표출 전용
   if (gm || gmStarting) { try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {} return; }
   if (window.AndroidAudio) { guestMicStartNative(); return; } // 안드로이드 앱: 네이티브 캡처(AGC 완전 차단)
   gmStarting = true;
@@ -540,7 +552,7 @@ async function guestMicStart(){
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } }); }
   catch { gmStarting = false; toast('태블릿 마이크를 사용할 수 없어 안내데스크 마이크로만 인식합니다.'); return; }
   gmStarting = false;
-  if (!started || gm) { try { stream.getTracks().forEach((t) => t.stop()); } catch {} return; } // 권한 대기 중 종료/중복 생성된 경우
+  if (!started || gm || hostMic2) { try { stream.getTracks().forEach((t) => t.stop()); } catch {} return; } // 권한 대기 중 종료/중복 생성/호스트 공급 전환된 경우
   gmFloor = 0.005; // 캡처마다 소음 바닥 초기화(적응형 게이트가 새 환경에 다시 수렴)
   gmCalc();
   const ctx = new (window.AudioContext || window.webkitAudioContext)();

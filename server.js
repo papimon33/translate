@@ -2814,7 +2814,8 @@ function handleViewer(ws) {
   {
     const dc = deskCtrl.get(ws._session);
     const gs = dc && dc.guestSens ? dc.guestSens() : undefined;
-    if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo, ...(gs != null ? { guestSens: gs } : {}) })); // 접속/재접속 시 현재 상태 동기화
+    const m2 = dc && dc.mic2 ? dc.mic2() : undefined; // PC 호스트가 여객 마이크 공급 중이면 뷰어는 표출 전용
+    if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo, ...(gs != null ? { guestSens: gs } : {}), ...(m2 != null ? { mic2: m2 } : {}) })); // 접속/재접속 시 현재 상태 동기화
   }
   broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); // 뷰어 수(랜딩 표시)
   ws.on('message', (data, isBinary) => {
@@ -2877,11 +2878,61 @@ function handleViewer(ws) {
   });
 }
 
+/* ---- 데스크 2마이크(PC 호스트): 여객 마이크 오디오 공급 전용 연결 ----
+   호스트 PC 가 지향성 마이크 2대를 직접 잡아 두 번째 장치를 src=guestmic 연결로 스트리밍한다.
+   컨트롤러·사용량·발화 락·유휴 타이머 등 일반 호스트 파이프라인은 만들지 않고,
+   기존 데스크 파이프라인의 여객 채널(guestMic/feedGuest — 뷰어 desk-mic 와 동일 경로)에 오디오만 흘린다. */
+function runDeskGuestFeed(ws) {
+  const sessionId = ws._session;
+  ws._deskGuestFeed = true; // guestMic 소유권 우선순위 판단용(호스트 공급 > 뷰어 태블릿)
+  // room.hosts 에 넣지 않는다 — 발화 락(hostTalking)·host active 계산·PTT 미러링을 오염시키지 않기 위해
+  // 전용 슬롯(guestFeeder)로만 추적. 하트비트는 wss.clients 전체를 돌므로 좀비 감지엔 문제 없음.
+  const room = getRoom(sessionId);
+  if (room.guestFeeder && room.guestFeeder !== ws) {
+    // 같은 세션의 이전 여객 공급 연결은 승계(새로고침 좀비 정리 — 일반 호스트 takeover 와 동일 규칙)
+    try { room.guestFeeder.send(JSON.stringify({ type: 'takeover' })); } catch {}
+    try { room.guestFeeder.close(); } catch {}
+  }
+  room.guestFeeder = ws;
+  // 데스크 컨트롤러(본 호스트 연결)가 아직 없을 수 있음(두 파이프 동시 오픈 레이스) — 잠시 재시도
+  let attachTries = 0;
+  const attach = () => {
+    const dc = deskCtrl.get(sessionId);
+    if (dc && dc.guestMic) { dc.guestMic(true, ws); return true; }
+    return false;
+  };
+  const attachTimer = setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN || attach() || ++attachTries > 20) clearInterval(attachTimer);
+  }, 500);
+  attach();
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) {
+      const dc = deskCtrl.get(sessionId);
+      if (dc && dc.feedGuest) dc.feedGuest(data, ws);
+      return;
+    }
+    try {
+      const m = JSON.parse(data.toString());
+      if (m.type === 'stop') { try { ws.close(); } catch {} }
+      // commit/activity 등 일반 호스트 제어는 여객 채널에 해당 없음(soniox 엔드포인트가 확정) — 무시
+    } catch {}
+  });
+  ws.on('close', () => {
+    clearInterval(attachTimer);
+    const r = rooms.get(sessionId);
+    if (r && r.guestFeeder === ws) r.guestFeeder = null;
+    const dc = deskCtrl.get(sessionId);
+    if (dc && dc.guestMic) dc.guestMic(false, ws); // 소유자였으면 단일 채널 폴백(내부 소유권 체크)
+  });
+}
+
 /* ----------------------------- 호스트 ----------------------------- */
 /*  pipeline='whisper'  : 전사(gpt-realtime-whisper) -> gpt 번역 (+원어 동봉) */
 /*  pipeline='translate': gpt-realtime-translate -> gpt 다듬기                */
 function handleHost(ws) {
   const sessionId = ws._session;
+  // 데스크 여객 마이크 공급 전용 연결(2마이크 모드) — 일반 호스트 파이프라인을 타지 않는다
+  if (ws._src === 'guestmic') return runDeskGuestFeed(ws);
   const side = ws._src === 'system' ? 'left' : 'right'; // 시스템=좌, 마이크=우
   const session = getSession(sessionId);
   // 동시접속 충돌 방지: 같은 세션·같은 소스로 이미 녹음 중인 연결이 있으면 그쪽을 종료하고 새 연결이 승계.
@@ -3441,8 +3492,8 @@ function handleHost(ws) {
         ? (lockedB && lockedB !== A ? { mode: 'two', a: A, b: lockedB } : (autoDetect ? { mode: 'detect' } : { mode: 'one', target: A }))
         : { mode: 'idle' };
       if (session) { session.sxInfo = sxInfo; if (phase === 'active' && lockedB) session.langs = [A, lockedB]; saveSessions(); }
-      broadcast(sessionId, { type: 'meta', sxInfo, guestSens });
-      toHost({ type: 'meta', sxInfo, guestSens });
+      broadcast(sessionId, { type: 'meta', sxInfo, guestSens, mic2: hostFed() });
+      toHost({ type: 'meta', sxInfo, guestSens, mic2: hostFed() });
     };
 
     let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommitText = '';
@@ -3754,13 +3805,27 @@ function handleHost(ws) {
       }
       if (endHit) guestCommit(); // 길이 기반 강제 확정 제거
     }
-    // 뷰어의 여객 마이크 채널 on/off — 켜지면 응대 중일 때 즉시 엔진 연결, 꺼지면 단일 채널로 폴백.
+    // 여객 마이크 채널 on/off — 켜지면 응대 중일 때 즉시 엔진 연결, 꺼지면 단일 채널로 폴백.
     // fromWs 로 소유 소켓을 추적: 뷰어 재접속 시 구 소켓의 close 가 새 소켓의 채널을 끄지 않도록.
+    // 공급원 2종: 뷰어 태블릿(desk-mic) / PC 호스트 직결(src=guestmic, _deskGuestFeed) — 호스트 공급 우선.
     let guestWs = null;
+    let lastMic2 = false; // 뷰어에 알린 '호스트(PC) 여객 마이크 공급' 상태 — 변화 시에만 브로드캐스트
+    const hostFed = () => !!(guestMicOn && guestWs && guestWs._deskGuestFeed);
+    const pushMic2 = () => {
+      const v = hostFed();
+      if (v === lastMic2) return;
+      lastMic2 = v;
+      // on: 뷰어 태블릿은 자기 마이크 캡처를 멈추고 표출 전용으로 / off: (응대 중이면) 태블릿 마이크로 자동 복귀
+      broadcast(sessionId, { type: 'desk-mic2', on: v });
+    };
     const guestMic = (on, fromWs) => {
-      if (on) guestWs = fromWs || guestWs;
-      else if (fromWs && guestWs && fromWs !== guestWs) return; // 소유자가 아닌(이전) 소켓의 해제는 무시
-      if (guestMicOn === !!on) return;
+      if (on) {
+        // PC 호스트가 여객 마이크를 직접 공급 중이면 뷰어 태블릿의 desk-mic 요청은 무시(호스트 공급 우선).
+        // 소유 소켓이 이미 죽어 있으면(절전 등) 즉시 넘겨받게 readyState 를 함께 확인.
+        if (guestWs && guestWs !== fromWs && guestWs._deskGuestFeed && !(fromWs && fromWs._deskGuestFeed) && guestWs.readyState === WebSocket.OPEN) return;
+        guestWs = fromWs || guestWs;
+      } else if (fromWs && guestWs && fromWs !== guestWs) return; // 소유자가 아닌(이전) 소켓의 해제는 무시
+      if (guestMicOn === !!on) { pushMic2(); return; } // 소유권만 바뀐 경우(태블릿→PC)도 뷰어에 알림
       guestMicOn = !!on;
       const m = { type: 'desk-guest-mic', on: guestMicOn };
       toHost(m); broadcast(sessionId, m);
@@ -3768,7 +3833,13 @@ function handleHost(ws) {
       if (!guestMicOn) closeGuest();
       // 채널별 언어 고정 전환: 2채널이 되면 호스트 채널을 one_way(ko→손님 언어)로, 해제되면 two_way 로 재체결
       if (phase === 'active' && lockedB && lockedB !== A) { commit(); closeSx(); connectSx(); }
-      toHost({ type: 'status', message: guestMicOn ? '여객 태블릿 마이크 연결 — 2채널(채널별 언어 고정, 단방향×2)로 동작합니다.' : '여객 태블릿 마이크 해제 — 데스크 마이크 단일 채널(양방향)로 동작합니다.' });
+      pushMic2();
+      toHost({
+        type: 'status',
+        message: guestMicOn
+          ? `여객 마이크(${hostFed() ? 'PC 직결' : '태블릿'}) 연결 — 2채널(채널별 언어 고정, 단방향×2)로 동작합니다.`
+          : '여객 마이크 해제 — 데스크 마이크 단일 채널(양방향)로 동작합니다.',
+      });
     };
 
     ws.on('message', (data, isBinary) => {
@@ -3820,6 +3891,7 @@ function handleHost(ws) {
     const ctrl = {
       start: startConversation,
       guestSens: () => guestSens, // 뷰어 접속 시 현재 여객 마이크 민감도 동기화용
+      mic2: hostFed, // 뷰어 접속 시 '호스트(PC) 여객 마이크 공급 중' 동기화용 — true 면 뷰어는 표출 전용
       end: endConversation,
       keepalive: () => { if (phase === 'active') armForeignTimer(); },
       guestMic,

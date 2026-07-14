@@ -322,6 +322,12 @@ export default function TranslateView({ session: initial, onBack }) {
     return Number.isFinite(v) && v >= 0.8 && v <= 1.6 ? v : 1;
   });
   const [level, setLevel] = useState(0);
+  // 데스크 마이크 2대(PC): 지향성 마이크 2대를 이 PC 에 직결 — 직원/여객 장치 지정, 뷰어는 표출 전용이 됨
+  const [guestLevel, setGuestLevel] = useState(0); // 여객 마이크 실측 레벨(연결 확인용)
+  const [mic2On, setMic2On] = useState(() => localStorage.getItem('kac-desk-mic2') === '1');
+  const [micStaffId, setMicStaffId] = useState(() => localStorage.getItem('kac-desk-mic-staff') || '');
+  const [micGuestId, setMicGuestId] = useState(() => localStorage.getItem('kac-desk-mic-guest') || '');
+  const [micDevs, setMicDevs] = useState([]); // 사용 가능한 입력 장치 목록(연결 확인)
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [sxSettingsOpen, setSxSettingsOpen] = useState(false);
@@ -457,6 +463,22 @@ export default function TranslateView({ session: initial, onBack }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line
   }, [cfg.pipeline]);
+
+  // 데스크 마이크 2대: 입력 장치 목록 유지(연결 확인) — 꽂거나 뽑으면 즉시 갱신.
+  // 라벨은 마이크 권한 이후에만 노출되는데 데스크는 진입 시 자동 캡처로 권한을 이미 얻는다.
+  useEffect(() => {
+    if (cfg.pipeline !== 'desk' || !mic2On) return;
+    let dead = false;
+    const refresh = async () => {
+      try {
+        const list = await navigator.mediaDevices.enumerateDevices();
+        if (!dead) setMicDevs(list.filter((d) => d.kind === 'audioinput'));
+      } catch {}
+    };
+    refresh();
+    try { navigator.mediaDevices.addEventListener('devicechange', refresh); } catch {}
+    return () => { dead = true; try { navigator.mediaDevices.removeEventListener('devicechange', refresh); } catch {} };
+  }, [cfg.pipeline, mic2On]);
 
   // 녹음 중 실수로 페이지를 닫거나 새로고침하면 번역이 중단됨 — 이탈 전 확인
   useEffect(() => {
@@ -595,13 +617,16 @@ export default function TranslateView({ session: initial, onBack }) {
         sxB,
         multiLangs: sxMode === 'multi' ? multiLangs.join(',') : undefined, // 다국어 회의 선택 언어
         dropAcks, // 고급옵션: 단독 응답어(네/Yes) 기록 생략
+        // 데스크 마이크 2대(PC): 여객 장치가 지정된 경우에만 — 여객 오디오는 src=guestmic 별도 연결로 공급
+        mic2: cfg.pipeline === 'desk' && mic2On && micGuestId && !window.AndroidAudio ? { staff: micStaffId || null, guest: micGuestId } : undefined,
         model,
         onMessage,
-        onMeter: (rms) => {
+        onMeter: (rms, peak, src) => {
           const db = 20 * Math.log10(rms + 1e-8);
           const v = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
           // 값이 실질적으로 변할 때만 상태 갱신 — 매 오디오 프레임(~85ms)마다 전체 메시지 목록이 리렌더되던 문제 완화
-          setLevel((prev) => (Math.abs(prev - v) < 3 ? prev : Math.round(v)));
+          if (src === 'guestmic') setGuestLevel((prev) => (Math.abs(prev - v) < 3 ? prev : Math.round(v)));
+          else setLevel((prev) => (Math.abs(prev - v) < 3 ? prev : Math.round(v)));
         },
       });
       // 연결되는 동안 사용자가 중지를 눌렀으면 즉시 정리하고 켜지 않음
@@ -622,6 +647,19 @@ export default function TranslateView({ session: initial, onBack }) {
     } finally {
       startingRef.current = false;
     }
+  };
+  // 데스크 마이크 2대: 설정 변경(토글·장치 교체)을 저장하고, 캡처 중이면 새 구성으로 재시작.
+  // recorder 의 stop 만 직접 호출(컴포넌트 stop() 은 stopReq 를 세워 재시작을 막으므로 사용하지 않음).
+  const applyMic2 = (p) => {
+    if ('on' in p) { setMic2On(p.on); localStorage.setItem('kac-desk-mic2', p.on ? '1' : '0'); }
+    if ('staff' in p) { setMicStaffId(p.staff); localStorage.setItem('kac-desk-mic-staff', p.staff); }
+    if ('guest' in p) { setMicGuestId(p.guest); localStorage.setItem('kac-desk-mic-guest', p.guest); }
+    if (!recRef.current) return;
+    try { recRef.current.stop(); } catch {}
+    recRef.current = null;
+    setRecording(false);
+    setLevel(0); setGuestLevel(0);
+    setTimeout(() => { start(); }, 600); // 상태 반영(리렌더) 후 새 장치 구성으로 재캡처
   };
   const stop = () => {
     stopReqRef.current = true; // 연결 중이면 시작 완료 시점에 정리되도록 표시
@@ -783,6 +821,58 @@ export default function TranslateView({ session: initial, onBack }) {
                 {DESK_IDLE.map((o) => (<MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>))}
               </Select>
             </Field>
+          )}
+          {/* 데스크 마이크 2대(PC): 지향성 마이크 2대 직결 — 직원/여객 장치 지정 + 실측 레벨로 연결 확인.
+              켜면 여객 오디오는 이 PC 가 공급하고 손님 태블릿은 표출 전용이 된다. (안드로이드 앱에선 숨김 — 단일 네이티브 마이크) */}
+          {cfg.pipeline === 'desk' && !window.AndroidAudio && (
+            <>
+              <Field label="마이크 2대 (PC)">
+                <Box sx={{ display: 'flex', alignItems: 'center', height: 37 }}>
+                  <Tooltip title="지향성 마이크 2대를 이 PC에 연결해 직원·여객 채널을 직접 캡처합니다. 켜면 손님 태블릿은 화면 표출 전용이 됩니다.">
+                    <Switch checked={mic2On} onChange={(e) => applyMic2({ on: e.target.checked })} />
+                  </Tooltip>
+                </Box>
+              </Field>
+              {mic2On && (
+                <>
+                  <Field label="직원(안내원) 마이크">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 37 }}>
+                      <Select
+                        size="small" displayEmpty
+                        value={micDevs.some((d) => d.deviceId === micStaffId) ? micStaffId : ''}
+                        onChange={(e) => applyMic2({ staff: e.target.value })}
+                        sx={{ ...selSx, minWidth: 140, maxWidth: 200 }}
+                      >
+                        <MenuItem value="">기본 마이크</MenuItem>
+                        {micDevs.map((d, i) => (<MenuItem key={d.deviceId || i} value={d.deviceId}>{d.label || `마이크 ${i + 1}`}</MenuItem>))}
+                      </Select>
+                      <Tooltip title="이 마이크에 말하면 게이지가 움직여야 합니다(연결 확인)">
+                        <LinearProgress variant="determinate" value={level} color="success" sx={{ width: 54, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
+                      </Tooltip>
+                    </Box>
+                  </Field>
+                  <Field label="여객(손님) 마이크">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 37 }}>
+                      <Select
+                        size="small" displayEmpty
+                        value={micDevs.some((d) => d.deviceId === micGuestId) ? micGuestId : ''}
+                        onChange={(e) => applyMic2({ guest: e.target.value })}
+                        sx={{ ...selSx, minWidth: 140, maxWidth: 200 }}
+                      >
+                        <MenuItem value="" disabled>장치를 선택하세요</MenuItem>
+                        {micDevs.map((d, i) => (<MenuItem key={d.deviceId || i} value={d.deviceId}>{d.label || `마이크 ${i + 1}`}</MenuItem>))}
+                      </Select>
+                      <Tooltip title="이 마이크에 말하면 게이지가 움직여야 합니다(연결 확인)">
+                        <LinearProgress variant="determinate" value={guestLevel} color="success" sx={{ width: 54, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
+                      </Tooltip>
+                      {!micGuestId && <Chip size="small" color="warning" variant="outlined" label="선택 필요" sx={{ height: 22, fontSize: 11 }} />}
+                      {micGuestId && !micDevs.some((d) => d.deviceId === micGuestId) && <Chip size="small" color="warning" label="미연결" sx={{ height: 22, fontSize: 11 }} />}
+                      {micGuestId && micGuestId === micStaffId && <Chip size="small" color="warning" label="직원과 같은 장치" sx={{ height: 22, fontSize: 11 }} />}
+                    </Box>
+                  </Field>
+                </>
+              )}
+            </>
           )}
           {cfg.pipeline !== 'translate' && cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
             <Field label="입력 언어">
@@ -1282,8 +1372,8 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
           {cfg.pipeline === 'desk' && (
             <>
-              {/* 여객 태블릿 마이크(2채널)의 근접 게이트 — 서버 경유로 뷰어에 실시간 반영 */}
-              <SxSlider label="여객 태블릿 마이크 민감도" hint="100=모든 소리, 낮출수록 태블릿 가까이의 큰 소리에만 반응(데스크 마이크 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다." value={guestSens} min={0} max={100} step={1} disabled={false}
+              {/* 여객 마이크(2채널) 근접 게이트 — 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */}
+              <SxSlider label="여객 마이크 민감도" hint="100=모든 소리, 낮출수록 여객 마이크 가까이의 큰 소리에만 반응(직원 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
                 fmt={(v) => String(v)}
                 onChange={(v) => { setGuestSens(v); localStorage.setItem('kac-desk-guest-sens', String(v)); if (recRef.current && recRef.current.setGuestSens) recRef.current.setGuestSens(v); }} />
               <InfoToggle
