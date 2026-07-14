@@ -1,0 +1,879 @@
+{
+  "rate": 24000,
+  "gapSec": 2,
+  "count": 30,
+  "voices": {
+    "en": "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4",
+    "ja": "d0ff6870-dd30-420d-8568-d756d806ea62",
+    "zh": "6eb8965c-e295-47bd-a9e4-3eeebb3abcff",
+    "ru": "1e4176b1-3db9-44d6-a601-4fe68b041942",
+    "es": "15d0c2e2-8d29-44c3-be23-d585d5f154a1",
+    "fr": "0418348a-0ca2-4e90-9986-800fb8b3bbc0",
+    "ko": "4dd4630e-19e0-4243-bca0-676ff85119b7"
+  },
+  "files": {
+    "q_en": "questions_en.mp3",
+    "q_ja": "questions_ja.mp3",
+    "q_zh": "questions_zh.mp3",
+    "q_ru": "questions_ru.mp3",
+    "q_es": "questions_es.mp3",
+    "q_fr": "questions_fr.mp3",
+    "a_ko": "answers_ko.mp3"
+  },
+  "lines": {
+    "q_en": [
+      {
+        "id": "loc-restroom",
+        "text": "Where is the restroom?"
+      },
+      {
+        "id": "counter-korean-air",
+        "text": "Where is the Korean Air check-in counter?"
+      },
+      {
+        "id": "loc-atm",
+        "text": "Where is the ATM?"
+      },
+      {
+        "id": "loc-convenience",
+        "text": "Where is the convenience store?"
+      },
+      {
+        "id": "counter-asiana",
+        "text": "What floor is the Asiana Airlines counter on?"
+      },
+      {
+        "id": "loc-smoking",
+        "text": "Where is the smoking room?"
+      },
+      {
+        "id": "loc-charging",
+        "text": "Where can I charge my phone?"
+      },
+      {
+        "id": "loc-taxi",
+        "text": "Where do I catch a taxi?"
+      },
+      {
+        "id": "counter-jeju-air",
+        "text": "Where is the Jeju Air counter?"
+      },
+      {
+        "id": "loc-exit",
+        "text": "Where is the nearest exit?"
+      },
+      {
+        "id": "gate-find",
+        "text": "How do I get to Gate 27?"
+      },
+      {
+        "id": "transfer-counter",
+        "text": "Where is the transfer counter?"
+      },
+      {
+        "id": "baggage-wrap",
+        "text": "Where can I get my baggage wrapped?"
+      },
+      {
+        "id": "checkin-time-jinair",
+        "text": "When does Jin Air check-in open?"
+      },
+      {
+        "id": "bus-terminal",
+        "text": "Where do I catch the airport bus to the city?"
+      },
+      {
+        "id": "lost-item",
+        "text": "Where is the lost and found?"
+      },
+      {
+        "id": "prayer-room",
+        "text": "Where is the prayer room?"
+      },
+      {
+        "id": "duty-free-pickup",
+        "text": "Where is the duty-free pickup counter?"
+      },
+      {
+        "id": "counter-tway",
+        "text": "Where can I ask about T'way Air baggage rules?"
+      },
+      {
+        "id": "wheelchair",
+        "text": "Where can I request wheelchair assistance?"
+      },
+      {
+        "id": "baggage-fee",
+        "text": "How much is the excess baggage fee?"
+      },
+      {
+        "id": "flight-delay",
+        "text": "Is flight KE123 delayed?"
+      },
+      {
+        "id": "flight-status-koreanair",
+        "text": "Can you tell me the boarding time for Korean Air flight KE081?"
+      },
+      {
+        "id": "connect-time-asiana",
+        "text": "I have a tight connection to Asiana flight OZ102. What should I do?"
+      },
+      {
+        "id": "baggage-lost-jeju",
+        "text": "I arrived on a Jeju Air flight, but my baggage didn't come out."
+      },
+      {
+        "id": "refund-cancel-tway",
+        "text": "My T'way Air flight was canceled. How do I get a refund?"
+      },
+      {
+        "id": "oversize-sports",
+        "text": "Is there an extra charge for a golf bag?"
+      },
+      {
+        "id": "medication-liquid",
+        "text": "Can I bring liquid medication in my carry-on?"
+      },
+      {
+        "id": "gate-change-airbusan",
+        "text": "Has the gate changed for my Air Busan (BX) flight?"
+      },
+      {
+        "id": "customs-limit",
+        "text": "What is the duty-free allowance limit?"
+      }
+    ],
+    "q_ja": [
+      {
+        "id": "loc-restroom",
+        "text": "トイレはどこですか？"
+      },
+      {
+        "id": "counter-korean-air",
+        "text": "大韓航空のチェックインカウンターはどこですか？"
+      },
+      {
+        "id": "loc-atm",
+        "text": "ATM（現金自動預払機）はどこですか？"
+      },
+      {
+        "id": "loc-convenience",
+        "text": "コンビニはどこですか？"
+      },
+      {
+        "id": "counter-asiana",
+        "text": "アシアナ航空のカウンターは何階ですか？"
+      },
+      {
+        "id": "loc-smoking",
+        "text": "喫煙室はどこですか？"
+      },
+      {
+        "id": "loc-charging",
+        "text": "携帯電話を充電できる場所はどこですか？"
+      },
+      {
+        "id": "loc-taxi",
+        "text": "タクシーはどこで乗れますか？"
+      },
+      {
+        "id": "counter-jeju-air",
+        "text": "チェジュ航空のカウンターはどこですか？"
+      },
+      {
+        "id": "loc-exit",
+        "text": "一番近い出口はどこですか？"
+      },
+      {
+        "id": "gate-find",
+        "text": "27番搭乗口へはどう行けばいいですか？"
+      },
+      {
+        "id": "transfer-counter",
+        "text": "乗り継ぎカウンターはどこですか？"
+      },
+      {
+        "id": "baggage-wrap",
+        "text": "手荷物の梱包サービスはどこでできますか？"
+      },
+      {
+        "id": "checkin-time-jinair",
+        "text": "ジンエアーのチェックインはいつ始まりますか？"
+      },
+      {
+        "id": "bus-terminal",
+        "text": "市内へ行く空港バスはどこで乗れますか？"
+      },
+      {
+        "id": "lost-item",
+        "text": "忘れ物センターはどこですか？"
+      },
+      {
+        "id": "prayer-room",
+        "text": "祈祷室はどこですか？"
+      },
+      {
+        "id": "duty-free-pickup",
+        "text": "免税品の受け取り場所はどこですか？"
+      },
+      {
+        "id": "counter-tway",
+        "text": "ティーウェイ航空の手荷物規定はどこで聞けますか？"
+      },
+      {
+        "id": "wheelchair",
+        "text": "車椅子のサポートはどこで頼めますか？"
+      },
+      {
+        "id": "baggage-fee",
+        "text": "超過手荷物の料金はいくらですか？"
+      },
+      {
+        "id": "flight-delay",
+        "text": "KE123便は遅れていますか？"
+      },
+      {
+        "id": "flight-status-koreanair",
+        "text": "大韓航空KE081便の搭乗時刻を教えてもらえますか？"
+      },
+      {
+        "id": "connect-time-asiana",
+        "text": "アシアナ航空OZ102便に乗り継ぐのですが、時間が迫っています。どうすればいいですか？"
+      },
+      {
+        "id": "baggage-lost-jeju",
+        "text": "チェジュ航空の便で到着しましたが、手荷物が出てきませんでした。"
+      },
+      {
+        "id": "refund-cancel-tway",
+        "text": "ティーウェイ航空の便が欠航になったのですが、払い戻しはどうすればいいですか？"
+      },
+      {
+        "id": "oversize-sports",
+        "text": "ゴルフバッグは追加料金がかかりますか？"
+      },
+      {
+        "id": "medication-liquid",
+        "text": "液体の医薬品を機内に持ち込めますか？"
+      },
+      {
+        "id": "gate-change-airbusan",
+        "text": "エアプサン（BX）便の搭乗口は変更されましたか？"
+      },
+      {
+        "id": "customs-limit",
+        "text": "免税の範囲はいくらまでですか？"
+      }
+    ],
+    "q_zh": [
+      {
+        "id": "loc-restroom",
+        "text": "洗手间在哪里？"
+      },
+      {
+        "id": "counter-korean-air",
+        "text": "大韩航空的值机柜台在哪里？"
+      },
+      {
+        "id": "loc-atm",
+        "text": "自动取款机（ATM）在哪里？"
+      },
+      {
+        "id": "loc-convenience",
+        "text": "便利店在哪里？"
+      },
+      {
+        "id": "counter-asiana",
+        "text": "韩亚航空的柜台在几楼？"
+      },
+      {
+        "id": "loc-smoking",
+        "text": "吸烟室在哪里？"
+      },
+      {
+        "id": "loc-charging",
+        "text": "哪里可以给手机充电？"
+      },
+      {
+        "id": "loc-taxi",
+        "text": "在哪里乘坐出租车？"
+      },
+      {
+        "id": "counter-jeju-air",
+        "text": "济州航空的柜台在哪里？"
+      },
+      {
+        "id": "loc-exit",
+        "text": "最近的出口在哪里？"
+      },
+      {
+        "id": "gate-find",
+        "text": "27号登机口怎么走？"
+      },
+      {
+        "id": "transfer-counter",
+        "text": "转机柜台在哪里？"
+      },
+      {
+        "id": "baggage-wrap",
+        "text": "在哪里可以打包行李？"
+      },
+      {
+        "id": "checkin-time-jinair",
+        "text": "真航空的值机什么时候开始？"
+      },
+      {
+        "id": "bus-terminal",
+        "text": "去市区的机场大巴在哪里乘坐？"
+      },
+      {
+        "id": "lost-item",
+        "text": "失物招领处在哪里？"
+      },
+      {
+        "id": "prayer-room",
+        "text": "祈祷室在哪里？"
+      },
+      {
+        "id": "duty-free-pickup",
+        "text": "免税品提货处在哪里？"
+      },
+      {
+        "id": "counter-tway",
+        "text": "在哪里可以咨询德威航空的行李规定？"
+      },
+      {
+        "id": "wheelchair",
+        "text": "在哪里可以申请轮椅协助？"
+      },
+      {
+        "id": "baggage-fee",
+        "text": "超重行李费是多少？"
+      },
+      {
+        "id": "flight-delay",
+        "text": "KE123航班延误了吗？"
+      },
+      {
+        "id": "flight-status-koreanair",
+        "text": "能告诉我大韩航空KE081航班的登机时间吗？"
+      },
+      {
+        "id": "connect-time-asiana",
+        "text": "我要转乘韩亚航空OZ102航班，时间很紧，该怎么办？"
+      },
+      {
+        "id": "baggage-lost-jeju",
+        "text": "我乘坐济州航空的航班到达，但我的行李没有出来。"
+      },
+      {
+        "id": "refund-cancel-tway",
+        "text": "我的德威航空航班取消了，怎么退款？"
+      },
+      {
+        "id": "oversize-sports",
+        "text": "高尔夫球包需要额外收费吗？"
+      },
+      {
+        "id": "medication-liquid",
+        "text": "我可以把液体药品带上飞机吗？"
+      },
+      {
+        "id": "gate-change-airbusan",
+        "text": "我的釜山航空（BX）航班登机口有变化吗？"
+      },
+      {
+        "id": "customs-limit",
+        "text": "免税额度是多少？"
+      }
+    ],
+    "q_ru": [
+      {
+        "id": "loc-restroom",
+        "text": "Где находится туалет?"
+      },
+      {
+        "id": "counter-korean-air",
+        "text": "Где находится стойка регистрации Korean Air?"
+      },
+      {
+        "id": "loc-atm",
+        "text": "Где здесь есть банкомат?"
+      },
+      {
+        "id": "loc-convenience",
+        "text": "Где находится ближайший магазин?"
+      },
+      {
+        "id": "counter-asiana",
+        "text": "아시아나항공 카운터는 몇 층인가요?"
+      },
+      {
+        "id": "loc-smoking",
+        "text": "Где находится курящая комната?"
+      },
+      {
+        "id": "loc-charging",
+        "text": "Где можно зарядить телефон?"
+      },
+      {
+        "id": "loc-taxi",
+        "text": "Такси откуда брать?"
+      },
+      {
+        "id": "counter-jeju-air",
+        "text": "Где находится стойка Jeju Air?"
+      },
+      {
+        "id": "loc-exit",
+        "text": "Где ближайший выход?"
+      },
+      {
+        "id": "gate-find",
+        "text": "Как пройти к выходу 27?"
+      },
+      {
+        "id": "transfer-counter",
+        "text": "Где находится стойка перехода (transit)?\""
+      },
+      {
+        "id": "baggage-wrap",
+        "text": "Где можно воспользоваться услугой упаковки чемоданов?"
+      },
+      {
+        "id": "checkin-time-jinair",
+        "text": "Когда начинается регистрация на Flight Jen?"
+      },
+      {
+        "id": "bus-terminal",
+        "text": "Где садится автобус до города от аэропорта?"
+      },
+      {
+        "id": "lost-item",
+        "text": "Где находится бюро находок?"
+      },
+      {
+        "id": "prayer-room",
+        "text": "Где находится молельная комната?"
+      },
+      {
+        "id": "duty-free-pickup",
+        "text": "Где находится выдача беспошлинной торговли?"
+      },
+      {
+        "id": "counter-tway",
+        "text": "Где узнать правила багажа у авиакомпании T’Way Air?"
+      },
+      {
+        "id": "wheelchair",
+        "text": "Куда обратиться за помощью с инвалидной коляской?"
+      },
+      {
+        "id": "baggage-fee",
+        "text": "Сколько стоит оплата за перевес багажа?"
+      },
+      {
+        "id": "flight-delay",
+        "text": "Задержится рейс KE123?"
+      },
+      {
+        "id": "flight-status-koreanair",
+        "text": "Можете подсказать время посадки на рейс KE081 авиакомпании Korean Air?"
+      },
+      {
+        "id": "connect-time-asiana",
+        "text": "У меня очень мало времени, чтобы сделать пересадку на рейс Asiana OZ102. Что мне делать?"
+      },
+      {
+        "id": "baggage-lost-jeju",
+        "text": "Я прилетел(а) рейсом Jeju Air, но багаж не вышел."
+      },
+      {
+        "id": "refund-cancel-tway",
+        "text": "Как получить возврат за отменённый рейс по авиакомпании T’Way?"
+      },
+      {
+        "id": "oversize-sports",
+        "text": "Гольф‑чемодан перевозится за дополнительную плату?"
+      },
+      {
+        "id": "medication-liquid",
+        "text": "Можно ли провозить жидкие лекарства в ручной клади?"
+      },
+      {
+        "id": "gate-change-airbusan",
+        "text": "BX 항공편의 게이트가 바뀌었나요?"
+      },
+      {
+        "id": "customs-limit",
+        "text": "НДС-льготная сумма до какой величины?"
+      }
+    ],
+    "q_es": [
+      {
+        "id": "loc-restroom",
+        "text": "¿Dónde está el baño?"
+      },
+      {
+        "id": "counter-korean-air",
+        "text": "¿Dónde está el mostrador de facturación de Korean Air?"
+      },
+      {
+        "id": "loc-atm",
+        "text": "¿Dónde está el cajero automático?"
+      },
+      {
+        "id": "loc-convenience",
+        "text": "¿Dónde está la tienda de conveniencia?"
+      },
+      {
+        "id": "counter-asiana",
+        "text": "¿En qué piso está el mostrador de Asiana Airlines?"
+      },
+      {
+        "id": "loc-smoking",
+        "text": "¿Dónde está la sala de fumadores?"
+      },
+      {
+        "id": "loc-charging",
+        "text": "¿Dónde puedo cargar mi teléfono?"
+      },
+      {
+        "id": "loc-taxi",
+        "text": "¿Dónde puedo tomar un taxi?"
+      },
+      {
+        "id": "counter-jeju-air",
+        "text": "¿Dónde está el mostrador de Jeju Air?"
+      },
+      {
+        "id": "loc-exit",
+        "text": "¿Dónde está la salida más cercana?"
+      },
+      {
+        "id": "gate-find",
+        "text": "¿Cómo llego a la puerta 27?"
+      },
+      {
+        "id": "transfer-counter",
+        "text": "¿Dónde está el mostrador de tránsito?"
+      },
+      {
+        "id": "baggage-wrap",
+        "text": "¿Dónde puedo envolver mi equipaje?"
+      },
+      {
+        "id": "checkin-time-jinair",
+        "text": "¿Cuándo abre la facturación de Jin Air?"
+      },
+      {
+        "id": "bus-terminal",
+        "text": "¿Dónde tomo el autobús del aeropuerto hacia la ciudad?"
+      },
+      {
+        "id": "lost-item",
+        "text": "¿Dónde está la oficina de objetos perdidos?"
+      },
+      {
+        "id": "prayer-room",
+        "text": "¿Dónde está la sala de oración?"
+      },
+      {
+        "id": "duty-free-pickup",
+        "text": "¿Dónde está el punto de recogida de artículos libres de impuestos?"
+      },
+      {
+        "id": "counter-tway",
+        "text": "¿Dónde puedo preguntar sobre las normas de equipaje de T'way Air?"
+      },
+      {
+        "id": "wheelchair",
+        "text": "¿Dónde puedo solicitar asistencia en silla de ruedas?"
+      },
+      {
+        "id": "baggage-fee",
+        "text": "¿Cuánto cuesta el exceso de equipaje?"
+      },
+      {
+        "id": "flight-delay",
+        "text": "¿El vuelo KE123 está retrasado?"
+      },
+      {
+        "id": "flight-status-koreanair",
+        "text": "¿Me puede decir la hora de embarque del vuelo KE081 de Korean Air?"
+      },
+      {
+        "id": "connect-time-asiana",
+        "text": "Tengo una conexión muy justa con el vuelo OZ102 de Asiana. ¿Qué debo hacer?"
+      },
+      {
+        "id": "baggage-lost-jeju",
+        "text": "Llegué en un vuelo de Jeju Air, pero mi equipaje no salió."
+      },
+      {
+        "id": "refund-cancel-tway",
+        "text": "Mi vuelo de T'way Air fue cancelado. ¿Cómo obtengo un reembolso?"
+      },
+      {
+        "id": "oversize-sports",
+        "text": "¿Hay un cargo adicional por una bolsa de golf?"
+      },
+      {
+        "id": "medication-liquid",
+        "text": "¿Puedo llevar medicamentos líquidos en el equipaje de mano?"
+      },
+      {
+        "id": "gate-change-airbusan",
+        "text": "¿Ha cambiado la puerta de mi vuelo de Air Busan (BX)?"
+      },
+      {
+        "id": "customs-limit",
+        "text": "¿Cuál es el límite de la franquicia libre de impuestos?"
+      }
+    ],
+    "q_fr": [
+      {
+        "id": "loc-restroom",
+        "text": "Où sont les toilettes ?"
+      },
+      {
+        "id": "counter-korean-air",
+        "text": "Où se trouve le comptoir d'enregistrement de Korean Air ?"
+      },
+      {
+        "id": "loc-atm",
+        "text": "Où se trouve le distributeur automatique de billets ?"
+      },
+      {
+        "id": "loc-convenience",
+        "text": "Où se trouve la supérette ?"
+      },
+      {
+        "id": "counter-asiana",
+        "text": "À quel étage se trouve le comptoir d'Asiana Airlines ?"
+      },
+      {
+        "id": "loc-smoking",
+        "text": "Où se trouve le fumoir ?"
+      },
+      {
+        "id": "loc-charging",
+        "text": "Où puis-je recharger mon téléphone ?"
+      },
+      {
+        "id": "loc-taxi",
+        "text": "Où puis-je prendre un taxi ?"
+      },
+      {
+        "id": "counter-jeju-air",
+        "text": "Où se trouve le comptoir de Jeju Air ?"
+      },
+      {
+        "id": "loc-exit",
+        "text": "Où est la sortie la plus proche ?"
+      },
+      {
+        "id": "gate-find",
+        "text": "Comment aller à la porte 27 ?"
+      },
+      {
+        "id": "transfer-counter",
+        "text": "Où se trouve le comptoir de correspondance ?"
+      },
+      {
+        "id": "baggage-wrap",
+        "text": "Où puis-je faire emballer mes bagages ?"
+      },
+      {
+        "id": "checkin-time-jinair",
+        "text": "Quand ouvre l'enregistrement de Jin Air ?"
+      },
+      {
+        "id": "bus-terminal",
+        "text": "Où puis-je prendre le bus de l'aéroport pour aller en ville ?"
+      },
+      {
+        "id": "lost-item",
+        "text": "Où se trouve le bureau des objets trouvés ?"
+      },
+      {
+        "id": "prayer-room",
+        "text": "Où se trouve la salle de prière ?"
+      },
+      {
+        "id": "duty-free-pickup",
+        "text": "Où se trouve le point de retrait des achats hors taxes ?"
+      },
+      {
+        "id": "counter-tway",
+        "text": "Où puis-je me renseigner sur les règles de bagages de T'way Air ?"
+      },
+      {
+        "id": "wheelchair",
+        "text": "Où puis-je demander une assistance en fauteuil roulant ?"
+      },
+      {
+        "id": "baggage-fee",
+        "text": "Combien coûtent les frais d'excédent de bagages ?"
+      },
+      {
+        "id": "flight-delay",
+        "text": "Le vol KE123 est-il retardé ?"
+      },
+      {
+        "id": "flight-status-koreanair",
+        "text": "Pouvez-vous me dire l'heure d'embarquement du vol KE081 de Korean Air ?"
+      },
+      {
+        "id": "connect-time-asiana",
+        "text": "J'ai une correspondance très serrée pour le vol OZ102 d'Asiana. Que dois-je faire ?"
+      },
+      {
+        "id": "baggage-lost-jeju",
+        "text": "Je suis arrivé sur un vol de Jeju Air, mais mes bagages ne sont pas sortis."
+      },
+      {
+        "id": "refund-cancel-tway",
+        "text": "Mon vol T'way Air a été annulé. Comment obtenir un remboursement ?"
+      },
+      {
+        "id": "oversize-sports",
+        "text": "Y a-t-il un supplément pour un sac de golf ?"
+      },
+      {
+        "id": "medication-liquid",
+        "text": "Puis-je emporter des médicaments liquides dans mon bagage à main ?"
+      },
+      {
+        "id": "gate-change-airbusan",
+        "text": "La porte de mon vol Air Busan (BX) a-t-elle changé ?"
+      },
+      {
+        "id": "customs-limit",
+        "text": "Quelle est la limite de la franchise hors taxes ?"
+      }
+    ],
+    "a_ko": [
+      {
+        "id": "loc-restroom",
+        "text": "화장실은 3층 중앙 에스컬레이터 옆에 있습니다."
+      },
+      {
+        "id": "counter-korean-air",
+        "text": "대한항공 카운터는 3층 A구역에 있습니다."
+      },
+      {
+        "id": "loc-atm",
+        "text": "ATM은 2층 편의점 옆에 있습니다."
+      },
+      {
+        "id": "loc-convenience",
+        "text": "편의점은 1층 입국장 옆에 있습니다."
+      },
+      {
+        "id": "counter-asiana",
+        "text": "아시아나항공 카운터는 3층 L구역에 있습니다."
+      },
+      {
+        "id": "loc-smoking",
+        "text": "흡연실은 4층 야외 테라스에 있습니다."
+      },
+      {
+        "id": "loc-charging",
+        "text": "충전 구역은 각 게이트 앞 대기 의자에 있습니다."
+      },
+      {
+        "id": "loc-taxi",
+        "text": "택시 승강장은 1층 4번 출구 앞에 있습니다."
+      },
+      {
+        "id": "counter-jeju-air",
+        "text": "제주항공 카운터는 3층 D구역에 있습니다."
+      },
+      {
+        "id": "loc-exit",
+        "text": "가장 가까운 출구는 왼쪽으로 50미터 앞 2번 출구입니다."
+      },
+      {
+        "id": "gate-find",
+        "text": "27번 게이트는 이 복도를 따라가면 오른쪽 끝에 있습니다."
+      },
+      {
+        "id": "transfer-counter",
+        "text": "환승 카운터는 한 층 위 면세구역 입구에 있습니다."
+      },
+      {
+        "id": "baggage-wrap",
+        "text": "수하물 포장 서비스는 3층 체크인 카운터 양 끝에 있습니다."
+      },
+      {
+        "id": "checkin-time-jinair",
+        "text": "진에어 체크인은 보통 출발 2시간 30분 전에 시작합니다."
+      },
+      {
+        "id": "bus-terminal",
+        "text": "공항버스 정류장은 1층 밖으로 나가서 4번과 6번 승강장에 있습니다."
+      },
+      {
+        "id": "lost-item",
+        "text": "분실물 센터는 2층 안내데스크 뒤편에 있습니다."
+      },
+      {
+        "id": "prayer-room",
+        "text": "기도실은 4층 문화센터 옆에 있습니다."
+      },
+      {
+        "id": "duty-free-pickup",
+        "text": "면세품 인도장은 출국 심사를 지나 28번 게이트 근처에 있습니다."
+      },
+      {
+        "id": "counter-tway",
+        "text": "티웨이항공 카운터는 3층 H구역에 있으니 그곳에서 안내받으실 수 있습니다."
+      },
+      {
+        "id": "wheelchair",
+        "text": "휠체어 지원은 1층 안내데스크에서 요청하실 수 있습니다."
+      },
+      {
+        "id": "baggage-fee",
+        "text": "초과 수하물 요금은 1킬로그램당 만 오천 원입니다."
+      },
+      {
+        "id": "flight-delay",
+        "text": "KE123편은 30분 지연되어 오후 2시 40분에 출발합니다."
+      },
+      {
+        "id": "flight-status-koreanair",
+        "text": "정확한 탑승 시간은 대한항공 카운터에서 확인해 주세요. 3층 A구역에 있습니다."
+      },
+      {
+        "id": "connect-time-asiana",
+        "text": "자세한 환승 안내는 아시아나항공 카운터에서 도와드립니다. 환승 구역 안쪽에 있습니다."
+      },
+      {
+        "id": "baggage-lost-jeju",
+        "text": "수하물 분실은 제주항공 수하물 카운터에서 접수해 주세요. 수하물 수취대 옆에 있습니다."
+      },
+      {
+        "id": "refund-cancel-tway",
+        "text": "환불과 재예약은 티웨이항공 카운터에서 처리해 드립니다. 3층 H구역입니다."
+      },
+      {
+        "id": "oversize-sports",
+        "text": "골프백 같은 스포츠 장비는 별도 요금이 있으며, 크기와 무게에 따라 다릅니다."
+      },
+      {
+        "id": "medication-liquid",
+        "text": "의약품은 100밀리리터를 넘어도 반입할 수 있지만, 처방전이나 증빙을 보안검색대에서 보여 주셔야 합니다."
+      },
+      {
+        "id": "gate-change-airbusan",
+        "text": "게이트 변경은 에어부산 카운터나 전광판에서 확인해 주세요. 카운터는 3층 G구역에 있습니다."
+      },
+      {
+        "id": "customs-limit",
+        "text": "해외에서 산 물품은 미화 팔백 달러까지 면세이며, 초과분은 세관에 신고하셔야 합니다."
+      }
+    ]
+  }
+}

@@ -5,3 +5,10 @@ build/
 data/
 .env
 *.log
+
+# eval TTS 오디오(생성물, make-tts-audio.mjs 로 재생성)
+eval/tts-audio/*.mp3
+
+android/.gradle/
+android/build/
+android/app/build/
