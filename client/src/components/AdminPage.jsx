@@ -34,6 +34,7 @@ import Snackbar from '@mui/material/Snackbar';
 import TermsConfigPage from './TermsConfigPage.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import { api } from '../api.js';
+import { Sparkline, BarTrend } from './charts.jsx';
 
 function fmtDuration(ms) {
   const s = Math.floor((ms || 0) / 1000);
@@ -64,31 +65,8 @@ function StatCard({ icon, label, value, sub }) {
 }
 
 /* ---- 벤더 실사용량: Soniox(STT·번역) / Cartesia(TTS) / OpenAI(GPT) 사용량 API 직접 조회 ----
-   그래프는 전부 시그니처 보라(ACCENT) 경량 SVG — 라이브러리 없음, 다크 모드 자동 대응. */
-function Sparkline({ days, valueOf, tipOf, brand }) {
-  const rows = days || [];
-  if (!rows.length) return <Box sx={{ height: 44, mt: 1, display: 'grid', placeItems: 'center' }}><Typography sx={{ fontSize: 12, color: 'text.disabled' }}>기간 내 사용 기록 없음</Typography></Box>;
-  const vals = rows.map((d) => Number(valueOf(d)) || 0);
-  const max = Math.max(...vals, 1e-9);
-  const W = 200, H = 40, pad = 5;
-  const px = (i) => (rows.length > 1 ? (i / (rows.length - 1)) * W : W);
-  const py = (v) => H - pad - (v / max) * (H - 2 * pad);
-  const line = vals.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
-  return (
-    <Box component="svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" sx={{ display: 'block', width: '100%', height: 40, mt: 1, overflow: 'visible' }}>
-      <path d={`${line} L${W},${H} L0,${H} Z`} fill={alpha(brand, 0.16)} />
-      <path d={line} fill="none" stroke={brand} strokeWidth="2" strokeLinejoin="round" />
-      <circle cx={W} cy={py(vals[vals.length - 1])} r="3" fill={brand} />
-      {/* 일자별 투명 히트 영역 — 네이티브 툴팁(<title>)으로 값 확인 */}
-      {rows.map((d, i) => (
-        <rect key={d.date} x={px(i) - W / rows.length / 2} y="0" width={W / rows.length} height={H} fill="transparent">
-          <title>{tipOf(d)}</title>
-        </rect>
-      ))}
-    </Box>
-  );
-}
-function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, extra, brand }) {
+   차트는 recharts(시그니처 보라, 다크 모드 자동 대응) — charts.jsx 공용 래퍼 사용. */
+function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, valFmt, extra, brand }) {
   const body = () => {
     if (!v) return <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 2 }}>불러오는 중…</Typography>;
     if (!v.configured) return (
@@ -115,7 +93,10 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, ex
         </Box>
         {/* 카드 간 차트 기준선 정렬: 보조 문구 줄은 항상 렌더링(비어도 높이 유지) */}
         <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.25, minHeight: 18, fontVariantNumeric: 'tabular-nums' }}>{subOf ? subOf(v) : ' '}</Typography>
-        <Sparkline days={v.days} valueOf={valueOf} tipOf={tipOf} brand={brand} />
+        {(v.days || []).length
+          ? <Sparkline brand={brand} formatValue={(val) => (valFmt ? valFmt(val) : val)}
+              data={(v.days || []).map((d) => ({ label: d.date.slice(5), full: d.date, value: Number(valueOf(d)) || 0 }))} />
+          : <Box sx={{ height: 44, mt: 1, display: 'grid', placeItems: 'center' }}><Typography sx={{ fontSize: 12, color: 'text.disabled' }}>기간 내 사용 기록 없음</Typography></Box>}
         {extra && extra(v)}
       </>
     );
@@ -131,43 +112,10 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, ex
     </Paper>
   );
 }
-/* 일별 총 비용(USD) 면적 그래프 — Soniox+OpenAI 합산(Cartesia 는 크레딧 단위라 카드에서 확인) */
-function DailyCostChart({ data, brand }) {
-  const W = 720, H = 190, padT = 14, padB = 15;
-  const max = Math.max(...data.map((d) => d.cost), 1e-9);
-  const px = (i) => (data.length > 1 ? (i / (data.length - 1)) * W : W);
-  const py = (v) => H - padB - (v / max) * (H - padT - padB);
-  const line = data.map((d, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(d.cost).toFixed(1)}`).join(' ');
-  const grid = [0.25, 0.5, 0.75, 1].map((r) => H - padB - r * (H - padT - padB));
-  const fmt$ = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toFixed(3));
-  return (
-    <>
-      <Box component="svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" sx={{ display: 'block', width: '100%', height: 190 }} aria-label="일별 비용 추이">
-        {grid.map((y) => <line key={y} x1="0" y1={y} x2={W} y2={y} stroke="currentColor" opacity="0.08" strokeWidth="1" />)}
-        <path d={`${line} L${W},${H - padB} L0,${H - padB} Z`} fill={alpha(brand, 0.16)} />
-        <path d={line} fill="none" stroke={brand} strokeWidth="2.5" strokeLinejoin="round" />
-        <circle cx={px(data.length - 1)} cy={py(data[data.length - 1].cost)} r="4" fill={brand} />
-        <text x="6" y={grid[3] - 5} fontSize="10" fill="currentColor" opacity="0.45">{fmt$(max)}</text>
-        <text x="6" y={grid[1] - 5} fontSize="10" fill="currentColor" opacity="0.45">{fmt$(max / 2)}</text>
-        {data.map((d, i) => (
-          <rect key={d.date} x={px(i) - W / data.length / 2} y="0" width={W / data.length} height={H} fill="transparent">
-            <title>{`${d.date} · ${fmt$(d.cost)}`}</title>
-          </rect>
-        ))}
-      </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, fontSize: 11.5, color: 'text.secondary' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
-          <Box sx={{ width: 9, height: 9, borderRadius: 0.5, bgcolor: brand }} />총 비용 (Soniox + OpenAI)
-        </Box>
-        <span>{data[0].date.slice(5).replace('-', '/')}</span>
-        <Box sx={{ ml: 'auto' }}>{data[data.length - 1].date.slice(5).replace('-', '/')}</Box>
-      </Box>
-    </>
-  );
-}
 function VendorUsage({ brand }) {
-  const [days, setDays] = useState(30); // 토글(7/30/90일)과 일치하는 기본값 — 선택 표시 항상 있음
+  const [period, setPeriod] = useState(30); // 7 | 14 | 30 | 'month'
   const [data, setData] = useState(null);
+  const days = period === 'month' ? 365 : period;
   useEffect(() => {
     // 기간 빠른 전환 시 늦게 도착한 이전 기간 응답이 화면을 덮지 않도록(stale 가드)
     let cancelled = false;
@@ -181,17 +129,28 @@ function VendorUsage({ brand }) {
   // 일별 총 비용(USD): Soniox + OpenAI 합산(같은 KST 일자 축) — Cartesia 는 크레딧 단위라 카드에서 확인
   const dailyMap = {};
   for (const k of ['soniox', 'openai']) for (const d of (v(k) || {}).days || []) dailyMap[d.date] = (dailyMap[d.date] || 0) + (d.costUsd || 0);
-  const daily = Object.entries(dailyMap).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, cost]) => ({ date, cost }));
-  const totalUsd = daily.reduce((a, d) => a + d.cost, 0);
+  const dailyEntries = Object.entries(dailyMap).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const totalUsd = dailyEntries.reduce((a, [, c]) => a + c, 0);
+  // 막대 데이터: 월별이면 YYYY-MM 로 합산(1월·2월…), 아니면 일별
+  let costBars;
+  if (period === 'month') {
+    const m = {};
+    for (const [date, c] of dailyEntries) { const k = date.slice(0, 7); m[k] = (m[k] || 0) + c; }
+    costBars = Object.entries(m).sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([ym, c]) => ({ label: Number(ym.slice(5)) + '월', full: ym.replace('-', '. ') + '.', value: +c.toFixed(4) }));
+  } else {
+    costBars = dailyEntries.map(([date, c]) => ({ label: date.slice(5).replace('-', '/'), full: date, value: +c.toFixed(4) }));
+  }
+  const PERIODS = [[7, '7일'], [14, '14일'], [30, '30일'], ['month', '월별']];
   return (
     <>
       {/* 페이지 제목 + 기간 세그먼트(활성=시그니처 보라) */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
         <Typography component="h1" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em' }}>사용량</Typography>
         <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup size="small" exclusive value={days} onChange={(e, x) => x && setDays(x)}
+        <ToggleButtonGroup size="small" exclusive value={period} onChange={(e, x) => x && setPeriod(x)}
           sx={{ '& .MuiToggleButton-root': { py: 0.35, px: 1.6, fontSize: 12, fontWeight: 700, textTransform: 'none', '&.Mui-selected': { bgcolor: brand, color: '#fff', '&:hover': { bgcolor: brand } } } }}>
-          {[7, 30, 90].map((d) => <ToggleButton key={d} value={d}>{d}일</ToggleButton>)}
+          {PERIODS.map(([val, lab]) => <ToggleButton key={val} value={val}>{lab}</ToggleButton>)}
         </ToggleButtonGroup>
       </Box>
       {data && data.error && <Alert severity="error" sx={{ mb: 1 }}>벤더 사용량을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</Alert>}
@@ -199,7 +158,7 @@ function VendorUsage({ brand }) {
       <Box sx={{ display: data && data.error ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 1.5, mb: 1.75 }}>
         <VendorCard brand={brand} name="Soniox" desc="음성인식·실시간 번역" v={v('soniox')} keyHint="SONIOX_API_KEY"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)} subOf={(x) => `오디오 ${fmtMin(x.totalAudioMin || 0)} · ${x.totalRequests || 0}회 연결`}
-          valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtMin((d.audioMs || 0) / 60000)} · ${fmtCost(d.costUsd)}`}
+          valueOf={(d) => d.costUsd} valFmt={(c) => fmtCost(c)}
           extra={(x) => (x.users || []).length > 0 && (
             <Box sx={{ mt: 1.5, pt: 1, borderTop: 1, borderColor: 'divider' }}>
               <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>유저별 사용량 <Box component="span" sx={{ fontWeight: 400, color: 'text.disabled' }}>· {x.users.length}명</Box></Typography>
@@ -217,24 +176,25 @@ function VendorUsage({ brand }) {
         <VendorCard brand={brand} name="Cartesia" desc="음성 합성(TTS)" v={v('cartesia')} keyHint="CARTESIA_ADMIN_API_KEY (sk_car_admin_…)"
           totalOf={(x) => `${(x.totalCredits || 0).toLocaleString()} 크레딧`}
           subOf={(x) => `일평균 ${Math.round((x.totalCredits || 0) / Math.max(1, (x.days || []).length)).toLocaleString()} 크레딧`}
-          valueOf={(d) => d.credits} tipOf={(d) => `${d.date} · ${(d.credits || 0).toLocaleString()} 크레딧`} />
+          valueOf={(d) => d.credits} valFmt={(c) => `${(c || 0).toLocaleString()} 크레딧`} />
         <VendorCard brand={brand} name="OpenAI" desc="GPT (요약·다듬기·검사)" v={v('openai')} keyHint="OPENAI_ADMIN_API_KEY (sk-admin-…)"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)}
           subOf={(x) => `일평균 ${fmtCost((x.totalCostUsd || 0) / Math.max(1, (x.days || []).length))}`}
-          valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtCost(d.costUsd)}`} />
+          valueOf={(d) => d.costUsd} valFmt={(c) => fmtCost(c)} />
       </Box>
-      {/* 일별 총 비용 추이 — 시안 1 의 메인 그래프 */}
+      {/* 총 비용 막대 그래프 — 일별(7/14/30) 또는 월별 */}
       {!(data && data.error) && (
         <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1.25, flexWrap: 'wrap' }}>
-            <Typography sx={{ fontWeight: 800, fontSize: 14 }}>일별 총 비용 (USD)</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: 14 }}>총 비용 (USD) <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· Soniox + OpenAI</Box></Typography>
             <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-              {days}일 합계 <Box component="b" sx={{ color: brand, fontVariantNumeric: 'tabular-nums' }}>{fmtCost(totalUsd)}</Box>
+              {period === 'month' ? '기간' : `${period}일`} 합계 <Box component="b" sx={{ color: brand, fontVariantNumeric: 'tabular-nums' }}>{fmtCost(totalUsd)}</Box>
             </Typography>
           </Box>
-          {!data ? <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>
-            : daily.length ? <DailyCostChart data={daily} brand={brand} />
-            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 4, textAlign: 'center' }}>기간 내 사용 기록이 없습니다.</Typography>}
+          {!data ? <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 6, textAlign: 'center' }}>불러오는 중…</Typography>
+            : costBars.length ? <BarTrend data={costBars} brand={brand} height={220} barSize={period === 'month' ? 40 : 26}
+                tickEvery={period === 30 ? 3 : 1} formatValue={(c) => (typeof c === 'number' ? fmtCost(c) : c)} />
+            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 6, textAlign: 'center' }}>기간 내 사용 기록이 없습니다.</Typography>}
         </Paper>
       )}
     </>
@@ -551,11 +511,10 @@ function LogsPanel() {
 
 const LANG_KO = { en: '영어', ja: '일본어', zh: '중국어', vi: '베트남어', th: '태국어', id: '인도네시아어', ru: '러시아어', ko: '한국어', unknown: '미상' };
 
-/* 데스크 운영 통계(v3, 시안 2): KPI 타일 4 + 일별 응대 막대(14일) + 언어 분포·응답 지연.
-   데스크 선택은 select, 원자료 CSV 유지. 응답 지연은 레이턴시 로그(tm) 기반 — 손님 발화 끝 → 안내 시작. */
+/* 데스크 운영 통계(v3, 시안 2 + 콘솔 참고): KPI 타일 4 + 일별 응대 막대 + 언어 분포 + 시간대별 분포.
+   차트는 recharts(호버 툴팁), 데스크 선택은 select, 원자료 CSV 유지. */
 const kstDayStr = (offset = 0) => new Date(Date.now() + 9 * 3600e3 - offset * 86400e3).toISOString().slice(0, 10);
 const fmtClock = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-const quantile = (sorted, q) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : null);
 function KpiCard({ label, value, unit, sub, tip }) {
   return (
     <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2, pb: 1.5 }}>
@@ -581,31 +540,9 @@ function HBar({ label, pct, right, brand, opacity = 1 }) {
     </Box>
   );
 }
-function DailyBars({ series, brand }) {
-  const W = 460, H = 170, padT = 28, padB = 10;
-  const max = Math.max(...series.map((x) => x.count), 1);
-  const step = W / series.length;
-  const bw = Math.min(24, step * 0.62);
-  return (
-    <Box component="svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" sx={{ display: 'block', width: '100%', height: 170 }} aria-label="일별 응대 추이">
-      {[0.33, 0.66, 1].map((r) => <line key={r} x1="0" y1={H - padB - r * (H - padT - padB)} x2={W} y2={H - padB - r * (H - padT - padB)} stroke="currentColor" opacity="0.08" />)}
-      {series.map((x, i) => {
-        const h = Math.max(x.count ? 3 : 1.5, (x.count / max) * (H - padT - padB));
-        return (
-          <rect key={x.date} x={i * step + (step - bw) / 2} y={H - padB - h} width={bw} height={h} rx="4"
-            fill={brand} opacity={i === series.length - 1 ? 1 : x.count ? 0.45 : 0.15}>
-            <title>{`${x.date} · ${x.count}건`}</title>
-          </rect>
-        );
-      })}
-      <text x={step / 2} y="16" fontSize="10" fill="currentColor" opacity="0.45">{series[0].date.slice(5).replace('-', '/')}</text>
-      <text x={W - step / 2} y="16" fontSize="10" fill="currentColor" opacity="0.45" textAnchor="end">오늘</text>
-    </Box>
-  );
-}
 // '전체' 선택용: 모든 데스크의 통계를 합산(평균류는 건수 가중, 중앙값은 rows 재계산)
 function aggregateDeskStats(stats) {
-  const agg = { id: '__all', title: '전체', count: 0, interrupted: 0, avgMs: 0, medianMs: 0, byLang: {}, sentences: { total: 0, avgPerConv: 0, staff: 0, guest: 0 }, crossDrops: 0, crossDropRate: 0, wayfindDetected: 0, wayfindShown: 0, wayfindTop: [], daily: [], hourly: Array(24).fill(0), respDelays: [], rows: [] };
+  const agg = { id: '__all', title: '전체', count: 0, interrupted: 0, avgMs: 0, medianMs: 0, byLang: {}, sentences: { total: 0, avgPerConv: 0, staff: 0, guest: 0 }, crossDrops: 0, crossDropRate: 0, wayfindDetected: 0, wayfindShown: 0, wayfindTop: [], daily: [], hourly: Array(24).fill(0), rows: [] };
   const dailyMap = {}; const wtop = {}; const lang = {};
   for (const d of stats) {
     agg.count += d.count; agg.interrupted += d.interrupted || 0;
@@ -618,7 +555,6 @@ function aggregateDeskStats(stats) {
     for (const x of d.daily || []) dailyMap[x.date] = (dailyMap[x.date] || 0) + x.count;
     (d.hourly || []).forEach((n, h) => { agg.hourly[h] += n; });
     for (const w of d.wayfindTop || []) wtop[w.catId] = (wtop[w.catId] || 0) + w.count;
-    for (const v of d.respDelays || []) agg.respDelays.push(v);
     for (const r of d.rows || []) agg.rows.push({ ...r, desk: d.title });
   }
   agg.byLang = Object.fromEntries(Object.entries(lang).map(([lg, t]) => [lg, { count: t.count, avgMs: t.count ? Math.round(t.dur / t.count) : 0, avgSent: t.count ? +(t.sent / t.count).toFixed(1) : 0 }]));
@@ -685,10 +621,12 @@ function DeskStats({ brand }) {
   const rest = langAll.slice(4).reduce((a, [, b]) => a + b.count, 0);
   const langRows = [...langAll.slice(0, 4).map(([lg, b]) => [LANG_KO[lg] || lg, b.count]), ...(rest ? [['기타', rest]] : [])];
   const OP = [1, 0.8, 0.6, 0.45, 0.35];
-  // 응답 지연(레이턴시 로그 tm): 중앙값·P90
-  const delays = (d.respDelays || []).slice().sort((a, b) => a - b);
-  const med = quantile(delays, 0.5), p90 = quantile(delays, 0.9);
-  const dMax = Math.max(p90 || 0, 1) * 1.15;
+  // 일별 응대 막대(recharts)
+  const dailyBars = series.map((x, i) => ({ label: i === series.length - 1 ? '오늘' : x.date.slice(5).replace('-', '/'), full: x.date, value: x.count }));
+  // 시간대별 분포(0~23시)
+  const hourly = (d.hourly || []);
+  const hourlyBars = hourly.map((count, h) => ({ label: String(h).padStart(2, '0'), full: `${h}시`, value: count }));
+  const hourlyTotal = hourly.reduce((a, b) => a + b, 0);
 
   const downloadCsv = () => {
     const all = sel === '__all';
@@ -729,15 +667,15 @@ function DeskStats({ brand }) {
           tip="2채널(안내원 마이크 + 여객 태블릿) 운영 시 한 발화가 반대쪽 마이크에도 새어 들어와 중복 인식된 것을 서버가 걸러낸 비율입니다. 값이 높으면 두 마이크가 너무 가깝거나 민감도가 높다는 신호입니다." />
       </Box>
 
-      {/* 일별 응대 추이(좌) + 언어 분포·응답 지연(우) */}
+      {/* 일별 응대 추이(좌) + 언어 분포(우) */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.6fr 1fr' }, gap: 1.5 }}>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1 }}>
             <Typography sx={{ fontWeight: 800, fontSize: 14 }}>일별 응대 건수</Typography>
             <Typography sx={{ fontSize: 12, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>14일 합계 {sum14}건</Typography>
           </Box>
-          {sum14 > 0 ? <DailyBars series={series} brand={brand} />
-            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 6, textAlign: 'center' }}>최근 14일간 응대 기록이 없습니다.</Typography>}
+          {sum14 > 0 ? <BarTrend data={dailyBars} brand={brand} height={200} barSize={26} tickEvery={2} emphasizeLast formatValue={(n) => `${n}건`} />
+            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 7, textAlign: 'center' }}>최근 14일간 응대 기록이 없습니다.</Typography>}
         </Paper>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 0.5 }}>
@@ -749,17 +687,18 @@ function DeskStats({ brand }) {
               <HBar key={label} label={label} pct={(count / langTotal) * 100} right={`${count}건 · ${Math.round((count / langTotal) * 100)}%`} brand={brand} opacity={OP[i] || 0.35} />
             ))
             : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 2, textAlign: 'center' }}>기록 없음</Typography>}
-          <Typography sx={{ fontWeight: 800, fontSize: 13.5, mt: 2.5, mb: 0.5 }}>
-            응답 지연 <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· 손님 발화 끝 → 안내 시작</Box>
-          </Typography>
-          {med != null ? (
-            <>
-              <HBar label="중앙값" pct={(med / dMax) * 100} right={`${(med / 1000).toFixed(1)}초`} brand={brand} />
-              <HBar label="P90" pct={((p90 || 0) / dMax) * 100} right={`${((p90 || 0) / 1000).toFixed(1)}초`} brand={brand} opacity={0.6} />
-            </>
-          ) : <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>아직 측정 데이터가 없습니다 — 새 응대부터 자동 수집됩니다.</Typography>}
         </Paper>
       </Box>
+
+      {/* 시간대별 분포(KST, 0~23시) */}
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5, mt: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 14 }}>시간대별 분포 <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· KST</Box></Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>합계 {hourlyTotal}건</Typography>
+        </Box>
+        {hourlyTotal > 0 ? <BarTrend data={hourlyBars} brand={brand} height={180} barSize={18} tickEvery={3} formatValue={(n) => `${n}건`} />
+          : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 6, textAlign: 'center' }}>기록 없음</Typography>}
+      </Paper>
     </>
   );
 }
