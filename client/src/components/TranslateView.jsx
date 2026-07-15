@@ -332,6 +332,10 @@ export default function TranslateView({ session: initial, onBack }) {
   const [rnnoise, setRnnoiseOpt] = useState(() => localStorage.getItem('kac-rnnoise') === '1');
   // 저신뢰 자동 교정(β): 연속 저신뢰 발화만 GPT 가 맥락 보고 원문 교정→재번역해 카드 덮어쓰기
   const [confFix, setConfFix] = useState(() => localStorage.getItem('kac-conf-fix') === '1');
+  // 데스크: 길안내 지도 기능 on/off(끄면 감지·GPT 분류·지도 표시 모두 생략)
+  const [wayfindOn, setWayfindOn] = useState(() => localStorage.getItem('kac-desk-wayfind') !== '0');
+  // 실시간 번역(soniox): 사용할 마이크 장치 선택(기본 = 시스템 기본 마이크)
+  const [micId, setMicId] = useState(() => localStorage.getItem('kac-mic-device') || '');
   const [qr, setQr] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [sxSettingsOpen, setSxSettingsOpen] = useState(false);
@@ -468,10 +472,10 @@ export default function TranslateView({ session: initial, onBack }) {
     // eslint-disable-next-line
   }, [cfg.pipeline]);
 
-  // 데스크 마이크 2대: 입력 장치 목록 유지(연결 확인) — 꽂거나 뽑으면 즉시 갱신.
+  // 입력 장치 목록 유지(데스크 2대 모드 연결 확인 + 실시간 번역 마이크 선택) — 꽂거나 뽑으면 즉시 갱신.
   // 라벨은 마이크 권한 이후에만 노출되는데 데스크는 진입 시 자동 캡처로 권한을 이미 얻는다.
   useEffect(() => {
-    if (cfg.pipeline !== 'desk' || !mic2On) return;
+    if (!((cfg.pipeline === 'desk' && mic2On) || cfg.pipeline === 'soniox')) return;
     let dead = false;
     const refresh = async () => {
       try {
@@ -625,6 +629,8 @@ export default function TranslateView({ session: initial, onBack }) {
         // 데스크 마이크 2대(PC): 여객 장치가 지정된 경우에만 — 여객 오디오는 src=guestmic 별도 연결로 공급
         mic2: cfg.pipeline === 'desk' && mic2On && micGuestId && !window.AndroidAudio ? { staff: micStaffId || null, guest: micGuestId } : undefined,
         rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
+        micId: cfg.pipeline === 'soniox' && micId ? micId : undefined, // 실시간 번역: 마이크 장치 선택
+        wayfind: cfg.pipeline === 'desk' ? wayfindOn : undefined, // 데스크: 길안내 지도 기능 on/off
         model,
         onMessage,
         onMeter: (rms, peak, src) => {
@@ -1123,6 +1129,24 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
 
+          {/* 실시간 번역: 사용할 마이크 장치 선택(녹음 중엔 변경 불가 — 다음 시작부터 적용) */}
+          {cfg.pipeline === 'soniox' && !window.AndroidAudio && (
+            <Field label="마이크">
+              <Tooltip title={recording ? '녹음 중에는 변경할 수 없습니다(중지 후 변경)' : '사용할 마이크 장치를 선택합니다'}>
+                <span>
+                  <Select
+                    size="small" displayEmpty disabled={recording}
+                    value={micDevs.some((d) => d.deviceId === micId) ? micId : ''}
+                    onChange={(e) => { setMicId(e.target.value); localStorage.setItem('kac-mic-device', e.target.value); }}
+                    sx={{ ...selSx, minWidth: 140, maxWidth: 200 }}
+                  >
+                    <MenuItem value="">기본 마이크</MenuItem>
+                    {micDevs.map((d, i) => (<MenuItem key={d.deviceId || i} value={d.deviceId}>{d.label || `마이크 ${i + 1}`}</MenuItem>))}
+                  </Select>
+                </span>
+              </Tooltip>
+            </Field>
+          )}
           <Box sx={{ flex: 1 }} />
           <Field label="마이크 입력">
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 37 }}>
@@ -1179,18 +1203,21 @@ export default function TranslateView({ session: initial, onBack }) {
                 const keys = Object.keys(m.texts);
                 if (keys.length) { usedLang = keys[0]; t = m.texts[usedLang]; }
               }
+              // 데스크: 호스트 화면에서도 발화 주체 색 구분 — 게스트(손님) 발화는 액센트('a'), 호스트(안내원, ko)는 무채색('b').
+              // lang = 발화 원문 언어(커밋 시 저장), 2채널 게스트는 side='left'.
+              const deskDir = cfg.pipeline === 'desk' ? (((m.lang && m.lang !== 'ko') || m.side === 'left') ? 'a' : 'b') : null;
               // 데스크: 안내원(한국어) 발화는 texts 에 ko 가 없음 → 원문을 본문으로('번역 중…' 표시 없이)
               if (cfg.pipeline === 'desk' && !t) {
                 if (!m.source) return null;
-                return <Row key={m.id} side={m.side} text={m.source} source={null} dir={null} scale={fontScale} />;
+                return <Row key={m.id} side={m.side} text={m.source} source={null} dir={deskDir} scale={fontScale} />;
               }
               // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
-              let dir = null;
+              let dir = deskDir;
               if (twoway && m.texts) {
                 const tk = Object.keys(m.texts)[0];
                 if (tk) dir = tk === sxA ? 'b' : 'a'; // 타깃이 언어1 → 언어2가 말함(b), 타깃이 언어2 → 언어1이 말함(a)
               }
-              return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} scale={fontScale} toks={m.toks} />;
+              return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} scale={fontScale} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} scale={fontScale} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} scale={fontScale} />}
@@ -1215,7 +1242,7 @@ export default function TranslateView({ session: initial, onBack }) {
           }}
         >
           {/* 길안내 제안(호스트 승인) — 오탐 지도가 손님 화면에 바로 뜨지 않도록 확인 단계 */}
-          {cfg.pipeline === 'desk' && wayfindSug && (
+          {cfg.pipeline === 'desk' && wayfindOn && wayfindSug && (
             <Paper sx={{ position: 'absolute', bottom: 106, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 1, px: 1.75, py: 0.9, borderRadius: 3, border: 1, borderColor: 'divider', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
                 지도 표시: {wayfindSug.ko} · {String(wayfindSug.floor || '').replace('F', '')}층
@@ -1368,9 +1395,15 @@ export default function TranslateView({ session: initial, onBack }) {
             fmt={(v) => Math.round(v * 100) + '%'}
             onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
           {/* 녹음(캡처) 중에도 실시간 조절 — 데스크는 상시 캡처라 비활성화하면 아예 바꿀 수 없었음 */}
-          <SxSlider label="마이크 음성인식 민감도" hint="100=모든 소리, 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 기본 70. 속삭임이 잡히면 더 낮추고, 작게 말하는데 끊기면 높이세요. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
+          <SxSlider label={cfg.pipeline === 'desk' ? '호스트 마이크 민감도' : '마이크 음성인식 민감도'} hint="100=모든 소리, 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 기본 70. 속삭임이 잡히면 더 낮추고, 작게 말하는데 끊기면 높이세요. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
             fmt={(v) => String(v)}
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
+          {cfg.pipeline === 'desk' && (
+            /* 게스트 마이크(2채널) 근접 게이트 — 호스트 민감도 바로 아래 배치. 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */
+            <SxSlider label="게스트 마이크 민감도" hint="100=모든 소리, 낮출수록 게스트 마이크 가까이의 큰 소리에만 반응(호스트 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
+              fmt={(v) => String(v)}
+              onChange={(v) => { setGuestSens(v); localStorage.setItem('kac-desk-guest-sens', String(v)); if (recRef.current && recRef.current.setGuestSens) recRef.current.setGuestSens(v); }} />
+          )}
           {!window.AndroidAudio && (
             <InfoToggle
               label="잡음 제거 강화 (RNNoise·β)"
@@ -1405,15 +1438,18 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
           {cfg.pipeline === 'desk' && (
             <>
-              {/* 여객 마이크(2채널) 근접 게이트 — 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */}
-              <SxSlider label="여객 마이크 민감도" hint="100=모든 소리, 낮출수록 여객 마이크 가까이의 큰 소리에만 반응(직원 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
-                fmt={(v) => String(v)}
-                onChange={(v) => { setGuestSens(v); localStorage.setItem('kac-desk-guest-sens', String(v)); if (recRef.current && recRef.current.setGuestSens) recRef.current.setGuestSens(v); }} />
+              <InfoToggle
+                label="길안내 지도"
+                hint="끄면 발화에서 시설·길안내를 감지하지 않고 지도도 표시하지 않습니다(감지용 GPT 호출도 생략). 번역 중에도 바로 적용. 기본 켜짐."
+                checked={wayfindOn}
+                disabled={false}
+                onChange={(e) => { const v = e.target.checked; setWayfindOn(v); localStorage.setItem('kac-desk-wayfind', v ? '1' : '0'); if (recRef.current && recRef.current.setWayfindOn) recRef.current.setWayfindOn(v); }}
+              />
               <InfoToggle
                 label="지도 자동 표시"
                 hint="켜면 길안내 감지 시 확인 없이 바로 손님 화면에 지도를 표시합니다. 끄면 하단 제안에서 '표시'를 눌러야 표시됩니다."
                 checked={mapAuto}
-                disabled={false}
+                disabled={!wayfindOn}
                 onChange={(e) => { setMapAuto(e.target.checked); localStorage.setItem('kac-desk-map-auto', e.target.checked ? '1' : '0'); }}
               />
             </>
@@ -1557,24 +1593,12 @@ function PartialLine({ side, text, scale = 1 }) {
   );
 }
 
-// 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=보라색, 시스템=검정(라이트)/밝은(다크).
-// 양방향(dir): 언어1 발화='a'(보라 액센트) · 언어2 발화='b'(무채색=검정/흰색) 로 방향 구분.
+// 데스크톱: 모든 발화 좌측 정렬·전체 폭 사용. 마이크=액센트, 시스템=무채색.
+// 양방향(dir): 언어1 발화='a'(액센트) · 언어2 발화='b'(무채색) / 데스크: 게스트='a' · 호스트='b'.
 // memo: 마이크 미터 등 무관한 상태 변경 때 수백 개 행이 재렌더되지 않도록
-// 원문(STT) 토큰을 신뢰도 하이라이트와 함께 렌더 — 신뢰도 0.6 미만 단어는
-// 주황(warning) 계열 + 점선 밑줄로 '인식이 불확실한 단어'임을 표시(드롭하지 않고 표시만).
-const UNCERTAIN_TH = 0.6;
-function TokenizedSource({ toks, fallback }) {
-  if (!Array.isArray(toks) || !toks.length) return fallback || null;
-  return toks.map(([tx, c], i) =>
-    typeof c === 'number' && c < UNCERTAIN_TH ? (
-      <Box key={i} component="span" sx={{ color: 'warning.main', textDecoration: 'underline dotted', textUnderlineOffset: '3px' }}>{tx}</Box>
-    ) : (
-      <React.Fragment key={i}>{tx}</React.Fragment>
-    )
-  );
-}
-
-const Row = React.memo(function Row({ side, text, source, dir, scale = 1, toks }) {
+// (저신뢰 단어 하이라이트 표시(TokenizedSource)는 사용자 요청으로 삭제 — toks 기록 자체는
+//  confFix·품질 평가용으로 서버에 계속 저장된다.)
+const Row = React.memo(function Row({ side, text, source, dir, scale = 1 }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
@@ -1603,7 +1627,7 @@ const Row = React.memo(function Row({ side, text, source, dir, scale = 1, toks }
       {pending && <Typography sx={{ fontSize: 12.5, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
       {!pending && source && (
         <Typography sx={{ fontSize: Math.round(14.5 * scale), color: 'text.secondary', lineHeight: 1.5, mt: 0.6, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
-          <TokenizedSource toks={toks} fallback={source} />
+          {source}
         </Typography>
       )}
     </Box>

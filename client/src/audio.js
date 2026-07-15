@@ -53,7 +53,7 @@ function createDenoiser(mod) {
   };
 }
 
-async function getSources(mode, agcOff, mic2, nsOff) {
+async function getSources(mode, agcOff, mic2, nsOff, micId) {
   const list = [];
   if (mode === 'mic' || mode === 'both') {
     if (window.AndroidAudio) {
@@ -88,9 +88,15 @@ async function getSources(mode, agcOff, mic2, nsOff) {
       // autoGainControl(AGC): 볼륨 게이트(민감도<100) 사용 시엔 반드시 꺼야 한다 —
       // 브라우저 AGC 가 속삭임·먼 소리를 보통 음량으로 증폭한 '뒤에' 게이트에 도달해
       // RMS 임계를 아무리 낮춰도(1이어도) 걸러지지 않던 원인. 100(게이트 없음)이면 기존대로 켠다.
-      const mic = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: !nsOff, autoGainControl: !agcOff },
-      });
+      const base = { echoCancellation: true, noiseSuppression: !nsOff, autoGainControl: !agcOff };
+      let mic;
+      try {
+        // micId: 사용자가 고른 마이크 장치(실시간 번역 옵션) — 뽑혀 있으면 기본 장치로 폴백
+        mic = await navigator.mediaDevices.getUserMedia({ audio: { ...base, ...(micId ? { deviceId: { exact: micId } } : {}) } });
+      } catch (e) {
+        if (!micId) throw e;
+        mic = await navigator.mediaDevices.getUserMedia({ audio: base });
+      }
       list.push({ src: 'mic', stream: mic });
     }
   }
@@ -182,7 +188,7 @@ export async function startRecorder(opts) {
   }
   let sources;
   try {
-    sources = await getSources(mode, micRatio > 0, mic2, !!rnnMod); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
+    sources = await getSources(mode, micRatio > 0, mic2, !!rnnMod, opts.micId); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
   } catch (e) {
     try { audioCtx.close(); } catch {} // 먼저 만든 오디오 컨텍스트 회수(권한 거부 시 누수 방지)
     throw e;
@@ -222,7 +228,7 @@ export async function startRecorder(opts) {
     pipeline === 'desk'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}${
           deskLangs ? `&deskLangs=${encodeURIComponent(deskLangs)}` : ''
-        }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}${deskGuestSens != null ? `&deskGuestSens=${encodeURIComponent(deskGuestSens)}` : ''}`
+        }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}${deskGuestSens != null ? `&deskGuestSens=${encodeURIComponent(deskGuestSens)}` : ''}${opts.wayfind === false ? '&wayfind=0' : ''}`
       : ''
   }${model ? `&model=${encodeURIComponent(model)}` : ''}`;
 
@@ -615,6 +621,8 @@ export async function startRecorder(opts) {
   function setDropAcks(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'dropAcks', on: !!on })); } catch {} } }
   // 고급옵션: 저신뢰 자동 교정(GPT) — 녹음 중 실시간 토글
   function setConfFix(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'confFix', on: !!on })); } catch {} } }
+  // 데스크: 길안내 지도 기능 on/off — 녹음 중 실시간 토글(끄면 서버가 감지·GPT 분류 생략)
+  function setWayfindOn(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-on', on: !!on })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle, setDropAcks, setConfFix };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle, setDropAcks, setConfFix, setWayfindOn };
 }

@@ -2895,6 +2895,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._deskGuestSens = searchParams.get('deskGuestSens'); // desk 여객 태블릿 마이크 민감도(0~100)
       ws._dropAcks = searchParams.get('dropAcks');   // 단독 응답어(네/Yes) 기록 생략(고급옵션)
       ws._confFix = searchParams.get('confFix');     // 저신뢰 자동 교정(고급옵션)
+      ws._wayfind = searchParams.get('wayfind');     // 데스크 길안내 지도 on/off('0'=끔)
       ws._multiLangs = searchParams.get('multiLangs'); // 다국어 회의(multi) 선택 언어(콤마구분)
       wss.emit('connection', ws, req);
     });
@@ -3371,21 +3372,9 @@ function handleHost(ws) {
     let sxReady = false;
     let sxClosed = false;   // 사용자 중지/유휴 종료 — 재연결 금지
     let pending = [];
-    // 인식 컨텍스트 고착 방지: 발화 확정 후 일정 시간 무음이면 엔진을 '조용히' 재연결해
-    // 스트리밍 누적 컨텍스트를 비운다 — 한 번 오인식이 그 연결 내내 같은 소리를 같게 인식하고,
-    // 새 세션(새 연결)에선 정상 인식되던 문제. 무음 구간에만 재연결하므로 오디오 손실이 없다.
-    const CTX_FLUSH_MS = 2600;
-    let flushTimer = null, quietFlush = false;
-    const clearFlush = () => { clearTimeout(flushTimer); flushTimer = null; };
-    const armFlush = () => {
-      clearFlush();
-      flushTimer = setTimeout(() => {
-        // 비활성·진행 중 발화·클라이언트 이탈(좀비 재연결 방지)이면 스킵
-        if (sxClosed || idleStopped || !sxReady || curId || ws.readyState !== WebSocket.OPEN) return;
-        quietFlush = true;
-        try { sx && sx.close(); } catch {} // close 핸들러가 조용히 재연결
-      }, CTX_FLUSH_MS);
-    };
+    // (삭제됨) 무음 시 '조용한 재연결'(인식 컨텍스트 플러시, 2026-07-13) — 재연결마다 config 의
+    // context(용어집, input_text_tokens $4/1M)가 재청구돼 Soniox 비용의 71%를 차지했던 원인이라 제거.
+    // 오인식 고착은 confFix(저신뢰 자동 교정)가 완화한다. 상세: PROJECT_NOTES 2026-07-15.
     idleClose = () => { sxClosed = true; try { sx && sx.close(); } catch {} };
     const langsOut = sxMode === 'two' ? [sxA, sxB] : sxMode === 'multi' ? multiLangs : [sxTarget];
     // 폰 PTT 가 재사용할 호스트 설정 저장
@@ -3470,7 +3459,6 @@ function handleHost(ws) {
       const tail = ttsPending;            // 종결부호 없이 남은 마지막 조각
       const hadFinal = !!finalTrans.trim(); // 발화 중 확정 번역이 흘러갔는지
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = ''; langVotes = {}; srcToks = [];
-      armFlush(); // 발화 확정 → 이후 무음 지속 시 인식 컨텍스트 플러시 예약
       // 화자 구분 켰는데 엔진이 화자 정보를 한 번도 안 줬으면 1회 안내(진단)
       if (diar && !sawSpeaker && !noSpkWarned) { noSpkWarned = true; toHost({ type: 'status', message: '화자 구분: 엔진이 화자 정보를 반환하지 않음(번역/엔드포인트와 동시 사용 시 발생 가능)' }); }
       if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던(또는 잡음뿐인) 고스트 카드 제거
@@ -3536,7 +3524,6 @@ function handleHost(ws) {
       const toks = ev.tokens || [];
       if (!toks.length) return;
       bumpIdle();
-      clearFlush(); // 토큰(활동) 도착 → 컨텍스트 플러시 예약 취소(발화 중엔 재연결 안 함)
       let endHit = false;
       let nonFinal = '';      // 비확정 전사(원문) — 매 응답마다 새로 구성
       let nonFinalTrans = ''; // 비확정 번역(타깃)
@@ -3592,9 +3579,8 @@ function handleHost(ws) {
       if (sx !== cur) return;
       sxReady = false; // 끊긴 소켓으로 send 하지 않도록(이전엔 true 로 남아 조용히 버려졌음)
       if (!sxClosed && !idleStopped) {
-        const quiet = quietFlush; quietFlush = false; // 컨텍스트 플러시 재연결은 조용히(상태 메시지·지연 최소)
-        if (!quiet) toHost({ type: 'status', message: '엔진 재연결 중…' });
-        setTimeout(() => { if (sx === cur && !sxClosed && !idleStopped) connectEngine(); }, quiet ? 200 : 800);
+        toHost({ type: 'status', message: '엔진 재연결 중…' });
+        setTimeout(() => { if (sx === cur && !sxClosed && !idleStopped) connectEngine(); }, 800);
       } else {
         toHost({ type: 'status', message: '엔진 연결 종료 (Soniox)' });
       }
@@ -3658,21 +3644,10 @@ function handleHost(ws) {
     let pending = [];
     let foreignTimer = null;
     let warnTimer = null;       // 무음 종료 10초 전 예고
-    // 인식 컨텍스트 고착 방지(runSoniox 와 동일 취지): 응대 중 발화가 끝나고 잠깐 무음이면
-    // 양 채널을 조용히 재연결해 누적 컨텍스트를 비운다 — 한 번 오인식이 그 연결 내내 굳는 문제.
-    const DESK_FLUSH_MS = 2600;
-    let deskFlushTimer = null;
-    const clearDeskFlush = () => { clearTimeout(deskFlushTimer); deskFlushTimer = null; };
-    const armDeskFlush = () => {
-      clearDeskFlush();
-      deskFlushTimer = setTimeout(() => {
-        // 대기·감지중·진행 중 발화·클라 이탈이면 스킵(안전 재연결 프리미티브 재사용)
-        if (phase !== 'active' || autoDetect || curId || gCurId || ws.readyState !== WebSocket.OPEN) return;
-        closeSx(); connectSx();
-        if (guestMicOn) { closeGuest(); connectGuest(); }
-      }, DESK_FLUSH_MS);
-    };
+    // (삭제됨) 무음 시 양 채널 조용한 재연결(컨텍스트 플러시) — 재연결마다 context 가
+    // input_text_tokens 로 재청구돼 비용 폭증(runSoniox 와 동일 사유, PROJECT_NOTES 2026-07-15).
     let pendingWayfind = null;  // 호스트 승인 대기 중인 길안내 제안
+    let wayfindOn = ws._wayfind !== '0'; // 길안내 지도 기능(기본 on) — 끄면 감지·GPT 분류 자체를 생략
     let convStartedAt = 0;      // 현재 응대 시작 시각(통계용)
 
     // ---- 여객(뷰어 태블릿) 마이크 채널 — 2채널 화자 귀속 프로토타입 ----
@@ -3797,11 +3772,10 @@ function handleHost(ws) {
       lastCommitAt = Date.now();
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null, undefined, toks);
       if (confFix) maybeConfFix(id, toks, txt, src, targetKeyFor(src)); // 저신뢰 자동 교정(고급옵션)
-      armDeskFlush(); // 발화 확정 → 무음 지속 시 컨텍스트 플러시 예약
       // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
       // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
       // 기계번역이 아닌 원어민 한국어 원문(txt)에서 매칭하므로 정확도가 높다.
-      if (phase === 'active' && src === A && txt) {
+      if (wayfindOn && phase === 'active' && src === A && txt) {
         const dfl = (session && session.deskFloor) || '1F';
         const dsd = (session && session.deskSide) || 'S';
         // 답변에 '목적지 층'이 있으면(예: "1층으로 내려가세요") 데스크 기본 층 우선순위를 덮어씀(직원 현장판단 반영).
@@ -3852,7 +3826,6 @@ function handleHost(ws) {
     const endConversation = () => {
       clearTimeout(foreignTimer);
       clearTimeout(warnTimer);
-      clearDeskFlush();
       pendingWayfind = null;
       // 종료 절차 중 commit() 의 자동감지 분기(양방향 재체결·desk-active 브로드캐스트)가 발동하지 않도록
       autoDetect = false;
@@ -3943,7 +3916,6 @@ function handleHost(ws) {
       const toks = ev.tokens || [];
       if (!toks.length) return;
       if (phase === 'active') armForeignTimer(); // 어떤 발화든(안내원 한국어 포함) 들리면 무음 타이머 리셋
-      clearDeskFlush(); // 활동 도착 → 컨텍스트 플러시 예약 취소
       let endHit = false, nonFinal = '', nonFinalTrans = '';
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
@@ -4030,7 +4002,6 @@ function handleHost(ws) {
       gLastCommitAt = Date.now();
       upsertItem(id, { [A]: out }, txt, null, lockedB || null, 'left', toks);
       if (confFix) maybeConfFix(id, toks, txt, gSrc, A); // 저신뢰 자동 교정(고급옵션) — 여객 채널
-      armDeskFlush(); // 발화 확정 → 무음 지속 시 컨텍스트 플러시 예약
     };
     function onGuestMsg(raw) {
       let ev; try { ev = JSON.parse(raw.toString()); } catch { return; }
@@ -4038,7 +4009,6 @@ function handleHost(ws) {
       const toks = ev.tokens || [];
       if (!toks.length) return;
       if (phase === 'active') armForeignTimer();
-      clearDeskFlush(); // 활동 도착 → 컨텍스트 플러시 예약 취소
       let endHit = false, nonFinal = '', nonFinalTrans = '';
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
@@ -4109,7 +4079,7 @@ function handleHost(ws) {
       }
       try {
         const m = JSON.parse(data.toString());
-        if (m.type === 'stop') { closed = true; clearTimeout(foreignTimer); clearTimeout(warnTimer); clearDeskFlush(); closeSx(); closeGuest(); }
+        if (m.type === 'stop') { closed = true; clearTimeout(foreignTimer); clearTimeout(warnTimer); closeSx(); closeGuest(); }
         else if (m.type === 'desk-start') { startConversation(String(m.lang || '').toLowerCase()); } // 호스트 수동 시작(언어 선택)
         else if (m.type === 'desk-reset-now') { endConversation(); } // 호스트 수동 '대기모드로' — 대화 종료·뷰어 터치화면 복귀
         else if (m.type === 'desk-guest-sens') { // 여객 태블릿 마이크 민감도 변경(호스트 고급 설정)
@@ -4134,6 +4104,7 @@ function handleHost(ws) {
           }
         }
         else if (m.type === 'wayfind-dismiss') { pendingWayfind = null; } // 제안 무시
+        else if (m.type === 'wayfind-on') { wayfindOn = !!m.on; if (!wayfindOn) pendingWayfind = null; } // 길안내 지도 기능 on/off(라이브)
       } catch {}
     });
     ws.on('close', () => {
