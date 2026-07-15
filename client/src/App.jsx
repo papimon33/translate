@@ -26,6 +26,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(localStorage.getItem('kac-nav') === '1');
   const [session, setSession] = useState(null); // 열린 세션(null=목록)
   const [view, setView] = useState('sessions'); // 'sessions' | 'admin'
+  const [adminTab, setAdminTab] = useState('usage'); // 관리자 하위메뉴(nav) 선택
   const [user, setUser] = useState(undefined); // undefined=확인중, null=로그아웃
   const [drawer, setDrawer] = useState(false); // 모바일 네비 드로어
   const [isFs, setIsFs] = useState(false); // 전체화면(데스크 안내) — nav 숨김
@@ -142,7 +143,7 @@ export default function App() {
     ) : view === 'desk' ? (
       <SessionList onOpen={openSession} user={user} deskMode createSignal={createSignal} />
     ) : view === 'admin' && user.role === 'admin' ? (
-      <AdminPage user={user} />
+      <AdminPage user={user} tab={adminTab} />
     ) : (
       <SessionList onOpen={openSession} user={user} createSignal={createSignal} />
     );
@@ -167,10 +168,11 @@ export default function App() {
       mode={mode}
       user={user}
       view={session ? (session.pipeline === 'desk' ? 'desk' : 'sessions') : view}
+      adminTab={adminTab}
       currentSessionId={session?.id || null}
       onHome={() => navTo({ view: 'sessions' })}
       onDesk={() => navTo({ view: 'desk' })}
-      onAdmin={() => navTo({ view: 'admin' })}
+      onAdmin={(tab) => { if (typeof tab === 'string') setAdminTab(tab); navTo({ view: 'admin' }); }}
       onOpenSession={(s) => navTo({ session: s, view: s.pipeline === 'desk' ? 'desk' : 'sessions' })}
       onLogout={logout}
       onUserUpdate={(u) => setUser(u)}

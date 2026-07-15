@@ -10,8 +10,6 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import Paper from '@mui/material/Paper';
 import Chip from '@mui/material/Chip';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -22,7 +20,8 @@ import Alert from '@mui/material/Alert';
 import Tooltip from '@mui/material/Tooltip';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
+import { ACCENT } from '../theme.js';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import LockResetIcon from '@mui/icons-material/LockReset';
@@ -64,37 +63,32 @@ function StatCard({ icon, label, value, sub }) {
   );
 }
 
-function EmptyTab({ icon, title, desc }) {
-  return (
-    <Box sx={{ textAlign: 'center', mt: 8, color: 'text.secondary' }}>
-      <Box sx={{ display: 'grid', placeItems: 'center', width: 72, height: 72, mx: 'auto', mb: 2, borderRadius: '50%', bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }}>{icon}</Box>
-      <Typography sx={{ fontSize: 18, fontWeight: 800, color: 'text.primary' }}>{title}</Typography>
-      <Typography sx={{ fontSize: 14, mt: 0.75 }}>{desc}</Typography>
-    </Box>
-  );
-}
-
-/* ---- 벤더 실사용량: Soniox(STT·번역) / Cartesia(TTS) / OpenAI(GPT) 사용량 API 직접 조회 ---- */
-function MiniBars({ days, valueOf, tipOf }) {
+/* ---- 벤더 실사용량: Soniox(STT·번역) / Cartesia(TTS) / OpenAI(GPT) 사용량 API 직접 조회 ----
+   그래프는 전부 시그니처 보라(ACCENT) 경량 SVG — 라이브러리 없음, 다크 모드 자동 대응. */
+function Sparkline({ days, valueOf, tipOf, brand }) {
   const rows = days || [];
-  if (!rows.length) return <Box sx={{ height: 56, mt: 1.5, display: 'grid', placeItems: 'center' }}><Typography sx={{ fontSize: 12, color: 'text.disabled' }}>기간 내 사용 기록 없음</Typography></Box>;
-  const val = (d) => Number(valueOf(d)) || 0;
-  const max = Math.max(...rows.map(val), 1e-9);
-  const labelEvery = Math.max(1, Math.ceil(rows.length / 10)); // 라벨은 최대 ~10개만(90일 겹침 방지)
+  if (!rows.length) return <Box sx={{ height: 44, mt: 1, display: 'grid', placeItems: 'center' }}><Typography sx={{ fontSize: 12, color: 'text.disabled' }}>기간 내 사용 기록 없음</Typography></Box>;
+  const vals = rows.map((d) => Number(valueOf(d)) || 0);
+  const max = Math.max(...vals, 1e-9);
+  const W = 200, H = 40, pad = 5;
+  const px = (i) => (rows.length > 1 ? (i / (rows.length - 1)) * W : W);
+  const py = (v) => H - pad - (v / max) * (H - 2 * pad);
+  const line = vals.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: rows.length > 40 ? 0.25 : 0.5, height: 56, mt: 1.5 }}>
+    <Box component="svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" sx={{ display: 'block', width: '100%', height: 40, mt: 1, overflow: 'visible' }}>
+      <path d={`${line} L${W},${H} L0,${H} Z`} fill={alpha(brand, 0.16)} />
+      <path d={line} fill="none" stroke={brand} strokeWidth="2" strokeLinejoin="round" />
+      <circle cx={W} cy={py(vals[vals.length - 1])} r="3" fill={brand} />
+      {/* 일자별 투명 히트 영역 — 네이티브 툴팁(<title>)으로 값 확인 */}
       {rows.map((d, i) => (
-        <Tooltip key={d.date} title={tipOf(d)}>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3, height: '100%', justifyContent: 'flex-end' }}>
-            <Box sx={{ width: '68%', height: `${Math.max(2, (val(d) / max) * 40)}px`, borderRadius: 0.5, bgcolor: 'primary.main', opacity: val(d) ? 0.75 : 0.2 }} />
-            <Typography sx={{ fontSize: 9, color: 'text.disabled', whiteSpace: 'nowrap', height: 12 }}>{i % labelEvery === 0 ? d.date.slice(8) : ''}</Typography>
-          </Box>
-        </Tooltip>
+        <rect key={d.date} x={px(i) - W / rows.length / 2} y="0" width={W / rows.length} height={H} fill="transparent">
+          <title>{tipOf(d)}</title>
+        </rect>
       ))}
     </Box>
   );
 }
-function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, extra }) {
+function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, extra, brand }) {
   const body = () => {
     if (!v) return <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 2 }}>불러오는 중…</Typography>;
     if (!v.configured) return (
@@ -116,25 +110,63 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, tipOf, ex
     return (
       <>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, mt: 0.5 }}>{totalOf(v)}</Typography>
+          <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, mt: 0.5, fontVariantNumeric: 'tabular-nums' }}>{totalOf(v)}</Typography>
           {v.error && <Tooltip title={`최신 갱신 실패(저장분 표시 중): ${v.error}`}><Chip size="small" color="warning" label="갱신 실패" sx={{ height: 18, fontSize: 10.5 }} /></Tooltip>}
         </Box>
         {/* 카드 간 차트 기준선 정렬: 보조 문구 줄은 항상 렌더링(비어도 높이 유지) */}
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25, minHeight: 18 }}>{subOf ? subOf(v) : ' '}</Typography>
-        <MiniBars days={v.days} valueOf={valueOf} tipOf={tipOf} />
+        <Typography sx={{ fontSize: 12, color: 'text.disabled', mt: 0.25, minHeight: 18, fontVariantNumeric: 'tabular-nums' }}>{subOf ? subOf(v) : ' '}</Typography>
+        <Sparkline days={v.days} valueOf={valueOf} tipOf={tipOf} brand={brand} />
         {extra && extra(v)}
       </>
     );
   };
+  const ok = v && v.configured && !v.error;
   return (
     <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.25, flex: '1 1 240px', minWidth: 220 }}>
-      <Typography sx={{ fontWeight: 800, fontSize: 14 }}>{name} <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· {desc}</Box></Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+        <Typography sx={{ fontWeight: 700, fontSize: 12.5, color: 'text.secondary' }}>{name} <Box component="span" sx={{ fontWeight: 500, fontSize: 12 }}>· {desc}</Box></Typography>
+        {ok && <Typography sx={{ fontSize: 10.5, fontWeight: 800, color: 'success.main', flex: 'none' }}>정상</Typography>}
+      </Box>
       {body()}
     </Paper>
   );
 }
-function VendorUsage() {
-  const [days, setDays] = useState(7); // 토글(7/30/90일)과 일치하는 기본값 — 선택 표시 항상 있음
+/* 일별 총 비용(USD) 면적 그래프 — Soniox+OpenAI 합산(Cartesia 는 크레딧 단위라 카드에서 확인) */
+function DailyCostChart({ data, brand }) {
+  const W = 720, H = 190, padT = 14, padB = 15;
+  const max = Math.max(...data.map((d) => d.cost), 1e-9);
+  const px = (i) => (data.length > 1 ? (i / (data.length - 1)) * W : W);
+  const py = (v) => H - padB - (v / max) * (H - padT - padB);
+  const line = data.map((d, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(d.cost).toFixed(1)}`).join(' ');
+  const grid = [0.25, 0.5, 0.75, 1].map((r) => H - padB - r * (H - padT - padB));
+  const fmt$ = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toFixed(3));
+  return (
+    <>
+      <Box component="svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" sx={{ display: 'block', width: '100%', height: 190 }} aria-label="일별 비용 추이">
+        {grid.map((y) => <line key={y} x1="0" y1={y} x2={W} y2={y} stroke="currentColor" opacity="0.08" strokeWidth="1" />)}
+        <path d={`${line} L${W},${H - padB} L0,${H - padB} Z`} fill={alpha(brand, 0.16)} />
+        <path d={line} fill="none" stroke={brand} strokeWidth="2.5" strokeLinejoin="round" />
+        <circle cx={px(data.length - 1)} cy={py(data[data.length - 1].cost)} r="4" fill={brand} />
+        <text x="6" y={grid[3] - 5} fontSize="10" fill="currentColor" opacity="0.45">{fmt$(max)}</text>
+        <text x="6" y={grid[1] - 5} fontSize="10" fill="currentColor" opacity="0.45">{fmt$(max / 2)}</text>
+        {data.map((d, i) => (
+          <rect key={d.date} x={px(i) - W / data.length / 2} y="0" width={W / data.length} height={H} fill="transparent">
+            <title>{`${d.date} · ${fmt$(d.cost)}`}</title>
+          </rect>
+        ))}
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, fontSize: 11.5, color: 'text.secondary' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+          <Box sx={{ width: 9, height: 9, borderRadius: 0.5, bgcolor: brand }} />총 비용 (Soniox + OpenAI)
+        </Box>
+        <span>{data[0].date.slice(5).replace('-', '/')}</span>
+        <Box sx={{ ml: 'auto' }}>{data[data.length - 1].date.slice(5).replace('-', '/')}</Box>
+      </Box>
+    </>
+  );
+}
+function VendorUsage({ brand }) {
+  const [days, setDays] = useState(30); // 토글(7/30/90일)과 일치하는 기본값 — 선택 표시 항상 있음
   const [data, setData] = useState(null);
   useEffect(() => {
     // 기간 빠른 전환 시 늦게 도착한 이전 기간 응답이 화면을 덮지 않도록(stale 가드)
@@ -146,19 +178,26 @@ function VendorUsage() {
     return () => { cancelled = true; };
   }, [days]);
   const v = (k) => (data && !data.error ? data[k] : null);
+  // 일별 총 비용(USD): Soniox + OpenAI 합산(같은 KST 일자 축) — Cartesia 는 크레딧 단위라 카드에서 확인
+  const dailyMap = {};
+  for (const k of ['soniox', 'openai']) for (const d of (v(k) || {}).days || []) dailyMap[d.date] = (dailyMap[d.date] || 0) + (d.costUsd || 0);
+  const daily = Object.entries(dailyMap).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, cost]) => ({ date, cost }));
+  const totalUsd = daily.reduce((a, d) => a + d.cost, 0);
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3, mb: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
-        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>벤더 실사용량</Typography>
+    <>
+      {/* 페이지 제목 + 기간 세그먼트(활성=시그니처 보라) */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
+        <Typography component="h1" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em' }}>사용량</Typography>
         <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup size="small" exclusive value={days} onChange={(e, x) => x && setDays(x)}>
-          {[7, 30, 90].map((d) => <ToggleButton key={d} value={d} sx={{ py: 0.2, px: 1.2, fontSize: 11, textTransform: 'none' }}>{d}일</ToggleButton>)}
+        <ToggleButtonGroup size="small" exclusive value={days} onChange={(e, x) => x && setDays(x)}
+          sx={{ '& .MuiToggleButton-root': { py: 0.35, px: 1.6, fontSize: 12, fontWeight: 700, textTransform: 'none', '&.Mui-selected': { bgcolor: brand, color: '#fff', '&:hover': { bgcolor: brand } } } }}>
+          {[7, 30, 90].map((d) => <ToggleButton key={d} value={d}>{d}일</ToggleButton>)}
         </ToggleButtonGroup>
       </Box>
       {data && data.error && <Alert severity="error" sx={{ mb: 1 }}>벤더 사용량을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</Alert>}
       {/* 요청 실패 시 '불러오는 중…' 카드가 영구히 남지 않도록 카드 영역 자체를 숨김 */}
-      <Box sx={{ display: data && data.error ? 'none' : 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-        <VendorCard name="Soniox" desc="음성인식·실시간 번역" v={v('soniox')} keyHint="SONIOX_API_KEY"
+      <Box sx={{ display: data && data.error ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 1.5, mb: 1.75 }}>
+        <VendorCard brand={brand} name="Soniox" desc="음성인식·실시간 번역" v={v('soniox')} keyHint="SONIOX_API_KEY"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)} subOf={(x) => `오디오 ${fmtMin(x.totalAudioMin || 0)} · ${x.totalRequests || 0}회 연결`}
           valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtMin((d.audioMs || 0) / 60000)} · ${fmtCost(d.costUsd)}`}
           extra={(x) => (x.users || []).length > 0 && (
@@ -175,33 +214,35 @@ function VendorUsage() {
               </Box>
             </Box>
           )} />
-        <VendorCard name="Cartesia" desc="음성 합성(TTS)" v={v('cartesia')} keyHint="CARTESIA_ADMIN_API_KEY (sk_car_admin_…)"
+        <VendorCard brand={brand} name="Cartesia" desc="음성 합성(TTS)" v={v('cartesia')} keyHint="CARTESIA_ADMIN_API_KEY (sk_car_admin_…)"
           totalOf={(x) => `${(x.totalCredits || 0).toLocaleString()} 크레딧`}
           subOf={(x) => `일평균 ${Math.round((x.totalCredits || 0) / Math.max(1, (x.days || []).length)).toLocaleString()} 크레딧`}
           valueOf={(d) => d.credits} tipOf={(d) => `${d.date} · ${(d.credits || 0).toLocaleString()} 크레딧`} />
-        <VendorCard name="OpenAI" desc="GPT (요약·다듬기·검사)" v={v('openai')} keyHint="OPENAI_ADMIN_API_KEY (sk-admin-…)"
+        <VendorCard brand={brand} name="OpenAI" desc="GPT (요약·다듬기·검사)" v={v('openai')} keyHint="OPENAI_ADMIN_API_KEY (sk-admin-…)"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)}
           subOf={(x) => `일평균 ${fmtCost((x.totalCostUsd || 0) / Math.max(1, (x.days || []).length))}`}
           valueOf={(d) => d.costUsd} tipOf={(d) => `${d.date} · ${fmtCost(d.costUsd)}`} />
       </Box>
-      {data && !data.error && (v('soniox')?.earliest || v('cartesia')?.earliest || v('openai')?.earliest) && (
-        <Typography sx={{ fontSize: 11, color: 'text.disabled', mt: 1.5 }}>
-          기록 시작일 {[['Soniox', v('soniox')], ['Cartesia', v('cartesia')], ['OpenAI', v('openai')]].filter(([, x]) => x?.earliest).map(([n, x]) => `${n} ${x.earliest}`).join(' · ')} — 12시간마다 자동 갱신·누적.
-        </Typography>
+      {/* 일별 총 비용 추이 — 시안 1 의 메인 그래프 */}
+      {!(data && data.error) && (
+        <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1.25, flexWrap: 'wrap' }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 14 }}>일별 총 비용 (USD)</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+              {days}일 합계 <Box component="b" sx={{ color: brand, fontVariantNumeric: 'tabular-nums' }}>{fmtCost(totalUsd)}</Box>
+            </Typography>
+          </Box>
+          {!data ? <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>
+            : daily.length ? <DailyCostChart data={daily} brand={brand} />
+            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 4, textAlign: 'center' }}>기간 내 사용 기록이 없습니다.</Typography>}
+        </Paper>
       )}
-    </Paper>
+    </>
   );
 }
 
-const TABS = [
-  { v: 'usage', label: '사용량' },
-  { v: 'logs', label: '로그' },
-  { v: 'desks', label: '안내데스크' },
-  { v: 'accounts', label: '계정 관리' },
-  { v: 'terms', label: '용어 설정' },
-  { v: 'canned', label: '정형 안내' },
-  { v: 'system', label: '시스템·보안' },
-];
+// 상단 탭은 제거 — 이동은 좌측 nav 의 관리자 하위메뉴(Nav.jsx ADMIN_TABS)에서. 여기는 페이지 제목만.
+const PAGE_TITLES = { logs: '로그', desks: '안내데스크', accounts: '계정 관리', terms: '용어 설정', canned: '정형 안내', system: '시스템·보안' };
 
 /* ── 안내데스크 관리(레지스트리): 이름·층·방향을 사전 정의 — 관리자 전용.
      세션은 여기서 만들지 않는다: 데스크 목록 화면에서 '등록된 데스크 선택 + 세션명'으로 생성.
@@ -510,43 +551,61 @@ function LogsPanel() {
 
 const LANG_KO = { en: '영어', ja: '일본어', zh: '중국어', vi: '베트남어', th: '태국어', id: '인도네시아어', ru: '러시아어', ko: '한국어', unknown: '미상' };
 
-// 데스크 운영 통계(v2): 시범운영 보고서용 — 셀렉터로 데스크를 고르면 그 데스크의 상세 지표만 표출.
-// 지표: 응대 건수(중단 포함)·평균/중앙값 응대시간·평균 문장수·누화 드랍율·길안내 감지→표시율,
-// 일별 추이·시간대 분포·언어별 상세. 원자료는 CSV 로 내려받아 외부 분석/보고서에 사용.
-function BarRow({ items, height = 64, labelOf, valueOf, tipOf, labelEvery = 1 }) {
-  const max = Math.max(1e-9, ...items.map(valueOf));
+/* 데스크 운영 통계(v3, 시안 2): KPI 타일 4 + 일별 응대 막대(14일) + 언어 분포·응답 지연.
+   데스크 선택은 select, 원자료 CSV 유지. 응답 지연은 레이턴시 로그(tm) 기반 — 손님 발화 끝 → 안내 시작. */
+const kstDayStr = (offset = 0) => new Date(Date.now() + 9 * 3600e3 - offset * 86400e3).toISOString().slice(0, 10);
+const fmtClock = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const quantile = (sorted, q) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : null);
+function KpiCard({ label, value, unit, sub, tip }) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, height }}>
-      {items.map((x, i) => (
-        <Tooltip key={i} title={tipOf(x, i)}>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.4, height: '100%', justifyContent: 'flex-end' }}>
-            <Box sx={{ width: '64%', height: `${Math.max(2, (valueOf(x) / max) * (height - 20))}px`, borderRadius: 0.75, bgcolor: 'primary.main', opacity: valueOf(x) ? 0.75 : 0.18 }} />
-            <Typography sx={{ fontSize: 9.5, color: 'text.disabled', whiteSpace: 'nowrap', height: 12 }}>{i % labelEvery === 0 ? labelOf(x, i) : ''}</Typography>
-          </Box>
-        </Tooltip>
-      ))}
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2, pb: 1.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>{label}</Typography>
+        {tip && <Tooltip title={tip} placement="top" enterTouchDelay={0}><InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'help' }} /></Tooltip>}
+      </Box>
+      <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.25, mt: 0.5, fontVariantNumeric: 'tabular-nums' }}>
+        {value}{unit ? <Box component="span" sx={{ fontSize: 13, fontWeight: 600, color: 'text.secondary' }}> {unit}</Box> : null}
+      </Typography>
+      <Typography component="div" sx={{ fontSize: 11.5, color: 'text.disabled', fontVariantNumeric: 'tabular-nums', minHeight: 17 }}>{sub || '\u00a0'}</Typography>
+    </Paper>
+  );
+}
+function HBar({ label, pct, right, brand, opacity = 1 }) {
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: '72px 1fr 88px', alignItems: 'center', gap: 1.25, my: 1.1, fontSize: 12.5 }}>
+      <span>{label}</span>
+      <Box sx={{ height: 10, borderRadius: 1, bgcolor: (t) => alpha(t.palette.text.primary, 0.06), overflow: 'hidden' }}>
+        <Box sx={{ width: `${Math.max(0, Math.min(100, pct))}%`, height: '100%', borderRadius: 1, bgcolor: brand, opacity }} />
+      </Box>
+      <Typography sx={{ fontSize: 12, color: 'text.secondary', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{right}</Typography>
     </Box>
   );
 }
-function MetricBox({ label, value, sub, tip }) {
+function DailyBars({ series, brand }) {
+  const W = 460, H = 170, padT = 28, padB = 10;
+  const max = Math.max(...series.map((x) => x.count), 1);
+  const step = W / series.length;
+  const bw = Math.min(24, step * 0.62);
   return (
-    <Box sx={{ flex: '1 1 130px', minWidth: 120, p: 1.5, borderRadius: 1.25, border: 1, borderColor: 'divider' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'text.secondary' }}>{label}</Typography>
-        {tip && (
-          <Tooltip title={tip} placement="top" enterTouchDelay={0}>
-            <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'help' }} />
-          </Tooltip>
-        )}
-      </Box>
-      <Typography sx={{ fontSize: 19, fontWeight: 800, lineHeight: 1.3, mt: 0.25 }}>{value}</Typography>
-      {sub && <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>{sub}</Typography>}
+    <Box component="svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" sx={{ display: 'block', width: '100%', height: 170 }} aria-label="일별 응대 추이">
+      {[0.33, 0.66, 1].map((r) => <line key={r} x1="0" y1={H - padB - r * (H - padT - padB)} x2={W} y2={H - padB - r * (H - padT - padB)} stroke="currentColor" opacity="0.08" />)}
+      {series.map((x, i) => {
+        const h = Math.max(x.count ? 3 : 1.5, (x.count / max) * (H - padT - padB));
+        return (
+          <rect key={x.date} x={i * step + (step - bw) / 2} y={H - padB - h} width={bw} height={h} rx="4"
+            fill={brand} opacity={i === series.length - 1 ? 1 : x.count ? 0.45 : 0.15}>
+            <title>{`${x.date} · ${x.count}건`}</title>
+          </rect>
+        );
+      })}
+      <text x={step / 2} y="16" fontSize="10" fill="currentColor" opacity="0.45">{series[0].date.slice(5).replace('-', '/')}</text>
+      <text x={W - step / 2} y="16" fontSize="10" fill="currentColor" opacity="0.45" textAnchor="end">오늘</text>
     </Box>
   );
 }
 // '전체' 선택용: 모든 데스크의 통계를 합산(평균류는 건수 가중, 중앙값은 rows 재계산)
 function aggregateDeskStats(stats) {
-  const agg = { id: '__all', title: '전체', count: 0, interrupted: 0, avgMs: 0, medianMs: 0, byLang: {}, sentences: { total: 0, avgPerConv: 0, staff: 0, guest: 0 }, crossDrops: 0, crossDropRate: 0, wayfindDetected: 0, wayfindShown: 0, wayfindTop: [], daily: [], hourly: Array(24).fill(0), rows: [] };
+  const agg = { id: '__all', title: '전체', count: 0, interrupted: 0, avgMs: 0, medianMs: 0, byLang: {}, sentences: { total: 0, avgPerConv: 0, staff: 0, guest: 0 }, crossDrops: 0, crossDropRate: 0, wayfindDetected: 0, wayfindShown: 0, wayfindTop: [], daily: [], hourly: Array(24).fill(0), respDelays: [], rows: [] };
   const dailyMap = {}; const wtop = {}; const lang = {};
   for (const d of stats) {
     agg.count += d.count; agg.interrupted += d.interrupted || 0;
@@ -559,6 +618,7 @@ function aggregateDeskStats(stats) {
     for (const x of d.daily || []) dailyMap[x.date] = (dailyMap[x.date] || 0) + x.count;
     (d.hourly || []).forEach((n, h) => { agg.hourly[h] += n; });
     for (const w of d.wayfindTop || []) wtop[w.catId] = (wtop[w.catId] || 0) + w.count;
+    for (const v of d.respDelays || []) agg.respDelays.push(v);
     for (const r of d.rows || []) agg.rows.push({ ...r, desk: d.title });
   }
   agg.byLang = Object.fromEntries(Object.entries(lang).map(([lg, t]) => [lg, { count: t.count, avgMs: t.count ? Math.round(t.dur / t.count) : 0, avgSent: t.count ? +(t.sent / t.count).toFixed(1) : 0 }]));
@@ -584,45 +644,51 @@ function EmptyHint({ icon, title, desc }) {
     </Box>
   );
 }
-function DeskStats() {
+function DeskStats({ brand }) {
   const [stats, setStats] = useState(null);
   const [sel, setSel] = useState('__all');
-  const [period, setPeriod] = useState(7);   // 7 | 30 | 90 | 'all'
-  const [gran, setGran] = useState('day');   // 'day' | 'month'
   useEffect(() => { api.adminDeskStats().then(setStats).catch(() => setStats([])); }, []);
-  if (!stats) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
+  const selStyle = { px: 1.25, py: 0.7, borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' };
+  const header = (right) => (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 5, mb: 2, flexWrap: 'wrap' }}>
+      <Typography component="h2" sx={{ fontSize: 21, fontWeight: 800, letterSpacing: '-0.02em' }}>데스크 운영 통계</Typography>
+      {right}
+    </Box>
+  );
+  if (!stats) return <>{header(null)}<Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography></>;
   if (!stats.length) {
     return (
-      <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
-        <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1 }}>데스크 운영 통계</Typography>
-        <EmptyHint icon={<ForumOutlinedIcon sx={{ fontSize: 22 }} />} title="아직 응대 기록이 없습니다"
-          desc="좌측 메뉴의 '데스크 안내'에서 안내데스크 세션을 만들어 응대를 시작하면 여기에 통계가 쌓입니다." />
-      </Paper>
+      <>
+        {header(null)}
+        <Paper variant="outlined" sx={{ borderRadius: 1.5 }}>
+          <EmptyHint icon={<ForumOutlinedIcon sx={{ fontSize: 22 }} />} title="아직 응대 기록이 없습니다"
+            desc="좌측 메뉴의 '데스크 안내'에서 안내데스크 세션을 만들어 응대를 시작하면 여기에 통계가 쌓입니다." />
+        </Paper>
+      </>
     );
   }
   const d = sel === '__all' ? aggregateDeskStats(stats) : (stats.find((x) => x.id === sel) || stats[0]);
-  const langRows = Object.entries(d.byLang || {}).sort((a, b) => b[1].count - a[1].count);
-  const hourly = (d.hourly || []).map((count, hour) => ({ hour, count }));
 
-  // 기간별 통계: 기간(7/30/90일/전체) 필터 + 일별/월별 그룹핑. 일별 뷰는 빈 날짜를 0으로 채워 축 유지.
-  let series = d.daily || [];
-  if (period !== 'all') {
-    const cut = new Date(Date.now() + 9 * 3600e3 - (period - 1) * 86400e3).toISOString().slice(0, 10);
-    series = series.filter((x) => x.date >= cut);
-    if (gran === 'day') {
-      const map = Object.fromEntries(series.map((x) => [x.date, x.count]));
-      series = [];
-      for (let i = period - 1; i >= 0; i--) {
-        const date = new Date(Date.now() + 9 * 3600e3 - i * 86400e3).toISOString().slice(0, 10);
-        series.push({ date, count: map[date] || 0 });
-      }
-    }
-  }
-  if (gran === 'month') {
-    const m = {};
-    for (const x of series) { const k = x.date.slice(0, 7); m[k] = (m[k] || 0) + x.count; }
-    series = Object.entries(m).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, count]) => ({ date, count }));
-  }
+  // KPI: 오늘 응대(어제 대비) · 평균 응대 시간(중앙값) · 응대당 문장(안내원/손님) · 누화 드랍율
+  const dayMap = Object.fromEntries((d.daily || []).map((x) => [x.date, x.count]));
+  const todayN = dayMap[kstDayStr(0)] || 0;
+  const yestN = dayMap[kstDayStr(1)] || 0;
+  const diffPct = yestN > 0 ? Math.round(((todayN - yestN) / yestN) * 100) : null;
+  const per = (n) => (d.count ? +(n / d.count).toFixed(1) : 0);
+  // 일별 응대(최근 14일, 빈 날 0 채움 — 축 유지)
+  const series = [];
+  for (let i = 13; i >= 0; i--) { const date = kstDayStr(i); series.push({ date, count: dayMap[date] || 0 }); }
+  const sum14 = series.reduce((a, x) => a + x.count, 0);
+  // 언어 분포: 상위 4 + 기타
+  const langAll = Object.entries(d.byLang || {}).sort((a, b) => b[1].count - a[1].count);
+  const langTotal = Math.max(1, langAll.reduce((a, [, b]) => a + b.count, 0));
+  const rest = langAll.slice(4).reduce((a, [, b]) => a + b.count, 0);
+  const langRows = [...langAll.slice(0, 4).map(([lg, b]) => [LANG_KO[lg] || lg, b.count]), ...(rest ? [['기타', rest]] : [])];
+  const OP = [1, 0.8, 0.6, 0.45, 0.35];
+  // 응답 지연(레이턴시 로그 tm): 중앙값·P90
+  const delays = (d.respDelays || []).slice().sort((a, b) => a - b);
+  const med = quantile(delays, 0.5), p90 = quantile(delays, 0.9);
+  const dMax = Math.max(p90 || 0, 1) * 1.15;
 
   const downloadCsv = () => {
     const all = sel === '__all';
@@ -632,137 +698,69 @@ function DeskStats() {
       r.date, r.startedAt ? new Date(r.startedAt).toISOString() : '', r.endedAt ? new Date(r.endedAt).toISOString() : '',
       r.durMs != null ? Math.round(r.durMs / 1000) : '', r.lang, r.sentences, r.staff ?? '', r.guest ?? '', r.crossDrops ?? '', r.interrupted ? 1 : 0,
     ].join(','));
-    const blob = new Blob(['﻿' + [head, ...lines].join('\n')], { type: 'text/csv;charset=utf-8' }); // BOM: 엑셀 한글 인코딩
+    const blob = new Blob(['\ufeff' + [head, ...lines].join('\n')], { type: 'text/csv;charset=utf-8' }); // BOM: 엑셀 한글 인코딩
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `desk-stats-${all ? 'all' : d.id}-${kstToday()}.csv`; a.click(); URL.revokeObjectURL(a.href);
   };
 
-  const selStyle = { px: 1.25, py: 0.9, borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary', fontSize: 13.5, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' };
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3 }}>
-      {/* 헤더 — 벤더 실사용량과 동일하게 박스 안에 제목 배치 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
-        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>데스크 운영 통계</Typography>
-        {/* 네이티브 select — MUI Select 가 일부 환경에서 클릭이 안 되던 문제로 교체 */}
-        <Box component="select" value={sel} onChange={(e) => setSel(e.target.value)} sx={{ ...selStyle, minWidth: 150 }}>
-          <option value="__all">전체</option>
-          {stats.map((x) => <option key={x.id} value={x.id}>{x.title}{x.deleted ? ' (삭제됨)' : ''}</option>)}
-        </Box>
-        <Box sx={{ flex: 1 }} />
-        <Tooltip title="응대 원자료 CSV 내려받기 (응대 1건 = 1행)">
-          <IconButton size="small" onClick={downloadCsv}><FileDownloadOutlinedIcon sx={{ fontSize: 20 }} /></IconButton>
-        </Tooltip>
-      </Box>
+    <>
+      {header(
+        <>
+          {/* 데스크 선택 — 네이티브 select(MUI Select 가 일부 환경에서 클릭이 안 되던 문제로 유지) */}
+          <Box component="select" value={sel} onChange={(e) => setSel(e.target.value)} sx={{ ...selStyle, minWidth: 150 }}>
+            <option value="__all">전체</option>
+            {stats.map((x) => <option key={x.id} value={x.id}>{x.title}{x.deleted ? ' (삭제됨)' : ''}</option>)}
+          </Box>
+          <Box sx={{ flex: 1 }} />
+          <Tooltip title="응대 원자료 CSV 내려받기 (응대 1건 = 1행)">
+            <IconButton size="small" onClick={downloadCsv}><FileDownloadOutlinedIcon sx={{ fontSize: 20 }} /></IconButton>
+          </Tooltip>
+        </>
+      )}
 
-      {/* 핵심 지표 */}
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2.5 }}>
-        <MetricBox label="응대 건수" value={d.count} sub={d.interrupted ? `중단 ${d.interrupted}건 포함` : undefined} />
-        <MetricBox label="평균 응대 시간" value={fmtDuration(d.avgMs)} sub={`중앙값 ${fmtDuration(d.medianMs)}`} />
-        <MetricBox label="응대당 평균 문장" value={(d.sentences && d.sentences.avgPerConv) || 0} sub={d.sentences ? `안내원 ${d.sentences.staff} · 손님 ${d.sentences.guest}` : undefined} />
-        <MetricBox label="누화 드랍율" value={`${d.crossDropRate || 0}%`} sub={`드랍 ${d.crossDrops || 0}건`}
+      {/* KPI 타일 4 */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1.5, mb: 1.5 }}>
+        <KpiCard label="오늘 응대" value={todayN} unit="건"
+          sub={<>어제 {yestN}건{diffPct != null && <> · <Box component="b" sx={{ color: diffPct >= 0 ? 'success.main' : 'warning.main' }}>{diffPct >= 0 ? '+' : ''}{diffPct}%</Box></>}</>} />
+        <KpiCard label="평균 응대 시간" value={fmtClock(d.avgMs)} sub={`중앙값 ${fmtClock(d.medianMs)}`} />
+        <KpiCard label="응대당 문장" value={d.sentences ? d.sentences.avgPerConv : 0}
+          sub={d.sentences ? `안내원 ${per(d.sentences.staff)} · 손님 ${per(d.sentences.guest)}` : undefined} />
+        <KpiCard label="누화 드랍" value={d.crossDropRate || 0} unit="%" sub="2채널 마이크 간섭 지표"
           tip="2채널(안내원 마이크 + 여객 태블릿) 운영 시 한 발화가 반대쪽 마이크에도 새어 들어와 중복 인식된 것을 서버가 걸러낸 비율입니다. 값이 높으면 두 마이크가 너무 가깝거나 민감도가 높다는 신호입니다." />
-        <MetricBox label="길안내" value={`${d.wayfindShown}/${d.wayfindDetected}`} sub="표시/감지" />
       </Box>
 
-      {/* 기간별 통계 — 기간·단위 선택 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, flexWrap: 'wrap' }}>
-        <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary' }}>기간별 통계</Typography>
-        <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup size="small" exclusive value={period} onChange={(e, v) => v != null && setPeriod(v)}>
-          {[[7, '7일'], [30, '30일'], [90, '90일'], ['all', '전체']].map(([v, l]) => (
-            <ToggleButton key={l} value={v} sx={{ py: 0.1, px: 1.1, fontSize: 11 }}>{l}</ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-        <ToggleButtonGroup size="small" exclusive value={gran} onChange={(e, v) => v && setGran(v)}>
-          <ToggleButton value="day" sx={{ py: 0.1, px: 1.1, fontSize: 11 }}>일별</ToggleButton>
-          <ToggleButton value="month" sx={{ py: 0.1, px: 1.1, fontSize: 11 }}>월별</ToggleButton>
-        </ToggleButtonGroup>
-      </Box>
-      {series.length > 0 ? (
-        <BarRow items={series} labelOf={(x) => gran === 'month' ? x.date.slice(2) : x.date.slice(5)} valueOf={(x) => x.count}
-          tipOf={(x) => `${x.date} · ${x.count}건`} labelEvery={Math.max(1, Math.ceil(series.length / 10))} />
-      ) : (
-        <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 2, textAlign: 'center' }}>선택한 기간에 응대 기록이 없습니다.</Typography>
-      )}
-
-      {/* 시간대별(좌) + 언어별(우) — 1열 배치 */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 3, mt: 2.5 }}>
-        <Box>
-          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', mb: 0.5 }}>시간대별 분포 (KST)</Typography>
-          {hourly.some((h) => h.count > 0)
-            ? <BarRow items={hourly} height={64} labelOf={(x) => String(x.hour).padStart(2, '0')} valueOf={(x) => x.count} tipOf={(x) => `${x.hour}시 · ${x.count}건`} labelEvery={3} />
-            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 2, textAlign: 'center' }}>기록 없음</Typography>}
-        </Box>
-        <Box>
-          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', mb: 0.5 }}>언어별 분포</Typography>
+      {/* 일별 응대 추이(좌) + 언어 분포·응답 지연(우) */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.6fr 1fr' }, gap: 1.5 }}>
+        <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 14 }}>일별 응대 건수</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>14일 합계 {sum14}건</Typography>
+          </Box>
+          {sum14 > 0 ? <DailyBars series={series} brand={brand} />
+            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 6, textAlign: 'center' }}>최근 14일간 응대 기록이 없습니다.</Typography>}
+        </Paper>
+        <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 0.5 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 14 }}>언어 분포</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>손님 언어</Typography>
+          </Box>
           {langRows.length > 0
-            ? <BarRow items={langRows} height={64} labelOf={([lang]) => LANG_KO[lang] || lang} valueOf={([, b]) => b.count} tipOf={([lang, b]) => `${LANG_KO[lang] || lang} · ${b.count}건`} />
+            ? langRows.map(([label, count], i) => (
+              <HBar key={label} label={label} pct={(count / langTotal) * 100} right={`${count}건 · ${Math.round((count / langTotal) * 100)}%`} brand={brand} opacity={OP[i] || 0.35} />
+            ))
             : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 2, textAlign: 'center' }}>기록 없음</Typography>}
-        </Box>
+          <Typography sx={{ fontWeight: 800, fontSize: 13.5, mt: 2.5, mb: 0.5 }}>
+            응답 지연 <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· 손님 발화 끝 → 안내 시작</Box>
+          </Typography>
+          {med != null ? (
+            <>
+              <HBar label="중앙값" pct={(med / dMax) * 100} right={`${(med / 1000).toFixed(1)}초`} brand={brand} />
+              <HBar label="P90" pct={((p90 || 0) / dMax) * 100} right={`${((p90 || 0) / 1000).toFixed(1)}초`} brand={brand} opacity={0.6} />
+            </>
+          ) : <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>아직 측정 데이터가 없습니다 — 새 응대부터 자동 수집됩니다.</Typography>}
+        </Paper>
       </Box>
-
-      {/* 길안내 상위 시설 */}
-      {(d.wayfindTop || []).length > 0 && (
-        <Box sx={{ mt: 2.5 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.secondary', mb: 0.75 }}>길안내 상위 시설</Typography>
-          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            {d.wayfindTop.map((w) => <Chip key={w.catId} size="small" label={`${w.catId} ${w.count}건`} sx={{ height: 22, fontSize: 12 }} />)}
-          </Box>
-        </Box>
-      )}
-    </Paper>
-  );
-}
-
-function FaqPanel() {
-  const [report, setReport] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => { api.adminFaqReport().then(setReport).catch(() => setReport({ topics: [] })); }, []);
-  const run = async () => {
-    setBusy(true); setErr('');
-    try { setReport(await api.adminFaqAnalyze()); }
-    catch (e) { setErr(e.message || '분석 실패'); }
-    finally { setBusy(false); }
-  };
-  const topics = (report && report.topics) || [];
-  const maxCount = Math.max(1, ...topics.map((t) => t.count || 0));
-  return (
-    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 3, mt: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
-        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>자주 묻는 질문</Typography>
-        <Tooltip title="데스크 응대 로그의 손님 발화(한국어 번역)를 AI 로 주제별 클러스터링합니다. 안내판 개선·인력 배치의 근거 데이터로 사용하세요. (OpenAI 전송·과금 — 버튼으로만 실행)" placement="top">
-          <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled', cursor: 'help' }} />
-        </Tooltip>
-        <Box sx={{ flex: 1 }} />
-        {report && report.at > 0 && <Typography sx={{ fontSize: 11.5, color: 'text.disabled' }}>{fmtTime(report.at)} · {report.checked}건 분석</Typography>}
-        <Button size="small" variant="outlined" onClick={run} disabled={busy}>{busy ? '분석 중…' : '분석 실행'}</Button>
-      </Box>
-      {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
-      {report && report.note && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>{report.note}</Typography>}
-      {topics.length === 0 && !report?.note && (
-        <EmptyHint icon={<ForumOutlinedIcon sx={{ fontSize: 22 }} />} title="아직 분석 결과가 없습니다"
-          desc="응대 로그가 쌓인 뒤 '분석 실행'을 누르면 손님 질문 TOP 주제가 여기에 표시됩니다." />
-      )}
-      {topics.map((t, i) => (
-        <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.9, borderTop: i ? 1 : 0, borderColor: 'divider' }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'text.disabled', width: 20, flex: 'none' }}>{i + 1}</Typography>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>{t.topic}</Typography>
-            {(t.examples || []).length > 0 && (
-              <Typography sx={{ fontSize: 11.5, color: 'text.disabled', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                “{t.examples.join('” · “')}”
-              </Typography>
-            )}
-          </Box>
-          <Box sx={{ width: 120, flex: 'none', display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ flex: 1, height: 6, borderRadius: 3, bgcolor: (th) => alpha(th.palette.primary.main, 0.15) }}>
-              <Box sx={{ width: `${Math.round(((t.count || 0) / maxCount) * 100)}%`, height: '100%', borderRadius: 3, bgcolor: 'primary.main', opacity: 0.8 }} />
-            </Box>
-            <Typography sx={{ fontSize: 12.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', width: 34, textAlign: 'right' }}>{t.count}건</Typography>
-          </Box>
-        </Box>
-      ))}
-    </Paper>
+    </>
   );
 }
 
@@ -914,8 +912,9 @@ function SystemPanel() {
   );
 }
 
-export default function AdminPage({ user }) {
-  const [tab, setTab] = useState('usage');
+export default function AdminPage({ user, tab = 'usage' }) {
+  const theme = useTheme();
+  const brand = ACCENT[theme.palette.mode] || ACCENT.light; // 시그니처 보라 — 그래프 전용
   const [list, setList] = useState(null);
   const [dlg, setDlg] = useState(false);
   const [form, setForm] = useState({ id: '', username: '', password: '' });
@@ -961,21 +960,19 @@ export default function AdminPage({ user }) {
 
   return (
     <>
-      {/* 서브탭(가운데) */}
-      <Box sx={{ px: { xs: 2, sm: 4 }, pt: { xs: 1, sm: 1.5 }, borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={tab} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile
-          sx={{ minHeight: 40, '& .MuiTabs-flexContainer': { justifyContent: 'center' }, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 700, fontSize: 14 } }}>
-          {TABS.map((t) => <Tab key={t.v} value={t.v} label={t.label} />)}
-        </Tabs>
-      </Box>
-
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
-        <Box sx={{ maxWidth: 960, mx: 'auto' }}>
-          {/* ── 사용량: 벤더 실사용량(API 기반) + 데스크 운영 통계 ── */}
+        {/* 컨텐츠 전폭 사용(시안): 제목 아래 넓은 영역 */}
+        <Box sx={{ maxWidth: 1240, mx: 'auto' }}>
+          {/* 페이지 제목 — 사용량 화면은 기간 세그먼트와 함께 자체 렌더링 */}
+          {tab !== 'usage' && (
+            <Typography component="h1" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', mb: 2.5 }}>{PAGE_TITLES[tab]}</Typography>
+          )}
+
+          {/* ── 사용량: 벤더 실사용량(보라 스파크라인·일별 총비용) + 데스크 운영 통계(시안 2) ── */}
           {tab === 'usage' && (
             <>
-              <VendorUsage />
-              <Box sx={{ mt: 3 }}><DeskStats /></Box>
+              <VendorUsage brand={brand} />
+              <DeskStats brand={brand} />
             </>
           )}
 

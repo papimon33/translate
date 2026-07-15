@@ -4,7 +4,8 @@ import { createTheme, alpha } from '@mui/material/styles';
    - 보라(바이올렛)는 로고(favicon.svg)에만 남기고 UI 는 전부 뉴트럴 —
      주 버튼은 라이트=거의 검정(#1F1E1D 바탕·백색 글자), 다크=거의 백색(#FAF9F5 바탕·검정 글자).
    - radius 체계: shape 8 기준(sx borderRadius:1=8px, 1.5=12px). */
-// 로고 전용 색(favicon.svg 와 동일 계열) — UI 컴포넌트에는 사용하지 않는다.
+// 시그니처 보라(favicon.svg 와 동일 계열) — 로고 + 관리자 데이터 시각화(그래프·강조 수치)와
+// nav 관리자 활성 하위메뉴에만 사용. 일반 버튼·본문에는 쓰지 않는다.
 export const ACCENT = { dark: '#8579ff', light: '#5b4fe8' };
 // ---- 라운딩 표준 (sx borderRadius 단위: 1 = 8px) ----
 // panel: 카드·검색창·다이얼로그 내부 패널(12px) / control: 버튼·셀렉트류(theme shape 기본 8px 사용)

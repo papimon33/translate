@@ -965,6 +965,7 @@ app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
     let durSum = 0, durN = 0, interrupted = 0;
     let sentSum = 0, staffSent = 0, guestSent = 0, crossDrops = 0;
     const rows = [];
+    const respDelays = []; // 응답 지연: 손님 발화 끝(tm.e) → 다음 안내원 발화 시작(tm.s), ms
     for (const e of log) {
       const lang = e.lang || 'unknown';
       const sent = Array.isArray(e.items) ? e.items.length : 0;
@@ -976,6 +977,17 @@ app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
       if (e.interrupted) interrupted++;
       sentSum += sent;
       if (e.stats) { staffSent += e.stats.staff || 0; guestSent += e.stats.guest || 0; crossDrops += e.stats.crossDrops || 0; }
+      // 응답 지연(레이턴시 로그 tm 기반): 손님 item 의 tm.e 이후 처음 나오는 안내원 item 의 tm.s
+      let guestEnd = null;
+      for (const it of Array.isArray(e.items) ? e.items : []) {
+        const staff = it.lang ? it.lang === 'ko' : it.side === 'right';
+        if (!staff && it.tm && it.tm.e) guestEnd = it.tm.e;
+        else if (staff && guestEnd != null && it.tm && it.tm.s) {
+          const d = it.tm.s - guestEnd;
+          if (d > 0 && d < 120000) respDelays.push(d); // 2분 초과는 응답이 아닌 별건으로 간주
+          guestEnd = null;
+        }
+      }
       const kst = new Date((e.endedAt || Date.now()) + 9 * 3600 * 1000); // KST(UTC 서버에서 새벽 응대가 전날로 집계되는 문제 방지)
       const d = kst.toISOString().slice(0, 10);
       daily[d] = (daily[d] || 0) + 1;
@@ -1001,6 +1013,7 @@ app.get('/api/admin/desk-stats', requireAdmin, (req, res) => {
       wayfindTop: Object.entries(wayfindTop).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([catId, count]) => ({ catId, count })),
       daily: Object.entries(daily).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, count]) => ({ date, count })), // 전체 — 기간·월별 뷰는 클라에서 필터/그룹핑
       hourly,
+      respDelays: respDelays.slice(-300), // 중앙값·P90 은 클라에서 계산('전체' 합산 대응)
       rows: rows.slice(-500),
     };
   });

@@ -21,7 +21,8 @@ import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettin
 import LogoutIcon from '@mui/icons-material/Logout';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import InstallDesktopOutlinedIcon from '@mui/icons-material/InstallDesktopOutlined';
-import { SIDEBAR } from '../theme.js';
+import { alpha } from '@mui/material/styles';
+import { SIDEBAR, ACCENT } from '../theme.js';
 import { api } from '../api.js';
 import DesktopAppDialog from './DesktopAppDialog.jsx';
 
@@ -58,7 +59,18 @@ export function IcoSliders(props) { // 관리자: 조절 슬라이더(운영 설
   );
 }
 
-export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, currentSessionId, onHome, onDesk, onSummaries, onTerms, onAdmin, onOpenSession, onLogout, onUserUpdate }) {
+// 관리자 하위메뉴 — 상단 탭 대신 nav 안에서 이동(AdminPage 와 값 공유)
+export const ADMIN_TABS = [
+  { v: 'usage', label: '사용량' },
+  { v: 'logs', label: '로그' },
+  { v: 'desks', label: '안내데스크' },
+  { v: 'accounts', label: '계정 관리' },
+  { v: 'terms', label: '용어 설정' },
+  { v: 'canned', label: '정형 안내' },
+  { v: 'system', label: '시스템·보안' },
+];
+
+export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, adminTab, currentSessionId, onHome, onDesk, onSummaries, onTerms, onAdmin, onOpenSession, onLogout, onUserUpdate }) {
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
   const [edit, setEdit] = useState(false);
@@ -126,7 +138,27 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
       <NavItem S={S} collapsed={collapsed} icon={<IcoGlobe />} label="실시간 번역" active={view === 'sessions'} onClick={onHome} />
       <NavItem S={S} collapsed={collapsed} icon={<IcoHeadset />} label="데스크 안내" active={view === 'desk'} onClick={onDesk} />
       {isAdmin && (
-        <NavItem S={S} collapsed={collapsed} icon={<IcoSliders />} label="관리자" active={view === 'admin'} onClick={onAdmin} />
+        <NavItem S={S} collapsed={collapsed} icon={<IcoSliders />} label="관리자" active={view === 'admin'} onClick={() => onAdmin()} />
+      )}
+      {/* 관리자 하위메뉴 — 관리자 화면일 때 펼침, 활성 항목은 시그니처 보라 */}
+      {isAdmin && view === 'admin' && !collapsed && (
+        <Box sx={{ ml: '17px', pl: 1.5, mt: 0.25, mb: 0.5, borderLeft: 2, borderColor: S.border, display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          {ADMIN_TABS.map((t) => {
+            const on = adminTab === t.v;
+            return (
+              <Box key={t.v} onClick={() => onAdmin(t.v)}
+                sx={{
+                  px: 1.25, py: 0.65, borderRadius: 1.25, cursor: 'pointer', fontSize: 13,
+                  fontWeight: on ? 700 : 600, whiteSpace: 'nowrap', transition: 'background .12s',
+                  color: on ? ACCENT[mode] || ACCENT.light : S.text,
+                  bgcolor: on ? alpha(ACCENT[mode] || ACCENT.light, mode === 'dark' ? 0.14 : 0.1) : 'transparent',
+                  '&:hover': { bgcolor: on ? alpha(ACCENT[mode] || ACCENT.light, mode === 'dark' ? 0.14 : 0.1) : S.hover },
+                }}>
+                {t.label}
+              </Box>
+            );
+          })}
+        </Box>
       )}
 
       {/* 최근 항목 — 최근 세션 바로가기(Claude 사이드바 스타일) */}
