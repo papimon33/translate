@@ -20,7 +20,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TRANSLATE_MODEL = 'gpt-realtime-translate';
 const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
-const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || ''; // Nova-3 테스트 모드(선택)
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
 // Soniox stt-rt-v5 지원 언어(60) — 번역은 지원 언어 임의 쌍. 선택 UI/검증에 사용.
 const SONIOX_LANGS = ['af','sq','ar','az','eu','be','bn','bs','bg','ca','zh','hr','cs','da','nl','en','et','fi','fr','gl','de','el','gu','he','hi','hu','id','it','ja','kn','kk','ko','lv','lt','mk','ms','ml','mr','no','fa','pl','pt','pa','ro','ru','sr','sk','sl','es','sw','sv','tl','ta','te','th','tr','uk','ur','vi','cy'];
@@ -159,7 +158,6 @@ const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
 const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
 const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
 const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
-const FAQ_FILE = path.join(DATA_DIR, 'faq_report.json');   // 자주 묻는 질문 분석 결과(관리자, GPT 클러스터링)
 const CANNED_FILE = path.join(DATA_DIR, 'canned.json');    // 정형 안내 멘트(원터치 재생용 문안)
 const DESK_REG_FILE = path.join(DATA_DIR, 'desk_registry.json'); // 안내데스크 사전 정의(이름·층·방향) — 관리자 등록, 세션 생성 시 선택
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
@@ -175,7 +173,6 @@ let vendorUsage = { soniox: {}, cartesia: {}, openai: {} };
 // 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
 let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [], updatedAt: 0 };
 let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
-let faqReport = null; // { at, checked, topics:[{topic,count,examples[]}] } — 자주 묻는 질문 분석 결과
 let cannedConfig = { items: [] }; // 정형 안내 멘트 [{ id, title, texts:{ko,en,ja,zh} }]
 let deskRegistry = { desks: [] }; // 안내데스크 정의 [{ id, name, floor, side }] — 세션과 분리된 마스터
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
@@ -185,7 +182,6 @@ let usageHourlyCol = null;
 let termsConfigCol = null;
 let summariesCol = null;
 let vendorUsageCol = null;
-let faqCol = null;
 let cannedCol = null;
 let deskRegistryCol = null;
 
@@ -222,10 +218,7 @@ async function loadStore() {
         if (tc) { const { _id, ...rest } = tc; termsConfig = { ...rest, updatedAt: tc.updatedAt || 0 }; } // 전체 보존(entries/servedLangs/categoryScope), 구형은 부팅 마이그레이션
         const vu = await vendorUsageCol.findOne({ _id: 'singleton' });
         if (vu) vendorUsage = { soniox: vu.soniox || {}, cartesia: vu.cartesia || {}, openai: vu.openai || {} };
-        faqCol = db.collection('faqReport');
         cannedCol = db.collection('canned');
-        const fr = await faqCol.findOne({ _id: 'singleton' });
-        if (fr) { const { _id, ...rest } = fr; faqReport = rest; }
         const cn = await cannedCol.findOne({ _id: 'singleton' });
         if (cn && Array.isArray(cn.items)) cannedConfig = { items: cn.items };
         deskRegistryCol = db.collection('deskRegistry');
@@ -236,7 +229,7 @@ async function loadStore() {
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = faqCol = cannedCol = deskRegistryCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = cannedCol = deskRegistryCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -278,10 +271,6 @@ async function loadStore() {
       const v = JSON.parse(readDataFile(VENDOR_USAGE_FILE));
       if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {} };
     }
-    if (fs.existsSync(FAQ_FILE)) {
-      const f = JSON.parse(readDataFile(FAQ_FILE));
-      if (f && typeof f === 'object') faqReport = f;
-    }
     if (fs.existsSync(DESK_REG_FILE)) {
       const d = JSON.parse(readDataFile(DESK_REG_FILE));
       if (d && Array.isArray(d.desks)) deskRegistry = { desks: d.desks };
@@ -297,10 +286,6 @@ async function loadStore() {
 async function persistVendorUsage() {
   if (vendorUsageCol) { await vendorUsageCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...vendorUsage }, { upsert: true }); }
   else { writeDataFile(VENDOR_USAGE_FILE, JSON.stringify(vendorUsage, null, 2)); }
-}
-async function persistFaqReport() {
-  if (faqCol) { await faqCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...faqReport }, { upsert: true }); }
-  else { writeDataFile(FAQ_FILE, JSON.stringify(faqReport, null, 2)); }
 }
 async function persistCanned() {
   if (cannedCol) { await cannedCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...cannedConfig }, { upsert: true }); }
@@ -1158,64 +1143,6 @@ app.post('/api/admin/terms-suggest', requireAdmin, async (req, res) => {
   }
 });
 
-/* ---- 관리자: 자주 묻는 질문 분석 — 데스크 응대 로그의 손님 질문을 GPT 로 주제 클러스터링 ----
-   시범운영 보고서용: "이번에 손님들이 무엇을 물었나" TOP 주제·건수·예시. 결과는 저장(자체 누적)해
-   분석 실행 없이도 마지막 결과를 다시 볼 수 있다. (OpenAI 과금 — 버튼으로만 실행) */
-app.get('/api/admin/faq-report', requireAdmin, (req, res) => {
-  res.json(faqReport || { at: 0, checked: 0, topics: [] });
-});
-app.post('/api/admin/faq-analyze', requireAdmin, async (req, res) => {
-  if (!OPENAI_API_KEY) return res.status(400).json({ error: 'OPENAI_API_KEY 미설정' });
-  // 손님 발화만 수집: 데스크 응대 로그에서 lang!==ko 인 화자(손님)의 한국어 번역(texts.ko) 우선
-  const questions = [];
-  for (const s of sessions) {
-    if (s.pipeline !== 'desk' || !Array.isArray(s.deskLog)) continue;
-    for (const e of s.deskLog) {
-      for (const it of e.items || []) {
-        const staff = it.lang ? it.lang === 'ko' : it.side === 'right';
-        if (staff) continue;
-        const q = ((it.texts && it.texts.ko) || it.source || '').trim();
-        if (q.length >= 2) questions.push(q.slice(0, 120));
-      }
-    }
-  }
-  const recent = questions.slice(-400); // 최근 위주
-  if (recent.length < 3) return res.json({ at: Date.now(), checked: recent.length, topics: [], note: '분석할 손님 발화가 부족합니다(3건 미만).' });
-  const sys =
-    '너는 공항 안내데스크 운영 분석가다. 아래는 손님 발화(한국어 번역) 목록이다. ' +
-    '비슷한 질문·요청을 주제로 묶어 자주 묻는 질문 TOP 을 만들어라. 인사말·잡담·불완전한 조각은 제외한다. ' +
-    '반드시 JSON 하나만 출력: {"topics":[{"topic":"주제(간결한 한국어 한 줄)","count":해당 발화 수,"examples":["대표 예시 1","대표 예시 2"]}]} ' +
-    'count 큰 순으로 최대 12개. examples 는 목록에 실제로 있는 문장에서 고른다.';
-  try {
-    const body = {
-      model: REFINE_MODEL,
-      messages: [{ role: 'system', content: sys }, { role: 'user', content: recent.join('\n').slice(0, 14000) }],
-      max_completion_tokens: 1200,
-      response_format: { type: 'json_object' },
-    };
-    const re = reasoningEffort(REFINE_MODEL);
-    if (re) body.reasoning_effort = re;
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) return res.status(500).json({ error: '분석 호출 실패: HTTP ' + r.status });
-    const d = await r.json();
-    const obj = JSON.parse(d?.choices?.[0]?.message?.content || '{}');
-    const topics = (Array.isArray(obj.topics) ? obj.topics : [])
-      .filter((t) => t && t.topic && (Number(t.count) || 0) > 0) // 0건 주제(모델 노이즈) 제거
-      .slice(0, 12)
-      .map((t) => ({ topic: String(t.topic).slice(0, 80), count: Number(t.count) || 0, examples: (Array.isArray(t.examples) ? t.examples : []).slice(0, 2).map((x) => String(x).slice(0, 120)) }));
-    faqReport = { at: Date.now(), checked: recent.length, topics };
-    try { await persistFaqReport(); } catch (e) { logErr('faq-persist', e); }
-    res.json(faqReport);
-  } catch (e) {
-    logErr('faq-analyze', e);
-    res.status(500).json({ error: '분석 실패' });
-  }
-});
-
 /* ---- 관리자: 용어 적중 분석 — 등록 용어가 실제 대화에서 몇 번 등장했는지(문자열 매칭, GPT 미사용) ----
    0회 용어 = 정리 후보. 대상 코퍼스: 데스크 응대 로그 + 일반 세션 대화(원문·번역 텍스트). */
 app.get('/api/admin/terms-hit', requireAdmin, (req, res) => {
@@ -1263,6 +1190,32 @@ app.get('/api/admin/terms-hit', requireAdmin, (req, res) => {
 });
 
 /* ---- 정형 안내 멘트(원터치 재생용 문안) — 열람은 로그인 전원, 수정은 관리자 ---- */
+/* ---- 데스크 현황: 전 데스크의 실시간 상태(호스트 연결·응대 중·뷰어 수) — 목록 화면 현황판용 ---- */
+app.get('/api/desk-status', requireAuth, (req, res) => {
+  const out = sessions
+    .filter((s) => s.pipeline === 'desk' && !s.deletedAt)
+    .map((s) => {
+      const r = rooms.get(s.id);
+      const dc = deskCtrl.get(s.id);
+      const st = dc && dc.state ? dc.state() : null;
+      return {
+        id: s.id,
+        hostOn: !!(r && r.hosts.size > 0),
+        active: !!(st && st.phase === 'active'),
+        lang: st && st.phase === 'active' ? st.lang : null,
+        viewers: r ? r.viewers.size : 0,
+      };
+    });
+  res.json(out);
+});
+
+/* ---- 전체 데이터 백업(관리자): 세션·데스크 정의·용어·정형 안내를 JSON 한 파일로 ---- */
+app.get('/api/admin/export', requireAdmin, (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="airtalk-backup-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.send(JSON.stringify({ exportedAt: Date.now(), sessions, deskRegistry, termsConfig, canned: cannedConfig }, null, 1));
+});
+
 /* ---- 안내데스크 사전 정의(레지스트리): 관리자가 이름·층·방향을 등록해 두면
    세션 생성 시 데스크를 '선택'만 한다(층·방향은 레지스트리에서 복사, 세션명은 별도). ---- */
 app.get('/api/desk-registry', requireAuth, (req, res) => res.json(deskRegistry));
@@ -1899,14 +1852,14 @@ app.get('/api/sessions', requireAuth, (req, res) => {
 app.post('/api/sessions', requireAuth, (req, res) => {
   const now = Date.now();
   const b = req.body || {};
-  const pipeline = ['translate', 'deepgram', 'soniox', 'desk'].includes(b.pipeline) ? b.pipeline : 'soniox'; // whisper(구) 지원 종료 — 기본 soniox
+  const pipeline = ['translate', 'soniox', 'desk'].includes(b.pipeline) ? b.pipeline : 'soniox'; // whisper(구) 지원 종료 — 기본 soniox
   // 안내데스크 세션은 관리자만 생성(공용 인프라) — 직원은 운영만
   if (pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 세션은 관리자만 만들 수 있습니다.' });
-  // translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장). soniox·deepgram 다국어.
+  // translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장). soniox 다국어.
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice());
   // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
-  const preset = ['live', 'oneway', 'twoway', 'multi', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
+  const preset = ['live', 'oneway', 'twoway', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
   // 데스크 안내: 레지스트리(관리자 사전 정의)에서 데스크 선택 → 층/방향/데스크명 복사.
   // deskId 없이 직접 deskFloor/deskSide 를 주는 구형 경로도 하위호환으로 유지.
   let deskName;
@@ -1980,7 +1933,7 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   if (typeof b.inLang === 'string') s.inLang = b.inLang;
   // 모드(preset) 변경: 번역 이력이 없고 '녹음 중이 아닌' soniox 세션만 허용(진행 중 방향/설정 desync 방지)
   const activeHosts = rooms.get(req.params.id)?.hosts.size || 0;
-  if (typeof b.preset === 'string' && ['live', 'oneway', 'twoway', 'multi'].includes(b.preset) && s.pipeline === 'soniox' && activeHosts === 0 && (!Array.isArray(s.items) || s.items.length === 0)) {
+  if (typeof b.preset === 'string' && ['live', 'oneway', 'twoway'].includes(b.preset) && s.pipeline === 'soniox' && activeHosts === 0 && (!Array.isArray(s.items) || s.items.length === 0)) {
     s.preset = b.preset;
   }
   if (s.pipeline === 'desk') { // 데스크 출발 층/방향
@@ -2918,7 +2871,6 @@ server.on('upgrade', (req, socket, head) => {
       ws._refine = searchParams.get('refine'); // '0' | '1' | null
       ws._pipeline = searchParams.get('pipeline'); // 'whisper' | 'translate' | null
       ws._audioOut = searchParams.get('audioOut') === '1'; // translate 번역 음성 재생 여부
-      ws._endpointing = searchParams.get('endpointing'); // deepgram 문장종료 무음(ms) — 테스트용
       ws._sxSens = searchParams.get('sxSens');       // soniox endpoint_sensitivity (-1~1)
       ws._sxMaxDelay = searchParams.get('sxMaxDelay'); // soniox max_endpoint_delay_ms (500~3000)
       ws._sxLatency = searchParams.get('sxLatency');   // soniox endpoint_latency_adjustment_level (0~3)
@@ -2936,7 +2888,6 @@ server.on('upgrade', (req, socket, head) => {
       ws._dropAcks = searchParams.get('dropAcks');   // 단독 응답어(네/Yes) 기록 생략(고급옵션)
       ws._confFix = searchParams.get('confFix');     // 저신뢰 자동 교정(고급옵션)
       ws._wayfind = searchParams.get('wayfind');     // 데스크 길안내 지도 on/off('0'=끔)
-      ws._multiLangs = searchParams.get('multiLangs'); // 다국어 회의(multi) 선택 언어(콤마구분)
       wss.emit('connection', ws, req);
     });
   } else {
@@ -3267,7 +3218,7 @@ function handleHost(ws) {
   };
   // 확정: 세션 저장 + 전송. 언어별로 병합.
   // toks = 원문 STT 토큰 [[text, confidence], ...] — 저신뢰 단어 하이라이트 + 추후 인식 품질 평가용 기록
-  const upsertItem = (id, langTexts, source, speaker, lang, sideOv, toks) => {
+  const upsertItem = (id, langTexts, source, speaker, lang, sideOv, toks, tm) => {
     const toksCapped = Array.isArray(toks) && toks.length ? toks.slice(0, 120) : null;
     let item;
     if (session) {
@@ -3278,8 +3229,9 @@ function handleHost(ws) {
         if (speaker) item.speaker = speaker;
         if (lang) item.lang = lang;
         if (toksCapped) item.toks = toksCapped;
+        if (tm) item.tm = { ...(item.tm || {}), ...tm };
       } else {
-        item = { id, side: sideOv || side, source: source || null, texts: { ...langTexts }, speaker: speaker || null, ...(lang ? { lang } : {}), ...(toksCapped ? { toks: toksCapped } : {}) };
+        item = { id, side: sideOv || side, source: source || null, texts: { ...langTexts }, speaker: speaker || null, ...(lang ? { lang } : {}), ...(toksCapped ? { toks: toksCapped } : {}), ...(tm ? { tm: { ...tm } } : {}) };
         session.items.push(item);
       }
       if (session.title === '새 세션' && session.items.length === 1) {
@@ -3348,7 +3300,6 @@ function handleHost(ws) {
   };
 
   if (pipeline === 'translate') runTranslate();
-  else if (pipeline === 'deepgram') runDeepgram();
   else if (pipeline === 'soniox') runSoniox();
   else if (pipeline === 'desk') runDesk();
   // whisper(구 다국어 번역) 파이프라인은 지원 종료 — 기존 세션 기록은 열람만 가능
@@ -3368,16 +3319,11 @@ function handleHost(ws) {
     //  단방향(one): 타깃 1개 / 양방향(two): A↔B. 지원 언어 ko/en/ja/zh 로 한정.
     const L4 = ['ko', 'en', 'ja', 'zh']; // 미지정 시 기본 언어 힌트
     const okL = (c) => SONIOX_LANGS.includes(c); // 선택지는 soniox 지원 언어 전체
-    const sxMode = ws._sxMode === 'two' ? 'two' : ws._sxMode === 'multi' ? 'multi' : 'one';
+    const sxMode = ws._sxMode === 'two' ? 'two' : 'one';
     const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
     const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
     const sxB = okL(ws._sxB) ? ws._sxB : 'en';
-    // 다국어 회의(multi, 테스트): soniox 는 전사+언어감지만, 번역은 GPT 로 선택 언어들에 팬아웃
-    const multiLangs = sxMode === 'multi'
-      ? [...new Set(String(ws._multiLangs || '').split(',').filter(okL))].slice(0, 4)
-      : [];
-    if (sxMode === 'multi' && multiLangs.length < 2) multiLangs.splice(0, multiLangs.length, 'ko', 'en', 'ja');
-    let ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY && sxMode !== 'multi'; // multi 는 다국어 동시 출력이라 TTS 미지원
+    let ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY;
     let gender = ws._gender === 'm' ? 'm' : 'f'; // 음성 성별(출력언어별 보이스 자동 선택)
     const diar = ws._diar === '1'; // 화자 구분(speaker diarization)
     if (ws._tts === '1' && !CARTESIA_API_KEY) {
@@ -3396,16 +3342,13 @@ function handleHost(ws) {
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
       endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
-      language_hints: sxMode === 'two' ? [sxA, sxB] : sxMode === 'multi' ? multiLangs : (inLang ? [inLang] : L4),
-      // multi 는 soniox 번역 미사용(전사만) — 번역은 commit 에서 GPT 팬아웃
-      ...(sxMode === 'multi' ? {} : {
-        translation: sxMode === 'two'
-          ? { type: 'two_way', language_a: sxA, language_b: sxB }
-          : { type: 'one_way', target_language: sxTarget },
-      }),
+      language_hints: sxMode === 'two' ? [sxA, sxB] : (inLang ? [inLang] : L4),
+      translation: sxMode === 'two'
+        ? { type: 'two_way', language_a: sxA, language_b: sxB }
+        : { type: 'one_way', target_language: sxTarget },
       client_reference_id: 'u:' + (ws._userId || 'anon'), // 유저별 사용량 집계(usage-logs 에 기록)
       // 고유명사/번역 설정 주입 — 이 세션에서 쓰이는 언어의 표기·번역쌍만 조립
-      ...((() => { const c = buildSonioxContext(sxMode === 'two' ? [sxA, sxB] : sxMode === 'multi' ? multiLangs : [sxTarget, ...(inLang ? [inLang] : L4)]); return c ? { context: c } : {}; })()),
+      ...((() => { const c = buildSonioxContext(sxMode === 'two' ? [sxA, sxB] : [sxTarget, ...(inLang ? [inLang] : L4)]); return c ? { context: c } : {}; })()),
     };
 
     let sx = null;          // 현재 엔진 소켓(예기치 않은 끊김 시 자동 재연결)
@@ -3416,12 +3359,12 @@ function handleHost(ws) {
     // context(용어집, input_text_tokens $4/1M)가 재청구돼 Soniox 비용의 71%를 차지했던 원인이라 제거.
     // 오인식 고착은 confFix(저신뢰 자동 교정)가 완화한다. 상세: PROJECT_NOTES 2026-07-15.
     idleClose = () => { sxClosed = true; try { sx && sx.close(); } catch {} };
-    const langsOut = sxMode === 'two' ? [sxA, sxB] : sxMode === 'multi' ? multiLangs : [sxTarget];
+    const langsOut = sxMode === 'two' ? [sxA, sxB] : [sxTarget];
     // 폰 PTT 가 재사용할 호스트 설정 저장
     roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: config.endpoint_sensitivity, maxDelay: config.max_endpoint_delay_ms, latency: config.endpoint_latency_adjustment_level, ttsOn, gender });
     // 번역 방향 정보 — 뷰어(모바일)가 언어 표시에 사용
-    const sxInfo = sxMode === 'multi' ? { mode: 'multi', langs: multiLangs } : { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
-    if (session) { session.sxInfo = sxInfo; if (sxMode === 'multi') session.langs = multiLangs; saveSessions(); } // multi: 뷰어 언어 선택지 = 선택 언어들
+    const sxInfo = { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
+    if (session) { session.sxInfo = sxInfo; saveSessions(); }
     broadcast(sessionId, { type: 'meta', sxInfo });
     let curId = null;     // 진행 중 발화 카드 id
     let finalText = '';   // 전사(원문) 확정 누적
@@ -3450,7 +3393,16 @@ function handleHost(ws) {
     const ABBR = new Set(['mr','mrs','ms','dr','prof','sr','jr','st','vs','etc','inc','ltd','co','corp','no','vol','fig','dept','univ','gov','gen','col','sgt','lt','capt','cmdr','rev','hon','pres','approx','mt','ave','rd','blvd','ph','messrs']);
     // 합성을 순차 직렬화: 짧은 뒷문장이 먼저 합성 완료돼 먼저 재생되는 순서 뒤바뀜 방지
     let ttsChain = Promise.resolve();
-    const speakTts = (text) => {
+    let utterTm = null; // 진행 중 발화의 레이턴시 타임스탬프 { s, e, (tq, ta 는 발화 중 TTS 시) }
+    // 레이턴시 로그: 카드(id)의 tm 에 시각 병합 — 커밋 전(카드 미생성)이면 utterTm 에 보류.
+    // 첫 발생만 기록(문장 여러 개여도 '첫 오디오까지'가 체감 지연).
+    const stampTm = (forId, key) => {
+      const t = Date.now();
+      const it = session && Array.isArray(session.items) ? session.items.find((x) => x.id === forId) : null;
+      if (it) { if (!it.tm || it.tm[key] == null) { it.tm = { ...(it.tm || {}), [key]: t }; saveSessions(); } }
+      else if (utterTm && forId === curId && utterTm[key] == null) utterTm[key] = t;
+    };
+    const speakTts = (text, forId) => {
       const tx = (text || '').trim();
       if (!ttsOn || !tx) return;
       if (!/[\p{L}\p{N}]/u.test(tx)) return; // 문장부호만 있으면 스킵(Cartesia 400 방지)
@@ -3458,7 +3410,10 @@ function handleHost(ws) {
       const voiceId = cartesiaVoiceId(lang, gender);
       noteTts(sessionId, tx); // 자기음성(에코) 필터에 등록 — 재입력 시 인식 결과를 버림
       // 뷰어(음성 듣기 구독자) + 호스트(TTS 켠 경우)에게 재생. 재입력은 AEC + 에코 필터로 차단.
+      if (forId) stampTm(forId, 'tq'); // 합성 요청 시각
+      let firstAudio = false;
       ttsChain = ttsChain.then(() => cartesiaTTSStream(tx, voiceId, lang, (b64) => {
+        if (!firstAudio) { firstAudio = true; if (forId) stampTm(forId, 'ta'); } // 첫 오디오 청크 시각
         broadcastAudio(sessionId, b64);
         if (ws._audioOut) sendAudioToHosts(sessionId, b64);
       }).catch(() => {}));
@@ -3488,7 +3443,7 @@ function handleHost(ws) {
         i = end - 1;
       }
       ttsPending = buf.slice(start);
-      for (const s of out) speakTts(s);
+      for (const s of out) speakTts(s, curId);
     };
 
     // 현재 누적분을 한 문장으로 확정 (GPT 호출 없음)
@@ -3496,6 +3451,8 @@ function handleHost(ws) {
       const id = curId, txt = stripFillers(finalText.trim()), src = curSrc, spk = curSpeaker;
       const tgt = stripFillers((finalTrans.trim() || lastTrans).trim());
       const toks = srcToks;               // 이 발화의 원문 토큰(신뢰도 포함)
+      const tm = { ...(utterTm || {}), c: Date.now() }; // 레이턴시: s(첫 토큰)/e(<end>)/c(확정)
+      utterTm = null;
       const tail = ttsPending;            // 종결부호 없이 남은 마지막 조각
       const hadFinal = !!finalTrans.trim(); // 발화 중 확정 번역이 흘러갔는지
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = ''; langVotes = {}; srcToks = [];
@@ -3511,29 +3468,16 @@ function handleHost(ws) {
       if (out && out === lastCommitText && Date.now() - lastCommitAt < 5000) return;
       lastCommitText = out;
       lastCommitAt = Date.now();
-      // 다국어 회의(multi): 원문 즉시 확정 → 선택 언어들로 GPT 병렬 팬아웃(도착하는 대로 카드 갱신)
-      if (sxMode === 'multi') {
-        const base = {};
-        for (const lg of langsOut) base[lg] = txt; // 우선 원문으로 채워 모든 언어 뷰어에 즉시 표시
-        upsertItem(id, base, txt, spkLabel(spk), null, undefined, toks);
-        for (const lg of langsOut) {
-          if (lg === src) continue; // 발화 언어 칸은 원문 그대로
-          translateText(txt, lg, true, [], refineModel)
-            .then((tr) => { if (tr) upsertItem(id, { [lg]: tr }); })
-            .catch(() => {});
-        }
-        return;
-      }
       const target = targetKeyFor(src);
-      upsertItem(id, { [target]: out }, txt, spkLabel(spk), null, undefined, toks);
+      upsertItem(id, { [target]: out }, txt, spkLabel(spk), null, undefined, toks, tm);
       if (confFix) maybeConfFix(id, toks, txt, src, target); // 저신뢰 자동 교정(고급옵션)
       // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
       //  재입력은 브라우저 AEC(마이크 경로) + 서버 에코 텍스트 필터(시스템 캡처·기기 간 경로)로 차단.
       if (ttsOn) {
         ttsLang = target;
         const tl = tail.trim();
-        if (tl) speakTts(tl);                       // 종결부호 없이 남은 번역 꼬리
-        else if (!hadFinal) speakTts(out);          // 발화 중 합성된 게 없으면(번역 미확정) 전체 합성
+        if (tl) speakTts(tl, id);                   // 종결부호 없이 남은 번역 꼬리
+        else if (!hadFinal) speakTts(out, id);      // 발화 중 합성된 게 없으면(번역 미확정) 전체 합성
       }
     };
 
@@ -3548,7 +3492,7 @@ function handleHost(ws) {
       sxReady = true;
       if (pending.length > 24) pending = pending.slice(-24); // 연결 대기 중 쌓인 오디오는 최근 ~2초만
       while (pending.length) { try { cur.send(pending.shift()); } catch {} }
-      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5 · ${sxMode === 'two' ? `양방향 ${sxA}↔${sxB}` : sxMode === 'multi' ? `다국어 ${multiLangs.join('·')}` : `단방향→${sxTarget}`}${ttsOn ? ' · TTS on' : ''}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
+      toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5 · ${sxMode === 'two' ? `양방향 ${sxA}↔${sxB}` : `단방향→${sxTarget}`}${ttsOn ? ' · TTS on' : ''}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
       // TTS 연결 워밍업 + 키/보이스 검증(첫 음성 지연 단축)
       if (ttsOn) {
         const wLang = sxMode === 'two' ? 'ko' : sxTarget;
@@ -3599,20 +3543,13 @@ function handleHost(ws) {
       const shownSrc = (finalText + nonFinal).trim();
       const shownTgt = (finalTrans + nonFinalTrans).trim();
       if (shownTgt) lastTrans = shownTgt;
-      if (!curId && (shownSrc || shownTgt)) curId = newId();
+      if (!curId && (shownSrc || shownTgt)) { curId = newId(); utterTm = { s: Date.now() }; }
       if (curId) {
-        if (sxMode === 'multi') {
-          // multi: 번역은 확정 후 도착 — 진행 중엔 원문을 모든 언어 칸에 스트리밍(번역 도착 시 교체)
-          const live = {};
-          for (const lg of langsOut) live[lg] = shownSrc;
-          liveSend(curId, live, shownSrc || null, spkLabel(curSpeaker));
-        } else {
-          // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시
-          liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, spkLabel(curSpeaker));
-        }
+        // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시
+        liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, spkLabel(curSpeaker));
       }
       // 발화 종료(<end>) 또는 과도하게 길면 확정
-      if (endHit) commit(); // 길이 기반 강제 확정 제거
+      if (endHit) { if (utterTm && utterTm.e == null) utterTm.e = Date.now(); commit(); }
     });
     cur.on('error', (e) => { if (sx === cur) toHost({ type: 'status', message: 'Soniox 오류: ' + (e && e.message || e) }); });
     cur.on('close', () => {
@@ -3686,6 +3623,7 @@ function handleHost(ws) {
     let warnTimer = null;       // 무음 종료 10초 전 예고
     // (삭제됨) 무음 시 양 채널 조용한 재연결(컨텍스트 플러시) — 재연결마다 context 가
     // input_text_tokens 로 재청구돼 비용 폭증(runSoniox 와 동일 사유, PROJECT_NOTES 2026-07-15).
+    let staffTm = null, guestTm = null; // 채널별 발화 레이턴시 타임스탬프 { s, e } (커밋 시 c 추가)
     let pendingWayfind = null;  // 호스트 승인 대기 중인 길안내 제안
     let wayfindOn = ws._wayfind !== '0'; // 길안내 지도 기능(기본 on) — 끄면 감지·GPT 분류 자체를 생략
     let convStartedAt = 0;      // 현재 응대 시작 시각(통계용)
@@ -3795,6 +3733,8 @@ function handleHost(ws) {
       const id = curId, txt = stripFillers(finalText.trim()), src = curSrc;
       const tgt = stripFillers((finalTrans.trim() || lastTrans).trim());
       const toks = srcToks; // 이 발화의 원문 토큰(신뢰도 포함) — resetUtterance 전에 캡처
+      const tm = { ...(staffTm || {}), c: Date.now() }; // 레이턴시: s(첫 토큰)/e(<end>)/c(확정)
+      staffTm = null;
       resetUtterance();
       if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던(또는 추임새뿐인) 고스트 카드 제거
       // 자동 감지: 소유권·누화 판정으로 드랍되더라도 언어는 먼저 잠근다(첫 발화 유실 방지)
@@ -3810,7 +3750,7 @@ function handleHost(ws) {
       if (out && out === lastCommitText && Date.now() - lastCommitAt < 5000) return;
       lastCommitText = out;
       lastCommitAt = Date.now();
-      upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null, undefined, toks);
+      upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null, undefined, toks, tm);
       if (confFix) maybeConfFix(id, toks, txt, src, targetKeyFor(src)); // 저신뢰 자동 교정(고급옵션)
       // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
       // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
@@ -3976,13 +3916,13 @@ function handleHost(ws) {
       const shownSrc = (finalText + nonFinal).trim();
       const shownTgt = (finalTrans + nonFinalTrans).trim();
       if (shownTgt) lastTrans = shownTgt;
-      if (!curId && (shownSrc || shownTgt)) curId = newId();
+      if (!curId && (shownSrc || shownTgt)) { curId = newId(); staffTm = { s: Date.now() }; } // 레이턴시: 발화 시작
       // 2채널 모드: 손님 언어로 감지된 진행 중 발화는 표시하지 않음(커밋 시 드랍될 누화의 이중 표시 방지)
       if (curId) {
         if (!staffOwns(curSrc)) liveSend(curId, {}, null, null);
         else liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, null, curSrc || null);
       }
-      if (endHit) commit(); // 길이 기반 강제 확정 제거
+      if (endHit) { if (staffTm && staffTm.e == null) staffTm.e = Date.now(); commit(); } // 길이 기반 강제 확정 제거
     }
 
     /* ---- 여객 채널(2채널 프로토타입): 뷰어 태블릿 마이크 → 별도 soniox one_way(선택언어→ko) ----
@@ -4027,6 +3967,8 @@ function handleHost(ws) {
       const id = gCurId, txt = stripFillers(gFinalText.trim()), gSrc = gCurSrc;
       const tgt = stripFillers((gFinalTrans.trim() || gLastTrans).trim());
       const toks = gToks; // 이 발화의 원문 토큰(신뢰도 포함)
+      const tm = { ...(guestTm || {}), c: Date.now() }; // 레이턴시: s/e/c
+      guestTm = null;
       gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {}; gToks = [];
       if (!id || !txt) { if (id) liveSend(id, {}, null, null, null, 'left'); return; } // 고스트(또는 추임새뿐인) 카드 제거
       // 자동 감지(Other languages): 손님은 여객 태블릿에 대고 말하므로 이 채널에서 감지되는 게 정상 경로
@@ -4042,7 +3984,7 @@ function handleHost(ws) {
       if (out && out === gLastCommitText && Date.now() - gLastCommitAt < 5000) return;
       gLastCommitText = out;
       gLastCommitAt = Date.now();
-      upsertItem(id, { [A]: out }, txt, null, lockedB || null, 'left', toks);
+      upsertItem(id, { [A]: out }, txt, null, lockedB || null, 'left', toks, tm);
       if (confFix) maybeConfFix(id, toks, txt, gSrc, A); // 저신뢰 자동 교정(고급옵션) — 여객 채널
     };
     function onGuestMsg(raw) {
@@ -4067,13 +4009,13 @@ function handleHost(ws) {
       const shownSrc = (gFinalText + nonFinal).trim();
       const shownTgt = (gFinalTrans + nonFinalTrans).trim();
       if (shownTgt) gLastTrans = shownTgt;
-      if (!gCurId && (shownSrc || shownTgt)) gCurId = newId();
+      if (!gCurId && (shownSrc || shownTgt)) { gCurId = newId(); guestTm = { s: Date.now() }; } // 레이턴시: 발화 시작
       // 한국어(안내원 누화)로 감지된 진행 중 발화는 표시하지 않음
       if (gCurId) {
         if (!guestOwns(gCurSrc)) liveSend(gCurId, {}, null, null, null, 'left');
         else liveSend(gCurId, { [A]: shownTgt }, shownSrc || null, null, lockedB || null, 'left');
       }
-      if (endHit) guestCommit(); // 길이 기반 강제 확정 제거
+      if (endHit) { if (guestTm && guestTm.e == null) guestTm.e = Date.now(); guestCommit(); } // 길이 기반 강제 확정 제거
     }
     // 여객 마이크 채널 on/off — 켜지면 응대 중일 때 즉시 엔진 연결, 꺼지면 단일 채널로 폴백.
     // fromWs 로 소유 소켓을 추적: 뷰어 재접속 시 구 소켓의 close 가 새 소켓의 채널을 끄지 않도록.
@@ -4162,6 +4104,7 @@ function handleHost(ws) {
     // 뷰어(손님)의 통역 시작/종료/연장/여객 마이크 요청을 이 파이프라인으로 전달받기 위한 컨트롤러 등록
     const ctrl = {
       start: startConversation,
+      state: () => ({ phase, lang: lockedB || null }), // 데스크 현황판용(응대 중 여부·손님 언어)
       guestSens: () => guestSens, // 뷰어 접속 시 현재 여객 마이크 민감도 동기화용
       mic2: hostFed, // 뷰어 접속 시 '호스트(PC) 여객 마이크 공급 중' 동기화용 — true 면 뷰어는 표출 전용
       end: endConversation,
@@ -4198,98 +4141,6 @@ function handleHost(ws) {
 
     setMeta();
     toHost({ type: 'status', message: `데스크 대기 중 — 손님이 태블릿에서 언어를 선택하면 통역이 시작됩니다. (무음 ${deskIdleMs / 1000}초 시 자동 종료)` });
-  }
-
-  /* ---------- Deepgram Nova-3 (전사+화자구분) -> gpt 번역 [테스트] ---------- */
-  function runDeepgram() {
-    if (!DEEPGRAM_API_KEY) {
-      toHost({ type: 'status', message: 'DEEPGRAM_API_KEY 미설정 — deepgram 모드 사용 불가' });
-      return;
-    }
-    // 문장 길이 조절: endpointing = 문장 끝으로 보는 무음 길이(ms). 크게 할수록 더 긴 문장.
-    // UI(테스트용)에서 선택한 값이 있으면 사용, 없으면 기본 1200ms.
-    const epRaw = Number(ws._endpointing);
-    const DG_ENDPOINTING_MS = Number.isFinite(epRaw) && epRaw >= 0 ? epRaw : 1200;
-    const DG_UTTERANCE_END_MS = Math.max(1000, DG_ENDPOINTING_MS); // utterance_end_ms 는 최소 1000
-    const DG_MAX_CHARS = 200; // 무음 없이 계속 말하면 이 길이에서 강제 확정(폭주·번역깨짐 방지)
-    const qp = new URLSearchParams({
-      model: 'nova-3',
-      encoding: 'linear16',
-      sample_rate: '24000',
-      channels: '1',
-      smart_format: 'true',
-      punctuate: 'true',
-      interim_results: 'true',
-      endpointing: String(DG_ENDPOINTING_MS),
-      utterance_end_ms: String(DG_UTTERANCE_END_MS),
-      language: inLang || 'multi', // 입력 언어 select 반영. 자동이면 Nova-3 다국어(multi)
-    });
-    const dg = new WebSocket('wss://api.deepgram.com/v1/listen?' + qp.toString(), {
-      headers: { Authorization: 'Token ' + DEEPGRAM_API_KEY },
-    });
-    idleClose = () => { try { dg.close(); } catch {} };
-    let dgReady = false;
-    const pending = [];
-    const langsOut = ALL_LANGS;
-    let curId = null;    // 진행 중 발화 카드 id(끝나면 확정)
-    let finalBuf = '';   // 이번 발화에서 확정(is_final)된 조각 누적
-    let curSrc = '';     // 감지된 입력 언어
-
-    dg.on('open', () => {
-      dgReady = true;
-      while (pending.length) dg.send(pending.shift());
-      toHost({ type: 'status', message: `엔진 연결됨 (Deepgram Nova-3, endpointing=${DG_ENDPOINTING_MS}ms)` });
-      bumpIdle();
-    });
-    dg.on('message', async (raw) => {
-      let ev;
-      try { ev = JSON.parse(raw.toString()); } catch { return; }
-      if (ev.type !== 'Results') return;
-      const alt = ev.channel && ev.channel.alternatives && ev.channel.alternatives[0];
-      const text = (alt && alt.transcript || '').trim();
-      if (!text) return;
-      bumpIdle();
-      const det = (alt.languages && alt.languages[0]) || inLang || '';
-      const sl = String(det).split('-')[0].toLowerCase();
-      if (sl) curSrc = sl;
-      if (!curId) curId = newId();
-      // 지금까지 확정된 조각 + 현재(진행/방금확정) 텍스트를 합쳐 카드에 제자리 스트리밍(검은 글씨)
-      const shown = ((finalBuf ? finalBuf + ' ' : '') + text).trim();
-      const live = {};
-      for (const lang of langsOut) live[lang] = shown;
-      liveSend(curId, live, null);
-      if (!ev.is_final) return; // interim → 표시만(아직 확정/번역 안 함)
-      finalBuf = shown; // is_final 조각 누적
-      // 말이 멈췄거나(speech_final) 너무 길면 → 한 문장으로 확정 + 번역
-      if (ev.speech_final || finalBuf.length >= DG_MAX_CHARS) {
-        const id = curId, txt = finalBuf, src = curSrc;
-        curId = null; finalBuf = ''; curSrc = '';
-        const base = {};
-        for (const lang of langsOut) base[lang] = txt; // 들린 대로 즉시 확정(검은 글씨)
-        upsertItem(id, base, txt);
-        for (const lang of langsOut) {
-          if (lang === src) continue; // 입력=출력은 그대로
-          translateText(txt, lang, true, [], refineModel)
-            .then((tr) => { if (tr) upsertItem(id, { [lang]: tr }); })
-            .catch(() => {});
-        }
-      }
-    });
-    dg.on('error', (e) => toHost({ type: 'status', message: 'Deepgram 오류: ' + (e && e.message || e) }));
-    dg.on('close', () => { dgReady = false; toHost({ type: 'status', message: '엔진 연결 종료 (Deepgram)' }); }); // 죽은 소켓으로 send 방지
-
-    ws.on('message', (data, isBinary) => {
-      if (isBinary) {
-        if (dgReady) dg.send(data);
-        else { pending.push(data); if (pending.length > 24) pending.shift(); } // 연결 전 큐 상한(무한 증가 방지)
-        return;
-      }
-      try {
-        const m = JSON.parse(data.toString());
-        if (m.type === 'stop') { try { dg.send(JSON.stringify({ type: 'CloseStream' })); } catch {}; try { dg.close(); } catch {} }
-      } catch {}
-    });
-    ws.on('close', () => { try { dg.close(); } catch {} });
   }
 
   /* ---------- gpt-realtime-translate -> gpt 다듬기 ---------- */

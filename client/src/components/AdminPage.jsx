@@ -713,7 +713,6 @@ function DeskStats() {
   );
 }
 
-/* 자주 묻는 질문 — 데스크 응대 로그의 손님 질문을 GPT 로 주제 클러스터링(버튼 실행, 결과 저장) */
 function FaqPanel() {
   const [report, setReport] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -977,7 +976,6 @@ export default function AdminPage({ user }) {
             <>
               <VendorUsage />
               <Box sx={{ mt: 3 }}><DeskStats /></Box>
-              <FaqPanel />
             </>
           )}
 
@@ -1048,7 +1046,18 @@ export default function AdminPage({ user }) {
           {tab === 'terms' && <TermsConfigPage user={user} embedded />}
 
           {/* ── 시스템 상태 + 보안(2FA) ── */}
-          {tab === 'system' && <SystemPanel />}
+          {tab === 'system' && (
+            <>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                <Tooltip title="세션(대화·응대 로그)·안내데스크 정의·용어·정형 안내를 JSON 한 파일로 내려받습니다">
+                  <Button variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => { window.location.href = '/api/admin/export'; }}>
+                    전체 데이터 백업(JSON)
+                  </Button>
+                </Tooltip>
+              </Box>
+              <SystemPanel />
+            </>
+          )}
         </Box>
       </Box>
 

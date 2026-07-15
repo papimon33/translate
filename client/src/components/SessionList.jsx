@@ -78,12 +78,11 @@ export const SITUATIONS = [
   { v: 'live', title: '라이브 청취', badge: '강의·컨퍼런스', example: '스피커로 들어온 현장 음성을 지정한 언어로 번역', Icon: IconMode1 },
   { v: 'oneway', title: '온라인 회의', badge: '줌 회의 등', example: 'PC 시스템 음성을 지정한 언어로 번역', Icon: IconMode2 },
   { v: 'twoway', title: '양방향 번역', badge: '온·오프라인 회의', example: '지정한 2개 언어를 서로의 언어로 번역', Icon: IconMode3 },
-  { v: 'multi', title: '다국어 회의', badge: '3개국어+ 테스트', example: '감지된 발화를 선택한 여러 언어로 동시 번역 (참여자별 표시 언어 선택)', Icon: IconMode3 },
 ];
 // 세션 모드 표시명(라이브 헤더·목록 배지). 레거시(mobile/online/field/meeting) 매핑 포함.
-export const TYPE_NAME = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', multi: '다국어 회의', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
+export const TYPE_NAME = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
 // 세션 모드 → 아이콘(목록·모달 공용)
-export const MODE_ICON = { live: IconMode1, oneway: IconMode2, twoway: IconMode3, multi: IconMode3, mobile: IconMode3, online: IconMode2, field: IconMode3, meeting: IconMode3 };
+export const MODE_ICON = { live: IconMode1, oneway: IconMode2, twoway: IconMode3, mobile: IconMode3, online: IconMode2, field: IconMode3, meeting: IconMode3 };
 
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
@@ -103,6 +102,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
   const [preset, setPreset] = useState('live'); // 세션 모드(live=라이브 청취 / oneway=온라인 회의 / twoway=양방향)
+  const [deskStat, setDeskStat] = useState({}); // 데스크 현황판: id → { hostOn, active, lang, viewers }
   const [regDesks, setRegDesks] = useState(null); // 안내데스크 레지스트리(관리자 사전 정의) — 데스크 세션 생성 시 선택
   const [deskId, setDeskId] = useState('');
   const [menu, setMenu] = useState(null);
@@ -115,6 +115,21 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const dismissOnboard = () => { setShowOnboard(false); localStorage.setItem('kac-onboard-v1', '1'); };
 
   const reload = () => api.list(q.trim()).then(setList).catch(() => {});
+  // 데스크 현황판: 전 데스크 상태(호스트 연결·응대 중·뷰어 수)를 10초 주기로 — 어느 데스크가 살아있는지 한눈에
+  useEffect(() => {
+    if (!deskMode) return;
+    let dead = false;
+    const tick = () => api.deskStatus().then((rows) => {
+      if (dead || !Array.isArray(rows)) return;
+      const m = {};
+      rows.forEach((r) => { m[r.id] = r; });
+      setDeskStat(m);
+    }).catch(() => {});
+    tick();
+    const iv = setInterval(tick, 10000);
+    return () => { dead = true; clearInterval(iv); };
+  }, [deskMode]);
+
   // 검색어 변경 시 디바운스 재조회(내용 검색은 서버에서)
   useEffect(() => {
     const t = setTimeout(() => { api.list(q.trim()).then(setList).catch(() => {}); }, q ? 250 : 0);
@@ -350,6 +365,20 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               <Typography sx={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {s.title || '(제목 없음)'}
               </Typography>
+              {deskMode && (() => {
+                const st = deskStat[s.id];
+                if (!st) return null;
+                const label = st.active ? `응대 중${st.lang ? ' · ' + st.lang.toUpperCase() : ''}` : st.hostOn ? '대기' : '오프라인';
+                const color = st.active ? 'accent.main' : st.hostOn ? 'success.main' : 'text.disabled';
+                return (
+                  <Tooltip title={`호스트 ${st.hostOn ? '연결됨' : '없음'} · 뷰어 ${st.viewers}대`}>
+                    <Box sx={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 0.6, fontSize: 12, color: 'text.secondary' }}>
+                      <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: color }} />
+                      {label}{st.viewers > 0 ? ` · 뷰어 ${st.viewers}` : ''}
+                    </Box>
+                  </Tooltip>
+                );
+              })()}
               {deskMode && s.deskName && (
                 <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' }, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
                   {s.deskName}

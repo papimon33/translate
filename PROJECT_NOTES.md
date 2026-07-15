@@ -635,3 +635,24 @@
 - **'안내원이 일본어' 원인(실로그 확인)**: 오라벨 아님 — 단일 마이크 two_way 에서 손님 일어 꼬리+안내원 한국어가
   한 발화로 묶여(lang=ko 다수결) 표기된 혼합 발화("で、말씀하세요"). 대응은 엔드포인트 튜닝(이번에 데스크 노출)·2채널 모드.
 - 세션 목록 첫 로딩 스켈레톤(빈 상태 오표시 방지).
+
+## 2026-07-16 — 테스트 잔재 삭제 + 운영 보강 + 레이턴시 로그(tm) + README (관리자 개편은 시안 검토 중)
+### 삭제(과도한 복잡성 조치)
+- **deepgram 파이프라인 전부 삭제**(runDeepgram·endpointing·PIPES·ENDPOINTS·kac-dg-endpointing), **multi(다국어 회의) 전부 삭제**
+  (runSoniox multi 분기·multiLangs·SITUATIONS 카드·모드 셀렉터·표시 언어/칩 UI·kac-multi-langs), **FAQ(자주 묻는 질문) 삭제**
+  (FaqPanel·faq-report/analyze 라우트·faqReport 저장), **번역 모델 셀렉터(테스트) 삭제**. 기존 multi/deepgram 세션은 열람만(지원 종료 라벨).
+- 고급 설정을 **섹션 캡션**으로 구획: 마이크 / 발화 인식(끊김 조절) / 실험 기능(β=RNNoise·confFix·응답어 등).
+### 운영 보강
+- **연결 상태 인디케이터**: 세션 헤더 제목 옆 점(초록=정상·노랑=재연결 중·회색=중지) — status 문구 파생 + start/stop 직접 갱신.
+- **데스크 현황판**: `GET /api/desk-status`(호스트 연결·응대 중·손님 언어·뷰어 수, ctrl.state()) → 데스크 목록 행에
+  상태 칩(응대 중·LANG/대기/오프라인 · 뷰어 n) 10초 폴링.
+- **전체 백업**: `GET /api/admin/export`(sessions+deskLog·deskRegistry·termsConfig·canned 를 JSON 1파일, Content-Disposition) →
+  관리자 시스템·보안 탭 '전체 데이터 백업(JSON)' 버튼.
+### 레이턴시 분해 로그 — 별도 로그 없이 대화 item 에 통합(item.tm)
+- `item.tm = { s(첫 토큰), e(<end>), c(확정), tq(TTS 요청), ta(TTS 첫 오디오) }` (epoch ms) —
+  runSoniox(전체) + runDesk 직원/여객(s/e/c). **저장 전용**: buildMsg 미포함이라 뷰어/브로드캐스트에 안 실림.
+  TTS 는 발화당 첫 문장 기준(stampTm — 커밋 전이면 utterTm 보류 후 병합). 분석식·활용은 README '로그 분석 방안' 표 참고.
+- README.md 전면 최신화: 기능 표·실행·**로그 스키마(item/deskLog)·분석 방안 표**·구조 요약. (구 whisper 시절 내용 폐기)
+### 관리자 개편(#6)은 미구현 — HTML 시안 검토 대기
+- 시안 아티팩트: 좌측 nav 하위메뉴(탭 제거)·상단 제목+전폭 컨텐츠·시그니처 보라(#5B4FE8) 그래프·데스크 통계
+  KPI 타일+응대 추이+언어 분포+응답 지연(신규 tm 기반). 승인 후 구현 예정.

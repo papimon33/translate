@@ -1,58 +1,89 @@
-# KAC Translator
+# AirTalk
 
-웹페이지에서 외국어 음성을 듣고 **OpenAI Realtime 번역 모델**(`gpt-realtime-translate`)로 번역,
-**gpt-5-mini** 로 문장을 다듬어 실시간 표시합니다. 세션별로 대화가 자동 저장되고, **QR 코드**로 휴대폰에서도 함께 볼 수 있습니다.
+공항 실시간 음성 번역 웹앱. **Soniox 실시간 STT+번역**과 **Cartesia TTS**, **GPT(다듬기·교정)**를 조합해
+대면 안내(안내데스크)·회의·현장 통역을 지원합니다. 세션별 대화가 자동 저장되고, QR 로 연결한 태블릿/휴대폰 뷰어에서 함께 봅니다.
 
-## 기능
-1. 외국어 음성 → 선택한 언어로 실시간 번역 (입력 언어는 자동 감지)
-2. 문장 단위로 gpt-5-mini 가 자연스럽게 다듬음
-3. 좌측 네비(클로드 스타일) · 세션 목록 · "새 세션"
-4. **세션별 대화 자동 저장** (서버 `data/sessions.json`)
-5. **시스템 소리 = 왼쪽 / 내 마이크 = 오른쪽** 채팅식 표시
-6. 화이트/블랙 테마 (좌측 네비 하단 **설정** 아이콘)
-7. QR 코드로 같은 와이파이 휴대폰에서 실시간 열람
+> 개발 인수인계·아키텍처 상세는 **`PROJECT_NOTES.md`**(필독), 평가 절차는 `eval/TEST_GUIDE.md`.
 
-## 기술 스택
-- 프론트: **React 19 + MUI**(Vite 빌드, `client/` → `dist/`)
-- 백엔드: Node(Express) + WebSocket, 세션 파일 저장(`data/sessions.json`)
+## 주요 기능
+
+| 모드 | 설명 |
+|---|---|
+| **데스크 안내** | 안내데스크 상시 운영: 손님이 태블릿에서 언어 터치 → 양방향 통역. 지향성 마이크 2대(PC 직결) 또는 태블릿 마이크 2채널, 길안내 지도(호스트 승인제), TTS |
+| **실시간 번역** | 라이브 청취(단방향), 온라인 회의(시스템 오디오), 양방향 번역(마이크). 60개 언어 |
+| 공통 | 용어 설정(Soniox context 주입) · 저신뢰 자동 교정(GPT·β) · RNNoise 잡음 제거(β) · 적응형 마이크 게이트 · AI 요약 |
+| 앱 | Windows/macOS(Electron) · Android(WebView + 네이티브 마이크, AGC 차단) — 프로필 → 앱 설치 |
+| 관리자 | 사용량(벤더 청구 API) · 로그 · 안내데스크 정의 · 계정 · 용어 · 정형 안내 · 시스템/백업 |
 
 ## 설치 & 실행
+
 ```bash
 npm install
-copy .env.example .env   # (mac/linux: cp .env.example .env)
-# .env 에 OPENAI_API_KEY 입력
-npm start                # vite build 후 서버 실행 (dist 서빙)
+cp .env.example .env   # OPENAI_API_KEY, SONIOX_API_KEY, CARTESIA_API_KEY(선택), MONGODB_URI(선택)
+npm start              # vite build && node server.js  (http://localhost:3000, 기본 admin/admin)
 ```
-- 코드 수정 후에는 `npm start`(빌드 포함) 또는 `npm run build` 후 `npm run serve`.
-- 프론트만 빠르게 개발하려면: `npm run dev:client`(Vite) + 별도로 `npm run serve`.
-- 데스크톱: http://localhost:3000
-- 휴대폰: 번역 화면의 **모바일** 버튼 → QR 스캔 (PC와 같은 와이파이)
+- 코드 수정 후 재시작 필요. 프론트만: `npm run build` / 서버만: `npm run serve` / 테스트: `npm test`
+- 프론트 소스 `client/` → 빌드 `dist/`(express 서빙). **`dist` 직접 수정 금지.**
+- 저장소: `MONGODB_URI` 있으면 MongoDB, 없으면 `data/*.json` 파일.
+- ⚠ Soniox/OpenAI/Cartesia 호출은 항상 과금 — 테스트 세션은 끝나면 삭제.
 
-## 사용법
-1. **새 세션** 생성 → 번역 화면 진입
-2. 출력 언어 선택, 오디오 소스 선택
-   - **마이크**: 내가 말하는 외국어 → 오른쪽에 표시
-   - **시스템 소리**: PC에서 나는 소리 → 왼쪽에 표시
-   - **둘 다**: 두 소스를 동시에 (각각 좌/우)
-3. 하단 중앙 **재생(▷)** 버튼으로 시작, 다시 누르면 **정지(■)**
-4. 헤더의 마이크 미터로 입력이 잡히는지 확인
+## 로그(데이터) 구조 — 하나의 대화 로그로 여러 분석
 
-### "이 컴퓨터의 모든 소리" 캡처 방법
-브라우저 보안상 PC 전체 오디오를 자동으로 가져올 수는 없고, 권한 창이 한 번 뜹니다.
-**시스템 소리**를 고르면 화면 공유 창이 뜨는데, 여기서
+모든 분석 데이터는 **세션의 대화 항목(item) 하나에 통합**돼 쌓입니다(별도 로그 파일 없음).
+데스크는 응대가 끝날 때 items 가 `deskLog` 항목으로 아카이브됩니다.
 
-> **"전체 화면(Entire Screen)"** 선택 + 하단 **"시스템 오디오 공유"** 체크
+```jsonc
+// session.items[] / session.deskLog[].items[]
+{
+  "id": "mr…",
+  "side": "right",            // right=호스트(마이크) / left=게스트(여객 채널)·시스템
+  "lang": "ja",               // 발화 원문 언어(토큰 다수결) — 화자 라벨·언어 분포의 근거
+  "source": "トイレはどこですか。",     // 원문(STT)
+  "texts": { "ko": "화장실은 어디예요?" }, // 번역 { 언어코드: 문장 }
+  "speaker": null,            // 화자 구분(diarization) 사용 시
+  "toks": [["トイ", 0.98], ["レ", 0.95]], // 원문 토큰별 confidence(≤120개) — 인식 품질·confFix 근거
+  "tm": {                     // 레이턴시 분해 타임스탬프(epoch ms) — 저장 전용(뷰어 미전송)
+    "s": 1789000000000,       //  첫 토큰(발화 인식 시작)
+    "e": 1789000003000,       //  <end>(엔드포인트 감지 = 발화 종료 판정)
+    "c": 1789000003200,       //  카드 확정(commit)
+    "tq": 1789000003300,      //  TTS 합성 요청(TTS 켠 세션만, 발화당 첫 문장 기준)
+    "ta": 1789000003700       //  TTS 첫 오디오 청크(체감 음성 지연의 끝점)
+  }
+}
 
-하면 (특정 탭이 아니라) **PC에서 재생되는 모든 소리**가 잡힙니다. (Chrome / Edge 권장)
+// session.deskLog[]  (데스크 응대 1건)
+{ "startedAt": 0, "endedAt": 0, "lang": "en",  // 손님 언어(잠금 또는 발화에서 유추 — '미상' 없음)
+  "interrupted": false, "items": [], "stats": { "staff": 7, "guest": 5, "crossDrops": 0 } }
+```
 
-## 번역 방식(파이프라인) — 화면에서 토글
-- **Whisper + GPT 번역** (기본, 저비용): `gpt-realtime-whisper`로 원문 전사(음성 출력 없음 = 음성 과금 0) → `gpt-5-mini`로 번역. **번역문 아래에 원어를 회색 작은 글씨로 표시**. 입력 언어 지정 가능. whisper는 server VAD 미지원이라 브라우저가 무음(약 0.7초)에서 commit.
-- **Translate + GPT 다듬기** (고품질): `gpt-realtime-translate`로 번역 → `gpt-5-mini`로 다듬기. 음성 출력까지 생성돼 분당 비용이 약 2배.
+### 로그 분석 방안
 
-## 참고
-- 전사 모델: `.env` `TRANSCRIBE_MODEL` (기본 `gpt-realtime-whisper`). 대안: `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`.
-- 번역/다듬기 모델: `.env` `REFINE_MODEL` (`gpt-5-mini`/`gpt-4.1-mini`/`gpt-5-nano`).
-- "다듬기" 토글: 켜면 자연스럽게 의역, 끄면 빠른 직역(둘 다 번역은 수행).
-- 출력 언어는 화면에서 선택, 기본값은 `.env` `TARGET_LANG`.
-- 세션 데이터는 `data/sessions.json` 에 저장됩니다.
-- 외부망에서 모바일 접속 시 HTTPS가 필요하면 리버스 프록시(ngrok, caddy 등)로 TLS를 붙이세요.
+한 로그에서 파생되는 대표 분석(관리자 API `GET /api/admin/logs/*` 또는 백업 JSON에서 수행):
+
+| 분석 | 계산 | 의미 |
+|---|---|---|
+| **발화 길이** | `tm.e − tm.s` | 실제 발화 시간 |
+| **확정 지연** | `tm.c − tm.e` | 말이 끝나고 카드가 뜨기까지 — 종료 민감도·최대 지연 튜닝 지표 |
+| **음성 지연** | `tm.ta − tm.c` | 카드 확정 후 TTS 첫 소리까지(합성 경로 성능) |
+| **체감 총지연** | `tm.ta − tm.e` | 말 끝 → 소리 시작(TTS 세션의 핵심 KPI) |
+| **응대 응답 지연** | 손님 item `tm.e` → 다음 안내원 item `tm.s` | 데스크 서비스 KPI |
+| **인식 품질** | `toks` confidence 분포 | `node eval/conf-analyze.mjs` — confFix 임계 재튜닝(근거: PROJECT_NOTES 2026-07-14(5)) |
+| **언어 분포·응대량** | `deskLog.lang` · 건수/시간 | 관리자 > 사용량의 데스크 통계 |
+| **누화율** | `deskLog.stats.crossDrops` | 2채널 마이크 간섭 지표(높으면 마이크 배치·민감도 조정) |
+| **번역 정확도** | 응대 로그 → 평가 JSON | 관리자 > 로그 > [평가 JSON 내려받기] → `node eval/score.mjs --auto` |
+
+백업: 관리자 > 시스템·보안 > **전체 데이터 백업(JSON)** — sessions(deskLog 포함)·데스크 정의·용어·정형 안내를 한 파일로.
+
+## 구조(요약)
+
+```
+server.js            # 전부: REST + WS(host/viewer) + 파이프라인(runSoniox/runDesk/runTranslate)
+                     #  + Cartesia 상시 WS + confFix + 용어 context + 데스크 레지스트리
+client/src/          # React 앱(TranslateView·SessionList·AdminPage·Nav·audio.js)
+client/public/       # desk.html(데스크 뷰어)·mobile.html(모바일 뷰어) — 독립 바닐라 JS
+android/             # Android 키오스크 앱(WebView + 네이티브 마이크) — android/README.md
+desktop/             # Electron 데스크톱 앱
+eval/                # 평가: dataset·score·conf-analyze·make-tts-audio(6언어 mp3)
+```
+
+WS 프로토콜·표시 규칙·운영/보안·과금 구조(context = input_text_tokens)는 `PROJECT_NOTES.md` 참고.

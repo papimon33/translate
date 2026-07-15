@@ -98,7 +98,6 @@ const SX_LANGS = [
 ];
 const PIPES = [
   { v: 'translate', label: '실시간 통역' },
-  { v: 'deepgram', label: '다국어 번역 (Deepgram)' },
   { v: 'soniox', label: '다국어 번역' },
   { v: 'desk', label: '데스크 안내 모드' },
 ];
@@ -120,23 +119,6 @@ const SX_LATENCY = [
   { v: 1, label: '1' },
   { v: 2, label: '2' },
   { v: 3, label: '3 (저지연)' },
-];
-// 번역 GPT 모델(테스트용)
-const MODELS = [
-  { v: 'gpt-5-nano', label: 'gpt-5-nano (기본)' },
-  { v: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
-];
-// Deepgram endpointing(문장종료 무음, ms) 테스트용 프리셋. 클수록 문장이 길어짐.
-const ENDPOINTS = [
-  { v: 10, label: '10ms (Deepgram 기본값)' },
-  { v: 50, label: '50ms' },
-  { v: 100, label: '100ms' },
-  { v: 150, label: '150ms' },
-  { v: 200, label: '200ms' },
-  { v: 300, label: '300ms' },
-  { v: 500, label: '500ms' },
-  { v: 800, label: '800ms' },
-  { v: 1200, label: '1200ms' },
 ];
 
 // 데스크: 손님 언어 선택지(호스트용 — 한국어 표기, ko 제외. soniox two_way 지원 언어)
@@ -209,6 +191,15 @@ function InfoToggle({ label, hint, checked, disabled, onChange, note }) {
   );
 }
 
+// 고급 설정 섹션 캡션 — 항목이 많아져 기본/실험을 눈으로 구분(기능 변화 없음)
+function SettingsCap({ children, first }) {
+  return (
+    <Typography sx={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.04em', color: 'text.disabled', mt: first ? 0 : 2.5, mb: 1.25, pb: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+      {children}
+    </Typography>
+  );
+}
+
 function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange }) {
   return (
     <Box sx={{ mb: 3 }}>
@@ -234,7 +225,6 @@ export default function TranslateView({ session: initial, onBack }) {
   // 단방향 모드: 라이브 청취(live)·온라인 회의(oneway/online). 소스: 온라인만 시스템, 나머지 마이크.
   const [preset, setPreset] = useState(initial.preset || null); // 번역 이력이 없으면 세션 안에서 변경 가능
   const onewayPreset = ['live', 'oneway', 'online'].includes(preset);
-  const multiPreset = preset === 'multi'; // 다국어 회의(3개국어+, 테스트): soniox 전사 + GPT 팬아웃
   const [sourceMode, setSourceMode] = useState(['oneway', 'online'].includes(initial.preset) ? 'system' : 'mic');
   const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
   const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
@@ -242,10 +232,6 @@ export default function TranslateView({ session: initial, onBack }) {
     const s = localStorage.getItem('kac-vol'); // 0(음소거)도 유효한 저장값 — v > 0 판정으로 무시되던 문제 수정
     const v = s == null ? NaN : Number(s);
     return Number.isFinite(v) && v >= 0 && v <= 1.5 ? v : 1;
-  });
-  const [endpointing, setEndpointing] = useState(() => {
-    const v = Number(localStorage.getItem('kac-dg-endpointing'));
-    return Number.isFinite(v) && v > 0 ? v : 1200;
   });
   const [sxSens, setSxSens] = useState(() => {
     const v = Number(localStorage.getItem('kac-sx-sens'));
@@ -274,16 +260,12 @@ export default function TranslateView({ session: initial, onBack }) {
     const v = s == null ? NaN : Number(s);
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 50; // 여객 태블릿 마이크 민감도(데스크) — 50=기존 근접 게이트와 동일
   });
-  // 프리셋: 단방향=one→ko, 양방향/모바일=two, 다국어 회의=multi. (없으면 기존 localStorage)
-  const [sxMode, setSxMode] = useState(() => (initial.preset ? (initial.preset === 'multi' ? 'multi' : onewayPreset ? 'one' : 'two') : (localStorage.getItem('kac-sx-mode') || 'one')));
+  // 프리셋: 단방향=one→ko, 양방향/모바일=two. (없으면 기존 localStorage)
+  const [sxMode, setSxMode] = useState(() => (initial.preset ? (onewayPreset ? 'one' : 'two') : (localStorage.getItem('kac-sx-mode') || 'one')));
   const [sxTarget, setSxTarget] = useState(() => (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   // 다국어 회의: 동시 번역 언어 집합(2~4개). 기기 저장.
-  const [multiLangs, setMultiLangs] = useState(() => {
-    const s = (localStorage.getItem('kac-multi-langs') || '').split(',').filter(Boolean);
-    return s.length >= 2 ? s.slice(0, 4) : ['ko', 'en', 'ja'];
-  });
   // 고급옵션: 단독 응답어(네/Yes/Okay 단독 발화) 기록 생략 — 기본 꺼짐(보존)
   const [dropAcks, setDropAcks] = useState(() => localStorage.getItem('kac-drop-acks') === '1');
   const [ttsOn, setTtsOn] = useState(() => { const s = localStorage.getItem('kac-sx-tts'); return s === '1' ? true : s === '0' ? false : !onewayPreset; }); // 음성재생(TTS): 오프라인(대화) 기본 ON, 온라인 OFF
@@ -361,6 +343,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const [copied, setCopied] = useState(false);
   // 세션 제목(라이브 헤더에서 수정)
   const [sessTitle, setSessTitle] = useState(initial.title);
+  // 연결 상태 인디케이터: ok(정상)/reconn(재연결 중)/off(중지) — 상태 문구가 스쳐 지나가 안 보이던 문제 보완
+  const [connState, setConnState] = useState('off');
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameVal, setRenameVal] = useState('');
   const openRename = () => { setRenameVal(sessTitle || ''); setRenameOpen(true); };
@@ -404,7 +388,6 @@ export default function TranslateView({ session: initial, onBack }) {
   const startingRef = useRef(false); // 시작 버튼 연타로 중복 세션 생성 방지
   const startRef = useRef(null); // 최신 start() 참조(재시작 클로저의 stale state 방지)
   // 번역 GPT 모델(테스트용). 기본 gpt-5-nano.
-  const [model, setModel] = useState(() => localStorage.getItem('kac-model') || 'gpt-5-nano');
   // Electron(통합 데스크톱 앱)에서만 노출되는 오버레이 버튼
   const isElectron = typeof window !== 'undefined' && !!(window.kac && window.kac.isElectron);
   const openOverlay = () => {
@@ -533,6 +516,12 @@ export default function TranslateView({ session: initial, onBack }) {
   };
 
   const onMessage = (m) => {
+    // 연결 상태 점(헤더): 서버 상태 문구에서 파생 — 재연결 중엔 노란 점으로 즉시 보이게
+    if (m.type === 'status' && typeof m.message === 'string') {
+      if (m.message.includes('재연결 중')) setConnState('reconn');
+      else if (m.message.includes('엔진 연결됨') || m.message.includes('대기 중')) setConnState('ok');
+      else if (m.message.includes('연결 종료')) setConnState('off');
+    }
     if (m.type === 'idle-stop') {
       stop();
       setNotice('1분간 입력이 없어 자동으로 중지했습니다. 다시 시작하려면 시작 버튼을 누르세요.');
@@ -614,7 +603,6 @@ export default function TranslateView({ session: initial, onBack }) {
         tts: cfg.pipeline === 'soniox' && ttsOn, // 음성재생(TTS)
         gender,
         volume,
-        endpointing,
         micSens, // 마이크 음성인식 민감도(0~100): 일정 볼륨 이상만 전송하는 클라이언트 볼륨 게이트
         deskGuestSens: cfg.pipeline === 'desk' ? guestSens : undefined, // 여객 태블릿 마이크 민감도(서버 경유 뷰어 근접 게이트)
         sxSens,
@@ -624,7 +612,6 @@ export default function TranslateView({ session: initial, onBack }) {
         sxTarget,
         sxA,
         sxB,
-        multiLangs: sxMode === 'multi' ? multiLangs.join(',') : undefined, // 다국어 회의 선택 언어
         dropAcks, // 고급옵션: 단독 응답어(네/Yes) 기록 생략
         confFix, // 고급옵션: 저신뢰 자동 교정(GPT) — 연속 저신뢰 발화만 맥락 교정
         // 데스크 마이크 2대(PC): 여객 장치가 지정된 경우에만 — 여객 오디오는 src=guestmic 별도 연결로 공급
@@ -632,7 +619,6 @@ export default function TranslateView({ session: initial, onBack }) {
         rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
         micId: cfg.pipeline === 'soniox' && micId ? micId : undefined, // 실시간 번역: 마이크 장치 선택
         wayfind: cfg.pipeline === 'desk' ? wayfindOn : undefined, // 데스크: 길안내 지도 기능 on/off
-        model,
         onMessage,
         onMeter: (rms, peak, src) => {
           const db = 20 * Math.log10(rms + 1e-8);
@@ -651,6 +637,7 @@ export default function TranslateView({ session: initial, onBack }) {
       }
       recRef.current = rec;
       setRecording(true);
+      setConnState('ok');
       setMicMuted(false); // 시작 시 발화 on
       setConnecting(cfg.pipeline !== 'desk'); // 엔진 연결~첫 결과까지 표시 (데스크는 대기 모드라 제외)
     } catch (e) {
@@ -689,6 +676,7 @@ export default function TranslateView({ session: initial, onBack }) {
     restartCapture();
   };
   const stop = () => {
+    setConnState('off');
     stopReqRef.current = true; // 연결 중이면 시작 완료 시점에 정리되도록 표시
     recRef.current?.stop();
     recRef.current = null;
@@ -719,18 +707,18 @@ export default function TranslateView({ session: initial, onBack }) {
   // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
   const showSource = cfg.pipeline === 'desk' ? true : (cfg.pipeline !== 'translate' && srcVisible);
   const showPartial = true;
-  const twoway = cfg.pipeline === 'soniox' && !onewayPreset && !multiPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
-  const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', multi: '다국어 회의', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
+  const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
+  const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
   const pipeLabel = preset ? PRESET_LABEL[preset] : (PIPES.find((p) => p.v === cfg.pipeline)?.label || '지원 종료 모드');
   // 모드 변경(번역 이력 없을 때만): 프리셋 + 모드별 기본값(소스·방향·TTS)을 함께 리셋
-  const presetGroup = preset ? (preset === 'live' ? 'live' : preset === 'multi' ? 'multi' : onewayPreset ? 'oneway' : 'twoway') : null;
+  const presetGroup = preset ? (preset === 'live' ? 'live' : onewayPreset ? 'oneway' : 'twoway') : null;
   const changeMode = (v) => {
     setPreset(v);
     api.patch(initial.id, { preset: v }).catch(() => {});
     setSourceMode(v === 'oneway' ? 'system' : 'mic');
-    setSxMode(v === 'twoway' ? 'two' : v === 'multi' ? 'multi' : 'one');
-    if (v !== 'twoway' && v !== 'multi') setSxTarget('ko');
-    setTtsOn(v === 'twoway'); // multi 는 다국어 동시 출력이라 TTS 미지원
+    setSxMode(v === 'twoway' ? 'two' : 'one');
+    if (v !== 'twoway') setSxTarget('ko');
+    setTtsOn(v === 'twoway');
     localStorage.setItem('kac-sx-tts', v === 'twoway' ? '1' : '0'); // 저장값과 동기화(리로드 시 되돌아가던 문제)
   };
 
@@ -744,6 +732,9 @@ export default function TranslateView({ session: initial, onBack }) {
         <Box sx={{ minWidth: 0, flex: 1 }}>
           {/* overflow hidden — 좁은 폭에서 모드 칩이 우측 버튼들 밑으로 겹쳐 보이던 문제 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
+            <Tooltip title={connState === 'ok' ? '엔진 연결 정상' : connState === 'reconn' ? '재연결 중 — 잠시 인식이 멈출 수 있습니다' : '중지됨(연결 없음)'}>
+              <Box sx={{ width: 9, height: 9, borderRadius: '50%', flex: 'none', bgcolor: connState === 'ok' ? 'success.main' : connState === 'reconn' ? 'warning.main' : 'text.disabled', boxShadow: connState === 'reconn' ? '0 0 0 3px rgba(232,145,45,0.25)' : 'none' }} />
+            </Tooltip>
             <Typography sx={{ fontWeight: 800, fontSize: { xs: 16, sm: 18 }, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
               {sessTitle}
             </Typography>
@@ -915,32 +906,12 @@ export default function TranslateView({ session: initial, onBack }) {
               </Select>
             </Field>
           )}
-          {cfg.pipeline === 'deepgram' && (
-            <Field label="문장종료 무음(테스트)">
-              <Select
-                size="small"
-                value={endpointing}
-                disabled={recording}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setEndpointing(v);
-                  localStorage.setItem('kac-dg-endpointing', String(v));
-                }}
-                sx={{ ...selSx, minWidth: 140 }}
-              >
-                {ENDPOINTS.map((o) => (
-                  <MenuItem key={o.v} value={o.v}>{o.label}</MenuItem>
-                ))}
-              </Select>
-            </Field>
-          )}
           {cfg.pipeline === 'soniox' && preset && messages.length === 0 && (
             <Field label="모드">
               <Select size="small" value={presetGroup} disabled={recording} onChange={(e) => changeMode(e.target.value)} sx={{ ...selSx, minWidth: 125 }}>
                 <MenuItem value="live">라이브 청취</MenuItem>
                 <MenuItem value="oneway">온라인 회의</MenuItem>
                 <MenuItem value="twoway">양방향 번역</MenuItem>
-                <MenuItem value="multi">다국어 회의</MenuItem>
               </Select>
             </Field>
           )}
@@ -997,41 +968,7 @@ export default function TranslateView({ session: initial, onBack }) {
               )}
             </>
           )}
-          {cfg.pipeline === 'soniox' && multiPreset && (
-            <Field label="표시 언어">
-              <Select size="small" value={multiLangs.includes(dispLang) ? dispLang : multiLangs[0]} onChange={(e) => setDispLang(e.target.value)} sx={{ ...selSx, minWidth: 110 }}>
-                {multiLangs.map((c) => (<MenuItem key={c} value={c}>{SX_LANGS.find((l) => l.code === c)?.label || c}</MenuItem>))}
-              </Select>
-            </Field>
-          )}
-          {cfg.pipeline === 'soniox' && multiPreset && (
-            <Field label="동시 번역 언어 (2~4개)">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: 37, flexWrap: 'wrap' }}>
-                {SX_LANGS.filter((l) => ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'vi', 'th', 'id', 'ru'].includes(l.code)).map((l) => {
-                  const sel = multiLangs.includes(l.code);
-                  return (
-                    <Chip
-                      key={l.code}
-                      size="small"
-                      label={l.label}
-                      variant={sel ? 'filled' : 'outlined'}
-                      color={sel ? 'primary' : 'default'}
-                      disabled={recording || (!sel && multiLangs.length >= 4)}
-                      onClick={() => {
-                        const next = sel ? multiLangs.filter((c) => c !== l.code) : [...multiLangs, l.code];
-                        if (next.length < 2) return; // 최소 2개 유지
-                        setMultiLangs(next);
-                        localStorage.setItem('kac-multi-langs', next.join(','));
-                        if (!next.includes(dispLang)) setDispLang(next[0]);
-                      }}
-                      sx={{ fontWeight: 700 }}
-                    />
-                  );
-                })}
-              </Box>
-            </Field>
-          )}
-          {cfg.pipeline === 'soniox' && !onewayPreset && !multiPreset && (
+          {cfg.pipeline === 'soniox' && !onewayPreset && (
             <>
               <Field label="언어 1">
                 <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} sx={{ ...selSx, minWidth: 110 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
@@ -1126,24 +1063,6 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
 
-          {cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
-            <Field label="번역 모델(테스트)">
-              <Select
-                size="small"
-                value={model}
-                disabled={recording}
-                onChange={(e) => {
-                  setModel(e.target.value);
-                  localStorage.setItem('kac-model', e.target.value);
-                }}
-                sx={{ ...selSx, minWidth: 150 }}
-              >
-                {MODELS.map((m) => (
-                  <MenuItem key={m.v} value={m.v}>{m.label}</MenuItem>
-                ))}
-              </Select>
-            </Field>
-          )}
 
           {/* 실시간 번역: 사용할 마이크 장치 선택(녹음 중엔 변경 불가 — 다음 시작부터 적용) */}
           {cfg.pipeline === 'soniox' && !window.AndroidAudio && (
@@ -1410,6 +1329,7 @@ export default function TranslateView({ session: initial, onBack }) {
           <SxSlider label="텍스트 크기" hint="번역 텍스트 표시 크기 (80~160%)" value={fontScale} min={0.8} max={1.6} step={0.1} disabled={false}
             fmt={(v) => Math.round(v * 100) + '%'}
             onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
+          <SettingsCap first>마이크</SettingsCap>
           {/* 녹음(캡처) 중에도 실시간 조절 — 데스크는 상시 캡처라 비활성화하면 아예 바꿀 수 없었음 */}
           <SxSlider label={cfg.pipeline === 'desk' ? '호스트 마이크 민감도' : '마이크 음성인식 민감도'} hint="100=모든 소리, 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 기본 70. 속삭임이 잡히면 더 낮추고, 작게 말하는데 끊기면 높이세요. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
             fmt={(v) => String(v)}
@@ -1420,6 +1340,7 @@ export default function TranslateView({ session: initial, onBack }) {
               fmt={(v) => String(v)}
               onChange={(v) => { setGuestSens(v); localStorage.setItem('kac-desk-guest-sens', String(v)); if (recRef.current && recRef.current.setGuestSens) recRef.current.setGuestSens(v); }} />
           )}
+          <SettingsCap>실험 기능 (β)</SettingsCap>
           {!window.AndroidAudio && (
             <InfoToggle
               label="잡음 제거 강화 (RNNoise·β)"
@@ -1472,6 +1393,7 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
           {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
             <>
+              <SettingsCap>발화 인식 (끊김 조절)</SettingsCap>
               {/* 데스크는 상시 캡처라 disabled 로 두면 영영 못 바꿈 → 값 변경 후 0.9초 뒤 자동 재캡처로 적용 */}
               <SxSlider label="종료 민감도" hint={'높을수록 더 자주/빨리 끊김' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxSens} min={-1} max={1} step={0.1} disabled={cfg.pipeline !== 'desk' && recording}
                 fmt={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}

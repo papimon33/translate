@@ -152,7 +152,7 @@ function downsampleTo24k(f32, inRate) {
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, endpointing, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
   // 마이크 음성인식 민감도(0~100): 100=가장 민감(게이트 없음), 낮출수록 조용한 소리를 무시.
   //  · 게이트 기준은 RMS(프레임 평균 음량) — peak(순간 최대) 는 속삭임의 자음(ㅅ·ㅌ) 스파이크에도
   //    열려 버려 소용없었다. RMS 는 '지속적으로 일정 음량 이상'일 때만 열려 속삭임·주변소음을 잘 거른다.
@@ -217,12 +217,10 @@ export async function startRecorder(opts) {
   const q = `session=${sessionId}&out=${encodeURIComponent(outLang)}&in=${encodeURIComponent(
     inLang
   )}&pipeline=${pipeline}&refine=${refine ? '1' : '0'}&audioOut=${audioOut ? '1' : '0'}${
-    pipeline === 'deepgram' && endpointing != null ? `&endpointing=${encodeURIComponent(endpointing)}` : ''
-  }${
     pipeline === 'soniox'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}&sxMode=${encodeURIComponent(sxMode || 'one')}&sxTarget=${encodeURIComponent(sxTarget || 'en')}&sxA=${encodeURIComponent(sxA || 'ko')}&sxB=${encodeURIComponent(sxB || 'en')}${
           tts ? `&tts=1&gender=${encodeURIComponent(gender || 'f')}` : ''
-        }${diar ? '&diar=1' : ''}${opts.multiLangs ? `&multiLangs=${encodeURIComponent(opts.multiLangs)}` : ''}`
+        }${diar ? '&diar=1' : ''}`
       : ''
   }${opts.dropAcks ? '&dropAcks=1' : ''}${opts.confFix ? '&confFix=1' : ''}${
     pipeline === 'desk'
