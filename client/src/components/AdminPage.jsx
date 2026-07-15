@@ -203,81 +203,80 @@ const TABS = [
   { v: 'system', label: '시스템·보안' },
 ];
 
-/* ── 안내데스크 관리: 데스크 세션(공용 인프라) 추가·삭제 — 관리자 전용.
-     생성/삭제는 기존 세션 API 재사용(pipeline='desk' 는 서버가 admin 만 허용).
-     삭제는 소프트 삭제 — 응대 로그(deskLog)는 '로그' 탭에 보존된다. ── */
+/* ── 안내데스크 관리(레지스트리): 이름·층·방향을 사전 정의 — 관리자 전용.
+     세션은 여기서 만들지 않는다: 데스크 목록 화면에서 '등록된 데스크 선택 + 세션명'으로 생성.
+     (기존 데스크 세션 삭제는 데스크 목록 화면의 행 액션으로 — 응대 로그는 '로그' 탭에 보존) ── */
 const DESK_FLOORS = ['1F', '2F', '3F', '4F'];
 const DESK_SIDES = [{ v: 'E', label: '동' }, { v: 'W', label: '서' }, { v: 'S', label: '남' }, { v: 'N', label: '북' }];
 function DeskManagePanel() {
-  const [desks, setDesks] = useState(null); // null=로딩
+  const [reg, setReg] = useState(null); // null=로딩, [{id,name,floor,side}]
   const [dlg, setDlg] = useState(false);
-  const [title, setTitle] = useState('');
+  const [name, setName] = useState('');
   const [floor, setFloor] = useState('1F');
   const [side, setSide] = useState('S');
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [snack, setSnack] = useState('');
-  const reload = () => api.list().then((all) => setDesks((Array.isArray(all) ? all : []).filter((s) => s.pipeline === 'desk'))).catch(() => setDesks([]));
+  const reload = () => api.deskRegistry().then((r) => setReg((r && r.desks) || [])).catch(() => setReg([]));
   useEffect(() => { reload(); }, []);
-  const create = async () => {
-    if (!title.trim() || busy) return;
+  const save = async (desks, okMsg) => {
     setBusy(true);
     try {
-      await api.create({ pipeline: 'desk', title: title.trim(), deskFloor: floor, deskSide: side });
-      setDlg(false); setTitle('');
-      reload();
-    } catch (e) { setSnack('생성 실패: ' + (e.message || '오류')); }
+      const r = await api.saveDeskRegistry({ desks });
+      setReg((r && r.desks) || desks);
+      if (okMsg) setSnack(okMsg);
+    } catch (e) { setSnack('저장 실패: ' + (e.message || '오류')); }
     setBusy(false);
   };
+  const add = async () => {
+    if (!name.trim() || busy) return;
+    await save([...(reg || []), { name: name.trim(), floor, side }], '데스크가 등록되었습니다');
+    setDlg(false); setName('');
+  };
   const askDelete = (d) => setConfirm({
-    title: '안내데스크 삭제',
-    message: `'${d.title}' 데스크를 삭제합니다. 응대 로그는 '로그' 탭에 보존됩니다.`,
-    onOk: async () => {
-      try { await api.remove(d.id); } catch (e) { setSnack('삭제 실패: ' + (e.message || '오류')); }
-      reload();
-    },
+    title: '안내데스크 정의 삭제',
+    message: `'${d.name}' 데스크 정의를 삭제합니다. 이미 만들어진 세션·응대 로그는 그대로 남습니다.`,
+    onOk: () => save((reg || []).filter((x) => x.id !== d.id), '삭제되었습니다'),
   });
   return (
     <>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-          안내데스크는 전 직원에게 공유되는 공용 세션입니다. 추가·삭제는 관리자만 할 수 있습니다.
+          안내데스크의 이름·층·방향을 여기서 미리 등록합니다. 세션은 '데스크 안내' 화면에서 등록된 데스크를 선택해 만듭니다.
         </Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg(true)}>데스크 추가</Button>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg(true)}>데스크 등록</Button>
       </Box>
       <Paper variant="outlined" sx={{ borderRadius: 1.5, overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 480 }}>
+        <Table sx={{ minWidth: 420 }}>
           <TableHead>
             <TableRow sx={{ '& th': { fontWeight: 800, fontSize: 13 } }}>
               <TableCell>데스크명</TableCell>
-              <TableCell>위치(층·방향)</TableCell>
-              <TableCell>생성일</TableCell>
+              <TableCell>층 (길안내 출발점)</TableCell>
+              <TableCell>방향</TableCell>
               <TableCell align="right">삭제</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {(desks || []).map((d) => (
+            {(reg || []).map((d) => (
               <TableRow key={d.id} hover>
-                <TableCell sx={{ fontWeight: 600 }}>{d.title}</TableCell>
-                <TableCell>{d.deskFloor || '1F'} · {(DESK_SIDES.find((s) => s.v === d.deskSide) || {}).label || '남'}</TableCell>
-                <TableCell sx={{ color: 'text.secondary', fontSize: 13 }}>{d.createdAt ? new Date(d.createdAt).toLocaleDateString('ko-KR') : '-'}</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
+                <TableCell>{d.floor}</TableCell>
+                <TableCell>{(DESK_SIDES.find((s) => s.v === d.side) || {}).label || d.side}</TableCell>
                 <TableCell align="right">
-                  <Tooltip title="삭제(응대 로그는 보존)">
-                    <IconButton size="small" onClick={() => askDelete(d)}><DeleteOutlineIcon fontSize="small" /></IconButton>
-                  </Tooltip>
+                  <IconButton size="small" disabled={busy} onClick={() => askDelete(d)}><DeleteOutlineIcon fontSize="small" /></IconButton>
                 </TableCell>
               </TableRow>
             ))}
-            {desks && desks.length === 0 && (
-              <TableRow><TableCell colSpan={4} sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>등록된 안내데스크가 없습니다. '데스크 추가'로 만들어 주세요.</TableCell></TableRow>
+            {reg && reg.length === 0 && (
+              <TableRow><TableCell colSpan={4} sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>등록된 안내데스크가 없습니다. '데스크 등록'으로 추가하세요.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </Paper>
       <Dialog open={dlg} onClose={() => setDlg(false)} PaperProps={{ sx: { width: 400 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>안내데스크 추가</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>안내데스크 등록</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
-          <TextField autoFocus label="데스크명" placeholder="예: 국제선 2층 안내데스크" size="small" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') create(); }} />
+          <TextField autoFocus label="데스크명" placeholder="예: 국제선 2층 안내데스크" size="small" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
           <Box sx={{ display: 'flex', gap: 1.5 }}>
             <TextField select label="층(길안내 출발점)" size="small" value={floor} onChange={(e) => setFloor(e.target.value)} sx={{ flex: 1 }}>
               {DESK_FLOORS.map((f) => <MenuItem key={f} value={f}>{f}</MenuItem>)}
@@ -289,7 +288,7 @@ function DeskManagePanel() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDlg(false)} sx={{ color: 'text.secondary' }}>취소</Button>
-          <Button variant="contained" disabled={!title.trim() || busy} onClick={create}>추가</Button>
+          <Button variant="contained" disabled={!name.trim() || busy} onClick={add}>등록</Button>
         </DialogActions>
       </Dialog>
       <ConfirmDialog req={confirm} onClose={() => setConfirm(null)} />

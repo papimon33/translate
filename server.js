@@ -161,6 +161,7 @@ const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
 const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
 const FAQ_FILE = path.join(DATA_DIR, 'faq_report.json');   // 자주 묻는 질문 분석 결과(관리자, GPT 클러스터링)
 const CANNED_FILE = path.join(DATA_DIR, 'canned.json');    // 정형 안내 멘트(원터치 재생용 문안)
+const DESK_REG_FILE = path.join(DATA_DIR, 'desk_registry.json'); // 안내데스크 사전 정의(이름·층·방향) — 관리자 등록, 세션 생성 시 선택
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
@@ -176,6 +177,7 @@ let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [],
 let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
 let faqReport = null; // { at, checked, topics:[{topic,count,examples[]}] } — 자주 묻는 질문 분석 결과
 let cannedConfig = { items: [] }; // 정형 안내 멘트 [{ id, title, texts:{ko,en,ja,zh} }]
+let deskRegistry = { desks: [] }; // 안내데스크 정의 [{ id, name, floor, side }] — 세션과 분리된 마스터
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
@@ -185,6 +187,7 @@ let summariesCol = null;
 let vendorUsageCol = null;
 let faqCol = null;
 let cannedCol = null;
+let deskRegistryCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
@@ -225,12 +228,15 @@ async function loadStore() {
         if (fr) { const { _id, ...rest } = fr; faqReport = rest; }
         const cn = await cannedCol.findOne({ _id: 'singleton' });
         if (cn && Array.isArray(cn.items)) cannedConfig = { items: cn.items };
+        deskRegistryCol = db.collection('deskRegistry');
+        const dr = await deskRegistryCol.findOne({ _id: 'singleton' });
+        if (dr && Array.isArray(dr.desks)) deskRegistry = { desks: dr.desks };
         summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
         console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = faqCol = cannedCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = faqCol = cannedCol = deskRegistryCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -276,6 +282,10 @@ async function loadStore() {
       const f = JSON.parse(readDataFile(FAQ_FILE));
       if (f && typeof f === 'object') faqReport = f;
     }
+    if (fs.existsSync(DESK_REG_FILE)) {
+      const d = JSON.parse(readDataFile(DESK_REG_FILE));
+      if (d && Array.isArray(d.desks)) deskRegistry = { desks: d.desks };
+    }
     if (fs.existsSync(CANNED_FILE)) {
       const c = JSON.parse(readDataFile(CANNED_FILE));
       if (c && Array.isArray(c.items)) cannedConfig = { items: c.items };
@@ -295,6 +305,10 @@ async function persistFaqReport() {
 async function persistCanned() {
   if (cannedCol) { await cannedCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...cannedConfig }, { upsert: true }); }
   else { writeDataFile(CANNED_FILE, JSON.stringify(cannedConfig, null, 2)); }
+}
+async function persistDeskRegistry() {
+  if (deskRegistryCol) { await deskRegistryCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...deskRegistry }, { upsert: true }); }
+  else { writeDataFile(DESK_REG_FILE, JSON.stringify(deskRegistry, null, 2)); }
 }
 
 let saveTimer = null;
@@ -1249,6 +1263,22 @@ app.get('/api/admin/terms-hit', requireAdmin, (req, res) => {
 });
 
 /* ---- 정형 안내 멘트(원터치 재생용 문안) — 열람은 로그인 전원, 수정은 관리자 ---- */
+/* ---- 안내데스크 사전 정의(레지스트리): 관리자가 이름·층·방향을 등록해 두면
+   세션 생성 시 데스크를 '선택'만 한다(층·방향은 레지스트리에서 복사, 세션명은 별도). ---- */
+app.get('/api/desk-registry', requireAuth, (req, res) => res.json(deskRegistry));
+app.put('/api/desk-registry', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const desks = (Array.isArray(b.desks) ? b.desks : []).slice(0, 50).map((d) => ({
+    id: String(d.id || newId()),
+    name: String(d.name || '').trim().slice(0, 60),
+    floor: ['1F', '2F', '3F', '4F'].includes(d.floor) ? d.floor : '1F',
+    side: ['E', 'W', 'S', 'N'].includes(d.side) ? d.side : 'S',
+  })).filter((d) => d.name);
+  deskRegistry = { desks };
+  try { await persistDeskRegistry(); } catch (e) { return res.status(500).json({ error: '저장 실패: ' + e.message }); }
+  res.json(deskRegistry);
+});
+
 app.get('/api/canned', requireAuth, (req, res) => res.json(cannedConfig));
 app.put('/api/canned', requireAdmin, async (req, res) => {
   const b = req.body || {};
@@ -1861,7 +1891,7 @@ app.get('/api/sessions', requireAuth, (req, res) => {
     // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 전 직원이 공용으로 운영 → 모두에게 노출.
     .filter((s) => (s.pipeline === 'desk' ? true : s.owner === req.user.id))
     .filter((s) => (q ? matches(s) : true))
-    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null }))
+    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, deskName: s.deskName || null }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
 });
@@ -1877,7 +1907,16 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice());
   // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
   const preset = ['live', 'oneway', 'twoway', 'multi', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
-  // 데스크 안내: 출발 안내데스크 층/방향(길안내 출발점)
+  // 데스크 안내: 레지스트리(관리자 사전 정의)에서 데스크 선택 → 층/방향/데스크명 복사.
+  // deskId 없이 직접 deskFloor/deskSide 를 주는 구형 경로도 하위호환으로 유지.
+  let deskName;
+  if (pipeline === 'desk' && b.deskId) {
+    const reg = (deskRegistry.desks || []).find((d) => d.id === String(b.deskId));
+    if (!reg) return res.status(400).json({ error: '등록되지 않은 안내데스크입니다. 관리자 페이지에서 먼저 등록하세요.' });
+    b.deskFloor = reg.floor;
+    b.deskSide = reg.side;
+    deskName = reg.name;
+  }
   const deskFloor = pipeline === 'desk' ? (['1F', '2F', '3F', '4F'].includes(b.deskFloor) ? b.deskFloor : '1F') : undefined;
   const deskSide = pipeline === 'desk' ? (['E', 'W', 'S', 'N'].includes(b.deskSide) ? b.deskSide : 'S') : undefined;
   const s = {
@@ -1889,6 +1928,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
     pipeline, // 생성 후 변경 불가
     ...(preset ? { preset } : {}),
     ...(deskFloor ? { deskFloor, deskSide } : {}),
+    ...(deskName ? { deskName } : {}),
     langs,
     outLang,
     inLang: b.inLang || 'auto',
@@ -3841,7 +3881,9 @@ function handleHost(ws) {
         if (Array.isArray(session.items) && session.items.length) {
           session.deskLog = session.deskLog || [];
           // stats: 채널별 확정 수 + 누화 드랍 수 — 2채널 프로토타입 누화율 측정용
-          session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: lockedB, items: session.items, stats: { ...chStats } });
+          // 응대 언어: 잠긴 언어(lockedB) 우선, 미잠금 종료(감지 전 이탈 등)면 발화 items 에서 유추 — 로그 '미상' 방지
+          const convLang = lockedB || (session.items.find((x) => x.lang && x.lang !== 'ko') || {}).lang || null;
+          session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: convLang, items: session.items, stats: { ...chStats } });
           if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200); // 보존 상한
           session.items = [];
         }
@@ -4145,7 +4187,7 @@ function handleHost(ws) {
     // (방치하면 다음 손님의 deskLog 한 건에 이전 손님 대화가 섞여 기록됨)
     if (session && Array.isArray(session.items) && session.items.length) {
       session.deskLog = session.deskLog || [];
-      session.deskLog.push({ startedAt: null, endedAt: Date.now(), lang: null, interrupted: true, items: session.items, stats: null });
+      session.deskLog.push({ startedAt: null, endedAt: Date.now(), lang: (session.items.find((x) => x.lang && x.lang !== 'ko') || {}).lang || null, interrupted: true, items: session.items, stats: null });
       if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200);
       session.items = [];
       saveSessions();

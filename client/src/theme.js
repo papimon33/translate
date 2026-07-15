@@ -6,6 +6,10 @@ import { createTheme, alpha } from '@mui/material/styles';
    - radius 체계: shape 8 기준(sx borderRadius:1=8px, 1.5=12px). */
 // 로고 전용 색(favicon.svg 와 동일 계열) — UI 컴포넌트에는 사용하지 않는다.
 export const ACCENT = { dark: '#8579ff', light: '#5b4fe8' };
+// ---- 라운딩 표준 (sx borderRadius 단위: 1 = 8px) ----
+// panel: 카드·검색창·다이얼로그 내부 패널(12px) / control: 버튼·셀렉트류(theme shape 기본 8px 사용)
+// row: 목록 행 hover 배경(16px) / pill: 완전 원형. 새 UI 는 이 토큰만 사용할 것.
+export const RADIUS = { panel: 1.5, control: 1, row: 2, pill: 999 };
 // 사이드바 토큰 — Nav 에서 사용. nav 는 항상 콘텐츠보다 밝게:
 // 라이트=거의 백색(#FAF9F5) / 캔버스 #F5F4EE, 다크=#262624 / 캔버스 #1F1E1D.
 export const SIDEBAR = {
@@ -49,6 +53,8 @@ export function buildTheme(mode) {
       success: { main: dark ? '#2eb67d' : '#007a5a' }, // Slack 그린 계열
       error: { main: dark ? '#f47c7c' : '#e01e5a' },
       warning: { main: dark ? '#e8a03e' : '#e8912d' },
+      // 발화자 구분 전용 액센트(게스트/언어1 발화) — primary 가 뉴트럴이라 텍스트색과 구분되지 않던 문제
+      accent: { main: dark ? '#84b5ff' : '#2e6fd8' },
       divider,
       background: { default: bgDefault, paper: bgPaper },
       text: { primary: textPrimary, secondary: textSecondary },

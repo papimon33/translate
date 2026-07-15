@@ -28,6 +28,10 @@ export const api = {
   remove: (id) => fetch('/api/sessions/' + id, { method: 'DELETE' }).then(json),
   clearItems: (id) => fetch('/api/sessions/' + id + '/items', { method: 'DELETE' }).then(json), // 대화 내역만 비우기(세션 유지)
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
+  // 안내데스크 사전 정의(레지스트리) — 관리자 등록, 세션 생성 시 선택
+  deskRegistry: () => fetch('/api/desk-registry').then(json),
+  saveDeskRegistry: (body) =>
+    fetch('/api/desk-registry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
   desktopInfo: () => fetch('/api/desktop/info').then(json), // 데스크톱 앱 최신 설치본 정보
 
   me: () => fetch('/api/me').then(json),

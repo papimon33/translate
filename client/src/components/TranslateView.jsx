@@ -402,6 +402,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const stopReqRef = useRef(false); // 연결 중(시작 await)에 중지를 누른 경우 처리
 
   const startingRef = useRef(false); // 시작 버튼 연타로 중복 세션 생성 방지
+  const startRef = useRef(null); // 최신 start() 참조(재시작 클로저의 stale state 방지)
   // 번역 GPT 모델(테스트용). 기본 gpt-5-nano.
   const [model, setModel] = useState(() => localStorage.getItem('kac-model') || 'gpt-5-nano');
   // Electron(통합 데스크톱 앱)에서만 노출되는 오버레이 버튼
@@ -660,15 +661,25 @@ export default function TranslateView({ session: initial, onBack }) {
       startingRef.current = false;
     }
   };
+  startRef.current = start; // 항상 최신 렌더의 start — restartCapture 가 이걸 부른다
   // 캡처 설정 변경 후 재시작(데스크 상시 캡처용) — recorder 의 stop 만 직접 호출
   // (컴포넌트 stop() 은 stopReq 를 세워 재시작을 막으므로 사용하지 않음).
+  // ⚠ start 는 반드시 startRef(최신 렌더의 함수)로 불러야 한다 — setTimeout 클로저가 옛 start 를 잡으면
+  //   그 안의 stale recording=true 가드에 걸려 재시작이 조용히 무시된다(RNNoise 토글 시 캡처가
+  //   멈춘 채 복구되지 않던 버그의 원인).
   const restartCapture = () => {
     if (!recRef.current) return;
     try { recRef.current.stop(); } catch {}
     recRef.current = null;
     setRecording(false);
     setLevel(0); setGuestLevel(0);
-    setTimeout(() => { start(); }, 600); // 상태 반영(리렌더) 후 새 구성으로 재캡처
+    setTimeout(() => { try { startRef.current && startRef.current(); } catch {} }, 600); // 리렌더 후 최신 구성으로 재캡처
+  };
+  // 발화 끊김(soniox 엔드포인트) 설정은 연결 시 고정 — 데스크에서 슬라이더로 바꾸면 짧게 모아 재캡처
+  const restartDebRef = useRef(null);
+  const scheduleRestart = () => {
+    clearTimeout(restartDebRef.current);
+    restartDebRef.current = setTimeout(() => restartCapture(), 900);
   };
   // 데스크 마이크 2대: 설정 변경(토글·장치 교체)을 저장하고, 캡처 중이면 새 구성으로 재시작.
   const applyMic2 = (p) => {
@@ -865,6 +876,11 @@ export default function TranslateView({ session: initial, onBack }) {
                       <Tooltip title="이 마이크에 말하면 게이지가 움직여야 합니다(연결 확인)">
                         <LinearProgress variant="determinate" value={level} color="success" sx={{ width: 54, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
                       </Tooltip>
+                      {!micStaffId && (
+                        <Tooltip title="장치를 지정하지 않으면 PC 내장(기본) 마이크가 직원 채널로 들어갑니다. 외장 지향성 마이크를 선택하세요.">
+                          <Chip size="small" color="warning" variant="outlined" label="내장 마이크 사용 중" sx={{ height: 22, fontSize: 11 }} />
+                        </Tooltip>
+                      )}
                     </Box>
                   </Field>
                   <Field label="여객(손님) 마이크">
@@ -1454,17 +1470,18 @@ export default function TranslateView({ session: initial, onBack }) {
               />
             </>
           )}
-          {cfg.pipeline === 'soniox' && (
+          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
             <>
-              <SxSlider label="종료 민감도" hint="높을수록 더 자주/빨리 끊김" value={sxSens} min={-1} max={1} step={0.1} disabled={recording}
+              {/* 데스크는 상시 캡처라 disabled 로 두면 영영 못 바꿈 → 값 변경 후 0.9초 뒤 자동 재캡처로 적용 */}
+              <SxSlider label="종료 민감도" hint={'높을수록 더 자주/빨리 끊김' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxSens} min={-1} max={1} step={0.1} disabled={cfg.pipeline !== 'desk' && recording}
                 fmt={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
-                onChange={(v) => { setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); }} />
-              <SxSlider label="최대 지연" hint="무음 후 이 시간 안에 강제 종료(ms)" value={sxMaxDelay} min={500} max={3000} step={100} disabled={recording}
+                onChange={(v) => { setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
+              <SxSlider label="최대 지연" hint={'무음 후 이 시간 안에 강제 종료(ms)' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxMaxDelay} min={500} max={3000} step={100} disabled={cfg.pipeline !== 'desk' && recording}
                 fmt={(v) => v + 'ms'}
-                onChange={(v) => { setSxMaxDelay(v); localStorage.setItem('kac-sx-maxdelay', String(v)); }} />
-              <SxSlider label="지연 레벨" hint="높을수록 저지연(끊김↑, 정확도↓)" value={sxLatency} min={0} max={3} step={1} disabled={recording}
+                onChange={(v) => { setSxMaxDelay(v); localStorage.setItem('kac-sx-maxdelay', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
+              <SxSlider label="지연 레벨" hint={'높을수록 저지연(끊김↑, 정확도↓)' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxLatency} min={0} max={3} step={1} disabled={cfg.pipeline !== 'desk' && recording}
                 fmt={(v) => String(v)}
-                onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); }} />
+                onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
             </>
           )}
         </DialogContent>
@@ -1604,9 +1621,10 @@ const Row = React.memo(function Row({ side, text, source, dir, scale = 1 }) {
   const mainText = pending ? source : text;
   const mainColor = (t) => {
     if (pending) return t.palette.text.secondary;
-    if (dir === 'a') return t.palette.primary.main; // 언어1 발화(액센트)
-    if (dir === 'b') return t.palette.text.primary; // 언어2 발화(무채색)
-    return isMic ? t.palette.primary.main : t.palette.text.primary;
+    const accent = (t.palette.accent && t.palette.accent.main) || t.palette.primary.main;
+    if (dir === 'a') return accent; // 게스트/언어1 발화 — 전용 파란 액센트(뉴트럴 primary 는 텍스트색과 같아 구분 불가였음)
+    if (dir === 'b') return t.palette.text.primary; // 호스트/언어2 발화(무채색)
+    return isMic ? t.palette.text.primary : t.palette.text.secondary;
   };
   return (
     // 카드/박스 없이 라인 구분선(하단)만. 번역문(큰 글씨) 위 · 원어(작은 회색) 아래. 원어 항상 표시.

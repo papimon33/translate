@@ -20,6 +20,7 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Select from '@mui/material/Select';
 import Checkbox from '@mui/material/Checkbox';
+import Skeleton from '@mui/material/Skeleton';
 import Fab from '@mui/material/Fab';
 import { alpha } from '@mui/material/styles';
 import Snackbar from '@mui/material/Snackbar';
@@ -33,6 +34,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import { api } from '../api.js';
+import { RADIUS } from '../theme.js';
 
 function rel(ts) {
   const d = Date.now() - ts;
@@ -101,8 +103,8 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
   const [preset, setPreset] = useState('live'); // 세션 모드(live=라이브 청취 / oneway=온라인 회의 / twoway=양방향)
-  const [deskFloor, setDeskFloor] = useState('1F'); // 안내데스크 출발 층
-  const [deskSide, setDeskSide] = useState('S'); // 안내데스크 방향
+  const [regDesks, setRegDesks] = useState(null); // 안내데스크 레지스트리(관리자 사전 정의) — 데스크 세션 생성 시 선택
+  const [deskId, setDeskId] = useState('');
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
   const [rename, setRename] = useState(null); // { id, val } 제목 변경
@@ -127,14 +129,23 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     setName(uniqueName(base, titles));
     setEditName(false);
     setPreset('live');
+    if (deskMode) {
+      // 레지스트리(관리자 사전 정의)에서 데스크 목록 로드 — 세션은 '데스크 선택 + 세션명'으로만 생성
+      api.deskRegistry().then((r) => {
+        const ds = (r && r.desks) || [];
+        setRegDesks(ds);
+        setDeskId((prev) => (ds.some((d) => d.id === prev) ? prev : (ds[0] ? ds[0].id : '')));
+      }).catch(() => setRegDesks([]));
+    }
     setDlg(true);
   };
 
   const create = async () => {
     const titles = (list || []).map((s) => s.title);
     const title = name.trim() || uniqueName(base, titles);
+    if (deskMode && !deskId) { setSnack({ ok: false, msg: '안내데스크를 먼저 선택하세요. (관리자 페이지 > 안내데스크에서 등록)' }); return; }
     const body = deskMode
-      ? { title, pipeline: 'desk', inLang: 'auto', deskFloor, deskSide }
+      ? { title, pipeline: 'desk', inLang: 'auto', deskId }
       : { title, pipeline: 'soniox', preset, inLang: 'auto' };
     try {
       const s = await api.create(body);
@@ -250,7 +261,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               onChange={(e) => setQ(e.target.value)}
               placeholder="대화 검색 (제목·내용)"
               InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ fontSize: 20, color: 'text.disabled' }} /></InputAdornment>) }}
-              sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2.5, bgcolor: 'background.paper' } }}
+              sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: RADIUS.panel, bgcolor: 'background.paper' } }}
             />
           )}
 
@@ -308,6 +319,15 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
             </Box>
           )}
 
+          {/* 로딩 중(첫 조회) — 빈 화면/빈 상태 오표시 대신 스켈레톤 행 */}
+          {list === null && [0, 1, 2, 3].map((i) => (
+            <Box key={'sk' + i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.75 }}>
+              <Skeleton variant="text" sx={{ flex: 1, fontSize: 15 }} />
+              <Skeleton variant="text" width={64} sx={{ display: { xs: 'none', sm: 'block' } }} />
+              <Skeleton variant="text" width={48} />
+            </Box>
+          ))}
+
           {/* 목록 — Claude 스타일 플랫 행: 제목 · 유형 · 일자만(아이콘 없음), hover 하이라이트 */}
           {shown.map((s) => {
             const checked = selIds.has(s.id);
@@ -330,6 +350,11 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               <Typography sx={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {s.title || '(제목 없음)'}
               </Typography>
+              {deskMode && s.deskName && (
+                <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' }, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
+                  {s.deskName}
+                </Typography>
+              )}
               {s.preset && TYPE_NAME[s.preset] && (
                 <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>
                   {TYPE_NAME[s.preset]}
@@ -469,25 +494,18 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
           )}
           {deskMode && (
             <>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2.5, mb: 1 }}>안내데스크 위치 (길안내 출발점)</Typography>
-              <Box sx={{ display: 'flex', gap: 1.5 }}>
-                <Box sx={{ flex: 1 }}>
-                  <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>층</Typography>
-                  <Select size="small" fullWidth value={deskFloor} onChange={(e) => setDeskFloor(e.target.value)}>
-                    <MenuItem value="1F">1층</MenuItem>
-                    <MenuItem value="2F">2층</MenuItem>
-                  </Select>
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>방향</Typography>
-                  <Select size="small" fullWidth value={deskSide} onChange={(e) => setDeskSide(e.target.value)}>
-                    <MenuItem value="E">동</MenuItem>
-                    <MenuItem value="W">서</MenuItem>
-                    <MenuItem value="S">남</MenuItem>
-                    <MenuItem value="N">북</MenuItem>
-                  </Select>
-                </Box>
-              </Box>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2.5, mb: 1 }}>안내데스크 선택 (위치는 관리자 등록값 사용)</Typography>
+              {regDesks && regDesks.length === 0 ? (
+                <Typography sx={{ fontSize: 13, color: 'warning.main' }}>
+                  등록된 안내데스크가 없습니다. 관리자 페이지 &gt; 안내데스크에서 먼저 등록하세요.
+                </Typography>
+              ) : (
+                <Select size="small" fullWidth value={deskId} onChange={(e) => setDeskId(e.target.value)} displayEmpty>
+                  {(regDesks || []).map((d) => (
+                    <MenuItem key={d.id} value={d.id}>{d.name} · {d.floor} {({ E: '동', W: '서', S: '남', N: '북' })[d.side] || d.side}</MenuItem>
+                  ))}
+                </Select>
+              )}
             </>
           )}
         </DialogContent>
