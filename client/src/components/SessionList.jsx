@@ -155,19 +155,24 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     setDlg(true);
   };
 
+  const [creating, setCreating] = useState(false); // 만들기 연타 → 세션 2개 생성 방지
   const create = async () => {
+    if (creating) return;
     const titles = (list || []).map((s) => s.title);
     const title = name.trim() || uniqueName(base, titles);
     if (deskMode && !deskId) { setSnack({ ok: false, msg: '안내데스크를 먼저 선택하세요. (관리자 페이지 > 안내데스크에서 등록)' }); return; }
     const body = deskMode
       ? { title, pipeline: 'desk', inLang: 'auto', deskId }
       : { title, pipeline: 'soniox', preset, inLang: 'auto' };
+    setCreating(true);
     try {
       const s = await api.create(body);
       setDlg(false);
       onOpen(s);
     } catch (e) {
       setSnack({ ok: false, msg: '세션 생성 실패: ' + (e.message || '네트워크 오류') });
+    } finally {
+      setCreating(false);
     }
   };
 

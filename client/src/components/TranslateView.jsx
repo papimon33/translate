@@ -404,6 +404,7 @@ export default function TranslateView({ session: initial, onBack }) {
           texts: it.texts || (it.text ? { [ls[0]]: it.text } : {}), // 옛 형식 호환
           source: it.source,
           speaker: it.speaker || null,
+          lang: it.lang || null, // 발화 원문 언어 — 데스크 화자 색 구분(안내원 ko/손님)의 근거
           toks: it.toks || null, // 원문 토큰(신뢰도) — 저신뢰 단어 하이라이트
         }))
       );
@@ -415,13 +416,20 @@ export default function TranslateView({ session: initial, onBack }) {
         outLang: s.outLang || 'ko',
       });
       setDispLang(s.outLang || 'ko');
+    }).catch(() => {
+      // 삭제된 세션을 히스토리 뒤로가기 등으로 연 경우 — unhandled rejection 대신 안내
+      setNotice('세션 정보를 불러오지 못했습니다. 삭제되었거나 네트워크 오류일 수 있습니다.');
     });
-    api.qr(initial.id).then(setQr);
+    api.qr(initial.id).then(setQr).catch(() => {});
     return () => {
       // 언마운트 시: 권한 프롬프트 대기 중(start await 중)인 레코더도 완료되는 즉시 정리되도록 표시.
       // 이게 없으면 뒤로가기 후 권한을 허용한 경우 마이크·연결이 화면 없이 계속 돌아간다.
       stopReqRef.current = true;
+      // 예약된 재캡처 타이머도 제거 — start() 가 stopReq 를 되리셋하므로 표시만으론 막지 못한다
+      clearTimeout(restartDebRef.current);
+      clearTimeout(restartTimerRef.current);
       recRef.current?.stop();
+      recRef.current = null;
     };
     // eslint-disable-next-line
   }, [initial.id]);
@@ -438,9 +446,9 @@ export default function TranslateView({ session: initial, onBack }) {
     let ws = null, closed = false, retry = null;
     const conn = () => {
       if (closed) return; // 재시도 타이머가 언마운트 후 발화해 고아 소켓을 만드는 것 방지
-      ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${initial.id}`);
+      ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${initial.id}&role=host`); // role=host: 현황판 뷰어 수에서 제외
       ws.onmessage = (ev) => { try { onMessageRef.current && onMessageRef.current(JSON.parse(ev.data)); } catch {} };
-      ws.onclose = () => { if (!closed) retry = setTimeout(conn, 1500); };
+      ws.onclose = () => { if (!closed) retry = setTimeout(conn, 1200 + Math.random() * 1200); }; // 지터 — 동시 재연결 폭주 방지
     };
     conn();
     return () => { closed = true; clearTimeout(retry); try { ws && ws.close(); } catch {} };
@@ -493,7 +501,7 @@ export default function TranslateView({ session: initial, onBack }) {
 
   const patch = (next) => {
     setCfg((c) => ({ ...c, ...next }));
-    api.patch(initial.id, next);
+    api.patch(initial.id, next).catch(() => {});
   };
 
   // 전문 다운로드: "* [화자] : 발언" 형식 (.txt)
@@ -576,11 +584,13 @@ export default function TranslateView({ session: initial, onBack }) {
             texts: { ...copy[i].texts, ...(m.texts || {}) },
             source: m.source ?? copy[i].source,
             speaker: m.speaker ?? copy[i].speaker,
+            lang: m.lang ?? copy[i].lang, // 화자 색 구분용 — 유실되면 단일 채널 데스크에서 색이 전부 호스트색이 됨
             toks: m.toks ?? copy[i].toks, // 원문 토큰(신뢰도) — 저신뢰 단어 하이라이트용
           };
           return copy;
         }
-        return [...arr, { id: m.id, side, texts: m.texts || {}, source: m.source, speaker: m.speaker || null, toks: m.toks || null }];
+        const next = [...arr, { id: m.id, side, texts: m.texts || {}, source: m.source, speaker: m.speaker || null, lang: m.lang || null, toks: m.toks || null }];
+        return next.length > 800 ? next.slice(-800) : next; // 장시간 세션 렌더 보호(전문은 서버 세션에 보존)
       });
     }
   };
@@ -588,6 +598,10 @@ export default function TranslateView({ session: initial, onBack }) {
 
   const start = async () => {
     if (recording || recRef.current || startingRef.current) return; // 연타 중복 방지
+    if (preset && !PRESET_LABEL[preset]) { // 지원 종료 모드(구 multi 등)는 열람 전용 — 실수로 다른 모드로 녹음되는 것 방지
+      setNotice('지원이 종료된 모드의 세션입니다 — 열람만 가능합니다. 새 세션을 만들어 주세요.');
+      return;
+    }
     startingRef.current = true;
     stopReqRef.current = false;
     try {
@@ -620,6 +634,14 @@ export default function TranslateView({ session: initial, onBack }) {
         micId: cfg.pipeline === 'soniox' && micId ? micId : undefined, // 실시간 번역: 마이크 장치 선택
         wayfind: cfg.pipeline === 'desk' ? wayfindOn : undefined, // 데스크: 길안내 지도 기능 on/off
         onMessage,
+        onEnded: () => { // 장치 뽑힘·화면공유 중지 — 레코더는 스스로 멈추므로 UI 를 함께 정리('진행 중' 고착 방지)
+          recRef.current = null;
+          setRecording(false);
+          setConnecting(false);
+          setConnState('off');
+          setLevel(0); setGuestLevel(0);
+          setNotice('마이크 입력이 중단되었습니다(장치 분리 또는 화면 공유 중지). 다시 시작해 주세요.');
+        },
         onMeter: (rms, peak, src) => {
           const db = 20 * Math.log10(rms + 1e-8);
           const v = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
@@ -654,13 +676,19 @@ export default function TranslateView({ session: initial, onBack }) {
   // ⚠ start 는 반드시 startRef(최신 렌더의 함수)로 불러야 한다 — setTimeout 클로저가 옛 start 를 잡으면
   //   그 안의 stale recording=true 가드에 걸려 재시작이 조용히 무시된다(RNNoise 토글 시 캡처가
   //   멈춘 채 복구되지 않던 버그의 원인).
+  const restartTimerRef = useRef(null); // 재캡처 600ms 타이머 — stop()/언마운트에서 반드시 취소
   const restartCapture = () => {
     if (!recRef.current) return;
     try { recRef.current.stop(); } catch {}
     recRef.current = null;
     setRecording(false);
     setLevel(0); setGuestLevel(0);
-    setTimeout(() => { try { startRef.current && startRef.current(); } catch {} }, 600); // 리렌더 후 최신 구성으로 재캡처
+    clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = setTimeout(() => {
+      // 타이머 발화 전에 사용자가 중지/이탈했으면 재시작하지 않는다 — 화면 없는 핫 마이크 방지
+      if (stopReqRef.current) return;
+      try { startRef.current && startRef.current(); } catch {}
+    }, 600); // 리렌더 후 최신 구성으로 재캡처
   };
   // 발화 끊김(soniox 엔드포인트) 설정은 연결 시 고정 — 데스크에서 슬라이더로 바꾸면 짧게 모아 재캡처
   const restartDebRef = useRef(null);
@@ -678,6 +706,8 @@ export default function TranslateView({ session: initial, onBack }) {
   const stop = () => {
     setConnState('off');
     stopReqRef.current = true; // 연결 중이면 시작 완료 시점에 정리되도록 표시
+    clearTimeout(restartDebRef.current); // 예약된 재캡처(슬라이더 디바운스·600ms 재시작)도 취소 —
+    clearTimeout(restartTimerRef.current); // 중지 직후 타이머가 살아나 캡처를 되살리는 레이스 방지
     recRef.current?.stop();
     recRef.current = null;
     setRecording(false);
@@ -709,7 +739,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const showPartial = true;
   const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
   const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
-  const pipeLabel = preset ? PRESET_LABEL[preset] : (PIPES.find((p) => p.v === cfg.pipeline)?.label || '지원 종료 모드');
+  const pipeLabel = preset ? (PRESET_LABEL[preset] || '지원 종료 모드') : (PIPES.find((p) => p.v === cfg.pipeline)?.label || '지원 종료 모드'); // 구 multi 등
   // 모드 변경(번역 이력 없을 때만): 프리셋 + 모드별 기본값(소스·방향·TTS)을 함께 리셋
   const presetGroup = preset ? (preset === 'live' ? 'live' : onewayPreset ? 'oneway' : 'twoway') : null;
   const changeMode = (v) => {
@@ -1016,7 +1046,7 @@ export default function TranslateView({ session: initial, onBack }) {
                   setDispLang(v);
                   if (cfg.pipeline === 'translate') {
                     setCfg((c) => ({ ...c, outLang: v }));
-                    api.patch(initial.id, { outLang: v }); // translate 타깃 변경
+                    api.patch(initial.id, { outLang: v }).catch(() => {}); // translate 타깃 변경
                   }
                 }}
                 sx={{ ...selSx, minWidth: 120 }}

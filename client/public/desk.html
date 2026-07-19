@@ -456,7 +456,7 @@ function ensureWs(){
   };
   // 자신이 최신 소켓일 때만 정리/재연결 — CLOSING 경합으로 새 소켓 참조가 지워져
   // 고아 소켓이 쌓이고 여객 오디오 전송이 끊기던 문제(visibilitychange 재진입) 방지
-  sock.onclose = () => { if (ws !== sock) return; ws = null; if (entered) setTimeout(ensureWs, 1500); };
+  sock.onclose = () => { if (ws !== sock) return; ws = null; if (entered) setTimeout(ensureWs, 1200 + Math.random() * 1200); }; // 지터 — 동시 재연결 폭주 방지
   sock.onmessage = (ev) => {
     if (ws !== sock) return; // 고아 소켓의 늦은 메시지 무시
     let m; try { m = JSON.parse(ev.data); } catch { return; }

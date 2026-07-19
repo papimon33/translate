@@ -241,7 +241,7 @@ function dt(k){ const d = DUI[k] || {}; return d[curLang] || d.en || d.ko || k; 
 function catLabel(m){ return (curLang === 'ko') ? (m.ko||'') : (CAT_EN[m.category] || m.ko || ''); }
 function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||''; return curLang==='ko' ? (n+'층') : (n+'F'); }
 
-let mapApi = null, mapLoading = false, mapBlock = null, mapHideTimer = null;
+let mapApi = null, mapLoading = false, mapBlock = null, mapHideTimer = null, mapTries = 0;
 const MAP_HIDE_MS = 10000;
 function removeMap(){
   clearTimeout(mapHideTimer); mapHideTimer = null;
@@ -254,6 +254,8 @@ function mapTapClose(){ removeMap(); } // 화면 아무 곳이나 탭 → 닫힘
 function loadMapScripts(cb){
   if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
   if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
+  if (mapTries >= 3) return; // 에셋 404/오프라인 시 wayfind 마다 script 태그가 무한 누적되던 문제 방지(desk 와 동일 수정)
+  mapTries++;
   mapLoading = true; let n = 0; const done = () => { if (++n >= 2) { mapLoading = false; cb(); } };
   for (const src of ['/map/wayfinding_data.js','/map/airport25d.js']) { const s=document.createElement('script'); s.src=src; s.onload=done; s.onerror=done; document.head.appendChild(s); }
 }
@@ -372,6 +374,13 @@ function atBottom(){ return document.body.scrollHeight - window.scrollY - window
 function scrollDown(){ window.scrollTo(0, document.body.scrollHeight); }
 
 function upsert(item){
+  // 에코 드랍(clearCard): 서버가 빈 페이로드를 보내면 카드를 제거 — 빈 줄이 남아 최신 강조가 걸리던 문제(TranslateView·desk 와 동일 규약)
+  const hasPayload = !!(item.source || item.text || (item.texts && Object.values(item.texts).some(Boolean)));
+  if(!hasPayload){
+    const c0 = cards.get(item.id);
+    if(c0){ try { c0.el.remove(); } catch {} cards.delete(item.id); order = order.filter(x=>x!==item.id); if(latestId===item.id) latestId=null; }
+    return;
+  }
   if(empty) empty.style.display='none';
   const stick = atBottom();
   let card = cards.get(item.id);
@@ -469,7 +478,7 @@ function connect(){
     if(audioOn) sendAudioSub(true); // 재접속 시 구독 복원
     if(pttActive) { try { cur.send(JSON.stringify({ type:'ptt', on:true })); } catch {} } // 발화 중 재접속 → 서버 파이프라인 재개(무음 녹음 방지)
   };
-  ws.onclose = () => { if (ws === cur) { ws = null; setTimeout(connect, 1500); } };
+  ws.onclose = () => { if (ws === cur) { ws = null; setTimeout(connect, 1200 + Math.random() * 1200); } }; // 지터 — 서버 재시작 시 전체 뷰어 동시 재연결 폭주 방지
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; } // 비 JSON 프레임 방어
     if(m.type==='snapshot'){ m.items.forEach(it => upsert(it)); }
@@ -565,6 +574,7 @@ async function pttStart(){
   pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec'); updatePttBtn();
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
   pttCtx = new (window.AudioContext||window.webkitAudioContext)();
+  try { pttCtx.resume(); } catch {} // 제스처 콘텍스트 소실(iOS 등)로 suspended 생성 시 무음 녹음 방지 — desk.html 과 동일 수정
   const rate = pttCtx.sampleRate;
   const node = pttCtx.createMediaStreamSource(stream);
   pttProc = pttCtx.createScriptProcessor(4096,1,1);

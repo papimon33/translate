@@ -32,6 +32,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import Snackbar from '@mui/material/Snackbar';
 import TermsConfigPage from './TermsConfigPage.jsx';
+import { ADMIN_TABS } from './Nav.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import { api } from '../api.js';
 import { Sparkline, BarTrend } from './charts.jsx';
@@ -136,8 +137,15 @@ function VendorUsage({ brand }) {
   if (period === 'month') {
     const m = {};
     for (const [date, c] of dailyEntries) { const k = date.slice(0, 7); m[k] = (m[k] || 0) + c; }
-    costBars = Object.entries(m).sort((a, b) => (a[0] < b[0] ? -1 : 1))
-      .map(([ym, c]) => ({ label: Number(ym.slice(5)) + '월', full: ym.replace('-', '. ') + '.', value: +c.toFixed(4) }));
+    let months = Object.entries(m).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const firstIdx = months.findIndex(([, c]) => c > 0);
+    months = firstIdx < 0 ? [] : months.slice(firstIdx); // 데이터 시작 이전의 빈 달(0 막대) 제거
+    const multiYear = new Set(months.map(([ym]) => ym.slice(0, 4))).size > 1; // 1년 경계: '7월' 라벨 중복 방지
+    costBars = months.map(([ym, c]) => ({
+      label: (multiYear ? `${ym.slice(2, 4)}.` : '') + Number(ym.slice(5)) + '월',
+      full: ym.replace('-', '. ') + '.',
+      value: +c.toFixed(4),
+    }));
   } else {
     costBars = dailyEntries.map(([date, c]) => ({ label: date.slice(5).replace('-', '/'), full: date, value: +c.toFixed(4) }));
   }
@@ -201,8 +209,8 @@ function VendorUsage({ brand }) {
   );
 }
 
-// 상단 탭은 제거 — 이동은 좌측 nav 의 관리자 하위메뉴(Nav.jsx ADMIN_TABS)에서. 여기는 페이지 제목만.
-const PAGE_TITLES = { logs: '로그', desks: '안내데스크', accounts: '계정 관리', terms: '용어 설정', canned: '정형 안내', system: '시스템·보안' };
+// 상단 탭은 제거 — 이동은 좌측 nav 의 관리자 하위메뉴에서. 제목은 Nav 의 ADMIN_TABS 에서 파생(중복 정의 drift 방지).
+const PAGE_TITLES = Object.fromEntries(ADMIN_TABS.map((t) => [t.v, t.label]));
 
 /* ── 안내데스크 관리(레지스트리): 이름·층·방향을 사전 정의 — 관리자 전용.
      세션은 여기서 만들지 않는다: 데스크 목록 화면에서 '등록된 데스크 선택 + 세션명'으로 생성.
@@ -222,17 +230,19 @@ function DeskManagePanel() {
   useEffect(() => { reload(); }, []);
   const save = async (desks, okMsg) => {
     setBusy(true);
+    let ok = true;
     try {
       const r = await api.saveDeskRegistry({ desks });
       setReg((r && r.desks) || desks);
       if (okMsg) setSnack(okMsg);
-    } catch (e) { setSnack('저장 실패: ' + (e.message || '오류')); }
+    } catch (e) { setSnack('저장 실패: ' + (e.message || '오류')); ok = false; }
     setBusy(false);
+    return ok;
   };
   const add = async () => {
     if (!name.trim() || busy) return;
-    await save([...(reg || []), { name: name.trim(), floor, side }], '데스크가 등록되었습니다');
-    setDlg(false); setName('');
+    const ok = await save([...(reg || []), { name: name.trim(), floor, side }], '데스크가 등록되었습니다');
+    if (ok) { setDlg(false); setName(''); } // 실패 시 다이얼로그·입력값 유지(스낵바로 원인 안내)
   };
   const askDelete = (d) => setConfirm({
     title: '안내데스크 정의 삭제',
@@ -360,9 +370,9 @@ function LogsPanel() {
   const load = () => api.adminLogs().then(setData).catch(() => setData({ desks: [], sessions: [] }));
   useEffect(() => { load(); }, []);
   // 로그 정리(삭제) — 시범운영 데이터 관리용. 삭제 후 목록·열람 상태 갱신
-  const delDeskLog = (sid, idx) => setConfirmReq({
+  const delDeskLog = (sid, idx, endedAt) => setConfirmReq({
     title: '응대 기록 삭제', message: '이 응대 기록을 삭제합니다. 되돌릴 수 없습니다.',
-    onOk: async () => { try { await api.adminDeleteDeskLog(sid, idx); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); } },
+    onOk: async () => { try { await api.adminDeleteDeskLog(sid, idx, endedAt); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); await load(); } },
   });
   const clearDeskLogs = (sid, n) => setConfirmReq({
     title: '로그 전체 삭제', message: `이 데스크의 응대 기록 ${n}건을 모두 삭제합니다. 운영 통계도 초기화됩니다. 되돌릴 수 없습니다.`,
@@ -425,7 +435,7 @@ function LogsPanel() {
                   {durOf(e)} · {e.count}문장{e.stats ? ` · 누화드랍 ${e.stats.crossDrops}` : ''}
                 </Typography>
                 <IconButton size="small" className="delBtn" sx={{ opacity: 0, transition: 'opacity .12s' }}
-                  onClick={(ev) => { ev.stopPropagation(); delDeskLog(d.id, e.idx); }}>
+                  onClick={(ev) => { ev.stopPropagation(); delDeskLog(d.id, e.idx, e.endedAt); }}>
                   <DeleteOutlineIcon sx={{ fontSize: 16 }} />
                 </IconButton>
               </Box>

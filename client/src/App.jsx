@@ -74,6 +74,7 @@ export default function App() {
       const st = (e && e.state) || { view: 'sessions', session: null };
       setSession(st.session || null);
       setView(st.view || 'sessions');
+      if (st.view === 'admin') setAdminTab(st.adminTab || 'usage'); // 뒤로가기 시 관리자 하위메뉴도 복원
       setDrawer(false);
     };
     window.addEventListener('popstate', onPop);
@@ -172,7 +173,7 @@ export default function App() {
       currentSessionId={session?.id || null}
       onHome={() => navTo({ view: 'sessions' })}
       onDesk={() => navTo({ view: 'desk' })}
-      onAdmin={(tab) => { if (typeof tab === 'string') setAdminTab(tab); navTo({ view: 'admin' }); }}
+      onAdmin={(tab) => { const t = typeof tab === 'string' ? tab : 'usage'; setAdminTab(t); navTo({ view: 'admin', adminTab: t }); }}
       onOpenSession={(s) => navTo({ session: s, view: s.pipeline === 'desk' ? 'desk' : 'sessions' })}
       onLogout={logout}
       onUserUpdate={(u) => setUser(u)}

@@ -241,47 +241,29 @@ async function loadStore() {
     }
     console.error('[store] (개발 모드) 로컬 파일 모드로 폴백');
   }
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    if (fs.existsSync(DATA_FILE)) {
-      sessions = JSON.parse(readDataFile(DATA_FILE));
-      if (!Array.isArray(sessions)) sessions = [];
+  // 파일별 개별 로드 — 한 파일이 손상돼도(부분 쓰기·DATA_KEY 불일치 등) 나머지 저장소는 정상 로드한다.
+  // 이전에는 단일 try/catch 라 sessions.json 손상 시 이후 파일 전부가 빈 상태로 기동했고,
+  // 첫 저장이 멀쩡하던 파일들을 빈 데이터로 덮어썼다. 손상 파일은 .corrupt-<ts> 로 백업해 복구 여지를 남긴다.
+  try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { console.error('[store] data 디렉터리 생성 실패', e); }
+  const loadFile = (file, apply) => {
+    if (!fs.existsSync(file)) return;
+    try {
+      apply(JSON.parse(readDataFile(file)));
+    } catch (e) {
+      const bak = `${file}.corrupt-${Date.now()}`;
+      try { fs.copyFileSync(file, bak); } catch {}
+      console.error(`[store] ${path.basename(file)} 로드 실패 — 원본을 ${path.basename(bak)} 로 백업 후 빈 상태로 계속`, e.message || e);
     }
-    if (fs.existsSync(USERS_FILE)) {
-      users = JSON.parse(readDataFile(USERS_FILE));
-      if (!Array.isArray(users)) users = [];
-    }
-    if (fs.existsSync(USAGE_FILE)) {
-      const u = JSON.parse(readDataFile(USAGE_FILE));
-      if (u && typeof u === 'object') usageDaily = u;
-    }
-    if (fs.existsSync(USAGE_HOURLY_FILE)) {
-      const h = JSON.parse(readDataFile(USAGE_HOURLY_FILE));
-      if (h && typeof h === 'object') usageHourly = h;
-    }
-    if (fs.existsSync(TERMS_FILE)) {
-      const t = JSON.parse(readDataFile(TERMS_FILE));
-      if (t && typeof t === 'object') termsConfig = { ...t, updatedAt: t.updatedAt || 0 }; // 전체 보존, 구형은 부팅 마이그레이션
-    }
-    if (fs.existsSync(SUMMARIES_FILE)) {
-      const s = JSON.parse(readDataFile(SUMMARIES_FILE));
-      if (Array.isArray(s)) summaries = s;
-    }
-    if (fs.existsSync(VENDOR_USAGE_FILE)) {
-      const v = JSON.parse(readDataFile(VENDOR_USAGE_FILE));
-      if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {} };
-    }
-    if (fs.existsSync(DESK_REG_FILE)) {
-      const d = JSON.parse(readDataFile(DESK_REG_FILE));
-      if (d && Array.isArray(d.desks)) deskRegistry = { desks: d.desks };
-    }
-    if (fs.existsSync(CANNED_FILE)) {
-      const c = JSON.parse(readDataFile(CANNED_FILE));
-      if (c && Array.isArray(c.items)) cannedConfig = { items: c.items };
-    }
-  } catch (e) {
-    console.error('[store] 로드 실패', e);
-  }
+  };
+  loadFile(DATA_FILE, (v) => { if (Array.isArray(v)) sessions = v; });
+  loadFile(USERS_FILE, (v) => { if (Array.isArray(v)) users = v; });
+  loadFile(USAGE_FILE, (v) => { if (v && typeof v === 'object') usageDaily = v; });
+  loadFile(USAGE_HOURLY_FILE, (v) => { if (v && typeof v === 'object') usageHourly = v; });
+  loadFile(TERMS_FILE, (v) => { if (v && typeof v === 'object') termsConfig = { ...v, updatedAt: v.updatedAt || 0 }; }); // 전체 보존, 구형은 부팅 마이그레이션
+  loadFile(SUMMARIES_FILE, (v) => { if (Array.isArray(v)) summaries = v; });
+  loadFile(VENDOR_USAGE_FILE, (v) => { if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {} }; });
+  loadFile(DESK_REG_FILE, (v) => { if (v && Array.isArray(v.desks)) deskRegistry = { desks: v.desks }; });
+  loadFile(CANNED_FILE, (v) => { if (v && Array.isArray(v.items)) cannedConfig = { items: v.items }; });
 }
 async function persistVendorUsage() {
   if (vendorUsageCol) { await vendorUsageCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...vendorUsage }, { upsert: true }); }
@@ -297,28 +279,42 @@ async function persistDeskRegistry() {
 }
 
 let saveTimer = null;
-function saveSessions() {
+const dirtySessions = new Set(); // Mongo 모드: 변경 세션만 upsert — 발화 확정마다 전체 재기록하던 쓰기 증폭 방지
+let sessionsFlushInflight = null; // 진행 중 flush 추적 — 삭제가 완료를 기다려 '삭제 후 upsert 부활' 레이스 차단
+function saveSessions(id) {
+  if (id) dirtySessions.add(id);
+  else for (const s of sessions) dirtySessions.add(s.id); // 인자 없으면 전체(드문 관리자·마이그레이션 경로)
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    flushSessions().catch((e) => console.error('[sessions] 저장 실패', e));
+    sessionsFlushInflight = flushSessions()
+      .catch((e) => console.error('[sessions] 저장 실패', e))
+      .finally(() => { sessionsFlushInflight = null; });
   }, 400);
 }
 async function flushSessions() {
+  const ids = new Set(dirtySessions);
+  dirtySessions.clear();
   if (col) {
-    if (!sessions.length) return;
-    const ops = sessions.map((s) => ({
+    const ops = sessions.filter((s) => ids.has(s.id)).map((s) => ({
       replaceOne: { filter: { id: s.id }, replacement: s, upsert: true },
     }));
+    if (!ops.length) return;
     await col.bulkWrite(ops, { ordered: false });
   } else {
-    writeDataFile(DATA_FILE, JSON.stringify(sessions, null, 2));
+    // 파일 모드는 단일 JSON 이라 전체 기록이 불가피 — 대신 동기 쓰기가 오디오 스트리밍을 막지 않게 비동기로
+    const tmp = DATA_FILE + '.tmp';
+    const body = JSON.stringify(sessions, null, 2);
+    await fs.promises.writeFile(tmp, dataKey ? encryptData(dataKey, body) : body);
+    await fs.promises.rename(tmp, DATA_FILE);
   }
 }
 // 삭제는 flush(=upsert)로 반영되지 않으므로 별도 처리(Mongo 모드 한정).
 async function deleteSessionStore(id) {
+  dirtySessions.delete(id);
   if (col) {
     try {
+      if (sessionsFlushInflight) await sessionsFlushInflight; // 디바운스 flush 의 upsert 가 삭제를 되돌리지 않게 완료 대기
       await col.deleteOne({ id });
     } catch (e) {
       console.error('[sessions] 삭제 실패', e);
@@ -810,7 +806,10 @@ function getCookie(req, name) {
   for (const part of h.split(';')) {
     const i = part.indexOf('=');
     if (i < 0) continue;
-    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+    if (part.slice(0, i).trim() === name) {
+      // 깨진 %-인코딩(%zz 등) 쿠키 1개가 모든 API 를 500 으로 만들지 않게 — 파싱 실패는 미로그인 취급
+      try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; }
+    }
   }
   return null;
 }
@@ -913,6 +912,20 @@ function logErr(scope, err) {
   console.error(`[${scope}]`, (err && err.stack) || err);
 }
 process.on('uncaughtException', (e) => logErr('uncaught', e));
+// 재배포·재시작(SIGTERM/SIGINT) 시 디바운스 저장분(세션 ~400ms·사용량 ~1s) 유실 방지 — flush 후 종료
+let shuttingDown = false;
+async function gracefulShutdown(sig) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${sig} — 미저장 변경 flush 후 종료`);
+  try {
+    for (const s of sessions) dirtySessions.add(s.id);
+    await Promise.allSettled([flushSessions(), flushUsers(), flushUsage()]);
+  } catch {}
+  process.exit(0);
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('unhandledRejection', (e) => logErr('unhandledRejection', e));
 app.get('/api/admin/health', requireAdmin, (req, res) => {
   const rms = [...rooms.values()];
@@ -1048,6 +1061,9 @@ app.delete('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
   if (!s || s.pipeline !== 'desk' || !Array.isArray(s.deskLog)) return res.status(404).json({ error: 'not found' });
   const i = Number(req.params.idx);
   if (!(i >= 0 && i < s.deskLog.length)) return res.status(404).json({ error: 'not found' });
+  // idx 는 목록 조회 시점 기준 — 그 사이 응대 종료/정리로 재색인됐다면 다른 기록을 지우게 되므로 endedAt 으로 동일성 검증
+  const expect = Number(req.query.endedAt || 0);
+  if (expect && (s.deskLog[i].endedAt || 0) !== expect) return res.status(409).json({ error: '목록이 갱신되었습니다 — 새로고침 후 다시 시도해 주세요.' });
   s.deskLog.splice(i, 1);
   saveSessions();
   res.json({ ok: true, remaining: s.deskLog.length });
@@ -1203,7 +1219,8 @@ app.get('/api/desk-status', requireAuth, (req, res) => {
         hostOn: !!(r && r.hosts.size > 0),
         active: !!(st && st.phase === 'active'),
         lang: st && st.phase === 'active' ? st.lang : null,
-        viewers: r ? r.viewers.size : 0,
+        // 호스트 화면의 패시브 뷰어 소켓(role=host)은 제외 — 태블릿이 없어도 '뷰어 1'로 부풀던 문제
+        viewers: r ? [...r.viewers].filter((v) => !v._hostView).length : 0,
       };
     });
   res.json(out);
@@ -1616,7 +1633,12 @@ app.get('/api/terms-config', requireAuth, (req, res) => {
 app.put('/api/terms-config', requireAdmin, async (req, res) => {
   // 신 스키마(entries) + 구형(terms/translationTerms/alt, JSON 업로드) 모두 정규화 수용
   termsConfig = { ...normalizeTermsConfig(req.body || {}), updatedAt: Date.now() };
-  try { await persistTermsConfig(); } catch (e) { console.error('[terms] 저장 실패', e); }
+  try { await persistTermsConfig(); }
+  catch (e) {
+    // 저장 실패를 200 으로 숨기지 않는다 — 관리자는 저장된 줄 알지만 재기동 시 유실되던 문제
+    console.error('[terms] 저장 실패', e);
+    return res.status(500).json({ error: '저장소 기록 실패 — 변경이 재시작 후 유실될 수 있습니다. 다시 시도해 주세요.' });
+  }
   res.json({ version: 3, servedLangs: termsConfig.servedLangs, categoryScope: termsConfig.categoryScope, entries: termsConfig.entries, langs: TERM_LANGS, categories: TERM_CATEGORIES, updatedAt: termsConfig.updatedAt });
 });
 
@@ -1954,7 +1976,6 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
     broadcast(req.params.id, { type: 'speakers', speakers: clean }); // 뷰어(모바일) 실시간 반영
   }
   // 참여자 PTT(휴대폰 누르고 말하기) on/off — 뷰어에 실시간 반영
-  if (typeof b.viewerPTT === 'boolean') { s.viewerPTT = b.viewerPTT; broadcast(req.params.id, { type: 'viewerPTT', on: b.viewerPTT }); }
   s.updatedAt = Date.now();
   saveSessions();
   res.json(s);
@@ -2099,6 +2120,27 @@ function broadcastPttState(sessionId) {
   if (!room) return;
   const msg = JSON.stringify({ type: 'ptt-state', busy: pttBusy(room) });
   for (const v of room.viewers) if (v.readyState === WebSocket.OPEN) v.send(msg);
+}
+
+/* 공개 뷰어의 데스크 제어(desk-start/end/mic) 남용 가드 — 이 메시지들은 유료 엔진 체결(context 재과금)을
+   직접 유발하므로 소켓당·세션당 분당 횟수 제한 + start/end 는 세션당 0.8초 간격. 정상 손님 조작(언어 선택,
+   종료 후 재선택, 재접속 시 desk-mic 재동기화)은 걸리지 않는 수준으로 설정. micOnly=true 면 간격 제한 제외. */
+function deskCtlAllowed(ws, room, micOnly) {
+  const now = Date.now();
+  const bump = (holder, max) => {
+    let st = holder._deskCtl;
+    if (!st || now - st.t > 60000) st = holder._deskCtl = { t: now, n: 0 };
+    return ++st.n <= max;
+  };
+  if (!bump(ws, 20)) return false;
+  if (room) {
+    if (!bump(room, 40)) return false;
+    if (!micOnly) {
+      if (now - (room.lastDeskStartEnd || 0) < 800) return false;
+      room.lastDeskStartEnd = now;
+    }
+  }
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2849,7 +2891,7 @@ async function classifyFacility(koText, questionKo) {
 /*   /ws/host?session=ID&src=mic|system&out=ko                          */
 /*   /ws/viewer?session=ID                                              */
 /* ------------------------------------------------------------------ */
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 }); // 1MB — 무인증 뷰어의 초대형 프레임 메모리 스파이크 방지
 
 server.on('upgrade', (req, socket, head) => {
   try {
@@ -2865,6 +2907,7 @@ server.on('upgrade', (req, socket, head) => {
       ws._kind = pathname === '/ws/host' ? 'host' : 'viewer';
       ws._userId = hostUser ? hostUser.id : null;
       ws._session = searchParams.get('session') || 'default';
+      ws._hostView = searchParams.get('role') === 'host'; // 호스트 화면의 패시브 뷰어 — 데스크 현황판 '뷰어 수'에서 제외
       ws._src = searchParams.get('src') || 'mic'; // mic | system
       ws._out = searchParams.get('out') || TARGET_LANG;
       ws._in = searchParams.get('in'); // 입력 언어 코드 | 'auto' | null
@@ -2902,6 +2945,7 @@ server.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws) => {
   ws._alive = true;
+  ws.on('error', (e) => logErr('ws-' + (ws._kind || '?'), e)); // ECONNRESET 등 — error 후 close 가 이어져 락 해제는 기존 경로로
   ws.on('pong', () => { ws._alive = true; });
   if (ws._kind === 'viewer') return handleViewer(ws);
   return handleHost(ws);
@@ -2922,7 +2966,7 @@ hbTimer.unref();
 // 빈 room 정리: 마지막 연결이 떠나면 세션별 부속 상태도 회수(메모리 누수 방지)
 function maybeGcRoom(sessionId) {
   const r = rooms.get(sessionId);
-  if (r && r.hosts.size === 0 && r.viewers.size === 0) {
+  if (r && r.hosts.size === 0 && r.viewers.size === 0 && !r.guestFeeder) { // 여객 피더(PC 직결)만 남은 room 은 유지
     rooms.delete(sessionId);
     roomCfg.delete(sessionId);
     recentTts.delete(sessionId);
@@ -3000,7 +3044,8 @@ function handleViewer(ws) {
   ws._audioWanted = false; // '음성 듣기' 구독 여부
   let talk = null; // 폰 PTT 파이프라인
   const s = getSession(ws._session);
-  ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items : [] }));
+  // tm(레이턴시)·toks(신뢰도)는 저장 전용 — 뷰어 스냅샷에서 제외(라이브 buildMsg 와 동일 규약)
+  ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items.map(({ tm, toks, ...it }) => it) : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
   ws.send(JSON.stringify({ type: 'ptt-state', busy: pttBusy(room) })); // 발화 가능 여부(배타 락)
   {
@@ -3041,11 +3086,13 @@ function handleViewer(ws) {
         }
       } else if (m.type === 'desk-start') {
         // 데스크: 손님이 태블릿에서 언어 선택 → 호스트 파이프라인에서 soniox 양방향 통역 시작
+        if (!deskCtlAllowed(ws, room)) { ws.send(JSON.stringify({ type: 'status', message: '요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.' })); return; }
         const ctrl = deskCtrl.get(ws._session);
         if (ctrl) ctrl.start(String(m.lang || '').toLowerCase());
         else ws.send(JSON.stringify({ type: 'status', message: '안내원이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.' }));
       } else if (m.type === 'desk-end') {
         // 데스크: 손님 화면의 종료(✕) — 대화 종료 후 대기 모드로
+        if (!deskCtlAllowed(ws, room)) return;
         const ctrl = deskCtrl.get(ws._session);
         if (ctrl) ctrl.end();
       } else if (m.type === 'desk-keepalive') {
@@ -3054,6 +3101,7 @@ function handleViewer(ws) {
         if (ctrl && ctrl.keepalive) ctrl.keepalive();
       } else if (m.type === 'desk-mic') {
         // 데스크: 여객 태블릿 마이크 채널 on/off — 2채널 화자 귀속
+        if (!deskCtlAllowed(ws, room, true)) return; // on 마다 여객 엔진 재체결(과금)이 따르므로 난사 차단(간격 제한은 제외)
         ws._deskMic = !!m.on;
         const ctrl = deskCtrl.get(ws._session);
         if (ctrl && ctrl.guestMic) ctrl.guestMic(!!m.on, ws);
@@ -3239,7 +3287,7 @@ function handleHost(ws) {
         if (first) session.title = first.slice(0, 40);
       }
       session.updatedAt = Date.now();
-      saveSessions();
+      saveSessions(session.id);
     } else {
       // 세션이 삭제된 뒤에도 채널 귀속(side/lang)이 유지되도록 폴백에도 오버라이드 반영
       item = { id, side: sideOv || side, source: source || null, texts: { ...langTexts }, ...(lang ? { lang } : {}), ...(toksCapped ? { toks: toksCapped } : {}) };
@@ -3364,7 +3412,7 @@ function handleHost(ws) {
     roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: config.endpoint_sensitivity, maxDelay: config.max_endpoint_delay_ms, latency: config.endpoint_latency_adjustment_level, ttsOn, gender });
     // 번역 방향 정보 — 뷰어(모바일)가 언어 표시에 사용
     const sxInfo = { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
-    if (session) { session.sxInfo = sxInfo; saveSessions(); }
+    if (session) { session.sxInfo = sxInfo; saveSessions(session.id); }
     broadcast(sessionId, { type: 'meta', sxInfo });
     let curId = null;     // 진행 중 발화 카드 id
     let finalText = '';   // 전사(원문) 확정 누적
@@ -3399,7 +3447,7 @@ function handleHost(ws) {
     const stampTm = (forId, key) => {
       const t = Date.now();
       const it = session && Array.isArray(session.items) ? session.items.find((x) => x.id === forId) : null;
-      if (it) { if (!it.tm || it.tm[key] == null) { it.tm = { ...(it.tm || {}), [key]: t }; saveSessions(); } }
+      if (it) { if (!it.tm || it.tm[key] == null) { it.tm = { ...(it.tm || {}), [key]: t }; saveSessions(session && session.id); } }
       else if (utterTm && forId === curId && utterTm[key] == null) utterTm[key] = t;
     };
     const speakTts = (text, forId) => {
@@ -3410,13 +3458,15 @@ function handleHost(ws) {
       const voiceId = cartesiaVoiceId(lang, gender);
       noteTts(sessionId, tx); // 자기음성(에코) 필터에 등록 — 재입력 시 인식 결과를 버림
       // 뷰어(음성 듣기 구독자) + 호스트(TTS 켠 경우)에게 재생. 재입력은 AEC + 에코 필터로 차단.
-      if (forId) stampTm(forId, 'tq'); // 합성 요청 시각
       let firstAudio = false;
-      ttsChain = ttsChain.then(() => cartesiaTTSStream(tx, voiceId, lang, (b64) => {
-        if (!firstAudio) { firstAudio = true; if (forId) stampTm(forId, 'ta'); } // 첫 오디오 청크 시각
-        broadcastAudio(sessionId, b64);
-        if (ws._audioOut) sendAudioToHosts(sessionId, b64);
-      }).catch(() => {}));
+      ttsChain = ttsChain.then(() => {
+        if (forId) stampTm(forId, 'tq'); // 합성 요청 시각 — 직렬 큐 대기 후, 실제 요청 직전(ta−tq=순수 합성 지연)
+        return cartesiaTTSStream(tx, voiceId, lang, (b64) => {
+          if (!firstAudio) { firstAudio = true; if (forId) stampTm(forId, 'ta'); } // 첫 오디오 청크 시각
+          broadcastAudio(sessionId, b64);
+          if (ws._audioOut) sendAudioToHosts(sessionId, b64);
+        });
+      }).catch(() => {});
     };
     const flushTtsSentences = () => {
       if (!ttsOn) return;
@@ -3482,6 +3532,9 @@ function handleHost(ws) {
     };
 
     // 엔진 연결(끊기면 자동 재연결 — 이전에는 재연결이 없어 '진행 중'처럼 보이며 무음이 지속됐음)
+    // 재연결은 지수 백오프 + 연속 실패 상한: config 거부·쿼터 초과처럼 즉시 닫히는 상황에서
+    // 800ms 무한 재시도하면 재연결마다 context(input_text_tokens)가 재과금되므로 8회에서 중지한다.
+    let sxFails = 0; // 토큰 수신 시 0 으로 리셋 — 정상 세션의 간헐적 끊김은 누적되지 않음
     function connectEngine() {
       if (sxClosed || idleStopped) return;
       const cur = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
@@ -3508,6 +3561,7 @@ function handleHost(ws) {
       const toks = ev.tokens || [];
       if (!toks.length) return;
       bumpIdle();
+      sxFails = 0; // 실제 토큰 수신 = 정상 연결 — 실패 카운터 리셋
       let endHit = false;
       let nonFinal = '';      // 비확정 전사(원문) — 매 응답마다 새로 구성
       let nonFinalTrans = ''; // 비확정 번역(타깃)
@@ -3556,8 +3610,16 @@ function handleHost(ws) {
       if (sx !== cur) return;
       sxReady = false; // 끊긴 소켓으로 send 하지 않도록(이전엔 true 로 남아 조용히 버려졌음)
       if (!sxClosed && !idleStopped) {
+        sxFails++;
+        if (sxFails >= 8) { // 연결 직후 반복 종료 — 재시도할수록 과금만 누적되므로 명시적으로 중지
+          idleStopped = true;
+          toHost({ type: 'idle-stop' });
+          toHost({ type: 'status', message: '엔진 연결이 반복 실패해 번역을 중지했습니다. 잠시 후 다시 시작해 주세요.' });
+          return;
+        }
+        const delay = Math.min(800 * 2 ** (sxFails - 1), 15000);
         toHost({ type: 'status', message: '엔진 재연결 중…' });
-        setTimeout(() => { if (sx === cur && !sxClosed && !idleStopped) connectEngine(); }, 800);
+        setTimeout(() => { if (sx === cur && !sxClosed && !idleStopped) connectEngine(); }, delay);
       } else {
         toHost({ type: 'status', message: '엔진 연결 종료 (Soniox)' });
       }
@@ -3588,6 +3650,7 @@ function handleHost(ws) {
           if (m.gender === 'm' || m.gender === 'f') gender = m.gender;
           if (!!m.on && !CARTESIA_API_KEY) toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 재생을 사용할 수 없습니다.' });
           if (ttsOn) { const wLang = sxMode === 'two' ? 'ko' : sxTarget; cartesiaWarmup(cartesiaVoiceId(wLang, gender), wLang).then(() => {}).catch(() => {}); }
+          const rc = roomCfg.get(sessionId); if (rc) { rc.ttsOn = ttsOn; rc.gender = gender; } // 폰 PTT 도 토글 즉시 반영
         } else if (m.type === 'micState') {
           // 호스트 발화/멈춤 → 발화 배타 락 갱신(뷰어 발화 버튼 활성/비활성)
           const r = getRoom(sessionId);
@@ -3699,7 +3762,7 @@ function handleHost(ws) {
       const sxInfo = phase === 'active'
         ? (lockedB && lockedB !== A ? { mode: 'two', a: A, b: lockedB } : (autoDetect ? { mode: 'detect' } : { mode: 'one', target: A }))
         : { mode: 'idle' };
-      if (session) { session.sxInfo = sxInfo; if (phase === 'active' && lockedB) session.langs = [A, lockedB]; saveSessions(); }
+      if (session) { session.sxInfo = sxInfo; if (phase === 'active' && lockedB) session.langs = [A, lockedB]; saveSessions(session.id); }
       broadcast(sessionId, { type: 'meta', sxInfo, guestSens, mic2: hostFed() });
       toHost({ type: 'meta', sxInfo, guestSens, mic2: hostFed() });
     };
@@ -3771,7 +3834,7 @@ function handleHost(ws) {
                 session.wayfindLog = session.wayfindLog || [];
                 session.wayfindLog.push({ at: Date.now(), catId, via, txt: txt.slice(0, 80), shown: false });
                 if (session.wayfindLog.length > 200) session.wayfindLog = session.wayfindLog.slice(-200);
-                saveSessions();
+                saveSessions(session.id);
               }
             }
           } catch {}
@@ -3817,6 +3880,7 @@ function handleHost(ws) {
       ws._deskActiveStart = 0;
       guestCommit(); // 손님의 마지막 미확정 발화도 기록에 남김
       commit();
+      pendingWayfind = null; // commit() 의 길안내 감지가 종료 직전 발화로 제안을 재설정하는 경우 제거(다음 손님 오표시 방지)
       if (session) {
         if (Array.isArray(session.items) && session.items.length) {
           session.deskLog = session.deskLog || [];
@@ -3827,7 +3891,7 @@ function handleHost(ws) {
           if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200); // 보존 상한
           session.items = [];
         }
-        saveSessions();
+        saveSessions(session.id);
       }
       if (chStats.staff + chStats.guest + chStats.crossDrops > 0) console.log(`[desk] 채널 통계 staff=${chStats.staff} guest=${chStats.guest} crossDrops=${chStats.crossDrops}`);
       chStats.staff = 0; chStats.guest = 0; chStats.crossDrops = 0;
@@ -3874,6 +3938,7 @@ function handleHost(ws) {
       const next = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
       sx = next;
       next.on('open', () => {
+        if (sx !== next) return; // 빠른 재체결 시 구 소켓의 늦은 open 이 준비 상태를 오염시키지 않게
         try { next.send(JSON.stringify(configFor())); } catch {}
         sxReady = true;
         while (pending.length) { try { next.send(pending.shift()); } catch {} }
@@ -3946,6 +4011,7 @@ function handleHost(ws) {
       const next = new WebSocket('wss://stt-rt.soniox.com/transcribe-websocket');
       gsx = next;
       next.on('open', () => {
+        if (gsx !== next) return; // 구 소켓의 늦은 open 가드(connectSx 와 동일)
         try { next.send(JSON.stringify(guestConfig())); } catch {}
         gsxReady = true;
         // 연결 대기 중 쌓인 오디오는 최근 2초만 전송(오래된 프레임을 밀어넣으면 이후 내내 지연됨)
@@ -4083,7 +4149,7 @@ function handleHost(ws) {
         else if (m.type === 'wayfind-show') { // 호스트가 길안내 제안 승인 → 뷰어에 지도 표시
           if (pendingWayfind) {
             broadcast(sessionId, pendingWayfind);
-            if (session && Array.isArray(session.wayfindLog) && session.wayfindLog.length) { session.wayfindLog[session.wayfindLog.length - 1].shown = true; saveSessions(); }
+            if (session && Array.isArray(session.wayfindLog) && session.wayfindLog.length) { session.wayfindLog[session.wayfindLog.length - 1].shown = true; saveSessions(session.id); }
             pendingWayfind = null;
           }
         }
@@ -4096,9 +4162,12 @@ function handleHost(ws) {
       closed = true;
       clearTimeout(foreignTimer);
       clearTimeout(warnTimer);
-      if (deskCtrl.get(sessionId) === ctrl) deskCtrl.delete(sessionId);
-      if (wasActive) endConversation(); // 응대 중 호스트 이탈 → 기록 보존 + 뷰어를 터치 화면으로
+      // 순서 중요: endConversation() 의 좀비 가드는 '등록 컨트롤러 = 나'일 때만 아카이브를 허용한다.
+      // deskCtrl 을 먼저 지우면 자기 자신을 좀비로 판정해 응대 기록·뷰어 리셋이 전부 생략된다(회귀 이력).
+      const isCur = deskCtrl.get(sessionId) === ctrl;
+      if (wasActive && isCur) endConversation(); // 응대 중 호스트 이탈 → 기록 보존 + 뷰어를 터치 화면으로
       else { closeSx(); closeGuest(); }
+      if (isCur) deskCtrl.delete(sessionId);
     });
 
     // 뷰어(손님)의 통역 시작/종료/연장/여객 마이크 요청을 이 파이프라인으로 전달받기 위한 컨트롤러 등록
@@ -4133,7 +4202,7 @@ function handleHost(ws) {
       session.deskLog.push({ startedAt: null, endedAt: Date.now(), lang: (session.items.find((x) => x.lang && x.lang !== 'ko') || {}).lang || null, interrupted: true, items: session.items, stats: null });
       if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200);
       session.items = [];
-      saveSessions();
+      saveSessions(session.id);
       broadcast(sessionId, { type: 'desk-reset' });
       broadcast(sessionId, { type: 'snapshot', items: [] });
       toHost({ type: 'status', message: '이전 호스트의 진행 중 응대를 기록에 보존하고 대기 모드로 초기화했습니다.' });
@@ -4191,6 +4260,9 @@ function handleHost(ws) {
     });
     function markReady() {
       if (oaReady) return;
+      // 1.5s 폴백 타이머가 그 사이 죽은 소켓을 '연결됨'으로 되살리지 않게 — close 가 oaReady=false 로
+      // 리셋한 뒤 폴백이 다시 true 로 만들면 이후 모든 오디오가 죽은 소켓으로 조용히 버려졌다.
+      if (!oa || oa.readyState !== WebSocket.OPEN) return;
       oaReady = true;
       while (pending.length) oa.send(pending.shift());
       toHost({ type: 'status', message: '엔진 연결됨 (translate)' });
@@ -4233,7 +4305,13 @@ function handleHost(ws) {
       }
     });
     oa.on('error', (e) => toHost({ type: 'status', message: 'OpenAI 연결 오류: ' + (e?.message || e) }));
-    oa.on('close', () => { oaReady = false; toHost({ type: 'status', message: '엔진 연결 종료' }); }); // 죽은 소켓으로 send 방지
+    // 죽은 소켓으로 send 방지 + translate 는 자동 재연결이 없으므로 캡처를 명시적으로 멈춰
+    // '진행 중처럼 보이며 오디오가 조용히 버려지는' 상태를 만들지 않는다.
+    oa.on('close', () => {
+      oaReady = false;
+      toHost({ type: 'idle-stop' });
+      toHost({ type: 'status', message: '엔진 연결 종료 — 다시 시작해 주세요.' });
+    });
 
     ws.on('message', (data, isBinary) => {
       if (isBinary) {

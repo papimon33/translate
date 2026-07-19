@@ -73,6 +73,7 @@ async function getSources(mode, agcOff, mic2, nsOff, micId) {
       } catch {
         // 지정한 직원 마이크가 뽑힌 경우 기본 장치로 폴백(캡처 전체가 죽는 것 방지)
         staff = await navigator.mediaDevices.getUserMedia({ audio: { ...base, autoGainControl: !agcOff } });
+        list.micFallback = true; // 사용자에게 알림(모르고 내장 마이크로 녹음되는 것 방지)
       }
       list.push({ src: 'mic', stream: staff });
       try {
@@ -96,6 +97,7 @@ async function getSources(mode, agcOff, mic2, nsOff, micId) {
       } catch (e) {
         if (!micId) throw e;
         mic = await navigator.mediaDevices.getUserMedia({ audio: base });
+        list.micFallback = true; // 선택 장치가 뽑힘 — 기본 마이크 폴백 사실을 사용자에게 알림
       }
       list.push({ src: 'mic', stream: mic });
     }
@@ -197,6 +199,9 @@ export async function startRecorder(opts) {
   if (sources.guestFail) {
     try { onMessage({ type: 'status', message: '여객 마이크 장치를 열지 못했습니다 — 단일 채널(또는 태블릿 마이크)로 동작합니다.' }); } catch {}
   }
+  if (sources.micFallback) {
+    try { onMessage({ type: 'status', message: '선택한 마이크 장치를 찾지 못해 기본 마이크로 시작합니다.' }); } catch {}
+  }
   // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용) — 네이티브 마이크는 트랙이 없다(항상 AGC off)
   const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m && m.stream ? m.stream.getAudioTracks()[0] : null; })();
   let noiseFloor = 0.005; // 적응형 소음 바닥(조용할 때로 빠르게 수렴, 소리날 때 아주 느리게 상승)
@@ -247,14 +252,22 @@ export async function startRecorder(opts) {
   // (Web Audio 직접 재생은 AEC 참조 경로 밖이라 에코로 인식되지 않음)
   let aecActive = false;
   let aecParts = null;
+  const cleanupAec = () => { // PeerConnection·오디오 엘리먼트 회수(시작 실패·중지 경로 공용)
+    if (!aecParts) return;
+    try { aecParts.audioEl.pause(); } catch {}
+    try { aecParts.pc1.close(); } catch {}
+    try { aecParts.pc2.close(); } catch {}
+    aecParts = null;
+  };
   async function setupAecLoopback() {
+    let pc1, pc2, audioEl;
     try {
       const dest = audioCtx.createMediaStreamDestination();
-      const pc1 = new RTCPeerConnection();
-      const pc2 = new RTCPeerConnection();
+      pc1 = new RTCPeerConnection();
+      pc2 = new RTCPeerConnection();
       pc1.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate).catch(() => {}); };
       pc2.onicecandidate = (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate).catch(() => {}); };
-      const audioEl = new Audio();
+      audioEl = new Audio();
       audioEl.autoplay = true;
       pc2.ontrack = (e) => { audioEl.srcObject = e.streams[0]; audioEl.play().catch(() => {}); };
       dest.stream.getTracks().forEach((t) => pc1.addTrack(t, dest.stream));
@@ -268,8 +281,12 @@ export async function startRecorder(opts) {
       outGain.connect(dest); // 이후 TTS 는 WebRTC 경로로 재생(AEC 참조 대상)
       aecParts = { pc1, pc2, audioEl };
       aecActive = true;
+      if (stopped) cleanupAec(); // 셋업 완료 전에 stop()/시작 실패가 지나간 경우 — 즉시 회수(누수 방지)
     } catch {
-      // 실패 시 기존 직접 재생 유지(+ 재생 중 자동 음소거 폴백)
+      // 실패 시 기존 직접 재생 유지(+ 재생 중 자동 음소거 폴백) — 만들다 만 자원은 회수
+      try { pc1 && pc1.close(); } catch {}
+      try { pc2 && pc2.close(); } catch {}
+      try { audioEl && audioEl.pause(); } catch {}
       try { outGain.disconnect(); } catch {}
       try { outGain.connect(audioCtx.destination); } catch {}
       aecActive = false;
@@ -317,13 +334,17 @@ export async function startRecorder(opts) {
   let nativeMicUsed = false; // 네이티브 캡처가 실제로 시작됐는지(stop 에서 브리지 정지용)
   // 녹음 중 변경된 제어 상태 — 자동 재연결 시 새 소켓은 시작 시점 URL 파라미터로 초기화되므로
   // 변경분(TTS on/off, 발화멈춤, 여객 민감도)을 재전송해 서버 상태가 되돌아가는 문제를 막는다
-  const ctlState = { audioOut: null, tts: null, muted: null, guestSens: null };
+  const ctlState = { audioOut: null, tts: null, muted: null, guestSens: null, deskIdle: null, dropAcks: null, confFix: null, wayfindOn: null };
   const resendState = (sock) => {
     try {
       if (ctlState.muted != null) sock.send(JSON.stringify({ type: 'micState', muted: ctlState.muted }));
       if (ctlState.tts != null) sock.send(JSON.stringify({ type: 'tts', on: ctlState.tts.on, ...(ctlState.tts.gender ? { gender: ctlState.tts.gender } : {}) }));
       if (ctlState.audioOut != null) sock.send(JSON.stringify({ type: 'audioOut', on: ctlState.audioOut }));
       if (ctlState.guestSens != null) sock.send(JSON.stringify({ type: 'desk-guest-sens', value: ctlState.guestSens }));
+      if (ctlState.deskIdle != null) sock.send(JSON.stringify({ type: 'desk-idle', value: ctlState.deskIdle }));
+      if (ctlState.dropAcks != null) sock.send(JSON.stringify({ type: 'dropAcks', on: ctlState.dropAcks }));
+      if (ctlState.confFix != null) sock.send(JSON.stringify({ type: 'confFix', on: ctlState.confFix }));
+      if (ctlState.wayfindOn != null) sock.send(JSON.stringify({ type: 'wayfind-on', on: ctlState.wayfindOn }));
     } catch {}
   };
 
@@ -339,7 +360,7 @@ export async function startRecorder(opts) {
       // 재연결 소켓: 열리면 변경된 제어 상태 복원(초기 소켓 ws0 은 이미 OPEN 이라 안 걸림)
       sock.onopen = () => resendState(sock);
       sock.onmessage = (ev) => {
-        const m = JSON.parse(ev.data);
+        let m; try { m = JSON.parse(ev.data); } catch { return; } // 비정상 프레임 1건이 핸들러를 죽이지 않게
         // 중지 후 결과 수신 창(1.8초) 동안엔 자막 병합만 허용 — 구 소켓이 받은 takeover 등
         // 제어 메시지가 새로 시작한 녹음을 죽이는 레이스 차단
         if (stopped && m.type !== 'sentence' && m.type !== 'partial') return;
@@ -358,6 +379,8 @@ export async function startRecorder(opts) {
           const re = new WebSocket(wsUrl);
           pipe.ws = re;
           wire(re);
+          // 초기 연결과 동일한 타임아웃 — half-open 이면 닫아서 onclose 재시도 루프로 복귀
+          setTimeout(() => { if (!stopped && pipe.ws === re && re.readyState !== WebSocket.OPEN) { try { re.close(); } catch {} } }, 12000);
         }, 2000);
       };
     };
@@ -373,6 +396,8 @@ export async function startRecorder(opts) {
       });
     } catch (e) {
       // 연결 실패 시 이미 획득한 마이크/스트림·오디오 자원을 정리하고 실패를 알린다(자원 누수 방지)
+      stopped = true; // 진행 중인 비동기 셋업(AEC 등)이 완료돼도 자원을 잡지 않게
+      cleanupAec();
       streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
       pipes.forEach((p) => { try { p.ws.close(); } catch {} });
       try { audioCtx.close(); } catch {}
@@ -433,6 +458,8 @@ export async function startRecorder(opts) {
       if (!window.AndroidAudio.start()) {
         // 시작 실패(권한 미허용 등) — 이미 연 자원을 정리하고 getUserMedia 거부와 동일하게 실패 전파
         window.__kacNA = null;
+        stopped = true;
+        cleanupAec();
         streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
         pipes.forEach((p) => { try { p.ws.close(); } catch {} });
         try { ws0.close(); } catch {}
@@ -540,7 +567,12 @@ export async function startRecorder(opts) {
     };
     pipe.proc = proc;
 
-    stream.getTracks().forEach((t) => (t.onended = () => stop()));
+    // 장치 뽑힘·화면공유 중지 등 트랙 자체 종료 → 캡처 정지 + 호출자(UI)에 통지('진행 중' 고착 방지)
+    stream.getTracks().forEach((t) => (t.onended = () => {
+      const wasLive = !stopped;
+      stop();
+      if (wasLive) { try { opts.onEnded && opts.onEnded(); } catch {} }
+    }));
     pipes.push(pipe);
   }
 
@@ -557,7 +589,7 @@ export async function startRecorder(opts) {
     }
     streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
     if (nativeMicUsed) { try { window.AndroidAudio.stop(); } catch {} window.__kacNA = null; }
-    if (aecParts) { try { aecParts.audioEl.pause(); } catch {} try { aecParts.pc1.close(); } catch {} try { aecParts.pc2.close(); } catch {} aecParts = null; }
+    cleanupAec();
     if (audioCtx) audioCtx.close();
     // 마지막 발화 결과가 도착하도록 잠시 후 닫기
     setTimeout(() => closing.forEach((p) => {
@@ -614,13 +646,13 @@ export async function startRecorder(opts) {
   // 데스크: 여객 마이크 민감도(0~100) — 뷰어 태블릿엔 서버 경유로, 2마이크 모드의 로컬 여객 게이트엔 즉시 반영
   function setGuestSens(v) { ctlState.guestSens = Number(v); calcGuestGate(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
   // 데스크: 무음 자동 종료 시간(ms) 실시간 변경 — 상시 캡처 중에도 설정 가능
-  function setDeskIdle(ms) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-idle', value: Number(ms) })); } catch {} } }
+  function setDeskIdle(ms) { ctlState.deskIdle = Number(ms); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-idle', value: Number(ms) })); } catch {} } }
   // 고급옵션: 단독 응답어(네/Yes) 기록 생략 — 녹음 중 실시간 토글
-  function setDropAcks(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'dropAcks', on: !!on })); } catch {} } }
+  function setDropAcks(on) { ctlState.dropAcks = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'dropAcks', on: !!on })); } catch {} } }
   // 고급옵션: 저신뢰 자동 교정(GPT) — 녹음 중 실시간 토글
-  function setConfFix(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'confFix', on: !!on })); } catch {} } }
+  function setConfFix(on) { ctlState.confFix = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'confFix', on: !!on })); } catch {} } }
   // 데스크: 길안내 지도 기능 on/off — 녹음 중 실시간 토글(끄면 서버가 감지·GPT 분류 생략)
-  function setWayfindOn(on) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-on', on: !!on })); } catch {} } }
+  function setWayfindOn(on) { ctlState.wayfindOn = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-on', on: !!on })); } catch {} } }
 
   return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle, setDropAcks, setConfFix, setWayfindOn };
 }

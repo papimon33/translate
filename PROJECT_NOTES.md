@@ -636,6 +636,36 @@
   한 발화로 묶여(lang=ko 다수결) 표기된 혼합 발화("で、말씀하세요"). 대응은 엔드포인트 튜닝(이번에 데스크 노출)·2채널 모드.
 - 세션 목록 첫 로딩 스켈레톤(빈 상태 오표시 방지).
 
+## 2026-07-16(4) — 전면 버그 소탕(리뷰어 3명 교차 검증 → 전부 수정)
+클라(오디오·뷰어)/서버 전체/최근 diff 3방향 독립 리뷰 후 확정 결함 전량 수정. 핵심만 기록:
+### Critical
+- **데스크 close 순서 회귀**: host close 가 `deskCtrl.delete` → `endConversation()` 순서라 좀비 가드가 자기 자신을
+  좀비 판정 → 응대 중 이탈 시 아카이브·뷰어 리셋 전부 생략되던 문제. endConversation 먼저 호출로 교체(server).
+- **무인증 뷰어 제어 남용**: `deskCtlAllowed()`(소켓 20/분·세션 40/분·start/end 0.8s 간격, desk-mic 는 간격 제외) —
+  공개 뷰어의 desk-start/end/mic 난사로 인한 soniox 재체결(context 재과금)·응대 강제종료 차단. + WS `maxPayload 1MB`.
+- **재캡처 타이머 유령 캡처**: restartCapture 600ms·scheduleRestart 900ms 타이머를 stop()/언마운트에서 clear +
+  발화 시 stopReq 확인(TranslateView). start() 첫 줄의 stopReq 리셋 때문에 표시만으론 못 막았음.
+### Important
+- 장치 뽑힘/화면공유 중지: recorder `opts.onEnded` 콜백 신설 → UI 정리+안내(이전엔 '진행 중' 고착).
+- 단일 채널 데스크 발화자 색: messages 에 `lang` 필드 보존(초기 로드·병합·신규 3곳) — 서버는 보내는데 클라가 버렸음.
+- runSoniox 재연결: 지수 백오프 + 연속 8회 실패 시 idle-stop(재시도마다 context 재과금 방지). 토큰 수신 시 리셋.
+- loadStore 파일별 개별 try/catch + 손상 파일 `.corrupt-<ts>` 백업 — 1파일 손상이 전체 데이터 유실로 번지던 문제.
+- flushSessions **dirty-only upsert**(Mongo) + 파일 모드 비동기 쓰기. `saveSessions(id)` 로 핫 콜사이트 전달.
+  `sessionsFlushInflight` 대기 후 deleteOne — 삭제 부활 레이스(보류 리스크) 해소.
+- runTranslate markReady 소켓 상태 확인 + close 시 idle-stop(죽은 소켓 '연결됨' 표시·무음 유실 방지).
+- desk-status 뷰어 수: 호스트 패시브 뷰어(`role=host` 파라미터)를 카운트에서 제외(상시 +1 부풀림).
+- 재연결 시 ctlState 에 dropAcks/confFix/wayfind/deskIdle 추가 재전송. AEC 루프백 실패·늦은 완료 경로 자원 회수.
+- mobile.html: pttCtx `resume()`(iOS 무음 녹음), 지도 스크립트 재시도 상한 3회, 빈 페이로드(clearCard) 카드 제거 — desk 에만 있던 수정 동기화.
+### Minor(발췌)
+- 서버: getCookie try/catch(깨진 쿠키 500), ws error 리스너, SIGTERM/SIGINT flush 후 종료, deskLog 삭제 `endedAt` 검증(409),
+  terms PUT 실패 시 500, viewerPTT 죽은 PATCH 제거, guestFeeder room GC 예외, stale wayfind 제안 정리, TTS 토글 roomCfg 반영(폰 PTT),
+  뷰어 snapshot 에서 tm/toks 제거(저장 전용 규약), tm.tq 를 TTS 체인 내부(실요청 직전)로 이동, desk connectSx/Guest open 세대 가드.
+- 클라: 뷰어 재연결 지터(1.2~2.4s), 재연결 소켓 12s 타임아웃, onmessage JSON.parse 가드, 세션 생성 더블클릭 방지,
+  삭제 세션 popstate 진입 catch, messages 800개 상한, patch .catch, 마이크 폴백 안내, 구 multi 세션 시작 차단(열람 전용)+라벨 폴백.
+- 관리자: 월별 비용 축(선행 빈 달 제거·연도 라벨), adminTab 히스토리 복원(pushState/popstate), PAGE_TITLES 를 Nav ADMIN_TABS 에서 파생,
+  데스크 등록 실패 시 다이얼로그 유지.
+- 검증: node --check·빌드·테스트 8/8, 프리뷰 스모크(관리자 렌더·하위메뉴 뒤로가기 복원·콘솔 무오류·파일 저장소 정상 로드).
+
 ## 2026-07-16(3) — 관리자 차트 recharts 전환(콘솔 대시보드 참고 피드백 5건)
 - **차트 라이브러리 도입: recharts 3.9.2**(React 19 지원). 손수 짠 SVG(투박) → recharts 로 전면 교체.
   공용 래퍼 `client/src/components/charts.jsx`: `Sparkline`(면적, 벤더 카드) · `BarTrend`(막대, 라운드 탑·마지막 강조·호버 툴팁).
