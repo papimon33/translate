@@ -113,6 +113,43 @@ function VendorCard({ name, desc, v, keyHint, totalOf, subOf, valueOf, valFmt, e
     </Paper>
   );
 }
+/* 카드 하단 파이프라인별(실시간 번역/안내데스크) 분해 표 — 값이 0인 행은 숨김 */
+function PipeSplit({ rows, note }) {
+  const shown = rows.filter(([, v]) => v && Object.values(v).some((n) => n > 0));
+  if (!shown.length) return null;
+  return (
+    <Box sx={{ mt: 1.5, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>
+        파이프라인별{note ? <Box component="span" sx={{ fontWeight: 400, color: 'text.disabled' }}> · {note}</Box> : null}
+      </Typography>
+      {shown.map(([label, v, fmt]) => (
+        <Box key={label} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1, py: 0.2 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{label}</Typography>
+          <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 'none', fontVariantNumeric: 'tabular-nums' }}>{fmt(v)}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+/* 유저별 사용량(Soniox) — 카드에서 분리한 별도 패널(④) */
+function UserUsagePanel({ users }) {
+  if (!users || !users.length) return null;
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5, mt: 1.5 }}>
+      <Typography sx={{ fontWeight: 800, fontSize: 14, mb: 1 }}>
+        유저별 사용량 <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· Soniox · {users.length}명</Box>
+      </Typography>
+      <Box sx={{ maxHeight: 220, overflowY: 'auto', pr: 0.5 }}>
+        {users.map((u) => (
+          <Box key={u.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1, py: 0.35, borderTop: 1, borderColor: 'divider', '&:first-of-type': { borderTop: 0 } }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.id === 'anon' ? '(미태깅·과거)' : u.id}</Typography>
+            <Typography sx={{ fontSize: 12.5, color: 'text.secondary', flex: 'none', fontVariantNumeric: 'tabular-nums' }}>{fmtCost(u.costUsd)} · {fmtMin(u.audioMin)} · {u.requests}회</Typography>
+          </Box>
+        ))}
+      </Box>
+    </Paper>
+  );
+}
 function VendorUsage({ brand }) {
   const [period, setPeriod] = useState(30); // 7 | 14 | 30 | 'month'
   const [data, setData] = useState(null);
@@ -167,24 +204,23 @@ function VendorUsage({ brand }) {
         <VendorCard brand={brand} name="Soniox" desc="음성인식·실시간 번역" v={v('soniox')} keyHint="SONIOX_API_KEY"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)} subOf={(x) => `오디오 ${fmtMin(x.totalAudioMin || 0)} · ${x.totalRequests || 0}회 연결`}
           valueOf={(d) => d.costUsd} valFmt={(c) => fmtCost(c)}
-          extra={(x) => (x.users || []).length > 0 && (
-            <Box sx={{ mt: 1.5, pt: 1, borderTop: 1, borderColor: 'divider' }}>
-              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>유저별 사용량 <Box component="span" sx={{ fontWeight: 400, color: 'text.disabled' }}>· {x.users.length}명</Box></Typography>
-              {/* 유저가 많아져도 카드가 늘어나지 않도록 — 비용순 정렬 목록을 고정 높이 스크롤 박스에 */}
-              <Box sx={{ maxHeight: 150, overflowY: 'auto', pr: 0.5 }}>
-                {x.users.map((u) => (
-                  <Box key={u.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1, py: 0.2 }}>
-                    <Typography sx={{ fontSize: 12, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.id === 'anon' ? '(미태깅·과거)' : u.id}</Typography>
-                    <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 'none', fontVariantNumeric: 'tabular-nums' }}>{fmtCost(u.costUsd)} · {fmtMin(u.audioMin)}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
+          extra={(x) => x.byPipe && (
+            <PipeSplit rows={[
+              ['실시간 번역', x.byPipe.live, (v) => `${fmtCost(v.costUsd)} · ${fmtMin(v.audioMs / 60000)}`],
+              ['안내데스크', x.byPipe.desk, (v) => `${fmtCost(v.costUsd)} · ${fmtMin(v.audioMs / 60000)}`],
+              ['(미태깅·과거)', x.byPipe.etc, (v) => `${fmtCost(v.costUsd)} · ${fmtMin(v.audioMs / 60000)}`],
+            ]} />
           )} />
         <VendorCard brand={brand} name="Cartesia" desc="음성 합성(TTS)" v={v('cartesia')} keyHint="CARTESIA_ADMIN_API_KEY (sk_car_admin_…)"
           totalOf={(x) => `${(x.totalCredits || 0).toLocaleString()} 크레딧`}
           subOf={(x) => `일평균 ${Math.round((x.totalCredits || 0) / Math.max(1, (x.days || []).length)).toLocaleString()} 크레딧`}
-          valueOf={(d) => d.credits} valFmt={(c) => `${(c || 0).toLocaleString()} 크레딧`} />
+          valueOf={(d) => d.credits} valFmt={(c) => `${(c || 0).toLocaleString()} 크레딧`}
+          extra={(x) => x.byPipe && (x.byPipe.desk.req + x.byPipe.live.req > 0) && (
+            <PipeSplit note="자체 집계(합성 문자수)" rows={[
+              ['실시간 번역', x.byPipe.live, (v) => `${v.req}회 · ${v.chars.toLocaleString()}자`],
+              ['안내데스크', x.byPipe.desk, (v) => `${v.req}회 · ${v.chars.toLocaleString()}자`],
+            ]} />
+          )} />
         <VendorCard brand={brand} name="OpenAI" desc="GPT (요약·다듬기·검사)" v={v('openai')} keyHint="OPENAI_ADMIN_API_KEY (sk-admin-…)"
           totalOf={(x) => fmtCost(x.totalCostUsd || 0)}
           subOf={(x) => `일평균 ${fmtCost((x.totalCostUsd || 0) / Math.max(1, (x.days || []).length))}`}
@@ -205,6 +241,8 @@ function VendorUsage({ brand }) {
             : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 6, textAlign: 'center' }}>기간 내 사용 기록이 없습니다.</Typography>}
         </Paper>
       )}
+      {/* 유저별 사용량 — 벤더 카드에서 분리(④) */}
+      {!(data && data.error) && <UserUsagePanel users={(v('soniox') || {}).users} />}
     </>
   );
 }
@@ -593,8 +631,10 @@ function EmptyHint({ icon, title, desc }) {
 function DeskStats({ brand }) {
   const [stats, setStats] = useState(null);
   const [sel, setSel] = useState('__all');
+  const [period, setPeriod] = useState(14); // 7 | 14 | 30 | 'month'
   useEffect(() => { api.adminDeskStats().then(setStats).catch(() => setStats([])); }, []);
   const selStyle = { px: 1.25, py: 0.7, borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' };
+  const PERIODS = [[7, '7일'], [14, '14일'], [30, '30일'], ['month', '월별']];
   const header = (right) => (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 5, mb: 2, flexWrap: 'wrap' }}>
       <Typography component="h2" sx={{ fontSize: 21, fontWeight: 800, letterSpacing: '-0.02em' }}>데스크 운영 통계</Typography>
@@ -615,28 +655,48 @@ function DeskStats({ brand }) {
   }
   const d = sel === '__all' ? aggregateDeskStats(stats) : (stats.find((x) => x.id === sel) || stats[0]);
 
-  // KPI: 오늘 응대(어제 대비) · 평균 응대 시간(중앙값) · 응대당 문장(안내원/손님) · 누화 드랍율
-  const dayMap = Object.fromEntries((d.daily || []).map((x) => [x.date, x.count]));
-  const todayN = dayMap[kstDayStr(0)] || 0;
-  const yestN = dayMap[kstDayStr(1)] || 0;
-  const diffPct = yestN > 0 ? Math.round(((todayN - yestN) / yestN) * 100) : null;
-  const per = (n) => (d.count ? +(n / d.count).toFixed(1) : 0);
-  // 일별 응대(최근 14일, 빈 날 0 채움 — 축 유지)
-  const series = [];
-  for (let i = 13; i >= 0; i--) { const date = kstDayStr(i); series.push({ date, count: dayMap[date] || 0 }); }
-  const sum14 = series.reduce((a, x) => a + x.count, 0);
-  // 언어 분포: 상위 4 + 기타
-  const langAll = Object.entries(d.byLang || {}).sort((a, b) => b[1].count - a[1].count);
-  const langTotal = Math.max(1, langAll.reduce((a, [, b]) => a + b.count, 0));
-  const rest = langAll.slice(4).reduce((a, [, b]) => a + b.count, 0);
-  const langRows = [...langAll.slice(0, 4).map(([lg, b]) => [LANG_KO[lg] || lg, b.count]), ...(rest ? [['기타', rest]] : [])];
+  // 기간 필터: 응대 원자료(rows, 데스크당 최근 500건)를 기간으로 잘라 KPI·차트 전부 재계산 —
+  // 월별은 보존된 전체 원자료를 월 단위로 그룹(500건 초과분은 CSV·로그에만 남음)
+  const rows = d.rows || [];
+  const rowsIn = period === 'month' ? rows : rows.filter((r) => r.date >= kstDayStr(period - 1));
+  const durs = rowsIn.map((r) => r.durMs).filter((v) => v != null).sort((a, b) => a - b);
+  const totalMs = durs.reduce((a, b) => a + b, 0);
+  const avgMs = durs.length ? Math.round(totalMs / durs.length) : 0;
+  const medianMs = durs.length ? durs[Math.floor(durs.length / 2)] : 0;
+  const cd = rowsIn.reduce((a, r) => ({ s: a.s + (r.staff || 0), g: a.g + (r.guest || 0), x: a.x + (r.crossDrops || 0) }), { s: 0, g: 0, x: 0 });
+  const crossRate = cd.s + cd.g + cd.x > 0 ? +((cd.x / (cd.s + cd.g + cd.x)) * 100).toFixed(1) : 0;
+  const fmtTotal = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`; };
+
+  // 응대 추이 막대: 일별(빈 날 0 채움) 또는 월별(연도 라벨)
+  const cntBy = {};
+  for (const r of rowsIn) { const k = period === 'month' ? r.date.slice(0, 7) : r.date; cntBy[k] = (cntBy[k] || 0) + 1; }
+  let trendBars;
+  if (period === 'month') {
+    const months = Object.entries(cntBy).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const multiYear = new Set(months.map(([ym]) => ym.slice(0, 4))).size > 1;
+    trendBars = months.map(([ym, n]) => ({ label: (multiYear ? `${ym.slice(2, 4)}.` : '') + Number(ym.slice(5)) + '월', full: ym.replace('-', '. ') + '.', value: n }));
+  } else {
+    trendBars = [];
+    for (let i = period - 1; i >= 0; i--) {
+      const date = kstDayStr(i);
+      trendBars.push({ label: i === 0 ? '오늘' : date.slice(5).replace('-', '/'), full: date, value: cntBy[date] || 0 });
+    }
+  }
+  const trendSum = rowsIn.length;
+  // 언어 분포(기간 내): 상위 4 + 기타
+  const langCnt = {};
+  for (const r of rowsIn) { const k = r.lang || 'unknown'; langCnt[k] = (langCnt[k] || 0) + 1; }
+  const langAll = Object.entries(langCnt).sort((a, b) => b[1] - a[1]);
+  const langTotal = Math.max(1, rowsIn.length);
+  const rest = langAll.slice(4).reduce((a, [, n]) => a + n, 0);
+  const langRows = [...langAll.slice(0, 4).map(([lg, n]) => [LANG_KO[lg] || lg, n]), ...(rest ? [['기타', rest]] : [])];
   const OP = [1, 0.8, 0.6, 0.45, 0.35];
-  // 일별 응대 막대(recharts)
-  const dailyBars = series.map((x, i) => ({ label: i === series.length - 1 ? '오늘' : x.date.slice(5).replace('-', '/'), full: x.date, value: x.count }));
-  // 시간대별 분포(0~23시)
-  const hourly = (d.hourly || []);
-  const hourlyBars = hourly.map((count, h) => ({ label: String(h).padStart(2, '0'), full: `${h}시`, value: count }));
-  const hourlyTotal = hourly.reduce((a, b) => a + b, 0);
+  // 시간대별(기간 내, KST)
+  const hourly = Array(24).fill(0);
+  for (const r of rowsIn) { if (r.endedAt) hourly[new Date(r.endedAt + 9 * 3600e3).getUTCHours()]++; }
+  const hourlyBars = hourly.map((n, h) => ({ label: String(h).padStart(2, '0'), full: `${h}시`, value: n }));
+  const hourlyTotal = rowsIn.length;
+  const periodLabel = period === 'month' ? '전체' : `${period}일`;
 
   const downloadCsv = () => {
     const all = sel === '__all';
@@ -660,37 +720,40 @@ function DeskStats({ brand }) {
             {stats.map((x) => <option key={x.id} value={x.id}>{x.title}{x.deleted ? ' (삭제됨)' : ''}</option>)}
           </Box>
           <Box sx={{ flex: 1 }} />
+          <ToggleButtonGroup size="small" exclusive value={period} onChange={(e, v) => v && setPeriod(v)}
+            sx={{ '& .MuiToggleButton-root': { py: 0.35, px: 1.4, fontSize: 12, fontWeight: 700, textTransform: 'none', '&.Mui-selected': { bgcolor: brand, color: '#fff', '&:hover': { bgcolor: brand } } } }}>
+            {PERIODS.map(([v, l]) => <ToggleButton key={l} value={v}>{l}</ToggleButton>)}
+          </ToggleButtonGroup>
           <Tooltip title="응대 원자료 CSV 내려받기 (응대 1건 = 1행)">
             <IconButton size="small" onClick={downloadCsv}><FileDownloadOutlinedIcon sx={{ fontSize: 20 }} /></IconButton>
           </Tooltip>
         </>
       )}
 
-      {/* KPI 타일 4 */}
+      {/* KPI 타일 4 — 선택 기간 기준 */}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1.5, mb: 1.5 }}>
-        <KpiCard label="오늘 응대" value={todayN} unit="건"
-          sub={<>어제 {yestN}건{diffPct != null && <> · <Box component="b" sx={{ color: diffPct >= 0 ? 'success.main' : 'warning.main' }}>{diffPct >= 0 ? '+' : ''}{diffPct}%</Box></>}</>} />
-        <KpiCard label="평균 응대 시간" value={fmtClock(d.avgMs)} sub={`중앙값 ${fmtClock(d.medianMs)}`} />
-        <KpiCard label="응대당 문장" value={d.sentences ? d.sentences.avgPerConv : 0}
-          sub={d.sentences ? `안내원 ${per(d.sentences.staff)} · 손님 ${per(d.sentences.guest)}` : undefined} />
-        <KpiCard label="누화 드랍" value={d.crossDropRate || 0} unit="%" sub="2채널 마이크 간섭 지표"
+        <KpiCard label={`총 응대 건수 (${periodLabel})`} value={rowsIn.length} unit="건"
+          sub={rowsIn.filter((r) => r.interrupted).length ? `중단 ${rowsIn.filter((r) => r.interrupted).length}건 포함` : undefined} />
+        <KpiCard label={`총 응대 시간 (${periodLabel})`} value={fmtTotal(totalMs)} sub={`응대당 평균 ${fmtClock(avgMs)}`} />
+        <KpiCard label="평균 응대 시간" value={fmtClock(avgMs)} sub={`중앙값 ${fmtClock(medianMs)}`} />
+        <KpiCard label="누화 드랍" value={crossRate} unit="%" sub="2채널 마이크 간섭 지표"
           tip="2채널(안내원 마이크 + 여객 태블릿) 운영 시 한 발화가 반대쪽 마이크에도 새어 들어와 중복 인식된 것을 서버가 걸러낸 비율입니다. 값이 높으면 두 마이크가 너무 가깝거나 민감도가 높다는 신호입니다." />
       </Box>
 
-      {/* 일별 응대 추이(좌) + 언어 분포(우) */}
+      {/* 응대 추이(좌) + 언어 분포(우) */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.6fr 1fr' }, gap: 1.5 }}>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1 }}>
-            <Typography sx={{ fontWeight: 800, fontSize: 14 }}>일별 응대 건수</Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>14일 합계 {sum14}건</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: 14 }}>{period === 'month' ? '월별' : '일별'} 응대 건수</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{periodLabel} 합계 {trendSum}건</Typography>
           </Box>
-          {sum14 > 0 ? <BarTrend data={dailyBars} brand={brand} height={200} barSize={26} tickEvery={2} emphasizeLast formatValue={(n) => `${n}건`} />
-            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 7, textAlign: 'center' }}>최근 14일간 응대 기록이 없습니다.</Typography>}
+          {trendSum > 0 ? <BarTrend data={trendBars} brand={brand} height={200} barSize={26} tickEvery={period === 30 ? 3 : period === 14 ? 2 : 1} emphasizeLast={period !== 'month'} formatValue={(n) => `${n}건`} />
+            : <Typography sx={{ fontSize: 12.5, color: 'text.disabled', py: 7, textAlign: 'center' }}>선택한 기간에 응대 기록이 없습니다.</Typography>}
         </Paper>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 0.5 }}>
             <Typography sx={{ fontWeight: 800, fontSize: 14 }}>언어 분포</Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>손님 언어</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>손님 언어 · {periodLabel}</Typography>
           </Box>
           {langRows.length > 0
             ? langRows.map(([label, count], i) => (
@@ -700,10 +763,10 @@ function DeskStats({ brand }) {
         </Paper>
       </Box>
 
-      {/* 시간대별 분포(KST, 0~23시) */}
+      {/* 시간대별 분포(KST, 기간 내) */}
       <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5, mt: 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 14 }}>시간대별 분포 <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· KST</Box></Typography>
+          <Typography sx={{ fontWeight: 800, fontSize: 14 }}>시간대별 분포 <Box component="span" sx={{ fontWeight: 500, fontSize: 12, color: 'text.secondary' }}>· KST · {periodLabel}</Box></Typography>
           <Typography sx={{ fontSize: 12, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>합계 {hourlyTotal}건</Typography>
         </Box>
         {hourlyTotal > 0 ? <BarTrend data={hourlyBars} brand={brand} height={180} barSize={18} tickEvery={3} formatValue={(n) => `${n}건`} />
@@ -874,6 +937,21 @@ export default function AdminPage({ user, tab = 'usage' }) {
   const [pwErr, setPwErr] = useState('');
   const [confirmReq, setConfirmReq] = useState(null); // 공용 확인 다이얼로그(브라우저 confirm 대체)
   const [pageSnack, setPageSnack] = useState('');
+  // 전체 초기화(위험): 관리자 비밀번호 재확인 모달
+  const [wipeOpen, setWipeOpen] = useState(false);
+  const [wipePw, setWipePw] = useState('');
+  const [wipeErr, setWipeErr] = useState('');
+  const [wipeBusy, setWipeBusy] = useState(false);
+  const doResetAll = async () => {
+    if (!wipePw || wipeBusy) return;
+    setWipeBusy(true); setWipeErr('');
+    try {
+      const r = await api.adminResetAll(wipePw);
+      setWipeOpen(false);
+      setPageSnack(`전체 초기화 완료 — 세션 ${r.removedSessions}개(응대 로그 포함)와 요약을 삭제했습니다.`);
+    } catch (e) { setWipeErr(e.message || '초기화 실패'); }
+    finally { setWipeBusy(false); }
+  };
 
   const reload = () => {
     api.adminUsers().then(setList).catch(() => setList([]));
@@ -917,16 +995,16 @@ export default function AdminPage({ user, tab = 'usage' }) {
             <Typography component="h1" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', mb: 2.5 }}>{PAGE_TITLES[tab]}</Typography>
           )}
 
-          {/* ── 사용량: 벤더 실사용량(보라 스파크라인·일별 총비용) + 데스크 운영 통계(시안 2) ── */}
-          {tab === 'usage' && (
+          {/* ── 사용량: 벤더 실사용량(보라 스파크라인·총비용 추이) ── */}
+          {tab === 'usage' && <VendorUsage brand={brand} />}
+
+          {/* ── 안내데스크: 정의 관리 + 운영 통계 ── */}
+          {tab === 'desks' && (
             <>
-              <VendorUsage brand={brand} />
+              <DeskManagePanel />
               <DeskStats brand={brand} />
             </>
           )}
-
-          {/* ── 안내데스크 관리 ── */}
-          {tab === 'desks' && <DeskManagePanel />}
 
           {/* ── 정형 안내 멘트 ── */}
           {tab === 'canned' && <CannedPanel />}
@@ -991,13 +1069,18 @@ export default function AdminPage({ user, tab = 'usage' }) {
           {/* ── 용어 설정 (이관) ── */}
           {tab === 'terms' && <TermsConfigPage user={user} embedded />}
 
-          {/* ── 시스템 상태 + 보안(2FA) ── */}
+          {/* ── 시스템 상태 + 보안(2FA) + 초기화 ── */}
           {tab === 'system' && (
             <>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                 <Tooltip title="세션(대화·응대 로그)·안내데스크 정의·용어·정형 안내를 JSON 한 파일로 내려받습니다">
                   <Button variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => { window.location.href = '/api/admin/export'; }}>
                     전체 데이터 백업(JSON)
+                  </Button>
+                </Tooltip>
+                <Tooltip title="모든 세션과 대화·응대 로그, AI 요약을 삭제합니다 (계정·데스크 정의·용어·사용량은 유지)">
+                  <Button variant="outlined" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => { setWipePw(''); setWipeErr(''); setWipeOpen(true); }}>
+                    전체 초기화
                   </Button>
                 </Tooltip>
               </Box>
@@ -1031,6 +1114,27 @@ export default function AdminPage({ user, tab = 'usage' }) {
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setPwDlg(null)}>취소</Button>
           <Button variant="contained" onClick={resetPw}>재설정</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 전체 초기화 — 관리자 비밀번호 재확인(로그인 세션과 별개) */}
+      <Dialog open={wipeOpen} onClose={() => !wipeBusy && setWipeOpen(false)} PaperProps={{ sx: { width: 440, maxWidth: 440 } }}>
+        <DialogTitle sx={{ fontWeight: 800, color: 'error.main' }}>전체 초기화</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            모든 <b>세션</b>과 <b>대화·응대 로그</b>, <b>AI 요약</b>이 영구 삭제됩니다. 되돌릴 수 없습니다.
+            <br />계정·안내데스크 정의·용어 설정·정형 안내·사용량 통계는 유지됩니다.
+            <br />필요하면 먼저 '전체 데이터 백업(JSON)'을 받아 두세요.
+          </Alert>
+          {wipeErr && <Alert severity="error" sx={{ mb: 2 }}>{wipeErr}</Alert>}
+          <TextField autoFocus fullWidth type="password" label="관리자 비밀번호 확인" value={wipePw}
+            onChange={(e) => setWipePw(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doResetAll()} />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setWipeOpen(false)} disabled={wipeBusy} sx={{ color: 'text.secondary' }}>취소</Button>
+          <Button variant="contained" color="error" onClick={doResetAll} disabled={!wipePw || wipeBusy}>
+            {wipeBusy ? '초기화 중…' : '전부 삭제'}
+          </Button>
         </DialogActions>
       </Dialog>
 

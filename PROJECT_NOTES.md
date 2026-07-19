@@ -636,6 +636,23 @@
   한 발화로 묶여(lang=ko 다수결) 표기된 혼합 발화("で、말씀하세요"). 대응은 엔드포인트 튜닝(이번에 데스크 노출)·2채널 모드.
 - 세션 목록 첫 로딩 스켈레톤(빈 상태 오표시 방지).
 
+## 2026-07-19 — UI 다듬기 7건(목록 Claude 스타일·케밥 통일) + 관리자 재배치(통계 이동·파이프라인별 사용량·전체 초기화)
+- **세션 화면**: 번역 문장 사이 구분선 제거(여백만으로 구분, Row borderBottom 삭제).
+- **케밥 메뉴 통일**: 세션 헤더 ⋯ 메뉴·세션 목록 케밥 메뉴에 Nav 프로필 메뉴와 동일 slotProps(fontSize 13) + 아웃라인 아이콘(Download→FileDownloadOutlined).
+- **세션 목록(Claude 채팅 목록 스타일)**: 행 앞에 프리셋 아이콘(라이브=스피커·온라인회의=화면·양방향=화살표, 데스크=IcoHeadset),
+  행 사이 구분선(마지막 제외), hover 시 시간↔케밥 스왑(3버튼 오버레이 폐기 — 데스크톱도 케밥 메뉴로 통일).
+- **데스크 운영 통계 → 관리자>안내데스크 탭으로 이동**(정의 CRUD 아래). KPI 개편: 오늘 응대→**총 응대 건수(기간)**,
+  응대당 문장→**총 응대 시간(기간)**(sub 응대당 평균) + 평균(중앙값)·누화 유지. **기간 세그먼트 7/14/30일/월별** —
+  KPI·응대 추이·언어 분포·시간대별 전부 rows(응대 원자료, 데스크당 최근 500건) 기반으로 기간 재계산. 월별은 연도 라벨.
+- **파이프라인별 사용량(③)**: soniox client_reference_id 를 `u:<id>|p:<desk|live>` 로 확장 태깅(runSoniox/runDesk staff·guest/폰 PTT)
+  → usage-logs 파서가 byPipe(desk/live/etc=미태깅 과거) 집계, 카드의 유저별 자리에 '실시간 번역/안내데스크' 표시.
+  Cartesia 는 벤더 API 가 태그 미지원 → **자체 집계**(vendorUsage.cartesiaSelf, 합성 요청 시 문자수·건수 recordTts) 로 카드에 표시.
+- **유저별 사용량(④)**: Soniox 카드에서 분리해 사용량 페이지 하단 별도 패널(UserUsagePanel).
+- **전체 초기화(⑤)**: POST /api/admin/reset-all — requireAdmin + 본문에서 관리자 비밀번호 재확인(timingSafeEqual).
+  라이브 연결 close 후 세션(응대 로그 포함)·AI 요약 전량 삭제(Mongo deleteMany/파일). 보존: 계정·데스크 정의·용어·정형 안내·사용량.
+  시스템·보안 탭에 위험 버튼 + 경고 모달(백업 안내 포함). 프리뷰에서 오입력 403 + 데이터 무손상 확인.
+- 검증: 빌드·테스트 24/24, 프리뷰 스모크(목록 hover 케밥·구분선 제거·안내데스크 통계 14일/월별·파이프라인별 카드·초기화 403).
+
 ## 2026-07-16(5) — 테스트 인프라: 가짜 엔진 + 순수 로직 분리 + 회귀 테스트 (24개, 무과금 <1s)
 - **pipeline_util.js 신설**(security_util.js 패턴): kstDay·CONFFIX/confFixTrigger/confFixMark·isAckOnly·stripFillers·
   sanitizeTranslation·deskCtlAllowed(now 주입 가능) 를 server.js 에서 분리 — 테스트가 직접 임포트.

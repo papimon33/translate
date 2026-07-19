@@ -29,10 +29,11 @@ import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import DownloadIcon from '@mui/icons-material/Download';
+import DownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import { IcoHeadset } from './Nav.jsx';
 import { api } from '../api.js';
 import { RADIUS } from '../theme.js';
 
@@ -348,25 +349,30 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
             </Box>
           ))}
 
-          {/* 목록 — Claude 스타일 플랫 행: 제목 · 유형 · 일자만(아이콘 없음), hover 하이라이트 */}
-          {shown.map((s) => {
+          {/* 목록 — Claude 채팅 목록 스타일: 모드 아이콘 · 제목 · 구분선 · 우측 시간(hover 시 케밥으로 전환) */}
+          {shown.map((s, si) => {
             const checked = selIds.has(s.id);
+            const ModeIcon = deskMode ? IcoHeadset : (MODE_ICON[s.preset] || IconMode3); // preset 별 아이콘(양방향/라이브/온라인회의)
             return (
             <Box
               key={s.id}
               onClick={() => (selMode ? toggleSel(s.id) : onOpen(s))}
               sx={{
-                display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.75,
+                display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.9,
                 borderRadius: 2, cursor: 'pointer', position: 'relative',
+                // 행 사이 구분선(마지막 행 제외) — hover 라운드 배경과 공존하도록 행 자체에 하단선
+                borderBottom: si < shown.length - 1 ? '1px solid' : 'none', borderColor: 'divider',
                 bgcolor: selMode && checked ? (t) => alpha(t.palette.text.primary, 0.06) : 'transparent',
                 '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.05) },
-                '&:hover .rowActs': { opacity: 1, pointerEvents: 'auto' },
+                '&:hover .rowKebab': { opacity: 1, pointerEvents: 'auto' },
+                '&:hover .rowTime': { opacity: 0 },
                 transition: 'background .12s',
               }}
             >
               {selMode && (
                 <Checkbox checked={checked} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
               )}
+              <ModeIcon sx={{ width: 19, height: 19, flex: 'none', color: 'text.secondary', opacity: 0.85 }} />
               <Typography sx={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {s.title || '(제목 없음)'}
               </Typography>
@@ -394,25 +400,21 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                   {TYPE_NAME[s.preset]}
                 </Typography>
               )}
-              <Typography sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right' }}>{rel(s.updatedAt)}</Typography>
+              <Typography className="rowTime" sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right', transition: 'opacity .12s', display: { xs: 'none', sm: 'block' } }}>{rel(s.updatedAt)}</Typography>
               {!selMode && (
                 <>
-                  {/* 데스크톱: hover 시 우측 오버레이 액션(자리 차지 없음 — 제목 공간 확보) */}
-                  <Box
-                    className="rowActs"
-                    onClick={(e) => e.stopPropagation()}
+                  {/* 데스크톱: hover 시 케밥만(시간 자리로 스왑) — 액션은 케밥 메뉴로 통일 */}
+                  <IconButton
+                    className="rowKebab" size="small"
+                    onClick={(e) => { e.stopPropagation(); setMenu({ anchor: e.currentTarget, session: s }); }}
                     sx={{
-                      display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 0.25,
-                      position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                      px: 0.5, py: 0.25, borderRadius: 1.5, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
-                      opacity: 0, pointerEvents: 'none', transition: 'opacity .12s',
+                      display: { xs: 'none', sm: 'inline-flex' }, position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                      opacity: 0, pointerEvents: 'none', transition: 'opacity .12s', color: 'text.secondary',
                     }}
                   >
-                    {canManage && <Tooltip title="제목 변경"><IconButton size="small" onClick={() => startRename(s)}><EditOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>}
-                    <Tooltip title="대화내역 저장"><IconButton size="small" onClick={() => exportSession(s)}><DownloadIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
-                    {canManage && <Tooltip title="삭제"><IconButton size="small" onClick={() => removeSession(s)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>}
-                  </Box>
-                  {/* 모바일: 케밥 메뉴 유지(hover 없음) */}
+                    <MoreVertIcon sx={{ fontSize: 20 }} />
+                  </IconButton>
+                  {/* 모바일: 케밥 상시 표시(hover 없음) */}
                   <IconButton size="small" sx={{ display: { xs: 'inline-flex', sm: 'none' }, flex: 'none' }} onClick={(e) => { e.stopPropagation(); setMenu({ anchor: e.currentTarget, session: s }); }}>
                     <MoreVertIcon sx={{ fontSize: 20 }} />
                   </IconButton>
@@ -436,7 +438,8 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
         </Fab>
       )}
 
-      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
+      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}
+        slotProps={{ paper: { sx: { '& .MuiMenuItem-root': { fontSize: 13 } } } }}>
         {canManage && (
           <MenuItem onClick={() => startRename(menu.session)}>
             <ListItemIcon>

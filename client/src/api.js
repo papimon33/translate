@@ -143,6 +143,8 @@ export const api = {
       body: JSON.stringify({ items }),
     }).then(json),
   adminHealth: () => fetch('/api/admin/health').then(json),
+  adminResetAll: (password) =>
+    fetch('/api/admin/reset-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }).then(json), // 전체 초기화(비밀번호 재확인)
   adminTermsSuggest: (sessionIds) =>
     fetch('/api/admin/terms-suggest', {
       method: 'POST',

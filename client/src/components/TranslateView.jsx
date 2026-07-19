@@ -1492,7 +1492,8 @@ export default function TranslateView({ session: initial, onBack }) {
       </Dialog>
 
       {/* 세션 헤더 '…' 메뉴 */}
-      <Menu anchorEl={hdrMenu} open={!!hdrMenu} onClose={() => setHdrMenu(null)} transformOrigin={{ vertical: 'top', horizontal: 'left' }}>
+      <Menu anchorEl={hdrMenu} open={!!hdrMenu} onClose={() => setHdrMenu(null)} transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { '& .MuiMenuItem-root': { fontSize: 13 } } } }}>
         <MenuItem onClick={() => { setHdrMenu(null); openRename(); }}>
           <ListItemIcon><DriveFileRenameOutlineIcon fontSize="small" /></ListItemIcon>
           세션 이름 수정
@@ -1579,8 +1580,8 @@ const Row = React.memo(function Row({ side, text, source, dir, scale = 1 }) {
     return isMic ? t.palette.text.primary : t.palette.text.secondary;
   };
   return (
-    // 카드/박스 없이 라인 구분선(하단)만. 번역문(큰 글씨) 위 · 원어(작은 회색) 아래. 원어 항상 표시.
-    <Box sx={{ pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+    // 카드/박스/구분선 없이 여백만으로 구분. 번역문(큰 글씨) 위 · 원어(작은 회색) 아래. 원어 항상 표시.
+    <Box>
       <Typography
         sx={{
           fontSize: { xs: Math.round(21 * scale), sm: Math.round(24 * scale) },
