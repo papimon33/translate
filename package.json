@@ -10,7 +10,7 @@
     "build": "vite build",
     "dev:server": "node --watch server.js",
     "dev:client": "vite",
-    "test": "node --test"
+    "test": "node --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

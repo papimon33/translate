@@ -636,6 +636,19 @@
   한 발화로 묶여(lang=ko 다수결) 표기된 혼합 발화("で、말씀하세요"). 대응은 엔드포인트 튜닝(이번에 데스크 노출)·2채널 모드.
 - 세션 목록 첫 로딩 스켈레톤(빈 상태 오표시 방지).
 
+## 2026-07-16(5) — 테스트 인프라: 가짜 엔진 + 순수 로직 분리 + 회귀 테스트 (24개, 무과금 <1s)
+- **pipeline_util.js 신설**(security_util.js 패턴): kstDay·CONFFIX/confFixTrigger/confFixMark·isAckOnly·stripFillers·
+  sanitizeTranslation·deskCtlAllowed(now 주입 가능) 를 server.js 에서 분리 — 테스트가 직접 임포트.
+- **엔진 오버라이드**: `SONIOX_WS_URL`(5개 접속 지점)·`CARTESIA_TTS_WS_URL`·`DATA_DIR` 환경변수 — 테스트는
+  가짜 엔진·임시 데이터 디렉터리로 격리(실 엔진 호출 = 과금이므로 자동 테스트에서 금지).
+- **test/helpers/**: fake-soniox.mjs(config 캡처 + 토큰 시나리오 재생 WS 서버) · boot.mjs(격리 부팅·admin 로그인·until 폴링).
+- **회귀 테스트**: logic.test.mjs 15개(confFix 임계 = NOTES 2026-07-14(5) 근거 고정) ·
+  desk-pipeline.test.mjs(응대 시작→sentence(lang 포함)→**호스트 급이탈 아카이브(C1)**·**start 난사 차단(C2)**) ·
+  store.test.mjs(손상 sessions.json → .corrupt 백업 + 타 파일 정상 로드). C1 은 수정을 임시 되돌려 실패를 실증 후 복원(레드 확인).
+- **npm test 글롭을 `test/*.test.mjs` 로 제한 + soniox-pairs.mjs 를 eval/ 로 이동** — node --test 가 test/ 하위
+  전 파일을 실행해 과금 진단 스크립트가 매 테스트마다 31초간 실 Soniox 에 붙던 문제 제거(스위트 31s→0.8s).
+- 24/24 통과. 새 시나리오 작성법·과금 실검증 경로는 README '테스트' 섹션.
+
 ## 2026-07-16(4) — 전면 버그 소탕(리뷰어 3명 교차 검증 → 전부 수정)
 클라(오디오·뷰어)/서버 전체/최근 diff 3방향 독립 리뷰 후 확정 결함 전량 수정. 핵심만 기록:
 ### Critical

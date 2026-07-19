@@ -1,9 +1,9 @@
 /* 데스크 모드 검증용 soniox 진단 스크립트 (의존성 없음, node 18+ 전역 WebSocket 사용).
  *
  * 사용법:
- *   node test/soniox-pairs.mjs
+ *   node eval/soniox-pairs.mjs
  *       → ko ↔ 각 취항국 언어 two_way 설정 수용 테스트(무음 0.5s 전송, error_code 여부 확인)
- *   node test/soniox-pairs.mjs audio <file.pcm> [hintLang]
+ *   node eval/soniox-pairs.mjs audio <file.pcm> [hintLang]
  *       → 24kHz mono s16le PCM 파일을 흘려보내 "감지 모드"(one_way→ko) 동작 확인:
  *         첫 언어감지까지 걸린 시간(ms) + 원문/번역 실시간 출력
  *
