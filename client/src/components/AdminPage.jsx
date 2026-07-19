@@ -396,163 +396,180 @@ function downloadJson(obj, name) {
 }
 
 // 로그 탭: 데스크 응대 로그(건당 시각·길이·언어·문장수) + 일반 세션 대화 로그 — 클릭 시 전문 열람
-const LOGS_DESK_CAP = 8;   // 데스크별 최초 표시 응대 수(과도한 스크롤 방지 — '더 보기'로 확장)
-const LOGS_SESS_CAP = 15;  // 세션 목록 최초 표시 수
+const LOG_TABS = [{ v: 'desk', label: '안내데스크 응대' }, { v: 'session', label: '세션 대화' }];
+
+// 로그 — OpenAI 플랫폼 스타일: 상단 탭·검색, 컬럼 테이블, 행 클릭 시 상세(대화 전문 + 속성) 마스터-디테일
 function LogsPanel() {
   const [data, setData] = useState(null); // { desks, sessions }
-  const [open, setOpen] = useState(null); // { kind:'desk'|'session', key, loading, detail }
-  const [deskMore, setDeskMore] = useState({}); // { [deskId]: 표시 수 }
-  const [sessCap, setSessCap] = useState(LOGS_SESS_CAP);
-  const [confirmReq, setConfirmReq] = useState(null); // 공용 확인 다이얼로그
+  const [mode, setMode] = useState('desk'); // 'desk' | 'session'
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState(null); // 상세: { kind, key, loading, error, detail, meta }
+  const [confirmReq, setConfirmReq] = useState(null);
   const [snack, setSnack] = useState('');
   const load = () => api.adminLogs().then(setData).catch(() => setData({ desks: [], sessions: [] }));
   useEffect(() => { load(); }, []);
-  // 로그 정리(삭제) — 시범운영 데이터 관리용. 삭제 후 목록·열람 상태 갱신
-  const delDeskLog = (sid, idx, endedAt) => setConfirmReq({
+
+  const backToList = () => setSel(null);
+  const delDeskLog = (r) => setConfirmReq({
     title: '응대 기록 삭제', message: '이 응대 기록을 삭제합니다. 되돌릴 수 없습니다.',
-    onOk: async () => { try { await api.adminDeleteDeskLog(sid, idx, endedAt); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); await load(); } },
+    onOk: async () => { try { await api.adminDeleteDeskLog(r.deskId, r.idx, r.endedAt); setSel(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); await load(); } },
   });
-  const clearDeskLogs = (sid, n) => setConfirmReq({
-    title: '로그 전체 삭제', message: `이 데스크의 응대 기록 ${n}건을 모두 삭제합니다. 운영 통계도 초기화됩니다. 되돌릴 수 없습니다.`,
-    onOk: async () => { try { await api.adminClearDeskLogs(sid); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); } },
-  });
-  const clearSessionLog = (id) => setConfirmReq({
+  const clearSessionLog = (r) => setConfirmReq({
     title: '대화 기록 삭제', message: '이 세션의 대화 기록을 삭제합니다. 세션 자체는 유지됩니다. 되돌릴 수 없습니다.',
-    onOk: async () => { try { await api.adminClearSessionLog(id); setOpen(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); } },
+    onOk: async () => { try { await api.adminClearSessionLog(r.id); setSel(null); await load(); } catch (e) { setSnack(e.message || '삭제 실패'); } },
   });
-  // 늦게 도착한 응답이 현재 선택(다른 항목/닫힘)을 덮지 않도록 — 여전히 같은 key 가 열려 있을 때만 반영
-  const settleOpen = (key, next) => setOpen((cur) => (cur && cur.key === key ? next : cur));
-  const openDesk = async (sid, idx) => {
-    const key = `d:${sid}:${idx}`;
-    if (open && open.key === key) { setOpen(null); return; }
-    setOpen({ kind: 'desk', key, loading: true });
-    try { const detail = await api.adminDeskLog(sid, idx); settleOpen(key, { kind: 'desk', key, detail }); }
-    catch (e) { settleOpen(key, { kind: 'desk', key, error: e.message || '불러오기 실패' }); } // 조용히 접히지 않고 실패를 표시
+
+  const openRow = async (kind, r) => {
+    const key = kind === 'desk' ? `d:${r.deskId}:${r.idx}` : `s:${r.id}`;
+    setSel({ kind, key, loading: true, meta: r });
+    try {
+      const detail = kind === 'desk' ? await api.adminDeskLog(r.deskId, r.idx) : await api.adminSessionLog(r.id);
+      setSel((c) => (c && c.key === key ? { ...c, loading: false, detail } : c));
+    } catch (e) {
+      setSel((c) => (c && c.key === key ? { ...c, loading: false, error: e.message || '불러오기 실패' } : c));
+    }
   };
-  const openSession = async (id) => {
-    const key = `s:${id}`;
-    if (open && open.key === key) { setOpen(null); return; }
-    setOpen({ kind: 'session', key, loading: true });
-    try { const detail = await api.adminSessionLog(id); settleOpen(key, { kind: 'session', key, detail }); }
-    catch (e) { settleOpen(key, { kind: 'session', key, error: e.message || '불러오기 실패' }); }
-  };
+
   if (!data) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
-  const durOf = (e) => (e.startedAt && e.endedAt ? fmtDuration(e.endedAt - e.startedAt) : '—');
+
+  // ── 상세 뷰(대화 전문 + 속성) ──
+  if (sel) {
+    const isDesk = sel.kind === 'desk';
+    const m = sel.meta || {};
+    const items = sel.detail?.items || [];
+    const propRow = (k, v) => (
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.9, borderBottom: 1, borderColor: 'divider' }}>
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', flex: 'none' }}>{k}</Typography>
+        <Typography sx={{ fontSize: 12.5, fontWeight: 600, textAlign: 'right', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</Typography>
+      </Box>
+    );
+    return (
+      <>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <Button size="small" onClick={backToList} startIcon={<Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" sx={{ width: 15, height: 15 }}><path d="M15 6l-6 6 6 6" /></Box>} sx={{ color: 'text.secondary' }}>로그</Button>
+          <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>/</Typography>
+          <Typography sx={{ fontSize: 14, fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {isDesk ? `${m.deskTitle} · ${fmtTime(m.endedAt)}` : m.title}
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          {isDesk && items.length > 0 && (
+            <Button size="small" sx={{ fontSize: 12, color: 'text.secondary' }}
+              onClick={() => downloadJson({ records: deskEvalRecords(sel.detail) }, `records-${m.deskId}-${m.idx}.json`)}>평가 JSON</Button>
+          )}
+          <Button size="small" color="error" sx={{ fontSize: 12 }} onClick={() => (isDesk ? delDeskLog(m) : clearSessionLog(m))}>삭제</Button>
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 260px' }, gap: 2, alignItems: 'start' }}>
+          <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.5, minHeight: 200 }}>
+            {sel.loading ? <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>
+              : sel.error ? <Typography sx={{ fontSize: 13, color: 'error.main', py: 4, textAlign: 'center' }}>{sel.error}</Typography>
+              : <TranscriptView items={items} deskMode={isDesk} />}
+          </Paper>
+          <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 2.25 }}>
+            <Typography sx={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.04em', color: 'text.disabled', textTransform: 'uppercase', mb: 1 }}>속성</Typography>
+            {isDesk ? (
+              <>
+                {propRow('종료 시각', fmtTime(m.endedAt))}
+                {propRow('데스크', m.deskTitle + (m.deskDeleted ? ' (삭제됨)' : ''))}
+                {propRow('손님 언어', LANG_KO[m.lang] || m.lang || '미상')}
+                {propRow('응대 시간', m.startedAt && m.endedAt ? fmtDuration(m.endedAt - m.startedAt) : '—')}
+                {propRow('문장 수', `${m.count}문장`)}
+                {m.stats && propRow('누화 드랍', `${m.stats.crossDrops}건`)}
+              </>
+            ) : (
+              <>
+                {propRow('수정 시각', fmtTime(m.updatedAt))}
+                {propRow('소유자', m.owner || '—')}
+                {propRow('문장 수', `${m.count}문장`)}
+                {m.preset && propRow('유형', m.preset)}
+                {m.deleted && propRow('상태', '삭제된 세션')}
+              </>
+            )}
+          </Paper>
+        </Box>
+        <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
+        <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} message={snack} />
+      </>
+    );
+  }
+
+  // ── 목록(테이블) ──
+  const ql = q.trim().toLowerCase();
+  const deskRows = (data.desks || []).flatMap((d) => (d.logs || []).map((e) => ({ ...e, deskId: d.id, deskTitle: d.title, deskDeleted: d.deleted })))
+    .sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0))
+    .filter((r) => !ql || (r.deskTitle || '').toLowerCase().includes(ql) || (LANG_KO[r.lang] || r.lang || '').toLowerCase().includes(ql));
+  const sessionRows = (data.sessions || [])
+    .filter((r) => !ql || (r.title || '').toLowerCase().includes(ql) || (r.owner || '').toLowerCase().includes(ql));
+  const rows = mode === 'desk' ? deskRows : sessionRows;
+  const grid = mode === 'desk' ? '150px 1fr 90px 90px 70px 32px' : '150px 1fr 130px 80px 32px';
+  const headCells = mode === 'desk' ? ['시각', '데스크', '언어', '응대 시간', '문장', ''] : ['시각', '제목', '소유자', '문장', ''];
+  const cellSx = { fontSize: 13, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
   return (
     <>
-      <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1 }}>안내데스크 응대 로그</Typography>
-      {data.desks.length === 0 && (
-        <Paper variant="outlined" sx={{ borderRadius: 1.5, mb: 2 }}>
-          <EmptyHint icon={<RecordVoiceOverIcon sx={{ fontSize: 22 }} />} title="안내데스크 세션이 없습니다"
-            desc="'데스크 안내'에서 세션을 만들면 응대별 대화 기록이 여기에 쌓입니다." />
-        </Paper>
-      )}
-      {data.desks.map((d) => {
-        const cap = deskMore[d.id] || LOGS_DESK_CAP;
-        const shown = d.logs.slice(0, cap);
-        return (
-        <Paper key={d.id} variant="outlined" sx={{ borderRadius: 1.5, p: 2, mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-            <Typography sx={{ fontWeight: 800, fontSize: 14, flex: 1 }}>
-              {d.title}
-              {d.deleted && <Box component="span" sx={{ ml: 0.75, color: 'warning.main', fontWeight: 700, fontSize: 11.5 }}>삭제된 세션</Box>}
-              {' '}<Box component="span" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: 12.5 }}>· 응대 {d.logs.length}건</Box>
-            </Typography>
-            {d.logs.length > 0 && (
-              <Button size="small" color="error" onClick={() => clearDeskLogs(d.id, d.logs.length)} sx={{ fontSize: 11.5, py: 0 }}>로그 전체 삭제</Button>
-            )}
-          </Box>
-          {d.logs.length === 0 && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>아직 응대 기록이 없습니다.</Typography>}
-          {shown.map((e) => (
-            <Box key={e.idx}>
-              <Box onClick={() => openDesk(d.id, e.idx)}
-                sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.75, px: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) }, '&:hover .delBtn': { opacity: 1 } }}>
-                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', minWidth: 96 }}>{fmtTime(e.endedAt)}</Typography>
-                <Chip size="small" label={LANG_KO[e.lang] || e.lang || '미상'} sx={{ height: 20, fontSize: 11, fontWeight: 700 }} />
-                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', flex: 1 }}>
-                  {durOf(e)} · {e.count}문장{e.stats ? ` · 누화드랍 ${e.stats.crossDrops}` : ''}
-                </Typography>
-                <IconButton size="small" className="delBtn" sx={{ opacity: 0, transition: 'opacity .12s' }}
-                  onClick={(ev) => { ev.stopPropagation(); delDeskLog(d.id, e.idx, e.endedAt); }}>
-                  <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Box>
-              {open && open.key === `d:${d.id}:${e.idx}` && (
-                <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
-                  {open.loading ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', py: 1 }}>불러오는 중…</Typography>
-                    : open.error ? <Typography sx={{ fontSize: 12.5, color: 'error.main', py: 1 }}>{open.error}</Typography>
-                    : (
-                      <>
-                        {/* 통역 평가용: 이 응대의 인식원문·번역을 records JSON 으로 — eval/score.mjs --auto 로 바로 채점 */}
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 0.5 }}>
-                          <Button size="small" sx={{ fontSize: 11.5, color: 'text.secondary', py: 0 }}
-                            onClick={(ev) => { ev.stopPropagation(); downloadJson({ records: deskEvalRecords(open.detail) }, `records-${d.id}-${e.idx}.json`); }}>
-                            평가 JSON 내려받기
-                          </Button>
-                        </Box>
-                        <Box sx={{ maxHeight: 340, overflowY: 'auto' }}>
-                          <TranscriptView items={open.detail?.items} deskMode />
-                        </Box>
-                      </>
-                    )}
-                </Box>
-              )}
+      {/* 툴바: 탭 + 검색 + 개수 */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
+          {LOG_TABS.map((t) => (
+            <Box key={t.v} onClick={() => { setMode(t.v); }}
+              sx={{ px: 1.5, py: 0.6, borderRadius: 1.25, cursor: 'pointer', fontSize: 13.5, fontWeight: 700,
+                color: mode === t.v ? 'text.primary' : 'text.secondary',
+                bgcolor: mode === t.v ? (th) => alpha(th.palette.text.primary, 0.07) : 'transparent',
+                '&:hover': { bgcolor: (th) => alpha(th.palette.text.primary, 0.05) } }}>
+              {t.label} <Box component="span" sx={{ fontWeight: 500, color: 'text.disabled' }}>{t.v === 'desk' ? deskRows.length : sessionRows.length}</Box>
             </Box>
           ))}
-          {d.logs.length > cap && (
-            <Button size="small" onClick={() => setDeskMore((m) => ({ ...m, [d.id]: cap + 20 }))} sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-              더 보기 ({d.logs.length - cap}건 남음)
-            </Button>
-          )}
-        </Paper>
-        );
-      })}
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Box component="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="검색 (데스크·제목·언어·소유자)"
+          sx={{ width: { xs: '100%', sm: 260 }, px: 1.5, py: 0.8, borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'background.paper', color: 'text.primary', fontSize: 13, fontFamily: 'inherit', outline: 'none', '&:focus': { borderColor: 'text.disabled' } }} />
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', flex: 'none' }}>{rows.length}개</Typography>
+      </Box>
 
-      <Typography sx={{ fontWeight: 800, fontSize: 15, mt: 3, mb: 1 }}>세션 대화 로그</Typography>
-      {data.sessions.length === 0 && <Typography sx={{ fontSize: 13, color: 'text.disabled' }}>세션이 없습니다.</Typography>}
-      {data.sessions.length > 0 && (
-        <Paper variant="outlined" sx={{ borderRadius: 1.5, p: 1.5 }}>
-          {data.sessions.slice(0, sessCap).map((s) => (
-            <Box key={s.id}>
-              <Box onClick={() => openSession(s.id)}
-                sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.75, px: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { bgcolor: (t) => alpha(t.palette.text.primary, 0.04) } }}>
-                <Typography sx={{ fontWeight: 700, fontSize: 13.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{s.title}</Typography>
-                {s.deleted && <Typography sx={{ flex: 'none', color: 'warning.main', fontWeight: 700, fontSize: 11.5 }}>삭제된 세션</Typography>}
-                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', flex: 1, whiteSpace: 'nowrap' }}>
-                  {s.owner || '—'} · {s.count}문장 · {fmtTime(s.updatedAt)}
-                </Typography>
-              </Box>
-              {open && open.key === `s:${s.id}` && (
-                <Box sx={{ ml: 2, pl: 2, borderLeft: 2, borderColor: 'divider' }}>
-                  {open.loading ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', py: 1 }}>불러오는 중…</Typography>
-                    : open.error ? <Typography sx={{ fontSize: 12.5, color: 'error.main', py: 1 }}>{open.error}</Typography>
-                    : (
-                      <>
-                        {(open.detail?.items || []).length > 0 && (
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 0.5 }}>
-                            <Button size="small" color="error" sx={{ fontSize: 11.5, py: 0 }} onClick={() => clearSessionLog(s.id)}>대화 기록 삭제</Button>
-                          </Box>
-                        )}
-                        <Box sx={{ maxHeight: 340, overflowY: 'auto' }}><TranscriptView items={open.detail?.items} /></Box>
-                      </>
-                    )}
-                </Box>
-              )}
-            </Box>
-          ))}
-          {data.sessions.length > sessCap && (
-            <Button size="small" onClick={() => setSessCap((c) => c + 30)} sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-              더 보기 ({data.sessions.length - sessCap}건 남음)
-            </Button>
-          )}
-        </Paper>
-      )}
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
+        {/* 헤더 */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: grid, gap: 1.5, alignItems: 'center', px: 2, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: (th) => alpha(th.palette.text.primary, 0.015) }}>
+          {headCells.map((h, i) => <Typography key={i} sx={{ fontSize: 11.5, fontWeight: 700, color: 'text.secondary' }}>{h}</Typography>)}
+        </Box>
+        {/* 본문 */}
+        {rows.length === 0 && (
+          <EmptyHint icon={<RecordVoiceOverIcon sx={{ fontSize: 22 }} />} title={ql ? '검색 결과가 없습니다' : (mode === 'desk' ? '응대 기록이 없습니다' : '세션이 없습니다')}
+            desc={ql ? '다른 검색어를 시도해 보세요.' : (mode === 'desk' ? "'데스크 안내'에서 세션을 만들면 응대별 대화가 여기에 쌓입니다." : '세션이 생기면 대화 로그가 여기에 표시됩니다.')} />
+        )}
+        {rows.map((r, i) => (
+          <Box key={mode === 'desk' ? `${r.deskId}:${r.idx}` : r.id}
+            onClick={() => openRow(mode, r)}
+            sx={{ display: 'grid', gridTemplateColumns: grid, gap: 1.5, alignItems: 'center', px: 2, py: 1.15, cursor: 'pointer',
+              borderBottom: i < rows.length - 1 ? 1 : 0, borderColor: 'divider',
+              '&:hover': { bgcolor: (th) => alpha(th.palette.text.primary, 0.04) }, '&:hover .delBtn': { opacity: 1 } }}>
+            <Typography sx={{ ...cellSx, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{fmtTime(mode === 'desk' ? r.endedAt : r.updatedAt)}</Typography>
+            <Typography sx={{ ...cellSx, fontWeight: 600 }}>
+              {mode === 'desk' ? r.deskTitle : r.title}
+              {(mode === 'desk' ? r.deskDeleted : r.deleted) && <Box component="span" sx={{ ml: 0.75, color: 'warning.main', fontWeight: 700, fontSize: 11 }}>삭제됨</Box>}
+            </Typography>
+            {mode === 'desk' ? (
+              <>
+                <Box><Chip size="small" label={LANG_KO[r.lang] || r.lang || '미상'} sx={{ height: 20, fontSize: 11, fontWeight: 700 }} /></Box>
+                <Typography sx={{ ...cellSx, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{r.startedAt && r.endedAt ? fmtDuration(r.endedAt - r.startedAt) : '—'}</Typography>
+                <Typography sx={{ ...cellSx, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{r.count}</Typography>
+              </>
+            ) : (
+              <>
+                <Typography sx={{ ...cellSx, color: 'text.secondary' }}>{r.owner || '—'}</Typography>
+                <Typography sx={{ ...cellSx, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{r.count}</Typography>
+              </>
+            )}
+            <IconButton size="small" className="delBtn" sx={{ opacity: 0, transition: 'opacity .12s', justifySelf: 'end' }}
+              onClick={(ev) => { ev.stopPropagation(); (mode === 'desk' ? delDeskLog(r) : clearSessionLog(r)); }}>
+              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
+        ))}
+      </Paper>
       <Typography sx={{ fontSize: 11.5, color: 'text.disabled', mt: 1.5 }}>
         대화 로그에는 개인정보가 포함될 수 있습니다. 열람은 운영 목적으로만 하고, 보존 기간 정책에 따라 정리하세요.
       </Typography>
       <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
-      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        message={snack} />
+      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} message={snack} />
     </>
   );
 }

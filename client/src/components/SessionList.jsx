@@ -33,7 +33,6 @@ import DownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import ConfirmDialog from './ConfirmDialog.jsx';
-import { IcoHeadset } from './Nav.jsx';
 import { api } from '../api.js';
 import { RADIUS } from '../theme.js';
 
@@ -84,6 +83,32 @@ export const SITUATIONS = [
 export const TYPE_NAME = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
 // 세션 모드 → 아이콘(목록·모달 공용)
 export const MODE_ICON = { live: IconMode1, oneway: IconMode2, twoway: IconMode3, mobile: IconMode3, online: IconMode2, field: IconMode3, meeting: IconMode3 };
+
+// 세션 목록 행 아이콘 — 유형 무관 단일 채팅 아이콘(요청: 목록 아이콘 통일)
+export function IcoChat(props) {
+  return (
+    <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </Box>
+  );
+}
+// 검색어 하이라이트: 대소문자 무시하고 매칭 부분만 강조(굵게+액센트)
+function Highlight({ text, q }) {
+  const s = String(text || '');
+  if (!q) return s;
+  const parts = [];
+  const lower = s.toLowerCase();
+  const ql = q.toLowerCase();
+  let i = 0, n = 0;
+  while (n < 30) {
+    const j = lower.indexOf(ql, i);
+    if (j < 0) { parts.push(s.slice(i)); break; }
+    if (j > i) parts.push(s.slice(i, j));
+    parts.push(<Box component="span" key={j} sx={{ fontWeight: 800, color: 'text.primary' }}>{s.slice(j, j + q.length)}</Box>);
+    i = j + q.length; n++;
+  }
+  return parts;
+}
 
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
@@ -241,37 +266,27 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     <>
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
-          {/* 페이지 제목 — 좌측 정렬, 24px */}
-          <Typography sx={{ textAlign: 'left', fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em', mt: { xs: 1.5, sm: 2.5 }, mb: { xs: 1.5, sm: 2.5 } }}>
-            {deskMode ? '데스크 안내' : '실시간 번역'}
-          </Typography>
-          {/* 상단 툴바: 선택(일괄 삭제) + 새 세션 — 데스크는 관리자만(직원은 운영만) */}
-          {canManage && (
-          <Box sx={{ display: { xs: selMode ? 'flex' : 'none', sm: 'flex' }, alignItems: 'center', gap: 1, mb: 1.5, minHeight: 36 }}>
-            {selMode ? (
+          {/* 페이지 제목 + 상단 버튼(선택·새 세션) 한 줄 — 데스크는 관리자만(직원은 운영만) */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: { xs: 1.5, sm: 2.5 }, mb: { xs: 1.5, sm: 2.5 }, minHeight: 40 }}>
+            <Typography sx={{ flex: 1, minWidth: 0, textAlign: 'left', fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {deskMode ? '데스크 안내' : '실시간 번역'}
+            </Typography>
+            {canManage && selMode && (
               <>
-                <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary' }}>{selIds.size}개 선택</Typography>
-                <Box sx={{ flex: 1 }} />
+                <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary', mr: 0.5 }}>{selIds.size}개 선택</Typography>
                 <Button size="small" onClick={exitSel} sx={{ color: 'text.secondary' }}>취소</Button>
                 <Button size="small" variant="contained" color="error" disabled={!selIds.size} onClick={bulkDelete} startIcon={<DeleteOutlineIcon />}>삭제</Button>
               </>
-            ) : (
-              <>
-                <Box sx={{ flex: 1 }} />
-                {shown.length > 0 && <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary' }}>선택</Button>}
-                <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
-                  새 세션
-                </Button>
-              </>
+            )}
+            {canManage && !selMode && shown.length > 0 && (
+              <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary', flex: 'none' }}>선택</Button>
+            )}
+            {canManage && !selMode && (
+              <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ flex: 'none', display: { xs: 'none', sm: 'inline-flex' } }}>
+                새 세션
+              </Button>
             )}
           </Box>
-          )}
-          {/* 모바일: 선택 모드 진입 버튼(목록 위 얇은 줄) */}
-          {canManage && !selMode && shown.length > 0 && (
-            <Box sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'flex-end', mb: 1 }}>
-              <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary', py: 0 }}>선택</Button>
-            </Box>
-          )}
 
           {/* 검색 — 제목·대화 내용(서버 검색, Claude 스타일) */}
           {list && (shown.length > 0 || q.trim()) && (
@@ -352,13 +367,13 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
           {/* 목록 — Claude 채팅 목록 스타일: 모드 아이콘 · 제목 · 구분선 · 우측 시간(hover 시 케밥으로 전환) */}
           {shown.map((s, si) => {
             const checked = selIds.has(s.id);
-            const ModeIcon = deskMode ? IcoHeadset : (MODE_ICON[s.preset] || IconMode3); // preset 별 아이콘(양방향/라이브/온라인회의)
+            const searching = !!q.trim();
             return (
             <Box
               key={s.id}
               onClick={() => (selMode ? toggleSel(s.id) : onOpen(s))}
               sx={{
-                display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.9,
+                display: 'flex', alignItems: searching && s.snippet ? 'flex-start' : 'center', gap: 1.5, px: 2, py: 1.9,
                 borderRadius: 2, cursor: 'pointer', position: 'relative',
                 // 행 사이 구분선(마지막 행 제외) — hover 라운드 배경과 공존하도록 행 자체에 하단선
                 borderBottom: si < shown.length - 1 ? '1px solid' : 'none', borderColor: 'divider',
@@ -372,10 +387,18 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               {selMode && (
                 <Checkbox checked={checked} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
               )}
-              <ModeIcon sx={{ width: 19, height: 19, flex: 'none', color: 'text.secondary', opacity: 0.85 }} />
-              <Typography sx={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.title || '(제목 없음)'}
-              </Typography>
+              {/* 유형 무관 단일 채팅 아이콘(스니펫 있을 땐 첫 줄에 정렬) */}
+              <IcoChat sx={{ width: 19, height: 19, flex: 'none', color: 'text.secondary', opacity: 0.85, mt: searching && s.snippet ? '2px' : 0, alignSelf: searching && s.snippet ? 'flex-start' : 'center' }} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {searching ? <Highlight text={s.title || '(제목 없음)'} q={q.trim()} /> : (s.title || '(제목 없음)')}
+                </Typography>
+                {searching && s.snippet && (
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <Highlight text={s.snippet} q={q.trim()} />
+                  </Typography>
+                )}
+              </Box>
               {deskMode && (() => {
                 const st = deskStat[s.id];
                 if (!st) return null;
@@ -400,7 +423,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                   {TYPE_NAME[s.preset]}
                 </Typography>
               )}
-              <Typography className="rowTime" sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right', transition: 'opacity .12s', display: { xs: 'none', sm: 'block' } }}>{rel(s.updatedAt)}</Typography>
+              <Typography className="rowTime" sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right', transition: 'opacity .12s', display: { xs: 'none', sm: 'block' }, alignSelf: searching && s.snippet ? 'flex-start' : 'center', mt: searching && s.snippet ? '2px' : 0 }}>{rel(s.updatedAt)}</Typography>
               {!selMode && (
                 <>
                   {/* 데스크톱: hover 시 케밥만(시간 자리로 스왑) — 액션은 케밥 메뉴로 통일 */}
@@ -511,7 +534,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                       '&:hover': { borderColor: sel ? 'primary.main' : 'text.disabled' },
                     }}
                   >
-                    <Avatar variant="rounded" sx={{ width: 44, height: 44, borderRadius: 3, flex: 'none', bgcolor: (t) => (sel ? t.palette.primary.main : alpha(t.palette.primary.main, 0.12)), color: sel ? '#fff' : 'primary.main' }}>
+                    <Avatar variant="rounded" sx={{ width: 44, height: 44, borderRadius: 3, flex: 'none', bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>
                       <Ic sx={{ width: 23, height: 23 }} />
                     </Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>

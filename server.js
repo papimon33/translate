@@ -1928,12 +1928,29 @@ app.get('/api/sessions', requireAuth, (req, res) => {
     if (Array.isArray(s.items) && s.items.some(hitItem)) return true;
     return Array.isArray(s.deskLog) && s.deskLog.some((e) => Array.isArray(e.items) && e.items.some(hitItem));
   };
+  // 검색 결과에 보여줄 매칭 발췌: 대화 내용에서 q 가 처음 나오는 곳 주위 텍스트(제목만 맞은 경우엔 null)
+  const snippetOf = (s) => {
+    if (!q) return null;
+    const texts = [];
+    const collect = (it) => { if (it) { if (it.source) texts.push(String(it.source)); if (it.texts) for (const v of Object.values(it.texts)) if (v) texts.push(String(v)); } };
+    (s.items || []).forEach(collect);
+    (s.deskLog || []).forEach((e) => (e.items || []).forEach(collect));
+    for (const t of texts) {
+      const i = t.toLowerCase().indexOf(q);
+      if (i >= 0) {
+        const start = Math.max(0, i - 24);
+        const raw = t.slice(start, i + q.length + 56);
+        return (start > 0 ? '…' : '') + raw.trim() + (i + q.length + 56 < t.length ? '…' : '');
+      }
+    }
+    return null; // 제목만 매칭
+  };
   const list = sessions
     .filter((s) => !s.deletedAt)
     // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 전 직원이 공용으로 운영 → 모두에게 노출.
     .filter((s) => (s.pipeline === 'desk' ? true : s.owner === req.user.id))
     .filter((s) => (q ? matches(s) : true))
-    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, deskName: s.deskName || null }))
+    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, deskName: s.deskName || null, snippet: snippetOf(s) }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
 });

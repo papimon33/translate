@@ -762,9 +762,6 @@ export default function TranslateView({ session: initial, onBack }) {
         <Box sx={{ minWidth: 0, flex: 1 }}>
           {/* overflow hidden — 좁은 폭에서 모드 칩이 우측 버튼들 밑으로 겹쳐 보이던 문제 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
-            <Tooltip title={connState === 'ok' ? '엔진 연결 정상' : connState === 'reconn' ? '재연결 중 — 잠시 인식이 멈출 수 있습니다' : '중지됨(연결 없음)'}>
-              <Box sx={{ width: 9, height: 9, borderRadius: '50%', flex: 'none', bgcolor: connState === 'ok' ? 'success.main' : connState === 'reconn' ? 'warning.main' : 'text.disabled', boxShadow: connState === 'reconn' ? '0 0 0 3px rgba(232,145,45,0.25)' : 'none' }} />
-            </Tooltip>
             <Typography sx={{ fontWeight: 800, fontSize: { xs: 16, sm: 18 }, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
               {sessTitle}
             </Typography>
@@ -778,8 +775,19 @@ export default function TranslateView({ session: initial, onBack }) {
             {cfg.pipeline !== 'desk' && (
               <Chip size="small" label={pipeLabel} sx={{ height: 22, fontSize: 11.5, fontWeight: 700, flex: 'none', display: { xs: 'none', md: 'inline-flex' }, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
             )}
+            {/* 연결/재생 상태 점 — 유형 라벨 우측에 배치 */}
+            <Tooltip title={connState === 'ok' ? '엔진 연결 정상' : connState === 'reconn' ? '재연결 중 — 잠시 인식이 멈출 수 있습니다' : '중지됨(연결 없음)'}>
+              <Box sx={{ width: 9, height: 9, borderRadius: '50%', flex: 'none', bgcolor: connState === 'ok' ? 'success.main' : connState === 'reconn' ? 'warning.main' : 'text.disabled', boxShadow: connState === 'reconn' ? '0 0 0 3px rgba(232,145,45,0.25)' : 'none' }} />
+            </Tooltip>
           </Box>
-          {cfg.pipeline === 'desk' && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 0.25 }}>{pipeLabel}</Typography>}
+          {cfg.pipeline === 'desk' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25 }}>
+              <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{pipeLabel}</Typography>
+              <Tooltip title={connState === 'ok' ? '엔진 연결 정상' : connState === 'reconn' ? '재연결 중' : '대기 중'}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', flex: 'none', bgcolor: connState === 'ok' ? 'success.main' : connState === 'reconn' ? 'warning.main' : 'text.disabled' }} />
+              </Tooltip>
+            </Box>
+          )}
         </Box>
         {recording && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.85, borderRadius: '9px', flex: 'none', bgcolor: (t) => alpha(t.palette.success.main, 0.14), color: 'success.main', fontSize: 13, fontWeight: 700 }}>
