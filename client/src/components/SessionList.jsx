@@ -75,12 +75,12 @@ export function IconMode3(props) {
 }
 // 새 세션 모달 — 상황 4종.
 export const SITUATIONS = [
-  { v: 'live', title: '라이브 청취', badge: '강의·컨퍼런스', example: '스피커로 들어온 현장 음성을 지정한 언어로 번역', Icon: IconMode1 },
-  { v: 'oneway', title: '온라인 회의', badge: '줌 회의 등', example: 'PC 시스템 음성을 지정한 언어로 번역', Icon: IconMode2 },
-  { v: 'twoway', title: '양방향 번역', badge: '온·오프라인 회의', example: '지정한 2개 언어를 서로의 언어로 번역', Icon: IconMode3 },
+  { v: 'live', title: '현장 음성 번역', badge: '강의·컨퍼런스 등', example: '스피커로 들리는 음성을 실시간 번역', Icon: IconMode1 },
+  { v: 'oneway', title: 'PC 음성 번역', badge: 'Zoom·영상·온라인 회의', example: '컴퓨터에서 재생되는 소리를 실시간 번역', Icon: IconMode2 },
+  { v: 'twoway', title: '대화 번역', badge: '외국인과 대화', example: '서로의 언어를 실시간으로 번역', Icon: IconMode3 },
 ];
 // 세션 모드 표시명(라이브 헤더·목록 배지). 레거시(mobile/online/field/meeting) 매핑 포함.
-export const TYPE_NAME = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
+export const TYPE_NAME = { live: '현장 음성 번역', oneway: 'PC 음성 번역', twoway: '대화 번역', mobile: '대화 번역', online: 'PC 음성 번역', field: '대화 번역', meeting: '대화 번역' };
 // 세션 모드 → 아이콘(목록·모달 공용)
 export const MODE_ICON = { live: IconMode1, oneway: IconMode2, twoway: IconMode3, mobile: IconMode3, online: IconMode2, field: IconMode3, meeting: IconMode3 };
 

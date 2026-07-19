@@ -738,7 +738,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const showSource = cfg.pipeline === 'desk' ? true : (cfg.pipeline !== 'translate' && srcVisible);
   const showPartial = true;
   const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
-  const PRESET_LABEL = { live: '라이브 청취', oneway: '온라인 회의', twoway: '양방향 번역', mobile: '양방향 번역', online: '온라인 회의', field: '양방향 번역', meeting: '양방향 번역' };
+  const PRESET_LABEL = { live: '현장 음성 번역', oneway: 'PC 음성 번역', twoway: '대화 번역', mobile: '대화 번역', online: 'PC 음성 번역', field: '대화 번역', meeting: '대화 번역' };
   const pipeLabel = preset ? (PRESET_LABEL[preset] || '지원 종료 모드') : (PIPES.find((p) => p.v === cfg.pipeline)?.label || '지원 종료 모드'); // 구 multi 등
   // 모드 변경(번역 이력 없을 때만): 프리셋 + 모드별 기본값(소스·방향·TTS)을 함께 리셋
   const presetGroup = preset ? (preset === 'live' ? 'live' : onewayPreset ? 'oneway' : 'twoway') : null;
@@ -947,9 +947,9 @@ export default function TranslateView({ session: initial, onBack }) {
           {cfg.pipeline === 'soniox' && preset && messages.length === 0 && (
             <Field label="모드">
               <Select size="small" value={presetGroup} disabled={recording} onChange={(e) => changeMode(e.target.value)} sx={{ ...selSx, minWidth: 125 }}>
-                <MenuItem value="live">라이브 청취</MenuItem>
-                <MenuItem value="oneway">온라인 회의</MenuItem>
-                <MenuItem value="twoway">양방향 번역</MenuItem>
+                <MenuItem value="live">현장 음성 번역</MenuItem>
+                <MenuItem value="oneway">PC 음성 번역</MenuItem>
+                <MenuItem value="twoway">대화 번역</MenuItem>
               </Select>
             </Field>
           )}
