@@ -25,6 +25,10 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TRANSLATE_MODEL = 'gpt-realtime-translate';
 const REFINE_MODEL = 'gpt-5-nano';
 const TARGET_LANG = process.env.TARGET_LANG || 'ko';
+// 세션당 저장 문장(items) 상한 — 장시간 세션이 무한히 커져 메모리·문서를 압박하는 것을 막는다.
+// 초과 시 가장 오래된 문장부터 버린다(화면 히스토리만 잘림, 데스크 응대 기록 deskLog·통계는
+// 별도 저장이라 영향 없음). 5,000 ≈ 5~8시간 연속 강의 분량(2시간 강의는 보통 1~1.8천).
+const ITEMS_CAP = 5000;
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
 // Soniox stt-rt-v5 지원 언어(60) — 번역은 지원 언어 임의 쌍. 선택 UI/검증에 사용.
 const SONIOX_LANGS = ['af','sq','ar','az','eu','be','bn','bs','bg','ca','zh','hr','cs','da','nl','en','et','fi','fr','gl','de','el','gu','he','hi','hu','id','it','ja','kn','kk','ko','lv','lt','mk','ms','ml','mr','no','fa','pl','pt','pa','ro','ru','sr','sk','sl','es','sw','sv','tl','ta','te','th','tr','uk','ur','vi','cy'];
@@ -1342,15 +1346,23 @@ app.post('/api/admin/2fa/disable', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// 로그인 무차별 대입 방어: IP당 15분 내 8회 실패 시 15분 잠금
+// 로그인 무차별 대입 방어: (IP+ID) 조합당 15분 내 8회 실패 시 15분 잠금.
+//  ── IP 단독으로 잠그면 공항 사내 NAT(직원 수십 명이 같은 공인 IP)에서 한 명의 오타가
+//     전 직원을 잠그므로, 계정 ID 를 키에 포함해 실패한 그 계정만 잠기게 한다.
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAIL = 8;
-const loginFails = new Map(); // ip -> { count, first, lockUntil }
-function loginKey(req) {
+const loginFails = new Map(); // "ip|id" -> { count, first, lockUntil }
+function loginIp(req) {
   return String(req.ip || (req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || 'ip').trim();
 }
+function loginKey(req, id) {
+  return loginIp(req) + '|' + String(id || '').trim().toLowerCase();
+}
 app.post('/api/login', (req, res) => {
-  const key = loginKey(req);
+  const b = req.body || {};
+  const id = String(b.id || '').trim();
+  const password = String(b.password || '');
+  const key = loginKey(req, id);
   const now = Date.now();
   // 만료 엔트리 게으른 청소(무한 증가 방지) — 크기가 커졌을 때만 순회
   if (loginFails.size > 2000) {
@@ -1363,9 +1375,6 @@ app.post('/api/login', (req, res) => {
   }
   if (rec && now - rec.first > LOGIN_WINDOW_MS) rec = null; // 윈도우 경과 → 초기화
 
-  const b = req.body || {};
-  const id = String(b.id || '').trim();
-  const password = String(b.password || '');
   let user = null;
   if (id === ADMIN_ID) {
     const a = Buffer.from(password), e = Buffer.from(ADMIN_PASSWORD);
@@ -2001,6 +2010,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
 app.get('/api/sessions/:id', (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
+  if (!viewerAccessOk(req, s.id)) return res.status(403).json({ error: 'forbidden' }); // 공개 뷰어: 유효 토큰 또는 로그인 필요
   // 참여자 발화(PTT)는 양방향 모드의 기본 기능(토글 폐지) — 양방향 계열 preset 에서만 제공
   const twoway = (s.pipeline === 'soniox') && ['twoway', 'mobile', 'field', 'meeting'].includes(s.preset || '');
   // 공개 라우트(뷰어용) — 필요한 필드만 화이트리스트로 반환.
@@ -2022,7 +2032,9 @@ app.get('/api/desk-sessions', (req, res) => {
     .filter((s) => s.pipeline === 'desk' && !s.deletedAt)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     // active = 호스트(안내원)가 마이크 캡처 중(대기 가능). 비활성이면 손님이 선택 못 함.
-    .map((s) => ({ id: s.id, title: s.title || '안내데스크', active: !!(rooms.get(s.id) && rooms.get(s.id).hosts.size > 0) }));
+    // t: 뷰어 접근 토큰 — 데스크 랜딩은 손님이 목록에서 방을 고르는 공개 디렉터리라, 고른 뒤
+    //    ws/viewer 접속에 쓸 토큰을 함께 내려줘야 흐름이 이어진다(데스크 세션은 공개 게시 대상).
+    .map((s) => ({ id: s.id, title: s.title || '안내데스크', active: !!(rooms.get(s.id) && rooms.get(s.id).hosts.size > 0), t: viewerToken(s.id) }));
   res.json(list);
 });
 
@@ -2110,6 +2122,11 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
 /* ================================================================== */
 /*  실시간 방(room) : 세션ID 기준. 호스트(여러 소스) + 뷰어 N           */
 /* ================================================================== */
+// 뷰어(무인증 공개 QR) 접속 상한 — 세션 id 만 알면 소켓을 대량으로 열어 메모리(스냅샷 전송)·
+// 발화 락을 잠식하는 DoS 를 막는다. 세션당 상한은 강의 청중(수백 명)을 수용할 만큼 넉넉히,
+// IP당 상한은 한 단말의 남용을 좁게 막는다(정상 손님은 세션당 1~2개면 충분).
+const VIEWERS_PER_SESSION = 300;
+const VIEWERS_PER_IP = 8;
 const rooms = new Map(); // sessionId -> { viewers:Set<ws>, hosts:Set<ws> }
 const roomCfg = new Map(); // sessionId -> 호스트가 시작한 soniox 설정(폰 PTT가 재사용)
 const deskCtrl = new Map(); // sessionId -> { start(lang), end() } — 데스크: 뷰어(손님)의 통역 시작/종료를 호스트 파이프라인에 전달
@@ -2141,10 +2158,10 @@ function applyItem(sessionId, id, side, langTexts, source) {
   if (session) {
     item = session.items.find((x) => x.id === id);
     if (item) { item.texts = { ...(item.texts || {}), ...langTexts }; if (source) item.source = source; }
-    else { item = { id, side, source: source || null, texts: { ...langTexts } }; session.items.push(item); }
+    else { item = { id, side, source: source || null, texts: { ...langTexts } }; session.items.push(item); if (session.items.length > ITEMS_CAP) session.items.splice(0, session.items.length - ITEMS_CAP); }
     if (session.title === '새 세션' && session.items.length === 1) { const f = Object.values(item.texts)[0] || ''; if (f) session.title = f.slice(0, 40); }
     session.updatedAt = Date.now();
-    saveSessions();
+    saveSessions(session.id);
   } else {
     item = { id, side, source: source || null, texts: { ...langTexts } };
   }
@@ -2303,12 +2320,33 @@ app.get('/download/desktop', requireAuth, async (req, res) => {
   }
 });
 
+/* ---- 뷰어(공개 QR) 접근 토큰 --------------------------------------------
+   세션 id 로부터 AUTH_SECRET 으로 파생하는 무상태 서명. QR/링크에 &t= 로 실어 보내고,
+   서버가 재계산해 대조한다. 세션마다 고정이라 인쇄 QR 이 계속 유효(데스크 운영과 호환)이고,
+   저장/마이그레이션이 필요 없다 — 기존 세션도 자동 적용. 목적: 세션 id 열거로 뷰어를 무단
+   개설하는 자동화 접근 차단(자원 고갈형 DoS 는 뷰어 접속 상한이 별도로 막는다).
+   로그인한 직원/관리자는 토큰 없이도 접근 가능(호스트 앱·관리자 화면 그대로 동작). */
+function viewerToken(sessionId) {
+  return crypto.createHmac('sha256', AUTH_SECRET).update('viewer:' + String(sessionId)).digest('hex').slice(0, 16);
+}
+function viewerTokenValid(sessionId, t) {
+  if (!t) return false;
+  const a = Buffer.from(String(t)); const b = Buffer.from(viewerToken(sessionId));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+// 공개 뷰어 라우트 게이트: 유효 토큰 또는 로그인 사용자만 통과.
+function viewerAccessOk(req, sessionId) {
+  return !!currentUser(req) || viewerTokenValid(sessionId, req.query && req.query.t);
+}
+
 /* ---- QR (세션별 모바일 URL) ---- */
 app.get('/api/qr', async (req, res) => {
   const sessionId = String(req.query.session || '');
   // 데스크 랜딩 QR: session 없이 호출하면 안내데스크 선택 화면(desk.html)으로
   const landing = req.query.desk === '1' || (!sessionId && req.query.landing === '1');
   if (!sessionId && !landing) return res.status(400).json({ error: 'session required' });
+  // 특정 세션 QR 은 유효 토큰(자신의 뷰어에서 공유) 또는 로그인 사용자만. 랜딩(세션 없음)은 공개.
+  if (sessionId && !viewerAccessOk(req, sessionId)) return res.status(403).json({ error: 'forbidden' });
   // 배포 환경: 요청 host/proto 사용(Render 등은 x-forwarded-* 로 전달).
   let proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
   let host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
@@ -2323,7 +2361,7 @@ app.get('/api/qr', async (req, res) => {
   if (landing) url = `${proto}://${host}/desk.html`;
   else {
     const viewer = sess && sess.pipeline === 'desk' ? 'desk.html' : 'mobile.html';
-    url = `${proto}://${host}/${viewer}?session=${encodeURIComponent(sessionId)}`;
+    url = `${proto}://${host}/${viewer}?session=${encodeURIComponent(sessionId)}&t=${viewerToken(sessionId)}`;
   }
   try {
     const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 1 });
@@ -2860,9 +2898,16 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
+  // 공개 뷰어: 유효 토큰(QR 에 포함) 또는 로그인 사용자만. id 열거로 무단 접속하는 것을 막는다.
+  if (pathname === '/ws/viewer' && !currentUser(req) && !viewerTokenValid(searchParams.get('session') || '', searchParams.get('t'))) {
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+    socket.destroy();
+    return;
+  }
   if (pathname === '/ws/host' || pathname === '/ws/viewer') {
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws._kind = pathname === '/ws/host' ? 'host' : 'viewer';
+      ws._ip = String((req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || '').trim(); // 뷰어 IP당 접속 상한용
       ws._userId = hostUser ? hostUser.id : null;
       ws._session = searchParams.get('session') || 'default';
       ws._hostView = searchParams.get('role') === 'host'; // 호스트 화면의 패시브 뷰어 — 데스크 현황판 '뷰어 수'에서 제외
@@ -2999,6 +3044,23 @@ function startTalkPipeline(sessionId, side) {
 /* ----------------------------- 뷰어 ------------------------------- */
 function handleViewer(ws) {
   const room = getRoom(ws._session);
+  // 접속 상한(무인증 QR DoS 방어). 호스트 화면의 패시브 뷰어(_hostView)는 상한에서 제외.
+  if (!ws._hostView) {
+    const realViewers = [...room.viewers].filter((v) => !v._hostView);
+    if (realViewers.length >= VIEWERS_PER_SESSION) {
+      try { ws.send(JSON.stringify({ type: 'error', code: 'room_full', message: '접속자가 많아 잠시 후 다시 시도해 주세요.' })); } catch {}
+      try { ws.close(1013, 'room full'); } catch {}
+      return;
+    }
+    if (ws._ip) {
+      const sameIp = realViewers.filter((v) => v._ip === ws._ip).length;
+      if (sameIp >= VIEWERS_PER_IP) {
+        try { ws.send(JSON.stringify({ type: 'error', code: 'ip_limit', message: '동일 기기에서 접속이 너무 많습니다.' })); } catch {}
+        try { ws.close(1013, 'ip limit'); } catch {}
+        return;
+      }
+    }
+  }
   room.viewers.add(ws);
   ws._audioWanted = false; // '음성 듣기' 구독 여부
   let talk = null; // 폰 PTT 파이프라인
@@ -3240,6 +3302,7 @@ function handleHost(ws) {
       } else {
         item = { id, side: sideOv || side, source: source || null, texts: { ...langTexts }, speaker: speaker || null, ...(lang ? { lang } : {}), ...(toksCapped ? { toks: toksCapped } : {}), ...(tm ? { tm: { ...tm } } : {}) };
         session.items.push(item);
+        if (session.items.length > ITEMS_CAP) session.items.splice(0, session.items.length - ITEMS_CAP);
       }
       if (session.title === '새 세션' && session.items.length === 1) {
         const first = Object.values(item.texts)[0] || '';

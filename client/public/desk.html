@@ -232,6 +232,7 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 let sessionId = params.get('session') || '';
+let token = params.get('t') || ''; // 뷰어 접근 토큰 — 직접 QR 은 URL 에, 랜딩 선택은 목록(s.t)에서
 
 /* 브랜드(플레이스홀더 — 운영 시 교체) */
 const BRAND = { name: '공항 안내 통역', sub: 'Airport Interpretation' };
@@ -442,7 +443,7 @@ function showWayfind(m){
 function ensureWs(){
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const sock = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}`);
+  const sock = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}${token ? '&t=' + encodeURIComponent(token) : ''}`);
   ws = sock;
   sock.binaryType = 'arraybuffer';
   // (재)접속 시: '언어를 막 골라 확인 대기 중'일 때만 시작 요청 재전송.
@@ -685,7 +686,7 @@ async function loadRooms(){
       if (s.active) {
         b.addEventListener('click', () => {
           if (roomsPoll) { clearInterval(roomsPoll); roomsPoll = null; }
-          sessionId = s.id; const mf=$('manifest'); if(mf) mf.href='/desk.webmanifest?session='+encodeURIComponent(sessionId);
+          sessionId = s.id; token = s.t || ''; const mf=$('manifest'); if(mf) mf.href='/desk.webmanifest?session='+encodeURIComponent(sessionId);
           $('deskTitle').textContent = s.title || '안내데스크';
           show('enterWrap');
         });
