@@ -451,11 +451,13 @@ function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<d
 let audioOn = false;
 let actx = null;
 let outCursor = 0;
+let mgain = null; // 마스터 게인 — PTT(발화) 중 TTS 재생을 눌러, 폰 스피커 소리가 PTT 마이크로 재인식되는 피드백(유령 자막) 차단
 function enableAudio(){
   // 모바일 자동재생 정책: 사용자 탭(제스처) 안에서 컨텍스트 생성/재개해야 소리가 남
-  if(!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch {} }
+  if(!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); mgain = actx.createGain(); mgain.connect(actx.destination); } catch {} }
   if(actx && actx.state==='suspended') actx.resume();
 }
+function duckTts(on){ try { if(mgain) mgain.gain.value = on ? 0 : 1; if(on) outCursor = 0; } catch {} }
 function sendAudioSub(on){ try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'audioSub', on:!!on})); } catch {} }
 function playPcm24(b64){
   if(!actx) return;
@@ -463,7 +465,7 @@ function playPcm24(b64){
     const bin = atob(b64); const n = bin.length>>1;
     const buf = actx.createBuffer(1, n, 24000); const ch = buf.getChannelData(0);
     for(let i=0;i<n;i++){ let s=(bin.charCodeAt(i*2+1)<<8)|bin.charCodeAt(i*2); if(s>=0x8000) s-=0x10000; ch[i]=s/32768; }
-    const node = actx.createBufferSource(); node.buffer=buf; node.connect(actx.destination);
+    const node = actx.createBufferSource(); node.buffer=buf; node.connect(mgain || actx.destination);
     const now = actx.currentTime; if(outCursor<now) outCursor=now+0.08;
     node.start(outCursor); outCursor += buf.duration;
   } catch {}
@@ -562,7 +564,7 @@ async function pttStart(){
       ws.send(buf);
     };
     if(!window.AndroidAudio.start()){ window.__kacNA=null; alert('마이크를 사용할 수 없습니다. 앱의 마이크 권한을 허용해 주세요.'); return; }
-    pttNative=true; pttActive=true; $('pttBtn').classList.add('rec'); updatePttBtn();
+    pttNative=true; pttActive=true; duckTts(true); $('pttBtn').classList.add('rec'); updatePttBtn();
     try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
     return;
   }
@@ -574,7 +576,7 @@ async function pttStart(){
   // 권한 프롬프트 대기 중 상태가 바뀌었으면(호스트 중지·참여자 발화 꺼짐) 시작하지 않는다 —
   // 버튼이 숨김/비활성이 된 뒤 녹음이 시작되면 사용자가 끌 방법이 없는 핫 마이크가 됨
   if(pttActive || !hostOn || !sessionViewerPTT){ try { stream.getTracks().forEach(t=>t.stop()); } catch {} return; }
-  pttActive=true; pttStream=stream; $('pttBtn').classList.add('rec'); updatePttBtn();
+  pttActive=true; pttStream=stream; duckTts(true); $('pttBtn').classList.add('rec'); updatePttBtn(); // 발화 중 TTS 재생 정지(피드백 차단)
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
   pttCtx = new (window.AudioContext||window.webkitAudioContext)();
   try { pttCtx.resume(); } catch {} // 제스처 콘텍스트 소실(iOS 등)로 suspended 생성 시 무음 녹음 방지 — desk.html 과 동일 수정
@@ -590,6 +592,7 @@ async function pttStart(){
 }
 function pttStop(){
   if(!pttActive) return; pttActive=false;
+  duckTts(false); // 발화 종료 → TTS 재생 복원
   $('pttBtn').classList.remove('rec');
   try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:false})); } catch {}
   if(pttNative){ try { window.AndroidAudio.stop(); } catch {} window.__kacNA=null; pttNative=false; updatePttBtn(); return; }

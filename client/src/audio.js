@@ -184,6 +184,12 @@ export async function startRecorder(opts) {
   const AC = window.AudioContext || window.webkitAudioContext;
   let audioCtx;
   try { audioCtx = rnnMod ? new AC({ sampleRate: 48000 }) : new AC(); } catch { audioCtx = new AC(); }
+  // 제스처 콘텍스트 소실(RNNoise wasm 로드 지연·iOS 등)로 suspended 로 생성되면 onaudioprocess 가
+  // 아예 안 돌아 '진행 중' 표시인 채 무음이 된다 — desk/mobile.html 과 동일한 resume 방어.
+  try { audioCtx.resume && audioCtx.resume().catch(() => {}); } catch {}
+  // 모바일 탭 전환·절전 복귀 시 AudioContext 가 suspended 로 남는 경우 자동 재개
+  const onVisResume = () => { if (document.visibilityState === 'visible') { try { audioCtx.resume && audioCtx.resume().catch(() => {}); } catch {} } };
+  document.addEventListener('visibilitychange', onVisResume);
   if (rnnMod && audioCtx.sampleRate !== 48000) {
     rnnMod = null;
     try { onMessage({ type: 'status', message: '이 브라우저는 48kHz 캡처를 지원하지 않아 RNNoise 없이 동작합니다.' }); } catch {}
@@ -295,8 +301,19 @@ export async function startRecorder(opts) {
   // TTS 를 나중에 켤 수도 있으므로(녹음 중 토글) 음성 재생 가능 파이프라인이면 미리 준비.
   // 네이티브 마이크는 브라우저 AEC 참조 경로 밖이라 루프백이 무의미 — 기기 자체 AEC + 재생 중 자동 음소거 폴백을 쓴다.
   if (!nativeMic && (audioOut || opts.tts || pipeline === 'soniox' || pipeline === 'translate')) setupAecLoopback();
+  // AEC 미동작 폴백(루프백 실패·협상 전)에서 TTS 재생 중 사용자가 크게 말하면(barge-in)
+  // 재생을 눌러 끊고 마이크 음소거를 해제한다 — 이전엔 긴 TTS 가 끝날 때까지 발화 전체가
+  // 무음으로 나가 통째로 유실됐다. 볼륨은 다음 TTS 재생에서 복원.
+  let bargeStreak = 0;
+  let bargedVol = null;
+  const ttsBargeIn = () => {
+    try { bargedVol = outGain.gain.value; outGain.gain.setValueAtTime(0, audioCtx.currentTime); } catch {}
+    outCursor = 0;
+    ttsMutedUntil = 0;
+  };
   const playPcm24 = (b64) => {
     try {
+      if (bargedVol != null) { try { outGain.gain.setValueAtTime(bargedVol, audioCtx.currentTime); } catch {} bargedVol = null; }
       const bin = atob(b64);
       const n = bin.length >> 1;
       const buf = audioCtx.createBuffer(1, n, 24000);
@@ -358,7 +375,14 @@ export async function startRecorder(opts) {
     const wire = (sock) => {
       sock.binaryType = 'arraybuffer';
       // 재연결 소켓: 열리면 변경된 제어 상태 복원(초기 소켓 ws0 은 이미 OPEN 이라 안 걸림)
-      sock.onopen = () => resendState(sock);
+      sock.onopen = () => {
+        resendState(sock);
+        // 끊김 동안 보관한 오디오(최근 ~2초)를 먼저 흘려보내 발화 연속성 복구
+        if (pipe.gapBuf && pipe.gapBuf.length) {
+          for (const f of pipe.gapBuf) { try { sock.send(f); } catch {} }
+          pipe.gapBuf = [];
+        }
+      };
       sock.onmessage = (ev) => {
         let m; try { m = JSON.parse(ev.data); } catch { return; } // 비정상 프레임 1건이 핸들러를 죽이지 않게
         // 중지 후 결과 수신 창(1.8초) 동안엔 자막 병합만 허용 — 구 소켓이 받은 takeover 등
@@ -412,6 +436,7 @@ export async function startRecorder(opts) {
       const vad = { speaking: false, silenceMs: 0, sinceMs: 0 };
       let lastActivitySent = 0;
       let gateOpenUntil = 0;
+      let prevRaw = null; // 직전 무음화 프레임(게이트 온셋 프리롤용)
       window.__kacNA = (b64) => {
         const bin = atob(b64);
         const nb = bin.length & ~1;
@@ -429,6 +454,8 @@ export async function startRecorder(opts) {
         const w = pipe.ws;
         const wOpen = w && w.readyState === WebSocket.OPEN;
         if (muted || (!aecActive && audioCtx.currentTime < ttsMutedUntil)) {
+          // TTS 자동 음소거 중 barge-in: 크게 말하면 재생을 끊고 마이크를 살린다(발화 통째 유실 방지)
+          if (!muted) { if (rms > 0.06) { if (++bargeStreak >= 2) { bargeStreak = 0; ttsBargeIn(); } } else bargeStreak = 0; }
           if (wOpen) {
             w.send(new ArrayBuffer(n * 2));
             const t = Date.now();
@@ -438,13 +465,19 @@ export async function startRecorder(opts) {
         }
         let gated = false;
         if (micRatio > 0) {
+          const openNow = Date.now() < gateOpenUntil;
           if (rms < noiseFloor) noiseFloor += (rms - noiseFloor) * 0.3;
-          else noiseFloor += (rms - noiseFloor) * 0.002;
+          else if (!openNow) noiseFloor += (rms - noiseFloor) * 0.002; // 발화(게이트 열림) 중 바닥 상승 동결 — 연속 발화 중간 절단 방지
           if (noiseFloor < 0.0003) noiseFloor = 0.0003;
-          if (rms >= micAbsMin && rms >= noiseFloor * micRatio) gateOpenUntil = Date.now() + 300;
+          if (rms >= micAbsMin && rms >= noiseFloor * micRatio) {
+            // 온셋 프리롤: 닫힘→열림 전이면 직전(무음으로 나간) 프레임을 재전송해 첫 음절을 복구
+            if (!openNow && prevRaw && wOpen) { try { w.send(prevRaw); } catch {} }
+            gateOpenUntil = Date.now() + 300;
+          }
           if (Date.now() >= gateOpenUntil) gated = true;
         }
         if (wOpen) w.send(gated ? new ArrayBuffer(n * 2) : ab);
+        prevRaw = gated ? ab : null; // 무음화된 프레임만 보관(프리롤 후보)
         if (peak > TH) notifyActivityAll();
         vad.sinceMs += frameMs;
         if (peak > TH) { vad.speaking = true; vad.silenceMs = 0; } else vad.silenceMs += frameMs;
@@ -489,6 +522,8 @@ export async function startRecorder(opts) {
     const vad = { speaking: false, silence: 0, since: 0 };
     let lastActivitySent = 0;
     let gateOpenUntil = 0; // 게이트가 열려 있는(전송) 시한 — 마지막 큰 소리 이후 hold
+    let prevRaw = null;    // 직전 무음화 프레임(게이트 온셋 프리롤용)
+    pipe.gapBuf = [];      // WS 끊김(재연결) 동안 프레임 버퍼(최근 ~2초) — 재연결 시 flush 해 발화 유실 축소
 
     proc.onaudioprocess = (e) => {
       // RNNoise 사용 시 정제된 신호로 게이트·VAD·전송을 판단(480샘플 정렬 잔여분은 다음 콜백으로 이월)
@@ -515,10 +550,18 @@ export async function startRecorder(opts) {
         if (w.bufferedAmount > 131072) return; // 백프레셔: 밀린 오디오는 버림(지연 누적 방지)
         const ds = downsampleTo24k(input, inRate);
         if (!aecActive && audioCtx.currentTime < ttsMutedUntil) { w.send(new ArrayBuffer(ds.length * 2)); return; }
-        if (rms < gFloor) gFloor += (rms - gFloor) * 0.3; else gFloor += (rms - gFloor) * 0.002;
+        const gOpenNow = Date.now() < (pipe.gOpenUntil || 0);
+        if (rms < gFloor) gFloor += (rms - gFloor) * 0.3;
+        else if (!gOpenNow) gFloor += (rms - gFloor) * 0.002; // 발화(게이트 열림) 중 바닥 상승 동결
         if (gFloor < 0.0003) gFloor = 0.0003;
-        if (gRatio <= 0 || (rms >= gAbsMin && rms >= gFloor * gRatio)) pipe.gOpenUntil = Date.now() + 300;
-        w.send(Date.now() < (pipe.gOpenUntil || 0) ? floatTo16BitPCM(ds) : new ArrayBuffer(ds.length * 2));
+        if (gRatio <= 0 || (rms >= gAbsMin && rms >= gFloor * gRatio)) {
+          if (!gOpenNow && pipe.gPrevRaw) { try { w.send(pipe.gPrevRaw); } catch {} } // 온셋 프리롤
+          pipe.gOpenUntil = Date.now() + 300;
+        }
+        const gOpen = Date.now() < (pipe.gOpenUntil || 0);
+        const pcm = floatTo16BitPCM(ds);
+        w.send(gOpen ? pcm : new ArrayBuffer(ds.length * 2));
+        pipe.gPrevRaw = gOpen ? null : pcm; // 무음화된 프레임만 보관(프리롤 후보)
         if (peak > TH) notifyActivityAll();
         return;
       }
@@ -526,6 +569,8 @@ export async function startRecorder(opts) {
       // 발화 일시정지(mute), 또는 (AEC 미지원 폴백일 때만) TTS 재생 중 자동 음소거: 무음 전송 + keepalive
       // AEC 루프백이 켜져 있으면 재생음이 마이크에서 제거되므로 TTS 중에도 발화 가능(음소거 안 함)
       if (muted || (!aecActive && audioCtx.currentTime < ttsMutedUntil)) {
+        // TTS 자동 음소거 중 barge-in: 크게 말하면 재생을 끊고 마이크를 살린다(발화 통째 유실 방지)
+        if (!muted) { if (rms > 0.06) { if (++bargeStreak >= 2) { bargeStreak = 0; ttsBargeIn(); } } else bargeStreak = 0; }
         if (wOpen) {
           const ds = downsampleTo24k(input, inRate);
           w.send(new ArrayBuffer(ds.length * 2));
@@ -539,15 +584,30 @@ export async function startRecorder(opts) {
       // 조용할 땐 바닥으로 빠르게 수렴, 소리날 땐 아주 느리게 상승 → 근접 발화(바닥보다 훨씬 큼)만 통과.
       let gated = false;
       if (src === 'mic' && micRatio > 0) {
+        const openNow = Date.now() < gateOpenUntil;
         if (rms < noiseFloor) noiseFloor += (rms - noiseFloor) * 0.3; // 조용 → 빠르게 수렴
-        else noiseFloor += (rms - noiseFloor) * 0.002;                // 소리 → 아주 느리게 상승(발화로 바닥이 안 튐)
+        // 게이트 열림(발화) 중엔 바닥 상승 동결 — 이전엔 0.002/프레임씩 올라 쉼 없는 5~12초
+        // 연속 발화의 한가운데서 게이트가 되닫혀 문장 중간이 무음화됐다(폴란드 시연 끊김 원인).
+        else if (!openNow) noiseFloor += (rms - noiseFloor) * 0.002;
         if (noiseFloor < 0.0003) noiseFloor = 0.0003;
-        if (rms >= micAbsMin && rms >= noiseFloor * micRatio) gateOpenUntil = Date.now() + 300;
+        if (rms >= micAbsMin && rms >= noiseFloor * micRatio) {
+          // 온셋 프리롤: 닫힘→열림 전이면 직전(무음으로 나간) 프레임을 재전송해 첫 음절(~85ms)을 복구
+          if (!openNow && prevRaw && wOpen) { try { w.send(prevRaw); } catch {} }
+          gateOpenUntil = Date.now() + 300;
+        }
         if (Date.now() >= gateOpenUntil) gated = true;
       }
       if (wOpen) {
         const ds = downsampleTo24k(input, inRate);
-        w.send(gated ? new ArrayBuffer(ds.length * 2) : floatTo16BitPCM(ds));
+        const pcm = floatTo16BitPCM(ds);
+        w.send(gated ? new ArrayBuffer(ds.length * 2) : pcm);
+        prevRaw = gated ? pcm : null; // 무음화된 프레임만 보관(프리롤 후보)
+        if (pipe.gapBuf.length) pipe.gapBuf = []; // 연결 정상 — 끊김 버퍼 비움
+      } else {
+        // WS 끊김(재연결 대기) 동안 프레임 보관 — 재연결 onopen 에서 flush 해 발화 유실을 ~2초로 제한
+        const ds = downsampleTo24k(input, inRate);
+        pipe.gapBuf.push(floatTo16BitPCM(ds));
+        if (pipe.gapBuf.length > 24) pipe.gapBuf.shift();
       }
 
       // 소리(시스템 오디오 포함)가 들리면 유휴 자동종료 방지 신호 — 모든 연결에 전송(전역)
@@ -579,6 +639,7 @@ export async function startRecorder(opts) {
   function stop() {
     if (stopped) return;
     stopped = true;
+    document.removeEventListener('visibilitychange', onVisResume);
     const closing = pipes.slice();
     for (const p of closing) {
       try {

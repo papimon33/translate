@@ -564,6 +564,7 @@ async function guestMicStart(){
   node.connect(proc);
   const g = ctx.createGain(); g.gain.value = 0; proc.connect(g); g.connect(ctx.destination);
   let openUntil = 0;
+  let prevRaw = null; // 직전 무음화 프레임(게이트 온셋 프리롤용)
   proc.onaudioprocess = (e) => {
     if (!gm || !ws || ws.readyState !== 1 || !started) return;
     // 백프레셔: 네트워크가 밀려 소켓 버퍼에 오디오가 쌓이면 이 프레임은 버림 —
@@ -573,12 +574,20 @@ async function guestMicStart(){
     let sum = 0;
     for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
     const rms = Math.sqrt(sum / input.length); // 지속 음량(RMS)
-    // 적응형: 조용할 땐 바닥으로 빠르게 수렴, 소리날 땐 아주 느리게 상승 → 근접 발화(바닥보다 훨씬 큼)만 통과
-    if (rms < gmFloor) gmFloor += (rms - gmFloor) * 0.3; else gmFloor += (rms - gmFloor) * 0.002;
+    // 적응형: 조용할 땐 바닥으로 빠르게 수렴 / 게이트 열림(발화) 중엔 바닥 상승 동결 —
+    // 발화 중 바닥이 올라와 10초+ 연속 발화의 한가운데서 게이트가 되닫히던 문제 방지
+    const openNow = Date.now() < openUntil;
+    if (rms < gmFloor) gmFloor += (rms - gmFloor) * 0.3; else if (!openNow) gmFloor += (rms - gmFloor) * 0.002;
     if (gmFloor < 0.0003) gmFloor = 0.0003;
-    if (gmRatio <= 0 || (rms >= gmAbsMin && rms >= gmFloor * gmRatio)) openUntil = Date.now() + 300; // 근접 발화 → 300ms 홀드
+    if (gmRatio <= 0 || (rms >= gmAbsMin && rms >= gmFloor * gmRatio)) {
+      if (!openNow && prevRaw) { try { ws.send(prevRaw); } catch {} } // 온셋 프리롤: 첫 음절 복구
+      openUntil = Date.now() + 300; // 근접 발화 → 300ms 홀드
+    }
     const ds = ds24(input, rate);
-    ws.send(Date.now() < openUntil ? f32to16(ds) : new ArrayBuffer(ds.length * 2));
+    const open = Date.now() < openUntil;
+    const pcm = f32to16(ds);
+    ws.send(open ? pcm : new ArrayBuffer(ds.length * 2));
+    prevRaw = open ? null : pcm;
   };
   gm = { stream, ctx, proc };
   try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {}
@@ -589,6 +598,7 @@ async function guestMicStart(){
 function guestMicStartNative(){
   gmFloor = 0.005; gmCalc();
   let openUntil = 0;
+  let prevRaw = null; // 직전 무음화 프레임(게이트 온셋 프리롤용)
   window.__kacNA = (b64) => {
     if (!gm || !ws || ws.readyState !== 1 || !started) return;
     if (ws.bufferedAmount > 131072) return; // 백프레셔: 밀린 오디오는 버림(지연 누적 방지)
@@ -598,10 +608,16 @@ function guestMicStartNative(){
     const i16 = new Int16Array(buf); const n = i16.length;
     let sum = 0; for (let i = 0; i < n; i++){ const v = i16[i] / 32768; sum += v * v; }
     const rms = Math.sqrt(sum / n);
-    if (rms < gmFloor) gmFloor += (rms - gmFloor) * 0.3; else gmFloor += (rms - gmFloor) * 0.002;
+    const openNow = Date.now() < openUntil;
+    if (rms < gmFloor) gmFloor += (rms - gmFloor) * 0.3; else if (!openNow) gmFloor += (rms - gmFloor) * 0.002; // 발화 중 바닥 상승 동결
     if (gmFloor < 0.0003) gmFloor = 0.0003;
-    if (gmRatio <= 0 || (rms >= gmAbsMin && rms >= gmFloor * gmRatio)) openUntil = Date.now() + 300;
-    ws.send(Date.now() < openUntil ? buf : new ArrayBuffer(n * 2));
+    if (gmRatio <= 0 || (rms >= gmAbsMin && rms >= gmFloor * gmRatio)) {
+      if (!openNow && prevRaw) { try { ws.send(prevRaw); } catch {} } // 온셋 프리롤
+      openUntil = Date.now() + 300;
+    }
+    const open = Date.now() < openUntil;
+    ws.send(open ? buf : new ArrayBuffer(n * 2));
+    prevRaw = open ? null : buf;
   };
   if (!window.AndroidAudio.start()) {
     window.__kacNA = null;

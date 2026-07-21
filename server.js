@@ -3037,7 +3037,15 @@ function startTalkPipeline(sessionId, side) {
   sx.on('error', () => {});
   return {
     feed: (data) => { if (ready) { try { sx.send(data); } catch {} } else { pending.push(data); if (pending.length > 24) pending.shift(); } }, // 연결 전 큐는 최근 ~2초만
-    stop: () => { try { sx.send(''); } catch {} try { sx.close(); } catch {} },
+    // PTT 는 말 끝나자마자 버튼을 떼는 게 표준 흐름 — finalize('') 후 1초간 토큰을 계속 받아
+    // <end> 커밋을 기다리고, 그래도 남은 확정분은 강제 커밋 후 닫는다(마지막 문장 유실 방지).
+    stop: () => {
+      try { sx.send(''); } catch {}
+      setTimeout(() => {
+        try { if (curId && finalText.trim()) commit(); } catch {}
+        try { sx.close(); } catch {}
+      }, 1000);
+    },
   };
 }
 
@@ -3444,6 +3452,7 @@ function handleHost(ws) {
     let langVotes = {};   // 언어별 토큰 수
     let curSpeaker = '';  // 현재 발화 화자(diarization)
     let lastCommitText = ''; // 직전 확정 텍스트(연속 중복 카드 방지)
+    let lastCommitted = null; // { id, key, out, at } — 화자 변경 커밋 직후 늦게 도착한 번역 꼬리를 직전 카드에 귀속
     let lastCommitAt = 0;    // 직전 확정 시각 — 중복 판정은 5초 창 안에서만
     let sawSpeaker = false;  // 엔진이 화자 정보를 한 번이라도 반환했는지(진단용)
     let spkNotified = false; // 화자 감지 1회 알림
@@ -3529,6 +3538,7 @@ function handleHost(ws) {
       const tail = ttsPending;            // 종결부호 없이 남은 마지막 조각
       const hadFinal = !!finalTrans.trim(); // 발화 중 확정 번역이 흘러갔는지
       curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = ''; langVotes = {}; srcToks = [];
+      pending = []; // 리플레이 버퍼: 확정된 발화의 오디오는 재전송 대상에서 제외(발화 경계에서 비움)
       // 화자 구분 켰는데 엔진이 화자 정보를 한 번도 안 줬으면 1회 안내(진단)
       if (diar && !sawSpeaker && !noSpkWarned) { noSpkWarned = true; toHost({ type: 'status', message: '화자 구분: 엔진이 화자 정보를 반환하지 않음(번역/엔드포인트와 동시 사용 시 발생 가능)' }); }
       if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던(또는 잡음뿐인) 고스트 카드 제거
@@ -3543,6 +3553,7 @@ function handleHost(ws) {
       lastCommitAt = Date.now();
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt, spkLabel(spk), null, undefined, toks, tm);
+      lastCommitted = { id, key: target, out, at: Date.now() }; // 커밋 직후 늦게 도착하는 번역 꼬리 귀속용
       if (confFix) maybeConfFix(id, toks, txt, src, target); // 저신뢰 자동 교정(고급옵션)
       // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
       //  재입력은 브라우저 AEC(마이크 경로) + 서버 에코 텍스트 필터(시스템 캡처·기기 간 경로)로 차단.
@@ -3566,8 +3577,9 @@ function handleHost(ws) {
       if (sx !== cur) return;
       try { cur.send(JSON.stringify(config)); } catch {} // config 먼저
       sxReady = true;
-      if (pending.length > 24) pending = pending.slice(-24); // 연결 대기 중 쌓인 오디오는 최근 ~2초만
-      while (pending.length) { try { cur.send(pending.shift()); } catch {} }
+      // 리플레이: '마지막 확정 이후' 프레임(최근 ~2초)을 새 소켓에 재전송 — 연결 대기 중 큐잉뿐
+      // 아니라, 죽은 구 소켓으로 이미 나갔던(=Soniox 가 못 들은) 진행 중 발화의 앞부분도 복구한다.
+      for (const f of pending) { try { cur.send(f); } catch {} }
       toHost({ type: 'status', message: `엔진 연결됨 (Soniox stt-rt-v5 · ${sxMode === 'two' ? `양방향 ${sxA}↔${sxB}` : `단방향→${sxTarget}`}${ttsOn ? ' · TTS on' : ''}, sens=${config.endpoint_sensitivity}, maxDelay=${config.max_endpoint_delay_ms}ms, lat=${config.endpoint_latency_adjustment_level})` });
       // TTS 연결 워밍업 + 키/보이스 검증(첫 음성 지연 단축)
       if (ttsOn) {
@@ -3597,6 +3609,13 @@ function handleHost(ws) {
         }
         if (t.translation_status === 'translation') {
           if (t.is_final) {
+            // 화자 변경 커밋 직후: 새 원문 토큰이 오기 전에 도착한 번역 꼬리는 직전(방금 확정된) 발화의
+            // 번역이다 — 새(빈) 발화에 붙이면 남의 번역으로 시작하므로 직전 카드에 이어붙인다.
+            if (!curId && !finalText && lastCommitted && Date.now() - lastCommitted.at < 4000) {
+              lastCommitted.out += t.text;
+              upsertItem(lastCommitted.id, { [lastCommitted.key]: lastCommitted.out });
+              continue;
+            }
             finalTrans += t.text;
             ttsLang = targetKeyFor(curSrc); // 현재 타깃 언어로 합성
             ttsPending += t.text;           // 문장 단위 실시간 TTS 큐
@@ -3652,16 +3671,17 @@ function handleHost(ws) {
 
     ws.on('message', (data, isBinary) => {
       if (isBinary) {
+        // 항상 리플레이 버퍼에 적재(마지막 확정 시 비움, 상한 ~2초) — 재연결 시 새 소켓에 재전송해
+        // 백오프/재체결 동안의 발화 앞부분 유실을 복구한다. 연결 전 큐 역할도 겸한다.
+        pending.push(data); if (pending.length > 24) pending.shift();
         if (sxReady && sx) { try { sx.send(data); } catch {} }
-        else { pending.push(data); if (pending.length > 24) pending.shift(); } // 재연결 중 큐는 최근 ~2초만(지연 누적 방지)
         return;
       }
       try {
         const m = JSON.parse(data.toString());
         if (m.type === 'stop') {
           sxClosed = true;
-          try { sx && sx.send(''); } catch {} // 빈 프레임 = graceful end
-          try { sx && sx.close(); } catch {}
+          gracefulEngineStop();
         } else if (m.type === 'dropAcks') { // 고급옵션: 단독 응답어 생략 라이브 토글
           dropAcks = !!m.on;
         } else if (m.type === 'confFix') { // 고급옵션: 저신뢰 자동 교정 라이브 토글
@@ -3682,7 +3702,20 @@ function handleHost(ws) {
         }
       } catch {}
     });
-    ws.on('close', () => { sxClosed = true; try { sx && sx.close(); } catch {} });
+    ws.on('close', () => { sxClosed = true; gracefulEngineStop(); });
+
+    // 마지막 발화 보존: 즉시 close 하면 finalize 결과를 받을 기회가 없어 "말 끝내고 2초 안에 중지"한
+    // 마지막 문장이 화면에 보였다가 기록에서 사라졌다. finalize('') 요청 후 1초간 토큰을 계속 수신
+    // (<end> 도착 시 정상 commit)하고, 그래도 남은 확정분은 강제 commit 한 뒤 닫는다.
+    function gracefulEngineStop() {
+      const cur = sx;
+      if (!cur) return;
+      try { cur.send(''); } catch {}
+      setTimeout(() => {
+        try { if (curId && finalText.trim()) commit(); } catch {}
+        try { cur.close(); } catch {}
+      }, 1000);
+    }
   }
 
   /* ---------- 데스크 안내 모드: 대기(idle) → 언어 선택 시 soniox two_way(ko↔X) ----------
@@ -3704,7 +3737,8 @@ function handleHost(ws) {
     let lockedB = null;     // 손님 언어
     let sx = null, sxReady = false;
     let closed = false;     // 호스트 중지/종료 — 자동 재연결 금지 플래그
-    let pending = [];
+    let pending = [];       // 리플레이 버퍼(마지막 확정 이후 프레임, 상한 ~2초) — 재체결 시 재전송
+    let lastVoiceArm = 0;   // 음량 기반 무음타이머 리셋 스로틀
     let foreignTimer = null;
     let warnTimer = null;       // 무음 종료 10초 전 예고
     // (삭제됨) 무음 시 양 채널 조용한 재연결(컨텍스트 플러시) — 재연결마다 context 가
@@ -3733,18 +3767,50 @@ function handleHost(ws) {
     // 원문뿐 아니라 번역문도 교차 대조 — 한 발화가 양쪽 마이크에 비슷한 음량으로 들어가 언어 판별까지
     // 엇갈린 경우(예: 손님 발화가 데스크 채널에서 한국어로 오인식), 원문 문자는 서로 달라도
     // "손님 채널의 한국어 번역 ↔ 데스크 채널의 한국어 원문"이 유사해 여기서 걸린다.
-    const crossDup = (ch, txt, tgt) => {
+    // 판정(hit)과 기록(note)을 분리 — 음량 중재로 '살린' 발화도 기록해야 반대 채널의 진짜 누화가 걸린다.
+    const crossDupHit = (ch, txt, tgt) => {
       const n = echoNorm(txt);
       const nt = echoNorm(tgt || '');
       const now = Date.now();
       while (recentCommits.length && now - recentCommits[0].at > 8000) recentCommits.shift();
-      const hit = recentCommits.some((e) => e.ch !== ch && (
+      return recentCommits.some((e) => e.ch !== ch && (
         (n.length >= 4 && (echoMatch(n, e.n) || (e.nt.length >= 4 && echoMatch(n, e.nt)))) ||
         (nt.length >= 4 && (echoMatch(nt, e.n) || (e.nt.length >= 4 && echoMatch(nt, e.nt))))
       ));
-      if (hit) return true;
-      recentCommits.push({ n, nt, at: now, ch });
-      return false;
+    };
+    const crossDupNote = (ch, txt, tgt) => { recentCommits.push({ n: echoNorm(txt), nt: echoNorm(tgt || ''), at: Date.now(), ch }); };
+
+    /* ---- 음량 중재: 채널별 수신 프레임 RMS 로 '진짜 화자'를 판정 ----
+       누화는 원거리 소리라 원 채널보다 항상 작다. 발화 시간창에서 자기 채널 평균 RMS 가
+       반대 채널보다 확실히(1.3배) 크면, 언어 소유권·crossDup 이 누화로 판정했더라도 실제
+       발화로 보고 살린다 — 겹침 발화 전체 드랍·직원의 외국어 응대 드랍·외래어 오귀속을 완화.
+       표본이 없으면(테스트·단일 채널 순간 등) null → 기존 판정 유지. */
+    const volLog = { staff: [], guest: [] }; // [{ t, r }] 최근 12초
+    const noteVol = (ch, buf) => {
+      try {
+        const n = buf.length >> 1;
+        if (!n) return 0;
+        let sum = 0, cnt = 0;
+        for (let i = 0; i < n; i += 4) { const v = buf.readInt16LE(i * 2) / 32768; sum += v * v; cnt++; } // 4샘플 간격 서브샘플(CPU 절약)
+        const r = Math.sqrt(sum / (cnt || 1));
+        const arr = volLog[ch];
+        const now = Date.now();
+        arr.push({ t: now, r });
+        while (arr.length && now - arr[0].t > 12000) arr.shift();
+        return r;
+      } catch { return 0; }
+    };
+    const meanVol = (ch, t0, t1) => {
+      const arr = volLog[ch].filter((e) => e.t >= t0 && e.t <= t1);
+      if (arr.length < 3) return null; // 표본 부족 → 판정 불가
+      return arr.reduce((a, e) => a + e.r, 0) / arr.length;
+    };
+    const volOwn = (ch, t0, t1) => {
+      const own = meanVol(ch, t0, t1);
+      if (own == null) return null;
+      const other = meanVol(ch === 'staff' ? 'guest' : 'staff', t0, t1);
+      if (other == null) return own > 0.008 ? true : null; // 반대 채널 무데이터(단일 공급 순간)
+      return own >= other * 1.3 && own > 0.008; // 명백히 우세 + 절대 최소음량
     };
     // 채널-언어 소유권(2채널 모드의 1차 방어): 여객 태블릿 마이크가 켜져 있으면
     // 손님 언어 발화는 여객 채널이, 한국어 발화는 데스크 채널이 소유한다.
@@ -3822,13 +3888,18 @@ function handleHost(ws) {
       const tm = { ...(staffTm || {}), c: Date.now() }; // 레이턴시: s(첫 토큰)/e(<end>)/c(확정)
       staffTm = null;
       resetUtterance();
+      pending = []; // 리플레이 버퍼: 확정된 발화의 오디오는 재전송 대상에서 제외
       if (!id || !txt) { if (id) liveSend(id, {}, null, null); return; } // 비확정만 있던(또는 추임새뿐인) 고스트 카드 제거
       // 자동 감지: 소유권·누화 판정으로 드랍되더라도 언어는 먼저 잠근다(첫 발화 유실 방지)
       lockDetected(src);
+      // 음량 중재: 이 발화 시간창에서 데스크 마이크가 여객 마이크보다 명백히 큰 소리였다면
+      // 언어·유사도 판정과 무관하게 실제 직원 발화로 본다(겹침·외국어 응대·복창을 드랍하지 않음).
+      const louder = volOwn('staff', (tm.s || tm.c - 4000) - 300, tm.c);
       // 언어 소유권: 2채널 모드에서 손님 언어 발화는 여객 채널 소유 → 데스크 마이크 누화로 드랍
-      if (!staffOwns(src)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
+      if (!staffOwns(src) && louder !== true) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
       // 여객 채널이 이미 확정한 문장과 유사 → 데스크 마이크로 샌 누화, 드랍(화면 카드도 제거)
-      if (guestMicOn && crossDup('staff', txt, tgt)) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
+      if (guestMicOn && crossDupHit('staff', txt, tgt) && louder !== true) { chStats.crossDrops++; liveSend(id, {}, null, null); return; }
+      crossDupNote('staff', txt, tgt);
       // 고급옵션: 단독 응답어(네/Yes 단독 발화) 기록 생략
       if (dropAcks && isAckOnly(txt)) { liveSend(id, {}, null, null); return; }
       chStats.staff++;
@@ -3889,7 +3960,9 @@ function handleHost(ws) {
         if (phase === 'active') { const w = { type: 'desk-idle-warn', secondsLeft: 10 }; broadcast(sessionId, w); toHost(w); }
       }, warnAt);
     };
-    const endConversation = () => {
+    let ending = false;      // 그레이스 종료 진행 중(중복 방지)
+    let endTimer = null;     // 그레이스 마감 타이머(언어 전환 시 즉시 마감에 사용)
+    const endConversation = (graceful = true) => {
       clearTimeout(foreignTimer);
       clearTimeout(warnTimer);
       pendingWayfind = null;
@@ -3898,6 +3971,28 @@ function handleHost(ws) {
       // 승계(takeover)로 밀려난 구 파이프라인의 지연 close/타이머가 새 호스트의 진행 중 응대를
       // 아카이브·리셋하지 못하게 — 현재 등록된 컨트롤러만 공유 세션을 만진다.
       if (deskCtrl.get(sessionId) !== ctrl) { phase = 'idle'; lockedB = null; resetUtterance(); closeSx(); closeGuest(); return; }
+      if (ending) {
+        // 그레이스 대기 중 즉시 마감 요청(언어 전환 등) → 지금 바로 마감해 새 응대와 겹치지 않게
+        if (!graceful) { clearTimeout(endTimer); finishEnd(); }
+        return;
+      }
+      if (!graceful || (!sx && !gsx)) { finishEnd(); return; }
+      // 그레이스 마감: finalize('') 요청 후 0.9초간 in-flight 토큰을 계속 수신(<end> 도착 시 정상
+      // 커밋)한 뒤 마감 — 즉시 close 하면 endpoint 대기 중이던 마지막 문장이 기록에서 유실된다.
+      ending = true;
+      try { sx && sx.send(''); } catch {}
+      try { gsx && gsx.send(''); } catch {}
+      endTimer = setTimeout(finishEnd, 900);
+    };
+    function finishEnd() {
+      ending = false;
+      clearTimeout(endTimer);
+      clearTimeout(foreignTimer);
+      clearTimeout(warnTimer);
+      // 그레이스 중 호스트 이탈로 deskCtrl 이 지워졌어도 아카이브는 수행한다(기록 보존).
+      // 단 '승계'(새 호스트 등록)면 뷰어 방송·메타는 새 파이프라인 몫이라 건드리지 않는다.
+      const now2 = deskCtrl.get(sessionId);
+      const superseded = !!(now2 && now2 !== ctrl);
       // 사용량: 실제 통역(active) 시간만 누적 — 대기(idle) 시간이 사용량으로 집계되던 문제 수정
       if (phase === 'active' && convStartedAt) ws._deskActiveMs = (ws._deskActiveMs || 0) + (Date.now() - convStartedAt);
       ws._deskActiveStart = 0;
@@ -3922,15 +4017,17 @@ function handleHost(ws) {
       gLastCommitText = '';
       lastCommitText = '';
       phase = 'idle'; lockedB = null; autoDetect = false; resetUtterance();
-      pending = [];
+      pending = []; gPending = [];
       closeSx();
       closeGuest(); // 여객 채널 종료(guestMicOn 플래그는 유지 — 다음 응대에서 재연결)
-      broadcast(sessionId, { type: 'desk-reset' });
-      toHost({ type: 'desk-reset' });
-      broadcast(sessionId, { type: 'snapshot', items: [] });
-      setMeta();
-      toHost({ type: 'status', message: '대화 종료 — 대기 중(언어 선택 대기)' });
-    };
+      if (!superseded) {
+        broadcast(sessionId, { type: 'desk-reset' });
+        toHost({ type: 'desk-reset' });
+        broadcast(sessionId, { type: 'snapshot', items: [] });
+        setMeta();
+        toHost({ type: 'status', message: '대화 종료 — 대기 중(언어 선택 대기)' });
+      }
+    }
 
     // 통역 시작: 손님(뷰어)이 언어를 고르거나 호스트가 수동 시작 — 이때 처음 soniox 연결
     const startConversation = (B) => {
@@ -3938,6 +4035,9 @@ function handleHost(ws) {
       const auto = B === 'auto'; // 'Other languages' — 첫 발화 언어를 감지해 two_way 전환
       const lang = auto ? null : (GUEST_LANGS.includes(B) ? B : 'en');
       if (phase === 'active' && !auto && lang === lockedB) return;
+      // 응대 중 다른 언어 선택 = 새 손님 — 이전 응대를 먼저 마감(아카이브)해 두 손님의 기록이
+      // 한 deskLog 항목으로 병합되지 않게 한다(즉시 마감 — 새 손님을 기다리게 하지 않음).
+      if (phase === 'active') endConversation(false);
       if (phase !== 'active') { convStartedAt = Date.now(); ws._deskActiveStart = convStartedAt; } // 응대 시작 시각(통계·사용량용)
       phase = 'active'; lockedB = lang; autoDetect = auto; lastCommitText = ''; resetUtterance();
       pending = [];
@@ -3964,7 +4064,8 @@ function handleHost(ws) {
         if (sx !== next) return; // 빠른 재체결 시 구 소켓의 늦은 open 이 준비 상태를 오염시키지 않게
         try { next.send(JSON.stringify(configFor())); } catch {}
         sxReady = true;
-        while (pending.length) { try { next.send(pending.shift()); } catch {} }
+        // 리플레이: 마지막 확정 이후 프레임을 재전송(버퍼 유지) — 구 소켓으로 나갔던 진행 중 발화 복구
+        for (const f of pending) { try { next.send(f); } catch {} }
       });
       // 종료(idle)·소켓 교체 후 늦게 도착한 토큰이 다음 응대 화면·기록에 새지 않도록 가드
       next.on('message', (raw) => { if (sx === next && phase === 'active') onSxMessage(raw); });
@@ -4023,7 +4124,9 @@ function handleHost(ws) {
       translation: { type: 'one_way', target_language: A },
     });
     function closeGuest() {
-      const old = gsx; gsx = null; gsxReady = false; gPending = [];
+      // gPending(리플레이 버퍼)은 비우지 않는다 — 언어 감지 직후 closeGuest→connectGuest 재체결에서
+      // 진행 중 발화의 앞부분을 새 소켓에 재전송하기 위함(확정 시 guestCommit 이 비움).
+      const old = gsx; gsx = null; gsxReady = false;
       gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {}; gToks = [];
       if (old) { try { old.send(''); } catch {} try { old.close(); } catch {} }
     }
@@ -4037,9 +4140,8 @@ function handleHost(ws) {
         if (gsx !== next) return; // 구 소켓의 늦은 open 가드(connectSx 와 동일)
         try { next.send(JSON.stringify(guestConfig())); } catch {}
         gsxReady = true;
-        // 연결 대기 중 쌓인 오디오는 최근 2초만 전송(오래된 프레임을 밀어넣으면 이후 내내 지연됨)
-        if (gPending.length > 24) gPending = gPending.slice(-24);
-        while (gPending.length) { try { next.send(gPending.shift()); } catch {} }
+        // 리플레이: 마지막 확정 이후 프레임(최근 ~2초)을 재전송(버퍼 유지) — 재체결 중 발화 앞부분 복구
+        for (const f of gPending) { try { next.send(f); } catch {} }
       });
       // 종료·소켓 교체 후 늦게 도착한 토큰 차단(다음 응대로 새는 문제 방지)
       next.on('message', (raw) => { if (gsx === next && phase === 'active') onGuestMsg(raw); });
@@ -4059,13 +4161,17 @@ function handleHost(ws) {
       const tm = { ...(guestTm || {}), c: Date.now() }; // 레이턴시: s/e/c
       guestTm = null;
       gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {}; gToks = [];
+      gPending = []; // 리플레이 버퍼: 확정된 발화의 오디오는 재전송 대상에서 제외
       if (!id || !txt) { if (id) liveSend(id, {}, null, null, null, 'left'); return; } // 고스트(또는 추임새뿐인) 카드 제거
       // 자동 감지(Other languages): 손님은 여객 태블릿에 대고 말하므로 이 채널에서 감지되는 게 정상 경로
       lockDetected(gSrc);
+      // 음량 중재: 발화 시간창에서 여객 마이크가 명백히 우세하면 실제 손님 발화로 보고 살린다
+      const gLouder = volOwn('guest', (tm.s || tm.c - 4000) - 300, tm.c);
       // 언어 소유권: 한국어로 감지된 발화는 안내원 채널 소유 → 여객 마이크 누화로 드랍
-      if (!guestOwns(gSrc)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
+      if (!guestOwns(gSrc) && gLouder !== true) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
       // 안내원 채널이 이미 확정한 문장과 유사 → 여객 마이크로 샌 누화, 드랍
-      if (crossDup('guest', txt, tgt)) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
+      if (crossDupHit('guest', txt, tgt) && gLouder !== true) { chStats.crossDrops++; liveSend(id, {}, null, null, null, 'left'); return; }
+      crossDupNote('guest', txt, tgt);
       // 고급옵션: 단독 응답어 기록 생략
       if (dropAcks && isAckOnly(txt)) { liveSend(id, {}, null, null, null, 'left'); return; }
       chStats.guest++;
@@ -4147,7 +4253,14 @@ function handleHost(ws) {
       // 대기(idle) 중에는 오디오를 버림(STT 세션 없음 — 비용 0). 통역 중에만 soniox 로 전달.
       if (isBinary) {
         if (phase !== 'active') return;
-        if (sxReady && sx) { try { sx.send(data); } catch {} } else { pending.push(data); if (pending.length > 24) pending.shift(); } // 연결 전 큐는 최근 ~2초만
+        const r = noteVol('staff', data); // 음량 중재용 RMS 기록
+        // 무음 타이머는 '토큰'뿐 아니라 '들리는 소리'로도 리셋 — 게이트/엔진 장애로 토큰이 안 와도
+        // 손님·직원이 말하는 중이면 응대가 끊기지 않게 한다(2초 스로틀).
+        if (r > 0.02 && Date.now() - lastVoiceArm > 2000) { lastVoiceArm = Date.now(); armForeignTimer(); }
+        // 리플레이 버퍼: 마지막 확정 이후 프레임(최근 ~2초)을 유지 — 재체결(언어 감지·여객 마이크
+        // 전환·엔진 재연결) 시 새 소켓에 재전송해 진행 중 발화의 앞부분 유실을 복구한다.
+        pending.push(data); if (pending.length > 24) pending.shift();
+        if (sxReady && sx) { try { sx.send(data); } catch {} }
         return;
       }
       try {
@@ -4205,13 +4318,15 @@ function handleHost(ws) {
       feedGuest: (data, fromWs) => {
         if (phase !== 'active' || !guestMicOn) return; // 대기 중 여객 오디오는 버림(비용 0)
         if (guestWs && fromWs && fromWs !== guestWs) return; // 소유 태블릿 외 스트림 거절(두 태블릿 동시 desk-mic 시 오염 방지)
+        const r = noteVol('guest', data); // 음량 중재용 RMS 기록
+        if (r > 0.02 && Date.now() - lastVoiceArm > 2000) { lastVoiceArm = Date.now(); armForeignTimer(); } // 소리 기반 무음타이머 리셋
+        // 리플레이 버퍼(마지막 확정 이후, 상한 ~2초) — 언어 감지·재연결로 소켓이 바뀌어도 발화 앞부분 복구
+        gPending.push(data);
+        if (gPending.length > 24) gPending.shift();
         if (gsxReady && gsx) {
           // 백프레셔: 엔진 쪽으로 못 내보내고 쌓이면 오래된 오디오 대신 현재 프레임을 버려 실시간 유지
           if (gsx.bufferedAmount > 262144) return;
           try { gsx.send(data); } catch {}
-        } else {
-          gPending.push(data);
-          if (gPending.length > 24) gPending.shift(); // 연결 전 큐는 최근 ~2초만(지연 누적 방지)
         }
       },
     };

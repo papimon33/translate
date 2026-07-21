@@ -581,7 +581,9 @@ export default function TranslateView({ session: initial, onBack }) {
           const copy = arr.slice();
           copy[i] = {
             ...copy[i],
-            texts: { ...copy[i].texts, ...(m.texts || {}) },
+            // texts 는 교체(병합 X) — 서버가 항상 카드의 완전한 texts 를 보낸다. 병합하면 발화 도중
+            // 언어 판정이 플립됐을 때 구 언어 키의 낡은 부분 번역이 카드에 잔존해 이중 표기가 됐다.
+            texts: m.texts || copy[i].texts,
             source: m.source ?? copy[i].source,
             speaker: m.speaker ?? copy[i].speaker,
             lang: m.lang ?? copy[i].lang, // 화자 색 구분용 — 유실되면 단일 채널 데스크에서 색이 전부 호스트색이 됨
