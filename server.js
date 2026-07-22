@@ -2653,6 +2653,49 @@ function reasoningEffort(model) {
   return null;
 }
 
+/* ---- 번역 다듬기(nano): Soniox 기계 번역의 직역투를 자연스러운 구어체로 후교정 ----
+   카드 확정(기계 번역 즉시 표시) → 비동기 nano → 같은 id 카드 덮어쓰기(confFix 와 동일 패턴).
+   폴란드 시연 후속: "유럽 내 도입 사례에서요" → "유럽 쪽 구축 사례를 보면요" 류의 어색한 직역 교정.
+   실패·무변경이면 null(원문 유지). TTS 는 이미 재생된 뒤라 자막/기록만 다듬어진다(의도).
+   context(직전 대화)가 핵심 — "처음부터요" 같은 단답은 맥락 없이 자연화가 불가능하다. */
+async function polishText(src, tgt, tgtLang, context) {
+  if (!OPENAI_API_KEY) return null;
+  const t = String(tgt || '').trim();
+  if (t.length < 4 || isAckOnly(t)) return null; // 단답·초단문은 다듬을 것이 없음(비용 절약)
+  const langName = LANG_NAMES[tgtLang] || tgtLang;
+  const sys =
+    `너는 공항 현장의 전문 통역사다. 외국어 발화의 기계 번역(직역투일 수 있음)을 실제 통역사가 말하듯 자연스러운 ${langName} 구어체로 고쳐라.\n` +
+    '- 의미 추가·삭제 금지. 어색한 직역 어순·조사·표현만 자연스럽게 바꾼다.\n' +
+    '- [직전 대화]는 맥락 파악용 — "처음부터요" 같은 단답은 맥락에 맞게 자연스럽게 보완해도 된다.\n' +
+    '- 이미 자연스러우면 고치지 말고 그대로 출력한다.\n' +
+    '- 출력은 고친 번역문 한 줄뿐(설명·따옴표·머리말 금지).\n' +
+    '교정 예(한국어 방향): "유럽 내 도입 사례에서요." → "유럽 쪽 구축 사례를 보면요." / ' +
+    '"이제 부탁드립니다." → "그럼 몇 가지 여쭤보겠습니다." / ' +
+    '"유럽의 어떤 나라들에서는 이 시스템이 공항에서 이미 작동하나요?" → "유럽 국가 중에 이 시스템을 공항에서 실제 운영 중인 곳이 있나요?"';
+  try {
+    const body = {
+      model: REFINE_MODEL,
+      max_completion_tokens: 220,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: `[직전 대화]\n${(context || '(없음)').slice(0, 600)}\n\n[원문] ${String(src || '').slice(0, 300)}\n[기계 번역] ${t.slice(0, 300)}` },
+      ],
+    };
+    const re = reasoningEffort(REFINE_MODEL);
+    if (re) body.reasoning_effort = re;
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const out = sanitizeTranslation((d?.choices?.[0]?.message?.content || '').trim());
+    if (!out || out === t || out.length > t.length * 3 + 20) return null; // 무변경·폭주(해설 섞임) 방어
+    return out;
+  } catch { return null; }
+}
+
 async function translateText(text, targetLang, polish, context, model) {
   const useModel = model && /^gpt-/.test(model) ? model : REFINE_MODEL;
   const langName = LANG_NAMES[targetLang] || targetLang;
@@ -3009,6 +3052,15 @@ function startTalkPipeline(sessionId, side) {
     const target = targetKeyFor(src || a);
     const msg = applyItem(sessionId, id, side, { [target]: out }, txt);
     broadcast(sessionId, msg); sendToHosts(sessionId, msg);
+    // 번역 다듬기(nano): 카드가 살아 있고 텍스트 그대로일 때만 다듬은 문장으로 교체(비동기)
+    if (tgt) polishText(txt, tgt, target, '').then((p) => {
+      if (!p) return;
+      const s2 = getSession(sessionId);
+      const it = s2 && Array.isArray(s2.items) ? s2.items.find((x) => x.id === id) : null;
+      if (!(it && it.texts && it.texts[target] === out)) return;
+      const m2 = applyItem(sessionId, id, side, { [target]: p });
+      broadcast(sessionId, m2); sendToHosts(sessionId, m2);
+    }).catch(() => {});
     if (cfg.ttsOn) {
       const voiceId = cartesiaVoiceId(target, cfg.gender || 'f');
       noteTts(sessionId, out); // 에코 필터 등록
@@ -3326,6 +3378,36 @@ function handleHost(ws) {
     broadcast(sessionId, buildMsg(id, item));
   };
 
+  // 번역 다듬기 컨텍스트: 직전 확정 발화(타깃 언어 기준) 최대 3건 — 단답("처음부터요") 자연화에 필수
+  const polishCtx = (key, excludeId) => {
+    if (!session || !Array.isArray(session.items)) return '';
+    const rows = [];
+    for (let i = session.items.length - 1; i >= 0 && rows.length < 3; i--) {
+      const it = session.items[i];
+      if (!it || it.id === excludeId) continue;
+      const t = (it.texts && (it.texts[key] || Object.values(it.texts)[0])) || it.source;
+      if (t) rows.unshift(String(t).slice(0, 120));
+    }
+    return rows.join('\n');
+  };
+  // 확정 카드 다듬기: 비동기 nano → 카드가 살아 있고 텍스트가 그대로일 때만 덮어쓰기
+  // (그 사이 confFix·늦은 번역 꼬리가 먼저 덮었으면 양보). 응대 종료로 deskLog 에
+  // 아카이브된 뒤 도착하면 기록만 조용히 갱신(뷰어 방송 불필요).
+  const polishCommit = (id, key, src, tgt) => {
+    polishText(src, tgt, key, polishCtx(key, id)).then((out) => {
+      if (!out) return;
+      const it = session && Array.isArray(session.items) ? session.items.find((x) => x.id === id) : null;
+      if (it && it.texts && it.texts[key] === tgt) { upsertItem(id, { [key]: out }); return; }
+      if (session && Array.isArray(session.deskLog)) {
+        for (let i = session.deskLog.length - 1; i >= 0 && i >= session.deskLog.length - 2; i--) {
+          const e = session.deskLog[i];
+          const a = e && Array.isArray(e.items) ? e.items.find((x) => x.id === id) : null;
+          if (a && a.texts && a.texts[key] === tgt) { a.texts[key] = out; saveSessions(session.id); return; }
+        }
+      }
+    }).catch(() => {});
+  };
+
   // 저신뢰 자동 교정(고급옵션 confFix): 트리거(연속 저신뢰) 발화만 GPT 재검토 → 명백한 오인식이면
   // 같은 id 로 카드 덮어쓰기(원문+번역). runSoniox·runDesk(직원/여객) 커밋에서 호출.
   // TTS 재발화는 하지 않는다(이미 재생된 음성을 되돌릴 수 없어 텍스트만 교정).
@@ -3554,6 +3636,7 @@ function handleHost(ws) {
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt, spkLabel(spk), null, undefined, toks, tm);
       lastCommitted = { id, key: target, out, at: Date.now() }; // 커밋 직후 늦게 도착하는 번역 꼬리 귀속용
+      if (tgt) polishCommit(id, target, txt, tgt); // 번역 다듬기(nano) — 직역투 후교정(비동기 카드 교체)
       if (confFix) maybeConfFix(id, toks, txt, src, target); // 저신뢰 자동 교정(고급옵션)
       // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
       //  재입력은 브라우저 AEC(마이크 경로) + 서버 에코 텍스트 필터(시스템 캡처·기기 간 경로)로 차단.
@@ -3908,6 +3991,7 @@ function handleHost(ws) {
       lastCommitText = out;
       lastCommitAt = Date.now();
       upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null, undefined, toks, tm);
+      if (tgt) polishCommit(id, targetKeyFor(src), txt, tgt); // 번역 다듬기(nano) — 직역투 후교정
       if (confFix) maybeConfFix(id, toks, txt, src, targetKeyFor(src)); // 저신뢰 자동 교정(고급옵션)
       // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
       // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
@@ -4180,6 +4264,7 @@ function handleHost(ws) {
       gLastCommitText = out;
       gLastCommitAt = Date.now();
       upsertItem(id, { [A]: out }, txt, null, lockedB || null, 'left', toks, tm);
+      if (tgt) polishCommit(id, A, txt, tgt); // 번역 다듬기(nano) — 손님 발화의 한국어 직역투 후교정
       if (confFix) maybeConfFix(id, toks, txt, gSrc, A); // 저신뢰 자동 교정(고급옵션) — 여객 채널
     };
     function onGuestMsg(raw) {
