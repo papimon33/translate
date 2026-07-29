@@ -527,8 +527,12 @@ export default function TranslateView({ session: initial, onBack }) {
     // 연결 상태 점(헤더): 서버 상태 문구에서 파생 — 재연결 중엔 노란 점으로 즉시 보이게
     if (m.type === 'status' && typeof m.message === 'string') {
       if (m.message.includes('재연결 중')) setConnState('reconn');
-      else if (m.message.includes('엔진 연결됨') || m.message.includes('대기 중')) setConnState('ok');
-      else if (m.message.includes('연결 종료')) setConnState('off');
+      else if (m.message.includes('엔진 연결됨') || m.message.includes('대기 중')) {
+        setConnState('ok');
+        // '엔진 연결 중…' 스피너는 엔진이 붙는 즉시 내린다 — 이전엔 첫 인식 결과가 올 때만
+        // 해제돼, 시작 후 말을 하지 않으면 연결이 끝났는데도 문구가 최대 12초간 남았다.
+        setConnecting(false);
+      } else if (m.message.includes('연결 종료')) setConnState('off');
     }
     if (m.type === 'idle-stop') {
       stop();

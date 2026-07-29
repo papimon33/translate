@@ -27,7 +27,12 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { alpha } from '@mui/material/styles';
 import { api } from '../api.js';
 
-const ALL_LANGS = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'pt', 'ar'];
+// 편집·표시 대상 언어. es·fr·pt·ar 는 서버 buildSonioxContext 가 '영어 표기로 폴백'하므로
+// 따로 채울 필요가 없다(비워 두면 자동으로 영어를 따름) → 채워야 할 빈칸처럼 보이지 않게 제외.
+// ⚠ 이 배열은 저장 변환(toEntries)에도 쓰여, 여기서 뺀 언어의 표기는 저장 시 제거된다.
+//   현재 운영 데이터에 es/fr/pt/ar 표기는 0건이고 servedLangs 도 ko/en/ja/zh 라 손실 없음(확인).
+//   그 언어 표기를 다시 관리해야 하면 이 배열에 되돌리면 된다.
+const ALL_LANGS = ['ko', 'en', 'ja', 'zh'];
 const LANG_LABEL = { ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어', fr: '프랑스어', pt: '포르투갈어', ar: '아랍어' };
 const CATS = [
   { key: 'airline', label: '항공사' },

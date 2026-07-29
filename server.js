@@ -3499,7 +3499,10 @@ function handleHost(ws) {
     if (ws._tts === '1' && !CARTESIA_API_KEY) {
       toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 출력(TTS) 비활성. 서버 환경변수를 확인하세요.' });
     }
-    const config = {
+    // 자동 감지(입력 언어 미지정) 세션에서 첫 발화로 확정한 입력 언어.
+    // 잠기면 힌트·context 를 그 언어로 좁혀 1회 재연결한다(아래 lockDetected).
+    let lockedIn = null;
+    const buildConfig = () => ({
       api_key: SONIOX_API_KEY,
       model: 'stt-rt-v5',
       audio_format: 'pcm_s16le',
@@ -3512,26 +3515,47 @@ function handleHost(ws) {
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
       endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
-      language_hints: sxMode === 'two' ? [sxA, sxB] : (inLang ? [inLang] : L4),
+      language_hints: sxMode === 'two' ? [sxA, sxB] : (inLang ? [inLang] : (lockedIn ? [sxTarget, lockedIn] : L4)),
       translation: sxMode === 'two'
         ? { type: 'two_way', language_a: sxA, language_b: sxB }
         : { type: 'one_way', target_language: sxTarget },
       client_reference_id: 'u:' + (ws._userId || 'anon') + '|p:live', // 유저별+파이프라인(실시간 번역) 사용량 집계
-      // 고유명사/번역 설정 주입 — 이 세션에서 쓰이는 언어의 표기·번역쌍만 조립
-      ...((() => { const c = buildSonioxContext(sxMode === 'two' ? [sxA, sxB] : [sxTarget, ...(inLang ? [inLang] : L4)], sxMode === 'two' ? {} : { target: sxTarget }); return c ? { context: c } : {}; })()),
-    };
+      // 고유명사/번역 설정 주입 — 이 세션에서 쓰이는 언어의 표기·번역쌍만 조립.
+      // 자동 감지에서 언어가 잠히면(lockedIn) 그 언어로 좁혀 용어집이 잘리지 않게 한다.
+      ...((() => {
+        const langs = sxMode === 'two' ? [sxA, sxB] : [sxTarget, ...(inLang ? [inLang] : (lockedIn ? [lockedIn] : L4))];
+        const c = buildSonioxContext(langs, sxMode === 'two' ? {} : { target: sxTarget });
+        return c ? { context: c } : {};
+      })()),
+    });
 
     let sx = null;          // 현재 엔진 소켓(예기치 않은 끊김 시 자동 재연결)
     let sxReady = false;
     let sxClosed = false;   // 사용자 중지/유휴 종료 — 재연결 금지
     let pending = [];
+    /* 입력 언어 자동 감지 → 1회 재연결(데스크 lockDetected 와 동일 패턴).
+       auto 세션은 광역 힌트(L4 8언어)로 시작하는데, 이 상태로 세션이 끝까지 가면
+       ① 힌트가 흩어져 인식 정확도가 떨어지고 ② context 가 커져 용어집 뒤쪽이 잘린다
+       (2026-07-29 세션: 번역쌍 전량 삭제 + 스페인어 첫 12발화 미번역).
+       첫 확정 발화의 언어로 잠그고 [타깃, 감지언어] 로 좁혀 한 번만 재연결한다.
+       재연결 1회는 context 재과금 1회뿐 — 주기적 재연결(2026-07-15 삭제)과 달리 무해하다. */
+    const lockDetected = (src) => {
+      if (lockedIn || inLang || sxMode === 'two' || sxClosed || idleStopped) return;
+      if (!src || src === sxTarget || !SONIOX_LANGS.includes(src)) return; // 타깃 언어면 좁힐 이유 없음
+      lockedIn = src;
+      relockPending = true; // close 핸들러가 '실패'로 세지 않고 즉시 재연결하게
+      toHost({ type: 'status', message: `입력 언어 감지: ${src} — 해당 언어로 인식 설정을 좁혀 재연결합니다.` });
+      try { sx && sx.close(); } catch {} // 새 config(좁힌 힌트·용어집)로 다시 붙는다
+    };
+    let relockPending = false; // 재감지로 의도적으로 닫는 중인지
     // (삭제됨) 무음 시 '조용한 재연결'(인식 컨텍스트 플러시, 2026-07-13) — 재연결마다 config 의
     // context(용어집, input_text_tokens $4/1M)가 재청구돼 Soniox 비용의 71%를 차지했던 원인이라 제거.
     // 오인식 고착은 confFix(저신뢰 자동 교정)가 완화한다. 상세: PROJECT_NOTES 2026-07-15.
     idleClose = () => { sxClosed = true; try { sx && sx.close(); } catch {} };
     const langsOut = sxMode === 'two' ? [sxA, sxB] : [sxTarget];
     // 폰 PTT 가 재사용할 호스트 설정 저장
-    roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: config.endpoint_sensitivity, maxDelay: config.max_endpoint_delay_ms, latency: config.endpoint_latency_adjustment_level, ttsOn, gender });
+    const cfg0 = buildConfig(); // 엔드포인트 파라미터 참조용(클램프된 값) — 폰 PTT 재사용 설정
+    roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: cfg0.endpoint_sensitivity, maxDelay: cfg0.max_endpoint_delay_ms, latency: cfg0.endpoint_latency_adjustment_level, ttsOn, gender });
     // 번역 방향 정보 — 뷰어(모바일)가 언어 표시에 사용
     const sxInfo = { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
     if (session) { session.sxInfo = sxInfo; saveSessions(session.id); }
@@ -3646,6 +3670,7 @@ function handleHost(ws) {
       const target = targetKeyFor(src);
       upsertItem(id, { [target]: out }, txt, spkLabel(spk), null, undefined, toks, tm);
       lastCommitted = { id, key: target, out, at: Date.now() }; // 커밋 직후 늦게 도착하는 번역 꼬리 귀속용
+      lockDetected(src); // 자동 감지: 첫 확정 발화의 언어로 힌트·용어집을 좁혀 1회 재연결
       if (tgt) polishCommit(id, target, txt, tgt); // 번역 다듬기(nano) — 직역투 후교정(비동기 카드 교체)
       if (confFix) maybeConfFix(id, toks, txt, src, target); // 저신뢰 자동 교정(고급옵션)
       // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
@@ -3668,6 +3693,7 @@ function handleHost(ws) {
       sx = cur;
       cur.on('open', () => {
       if (sx !== cur) return;
+      const config = buildConfig(); // 재감지로 언어가 잠혔으면 좁혀진 힌트·context 로 재생성됨
       try { cur.send(JSON.stringify(config)); } catch {} // config 먼저
       sxReady = true;
       // 리플레이: '마지막 확정 이후' 프레임(최근 ~2초)을 새 소켓에 재전송 — 연결 대기 중 큐잉뿐
@@ -3745,6 +3771,13 @@ function handleHost(ws) {
       if (sx !== cur) return;
       sxReady = false; // 끊긴 소켓으로 send 하지 않도록(이전엔 true 로 남아 조용히 버려졌음)
       if (!sxClosed && !idleStopped) {
+        // 언어 재감지로 우리가 의도해 닫은 경우는 '실패'가 아니다 — 백오프·8회 상한을 건드리지 않고
+        // 즉시 새 config 로 재연결한다(그 사이 발화는 pending 리플레이 버퍼가 복구).
+        if (relockPending) {
+          relockPending = false;
+          connectEngine();
+          return;
+        }
         sxFails++;
         if (sxFails >= 8) { // 연결 직후 반복 종료 — 재시도할수록 과금만 누적되므로 명시적으로 중지
           idleStopped = true;
