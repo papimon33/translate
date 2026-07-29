@@ -8,6 +8,9 @@ data/
 
 # eval TTS 오디오(생성물, make-tts-audio.mjs 로 재생성)
 eval/tts-audio/*.mp3
+# STT 회귀 루프 생성물(TTS PCM 캐시 + 리포트)
+eval/tts-audio/regression/
+eval/stt-regression.out.json
 
 android/.gradle/
 android/build/

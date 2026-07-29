@@ -703,8 +703,13 @@ const DESK_GENERAL_CONTEXT = [
 //  - scope: '*' 아니면 그 언어가 활성일 때만 주입 / categoryScope: 데스크·일반세션 적용 여부
 //  - 데스크 세션은 general(공항 안내데스크 배경)도 함께 주입 — 저빈도 단어 인식 보정.
 //  - 폴백(en→ko) 없음: 명시된 언어 표기만 사용. 전체 한도(8,000토큰≈10,000자) 방어는 유지.
+/* opts.target — 단방향(one_way) 세션의 타깃 언어. 주면 번역쌍을 'X→타깃' 방향만 만든다.
+   이전에는 활성 언어 전 조합(4언어=12쌍/항목)을 만들어 ja→zh 처럼 그 세션에서 절대 쓰이지 않는
+   쌍이 자리를 차지했고, context 가 한도(9500자)를 1.9배 초과해 뒤쪽 항목(항공사 번역쌍 전체)이
+   잘려 'Jeju Air→제주에어' 같은 오역이 났다. 2026-07-29 세션 로그 분석 근거. */
 function buildSonioxContextRaw(langs, opts = {}) {
   const desk = !!opts.desk;
+  const target = opts.target && TERM_LANGS.includes(opts.target) ? opts.target : null;
   const L = [...new Set((langs || []).filter((c) => TERM_LANGS.includes(c)))];
   if (!L.length) L.push('ko', 'en');
   const cs = termsConfig.categoryScope || {};
@@ -736,7 +741,9 @@ function buildSonioxContextRaw(langs, opts = {}) {
     if (e.mode === 'inputOnly') {
       if (!ko || !L.includes('ko')) continue;
       for (const lg of L) { if (lg === 'ko') continue; addPair(String(e.names[lg] || '').trim(), ko); } // 외국어 → ko 단방향(약칭은 폴백 없음)
-    } else { // pair
+    } else if (target) { // pair + 단방향 세션: 실제 번역 방향(X→타깃)만 생성
+      for (const a of L) { if (a !== target) addPair(nameFor(e.names, a), nameFor(e.names, target)); }
+    } else { // pair + 양방향(또는 타깃 미지정): 활성 언어 간 전 방향
       for (const a of L) for (const b of L) { if (a !== b) addPair(nameFor(e.names, a), nameFor(e.names, b)); }
     }
   }
@@ -3477,7 +3484,10 @@ function handleHost(ws) {
     const latency = Number(ws._sxLatency);
     // Soniox 자체 실시간 번역(기본). GPT 경유 없이 전사+번역 토큰을 한 스트림으로 받음.
     //  단방향(one): 타깃 1개 / 양방향(two): A↔B. 지원 언어 ko/en/ja/zh 로 한정.
-    const L4 = ['ko', 'en', 'ja', 'zh']; // 미지정 시 기본 언어 힌트
+    // 입력 언어 미지정(auto) 시 기본 언어 힌트. 2026-07-29 세션에서 힌트에 없던 스페인어의
+    // 첫 12발화가 번역되지 않고 원문이 그대로 표시된 사례가 있어 실제 취항·관광 언어를 포함한다.
+    // (용어 표기가 없는 언어는 영어 표기로 폴백되므로 context 크기는 거의 늘지 않는다)
+    const L4 = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'de', 'ru'];
     const okL = (c) => SONIOX_LANGS.includes(c); // 선택지는 soniox 지원 언어 전체
     const sxMode = ws._sxMode === 'two' ? 'two' : 'one';
     const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
@@ -3508,7 +3518,7 @@ function handleHost(ws) {
         : { type: 'one_way', target_language: sxTarget },
       client_reference_id: 'u:' + (ws._userId || 'anon') + '|p:live', // 유저별+파이프라인(실시간 번역) 사용량 집계
       // 고유명사/번역 설정 주입 — 이 세션에서 쓰이는 언어의 표기·번역쌍만 조립
-      ...((() => { const c = buildSonioxContext(sxMode === 'two' ? [sxA, sxB] : [sxTarget, ...(inLang ? [inLang] : L4)]); return c ? { context: c } : {}; })()),
+      ...((() => { const c = buildSonioxContext(sxMode === 'two' ? [sxA, sxB] : [sxTarget, ...(inLang ? [inLang] : L4)], sxMode === 'two' ? {} : { target: sxTarget }); return c ? { context: c } : {}; })()),
     };
 
     let sx = null;          // 현재 엔진 소켓(예기치 않은 끊김 시 자동 재연결)
@@ -3810,7 +3820,10 @@ function handleHost(ws) {
     if (!SONIOX_API_KEY) { toHost({ type: 'status', message: 'SONIOX_API_KEY 미설정 — 데스크 모드 사용 불가' }); return; }
     const sens = Number(ws._sxSens), maxDelay = Number(ws._sxMaxDelay), latency = Number(ws._sxLatency);
     const A = 'ko'; // 안내원 언어(고정)
-    const GUEST_LANGS = ['en', 'ja', 'zh', 'vi', 'th', 'id', 'ru']; // 손님(또는 호스트)이 고르는 언어(soniox two_way 지원, 한국어 제외)
+    // 손님(또는 호스트)이 고르는 언어(soniox 지원, 한국어 제외).
+    // es·fr·de 추가: '기타 언어'(자동 감지) 힌트로도 쓰이는데 빠져 있으면 해당 언어 첫 발화가
+    // 번역되지 않고 원문이 그대로 표시된다(2026-07-29 스페인어 사례).
+    const GUEST_LANGS = ['en', 'ja', 'zh', 'vi', 'th', 'id', 'ru', 'es', 'fr', 'de'];
     let deskIdleMs = Math.min(120000, Math.max(5000, Number(ws._deskIdle) || 30000)); // 무음 → 대화 종료(기본 30초). 'desk-idle' 메시지로 응대 중에도 변경 가능
     // 여객 태블릿 마이크 민감도(0~100, 50=기존 고정값과 동일) — 뷰어의 근접 게이트 임계로 변환돼 적용
     let guestSens = Math.min(100, Math.max(0, Number(ws._deskGuestSens) >= 0 ? Number(ws._deskGuestSens) : 50));
@@ -3906,14 +3919,15 @@ function handleHost(ws) {
     const guestOwns = (src) => !(src === A && (autoDetect || (lockedB && lockedB !== A)));
 
     // langs = 이번 응대의 활성 언어(ko + 손님 언어) — 해당 언어의 용어 표기·번역쌍만 context 로 주입
-    const baseConfig = (langs) => ({
+    // target = 단방향 세션의 타깃 언어(주면 번역쌍을 X→타깃 방향만 생성 — context 한도 절약)
+    const baseConfig = (langs, target) => ({
       api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
       client_reference_id: 'u:' + (ws._userId || 'anon') + '|p:desk', // 유저별+파이프라인(안내데스크) 사용량 집계
       enable_language_identification: true, enable_endpoint_detection: true,
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
       max_endpoint_delay_ms: Number.isFinite(maxDelay) ? Math.min(3000, Math.max(500, maxDelay)) : 2000,
       endpoint_latency_adjustment_level: Number.isFinite(latency) ? Math.min(3, Math.max(0, Math.round(latency))) : 0,
-      ...((() => { const c = buildSonioxContext(langs, { desk: true }); return c ? { context: c } : {}; })()), // 데스크: 항공용어 카테고리 제외
+      ...((() => { const c = buildSonioxContext(langs, { desk: true, target }); return c ? { context: c } : {}; })()), // 데스크: 항공용어 카테고리 제외
     });
     // 손님이 한국어를 고르면 two_way 가 성립하지 않으므로 전부 한국어로 표기(one_way→ko)
     // 2채널(여객 태블릿 마이크 on)에서는 이 채널이 안내원 전용 → one_way(ko→손님 언어) + 힌트 ko 고정.
@@ -3923,11 +3937,11 @@ function handleHost(ws) {
     const configFor = () => {
       if (lockedB && lockedB !== A) {
         return guestMicOn
-          ? { ...baseConfig([A, lockedB]), language_hints: [A], translation: { type: 'one_way', target_language: lockedB } }
+          ? { ...baseConfig([A, lockedB], lockedB), language_hints: [A], translation: { type: 'one_way', target_language: lockedB } }
           : { ...baseConfig([A, lockedB]), language_hints: [A, lockedB], translation: { type: 'two_way', language_a: A, language_b: lockedB } };
       }
       // 자동 감지 중: 언어 미정 → one_way(→ko) + 광역 힌트로 첫 발화 언어를 파악
-      return { ...baseConfig([A]), language_hints: autoDetect ? [A, ...GUEST_LANGS] : [A], translation: { type: 'one_way', target_language: A } };
+      return { ...baseConfig([A], A), language_hints: autoDetect ? [A, ...GUEST_LANGS] : [A], translation: { type: 'one_way', target_language: A } };
     };
 
     const setMeta = () => {
@@ -4202,7 +4216,7 @@ function handleHost(ws) {
        언어 힌트를 손님 언어로 고정해 인식 정확도를 높이고, side='left'/lang=손님언어로 결정적 귀속.
        누화 방어: ① 뷰어 근접 게이트(작은 소리는 무음 전송) ② crossDup(교차 중복 필터). */
     const guestConfig = () => ({
-      ...baseConfig(lockedB && lockedB !== A ? [A, lockedB] : [A]),
+      ...baseConfig(lockedB && lockedB !== A ? [A, lockedB] : [A], A), // 여객 채널은 항상 one_way→ko
       // 자동 감지 중엔 여객 채널이 외국어를 소유 — 광역 힌트로 첫 발화 언어를 파악(ko 고정이면 감지 불가)
       language_hints: lockedB && lockedB !== A ? [lockedB] : (autoDetect ? GUEST_LANGS : [A]),
       translation: { type: 'one_way', target_language: A },
