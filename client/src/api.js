@@ -86,24 +86,6 @@ export const api = {
     }),
   validateTermsConfig: () => fetch('/api/terms-config/validate', { method: 'POST' }).then(json),
 
-  summaries: () => fetch('/api/summaries').then(json),
-  summary: (id) => fetch('/api/summaries/' + id).then(json),
-  // 세션 내 즉시 요약(구조화: points/terms) — 확정 자막 기준
-  sessionSummary: (id) =>
-    fetch('/api/sessions/' + id + '/summary', { method: 'POST' }).then(async (r) => {
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '요약 실패');
-      return r.json();
-    }),
-  createSummary: (sessionId) =>
-    fetch('/api/summaries', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
-    }).then(async (r) => {
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '요약 시작 실패');
-      return r.json();
-    }),
-  deleteSummary: (id) => fetch('/api/summaries/' + id, { method: 'DELETE' }).then(json),
 
   adminCreateUser: (body) =>
     fetch('/api/admin/users', {
@@ -135,13 +117,6 @@ export const api = {
   adminDeskStats: () => fetch('/api/admin/desk-stats').then(json),
   // 자주 묻는 질문(GPT 클러스터링) / 용어 적중 분석 / 정형 안내 멘트
   adminTermsHit: () => fetch('/api/admin/terms-hit').then(json),
-  canned: () => fetch('/api/canned').then(json),
-  saveCanned: (items) =>
-    fetch('/api/canned', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-    }).then(json),
   adminHealth: () => fetch('/api/admin/health').then(json),
   adminResetAll: (password) =>
     fetch('/api/admin/reset-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }).then(json), // 전체 초기화(비밀번호 재확인)

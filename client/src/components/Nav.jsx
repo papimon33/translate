@@ -66,7 +66,6 @@ export const ADMIN_TABS = [
   { v: 'desks', label: '안내데스크' },
   { v: 'accounts', label: '계정 관리' },
   { v: 'terms', label: '용어 설정' },
-  { v: 'canned', label: '정형 안내' },
   { v: 'system', label: '시스템·보안' },
 ];
 

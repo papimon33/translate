@@ -169,9 +169,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
 const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
-const SUMMARIES_FILE = path.join(DATA_DIR, 'summaries.json');
 const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
-const CANNED_FILE = path.join(DATA_DIR, 'canned.json');    // 정형 안내 멘트(원터치 재생용 문안)
 const DESK_REG_FILE = path.join(DATA_DIR, 'desk_registry.json'); // 안내데스크 사전 정의(이름·층·방향) — 관리자 등록, 세션 생성 시 선택
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
@@ -185,17 +183,13 @@ let usageHourly = {}; // { 'YYYY-MM-DDTHH': { whisperMs, translateMs } } — 시
 let vendorUsage = { soniox: {}, cartesia: {}, openai: {}, cartesiaSelf: {} }; // cartesiaSelf: 파이프라인별 자체 집계(벤더 API 는 태그 미지원)
 // 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
 let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [], updatedAt: 0 };
-let summaries = []; // [{ id, sessionId, owner, title, createdAt, updatedAt, status, summary, error }]
-let cannedConfig = { items: [] }; // 정형 안내 멘트 [{ id, title, texts:{ko,en,ja,zh} }]
 let deskRegistry = { desks: [] }; // 안내데스크 정의 [{ id, name, floor, side }] — 세션과 분리된 마스터
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
 let usageHourlyCol = null;
 let termsConfigCol = null;
-let summariesCol = null;
 let vendorUsageCol = null;
-let cannedCol = null;
 let deskRegistryCol = null;
 
 async function loadStore() {
@@ -211,14 +205,12 @@ async function loadStore() {
         usageCol = db.collection('usageDaily');
         usageHourlyCol = db.collection('usageHourly');
         termsConfigCol = db.collection('termsConfig');
-        summariesCol = db.collection('summaries');
         vendorUsageCol = db.collection('vendorUsage');
         try { await db.collection('glossary').drop(); console.log('[store] 구 glossary 컬렉션 삭제'); } catch {} // 용어집 폐기
         await col.createIndex({ id: 1 }, { unique: true });
         await usersCol.createIndex({ id: 1 }, { unique: true });
         await usageCol.createIndex({ date: 1 }, { unique: true });
         await usageHourlyCol.createIndex({ hour: 1 }, { unique: true });
-        await summariesCol.createIndex({ id: 1 }, { unique: true });
         sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
         users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
         const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
@@ -231,18 +223,14 @@ async function loadStore() {
         if (tc) { const { _id, ...rest } = tc; termsConfig = { ...rest, updatedAt: tc.updatedAt || 0 }; } // 전체 보존(entries/servedLangs/categoryScope), 구형은 부팅 마이그레이션
         const vu = await vendorUsageCol.findOne({ _id: 'singleton' });
         if (vu) vendorUsage = { soniox: vu.soniox || {}, cartesia: vu.cartesia || {}, openai: vu.openai || {}, cartesiaSelf: vu.cartesiaSelf || {} };
-        cannedCol = db.collection('canned');
-        const cn = await cannedCol.findOne({ _id: 'singleton' });
-        if (cn && Array.isArray(cn.items)) cannedConfig = { items: cn.items };
         deskRegistryCol = db.collection('deskRegistry');
         const dr = await deskRegistryCol.findOne({ _id: 'singleton' });
         if (dr && Array.isArray(dr.desks)) deskRegistry = { desks: dr.desks };
-        summaries = await summariesCol.find({}, { projection: { _id: 0 } }).toArray();
         console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = summariesCol = vendorUsageCol = cannedCol = deskRegistryCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = vendorUsageCol = deskRegistryCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -273,10 +261,8 @@ async function loadStore() {
   loadFile(USAGE_FILE, (v) => { if (v && typeof v === 'object') usageDaily = v; });
   loadFile(USAGE_HOURLY_FILE, (v) => { if (v && typeof v === 'object') usageHourly = v; });
   loadFile(TERMS_FILE, (v) => { if (v && typeof v === 'object') termsConfig = { ...v, updatedAt: v.updatedAt || 0 }; }); // 전체 보존, 구형은 부팅 마이그레이션
-  loadFile(SUMMARIES_FILE, (v) => { if (Array.isArray(v)) summaries = v; });
   loadFile(VENDOR_USAGE_FILE, (v) => { if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {}, cartesiaSelf: v.cartesiaSelf || {} }; });
   loadFile(DESK_REG_FILE, (v) => { if (v && Array.isArray(v.desks)) deskRegistry = { desks: v.desks }; });
-  loadFile(CANNED_FILE, (v) => { if (v && Array.isArray(v.items)) cannedConfig = { items: v.items }; });
 }
 // Cartesia 파이프라인별 자체 집계 — 합성 요청 시 문자수·건수 누적(desk=안내데스크, live=실시간 번역)
 let ttsUsageTimer = null;
@@ -292,10 +278,6 @@ function recordTts(pipe, chars) {
 async function persistVendorUsage() {
   if (vendorUsageCol) { await vendorUsageCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...vendorUsage }, { upsert: true }); }
   else { writeDataFile(VENDOR_USAGE_FILE, JSON.stringify(vendorUsage, null, 2)); }
-}
-async function persistCanned() {
-  if (cannedCol) { await cannedCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...cannedConfig }, { upsert: true }); }
-  else { writeDataFile(CANNED_FILE, JSON.stringify(cannedConfig, null, 2)); }
 }
 async function persistDeskRegistry() {
   if (deskRegistryCol) { await deskRegistryCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...deskRegistry }, { upsert: true }); }
@@ -648,40 +630,6 @@ const TERM_FILL_ADD = [ // 없으면 추가되는 항목
     termsConfig.updatedAt = Date.now();
     try { await persistTermsConfig(); console.log(`[terms] 기본 번역 병합 — ${filled}칸 채움, ${added}항목 추가`); } catch (e) { console.error('[terms] 병합 저장 실패', e); }
   }
-}
-
-/* ---- AI 요약 저장 ---- */
-let summarySaveTimer = null;
-function saveSummaries() {
-  if (summarySaveTimer) return;
-  summarySaveTimer = setTimeout(() => {
-    summarySaveTimer = null;
-    flushSummaries().catch((e) => console.error('[summary] 저장 실패', e));
-  }, 300);
-}
-async function flushSummaries() {
-  if (summariesCol) {
-    if (!summaries.length) return;
-    const ops = summaries.map((s) => ({ replaceOne: { filter: { id: s.id }, replacement: s, upsert: true } }));
-    await summariesCol.bulkWrite(ops, { ordered: false });
-  } else {
-    writeDataFile(SUMMARIES_FILE, JSON.stringify(summaries, null, 2));
-  }
-}
-async function deleteSummaryStore(id) {
-  if (summariesCol) {
-    try { await summariesCol.deleteOne({ id }); } catch (e) { console.error('[summary] 삭제 실패', e); }
-  } else {
-    saveSummaries();
-  }
-}
-// 서버 재시작으로 중단된 '요약중'은 실패로 표시(무한 스피너 방지, 재시도 가능)
-{
-  let changed = false;
-  for (const s of summaries) {
-    if (s.status === 'pending') { s.status = 'error'; s.error = '서버 재시작으로 중단되었습니다. 다시 시도해 주세요.'; s.updatedAt = Date.now(); changed = true; }
-  }
-  if (changed) saveSummaries();
 }
 
 /* ---- 고유명사/번역 설정 저장 + Soniox context 구성 ---- */
@@ -1268,28 +1216,39 @@ app.post('/api/admin/reset-all', requireAdmin, async (req, res) => {
   }
   // 진행 중인 캡처·뷰어 연결을 먼저 정리(파이프라인 close 핸들러가 정상 경로로 정돈)
   for (const c of wss.clients) { try { c.close(); } catch {} }
-  const n = sessions.length;
-  sessions = [];
+  // 데스크 세션은 '설비'다 — 지우면 세션 id 가 바뀌어 뷰어 접근 토큰(HMAC of id)도 바뀌고
+  // 현장에 인쇄·게시한 QR 이 전부 무효가 된다. 그래서 데스크 세션은 남기고 내용만 비운다.
+  const kept = sessions.filter((s) => s.pipeline === 'desk' && !s.deletedAt);
+  const removed = sessions.length - kept.length;
+  let clearedLogs = 0;
+  for (const s of kept) {
+    clearedLogs += (s.deskLog || []).length;
+    s.items = [];
+    s.deskLog = [];
+    s.wayfindLog = [];
+    s.updatedAt = Date.now();
+  }
+  sessions = kept;
   dirtySessions.clear();
-  summaries = [];
   try {
-    if (col) { if (sessionsFlushInflight) await sessionsFlushInflight; await col.deleteMany({}); }
-    else await flushSessions();
-    if (summariesCol) await summariesCol.deleteMany({});
-    else writeDataFile(SUMMARIES_FILE, '[]');
+    if (col) {
+      if (sessionsFlushInflight) await sessionsFlushInflight;
+      await col.deleteMany({ id: { $nin: kept.map((s) => s.id) } }); // 데스크 세션 외 전부 삭제
+      for (const s of kept) await col.replaceOne({ id: s.id }, s, { upsert: true }); // 비운 상태로 저장
+    } else await flushSessions();
   } catch (err) {
     console.error('[reset-all] 저장소 정리 실패', err);
     return res.status(500).json({ error: '저장소 정리에 실패했습니다 — 서버 로그를 확인하세요.' });
   }
-  console.warn(`[reset-all] 관리자 초기화 — 세션 ${n}개(응대 로그 포함)·요약 삭제`);
-  res.json({ ok: true, removedSessions: n });
+  console.warn(`[reset-all] 관리자 초기화 — 세션 ${removed}개 삭제, 데스크 ${kept.length}개 유지(응대 기록 ${clearedLogs}건 비움)`);
+  res.json({ ok: true, removedSessions: removed, keptDesks: kept.length, clearedDeskLogs: clearedLogs });
 });
 
 /* ---- 전체 데이터 백업(관리자): 세션·데스크 정의·용어·정형 안내를 JSON 한 파일로 ---- */
 app.get('/api/admin/export', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="airtalk-backup-${new Date().toISOString().slice(0, 10)}.json"`);
-  res.send(JSON.stringify({ exportedAt: Date.now(), sessions, deskRegistry, termsConfig, canned: cannedConfig }, null, 1));
+  res.send(JSON.stringify({ exportedAt: Date.now(), sessions, deskRegistry, termsConfig }, null, 1));
 });
 
 /* ---- 안내데스크 사전 정의(레지스트리): 관리자가 이름·층·방향을 등록해 두면
@@ -1308,18 +1267,6 @@ app.put('/api/desk-registry', requireAdmin, async (req, res) => {
   res.json(deskRegistry);
 });
 
-app.get('/api/canned', requireAuth, (req, res) => res.json(cannedConfig));
-app.put('/api/canned', requireAdmin, async (req, res) => {
-  const b = req.body || {};
-  const items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((it, i) => ({
-    id: String(it.id || 'c' + i + Math.random().toString(36).slice(2, 6)).slice(0, 24),
-    title: String(it.title || '').trim().slice(0, 40),
-    texts: Object.fromEntries(['ko', 'en', 'ja', 'zh'].map((lg) => [lg, String((it.texts && it.texts[lg]) || '').trim().slice(0, 300)]).filter(([, v]) => v)),
-  })).filter((it) => it.title && it.texts.ko);
-  cannedConfig = { items };
-  try { await persistCanned(); } catch (e) { logErr('canned-persist', e); return res.status(500).json({ error: '저장 실패' }); }
-  res.json(cannedConfig);
-});
 
 /* ---- 관리자 2FA(TOTP, RFC 6238) ----
    Google Authenticator 등 표준 OTP 앱 호환. 시크릿은 env ADMIN_TOTP_SECRET(우선) 또는
@@ -1774,165 +1721,6 @@ app.post('/api/terms-config/validate', requireAdmin, async (req, res) => {
 });
 
 /* (평가 러너는 제거됨 — 평가는 데스크 응대 로그의 '평가 JSON' 내려받기 + eval/score.mjs --auto 로 진행) */
-
-/* ================================================================== */
-/*  AI 요약 (gpt-5-nano) — 세션 전문을 체계적으로 요약                   */
-/* ================================================================== */
-const SUMMARY_MODEL = 'gpt-5-nano';
-const SUMMARY_SYS =
-  `너는 회의·대화 기록 요약 전문가다. 주어진 전사/번역 전문을 바탕으로 체계적이고 자세한 요약을 작성한다.\n` +
-  `규칙:\n` +
-  `- 전문이 어떤 언어이든 요약은 반드시 한국어로만 작성한다.\n` +
-  `- 요약 본문만 출력한다. "다음은 요약입니다" 같은 머리말·맺음말·메타발언을 절대 넣지 않는다.\n` +
-  `- 맨 위에 "## 한눈에 보기"로 전체를 3줄 이내로 압축한 뒤, 아래에 상세 요약을 이어간다.\n` +
-  `- 소제목(## )과 불릿(- )으로 체계적으로 정리한다. 핵심 주제, 주요 논의·결정사항, 수치·일정·담당자·고유명사 등 구체 정보, 후속 조치를 담는다.\n` +
-  `- 전문에 등장한 논의 항목은 사소해 보여도 빠뜨리지 말고 모두 포함한다. 축약하더라도 언급 자체를 누락하지 않는다.\n` +
-  `- 전문이 "* [화자] : 발언" 형식이면 각 발언이 누구 것인지 구분해, 발언자별 입장·주장·담당 사항을 명확히 반영한다.\n` +
-  `- 전문에 없는 내용을 지어내지 않는다. 불확실한 건 추정하지 않는다.`;
-const SUMMARY_MAX_INPUT = 16000; // 단일 호출 입력 문자 한도
-const SUMMARY_CHUNK = 12000;
-
-async function chatComplete(system, user, maxTokens) {
-  const body = {
-    model: SUMMARY_MODEL,
-    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-    max_completion_tokens: maxTokens,
-  };
-  if (/^gpt-5/.test(SUMMARY_MODEL)) body.reasoning_effort = 'low';
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error('OpenAI ' + r.status + ': ' + (await r.text()).slice(0, 160));
-  const data = await r.json();
-  const txt = data?.choices?.[0]?.message?.content?.trim();
-  if (!txt) throw new Error('빈 응답');
-  return txt;
-}
-function sessionTranscript(session) {
-  const lines = [];
-  const names = session.speakers || {};
-  for (const it of session.items || []) {
-    let t = it.texts ? it.texts.ko || Object.values(it.texts)[0] || '' : it.text || '';
-    t = (t || '').trim();
-    if (!t) continue;
-    if (it.speaker) {
-      const nm = names[it.speaker] || ('화자 ' + it.speaker);
-      lines.push(`* [${nm}] : ${t}`);
-    } else lines.push(t);
-  }
-  return lines.join('\n');
-}
-async function summarizeTranscript(transcript) {
-  const text = transcript.trim();
-  if (text.length <= SUMMARY_MAX_INPUT) {
-    return await chatComplete(SUMMARY_SYS, `다음 전문을 요약하라:\n\n${text}`, 2000);
-  }
-  // 길면 청크별 핵심 노트 → 통합 요약(map-reduce)
-  const chunks = [];
-  let cur = '';
-  for (const ln of text.split('\n')) {
-    if ((cur + '\n' + ln).length > SUMMARY_CHUNK && cur) { chunks.push(cur); cur = ln; }
-    else cur = cur ? cur + '\n' + ln : ln;
-  }
-  if (cur) chunks.push(cur);
-  const notesSys = '다음 회의 전문 일부에서 핵심 정보(주제, 논의·결정, 수치·일정·담당, 후속조치)를 불릿으로 빠짐없이 정리하라. 머리말 없이 불릿만 출력.';
-  const notes = [];
-  for (let i = 0; i < chunks.length; i++) {
-    notes.push(await chatComplete(notesSys, `(${i + 1}/${chunks.length})\n\n${chunks[i]}`, 1200));
-  }
-  let combined = notes.join('\n');
-  if (combined.length > SUMMARY_MAX_INPUT) combined = combined.slice(0, SUMMARY_MAX_INPUT);
-  return await chatComplete(SUMMARY_SYS, `다음은 회의 각 구간의 핵심 노트다. 이를 종합해 전체 요약을 작성하라:\n\n${combined}`, 2500);
-}
-async function runSummary(rec, transcript) {
-  try {
-    const summary = await summarizeTranscript(transcript);
-    rec.status = 'done';
-    rec.summary = summary;
-    rec.error = '';
-  } catch (e) {
-    rec.status = 'error';
-    rec.error = e && e.message ? String(e.message).slice(0, 300) : '요약 실패';
-    console.error('[summary] 실패', e);
-  }
-  rec.updatedAt = Date.now();
-  saveSummaries();
-}
-function pubSummary(s, withBody) {
-  const o = { id: s.id, sessionId: s.sessionId, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, status: s.status, error: s.error || '' };
-  if (withBody) o.summary = s.summary || '';
-  return o;
-}
-
-app.get('/api/summaries', requireAuth, (req, res) => {
-  const list = summaries
-    .filter((s) => s.owner === req.user.id)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map((s) => pubSummary(s, false));
-  res.json(list);
-});
-app.get('/api/summaries/:id', requireAuth, (req, res) => {
-  const s = summaries.find((x) => x.id === req.params.id);
-  if (!s || s.owner !== req.user.id) return res.status(404).json({ error: 'not found' });
-  res.json(pubSummary(s, true));
-});
-// 세션 내 즉시 AI 요약(구조화: 핵심 요점 + 주요 용어 원어·한국어). 확정 자막 기준.
-app.post('/api/sessions/:id/summary', requireAuth, async (req, res) => {
-  const s = getSession(req.params.id);
-  if (!s) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' });
-  if (s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-  const transcript = sessionTranscript(s);
-  if (!transcript.trim()) return res.json({ points: [], terms: [] });
-  try {
-    const sys = '너는 회의·대화 전문을 분석하는 도우미다. 반드시 JSON 하나만 출력한다. 코드펜스와 설명을 금지한다. 형식: {"points": string[], "terms": {"src": string, "ko": string}[]}. points=대화 전체를 빠짐없이 포괄하는 요점 목록으로, 전문이 어떤 언어이든 반드시 한국어로 작성하고, 언급된 주제는 사소해도 누락하지 않으며 필요한 만큼(보통 8~15개) 각 한두 문장으로 구체적으로 쓴다. terms=등장한 전문용어·고유명사의 원어(src)와 한국어 대응(ko) 최대 12개(없으면 []).';
-    let raw = await chatComplete(sys, `전문:\n\n${transcript.slice(0, SUMMARY_MAX_INPUT)}`, 1500);
-    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    let obj = {}; try { obj = JSON.parse(raw); } catch { obj = {}; }
-    const points = Array.isArray(obj.points) ? obj.points.filter((x) => typeof x === 'string' && x.trim()).slice(0, 20) : [];
-    const terms = Array.isArray(obj.terms) ? obj.terms.filter((t) => t && t.src).map((t) => ({ src: String(t.src), ko: String(t.ko || '') })).slice(0, 12) : [];
-    res.json({ points, terms });
-  } catch (e) {
-    res.status(500).json({ error: (e && e.message) ? String(e.message).slice(0, 200) : '요약 실패' });
-  }
-});
-
-app.post('/api/summaries', requireAuth, (req, res) => {
-  const sessionId = String((req.body && req.body.sessionId) || '');
-  const session = getSession(sessionId);
-  if (!session) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' });
-  if (session.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-  const transcript = sessionTranscript(session);
-  const now = Date.now();
-  // 세션당 1개 — 기존 레코드 재사용(재생성/재시도 시 덮어쓰기)
-  let rec = summaries.find((s) => s.sessionId === sessionId && s.owner === req.user.id);
-  if (!rec) { rec = { id: newId(), sessionId, owner: req.user.id, createdAt: now }; summaries.push(rec); }
-  rec.title = session.title || '(제목 없음)';
-  rec.updatedAt = now;
-  rec.summary = '';
-  rec.error = '';
-  if (transcript.trim().length < 10) {
-    rec.status = 'error';
-    rec.error = '요약할 내용이 부족합니다.';
-    saveSummaries();
-    return res.json(pubSummary(rec, false));
-  }
-  rec.status = 'pending';
-  saveSummaries();
-  runSummary(rec, transcript); // 비동기 백그라운드 처리(화면 이탈해도 진행)
-  res.json(pubSummary(rec, false));
-});
-app.delete('/api/summaries/:id', requireAuth, (req, res) => {
-  const i = summaries.findIndex((s) => s.id === req.params.id);
-  if (i >= 0) {
-    if (summaries[i].owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-    const id = summaries[i].id;
-    summaries.splice(i, 1);
-    deleteSummaryStore(id);
-  }
-  res.json({ ok: true });
-});
 
 /* ---- 세션 REST API ---- */
 app.get('/api/sessions', requireAuth, (req, res) => {

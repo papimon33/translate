@@ -793,71 +793,6 @@ function DeskStats({ brand }) {
   );
 }
 
-/* 정형 안내 멘트 설정 — 데스크 원터치 재생용 문안(제목 + 언어별 텍스트) CRUD */
-const CANNED_LANGS = [['ko', '한국어'], ['en', '영어'], ['ja', '일본어'], ['zh', '중국어']];
-function CannedPanel() {
-  const [items, setItems] = useState(null);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
-  useEffect(() => { api.canned().then((c) => setItems((c.items || []).map((it, i) => ({ ...it, _k: 'k' + i })))).catch(() => setItems([])); }, []);
-  const mark = () => { setDirty(true); setMsg(''); };
-  const patch = (k, fn) => { setItems((arr) => arr.map((it) => (it._k === k ? fn(it) : it))); mark(); };
-  const add = () => { setItems((arr) => [{ _k: 'k' + Date.now(), id: 'c' + Date.now().toString(36), title: '', texts: {} }, ...arr]); mark(); };
-  const remove = (k) => { setItems((arr) => arr.filter((it) => it._k !== k)); mark(); };
-  const save = async () => {
-    setSaving(true); setErr('');
-    try {
-      const c = await api.saveCanned(items.map(({ _k, ...it }) => it));
-      setItems((c.items || []).map((it, i) => ({ ...it, _k: 'k' + i })));
-      setDirty(false); setMsg('저장되었습니다.');
-    } catch (e) { setErr(e.message || '저장 실패'); }
-    finally { setSaving(false); }
-  };
-  if (!items) return <Typography sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>불러오는 중…</Typography>;
-  return (
-    <>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
-        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>정형 안내 멘트</Typography>
-        <Tooltip title="반복 안내(수하물 규정·교통편 등)를 미리 문안으로 등록해 두는 곳입니다. 제목과 한국어는 필수, 외국어 문안은 손님 언어에 맞춰 표시·재생에 사용됩니다. 데스크 화면의 원터치 재생 버튼은 다음 단계에서 연결됩니다." placement="top">
-          <InfoOutlinedIcon sx={{ fontSize: 15, color: 'text.disabled', cursor: 'help' }} />
-        </Tooltip>
-        <Box sx={{ flex: 1 }} />
-        <Button size="small" startIcon={<AddIcon />} onClick={add}>멘트 추가</Button>
-        <Button size="small" variant="contained" onClick={save} disabled={saving || !dirty}>{saving ? '저장 중…' : '저장'}</Button>
-      </Box>
-      {msg && <Alert severity="success" sx={{ mb: 1.5 }}>{msg}</Alert>}
-      {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
-      {items.length === 0 && (
-        <Paper variant="outlined" sx={{ borderRadius: 1.5 }}>
-          <EmptyHint icon={<ForumOutlinedIcon sx={{ fontSize: 22 }} />} title="등록된 멘트가 없습니다"
-            desc="'멘트 추가'로 자주 쓰는 안내 문안(예: 수하물 규정, 공항버스 안내)을 등록해 두세요." />
-        </Paper>
-      )}
-      {items.map((it) => (
-        <Paper key={it._k} variant="outlined" sx={{ borderRadius: 1.5, p: 2, mb: 1.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <TextField size="small" placeholder="제목 (예: 수하물 규정 안내)" value={it.title}
-              onChange={(e) => patch(it._k, (x) => ({ ...x, title: e.target.value }))} sx={{ width: 280 }}
-              inputProps={{ style: { fontSize: 13.5, fontWeight: 700 } }} />
-            <Box sx={{ flex: 1 }} />
-            <IconButton size="small" onClick={() => remove(it._k)}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton>
-          </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
-            {CANNED_LANGS.map(([lg, label]) => (
-              <TextField key={lg} size="small" multiline minRows={2} label={label + (lg === 'ko' ? ' (필수)' : '')}
-                value={(it.texts && it.texts[lg]) || ''}
-                onChange={(e) => patch(it._k, (x) => ({ ...x, texts: { ...x.texts, [lg]: e.target.value } }))}
-                InputProps={{ sx: { fontSize: 13 } }} />
-            ))}
-          </Box>
-        </Paper>
-      ))}
-    </>
-  );
-}
-
 // 시스템 상태 + 관리자 2FA 설정
 function SystemPanel() {
   const [health, setHealth] = useState(null);
@@ -1024,7 +959,6 @@ export default function AdminPage({ user, tab = 'usage' }) {
           )}
 
           {/* ── 정형 안내 멘트 ── */}
-          {tab === 'canned' && <CannedPanel />}
 
           {/* ── 계정 관리 ── */}
           {tab === 'accounts' && (
@@ -1095,7 +1029,7 @@ export default function AdminPage({ user, tab = 'usage' }) {
                     전체 데이터 백업(JSON)
                   </Button>
                 </Tooltip>
-                <Tooltip title="모든 세션과 대화·응대 로그, AI 요약을 삭제합니다 (계정·데스크 정의·용어·사용량은 유지)">
+                <Tooltip title="모든 대화·응대 기록을 비웁니다. 안내데스크 세션은 유지되어 인쇄한 QR 을 계속 쓸 수 있습니다 (계정·데스크 정의·용어·사용량도 유지)">
                   <Button variant="outlined" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => { setWipePw(''); setWipeErr(''); setWipeOpen(true); }}>
                     전체 초기화
                   </Button>
@@ -1139,7 +1073,7 @@ export default function AdminPage({ user, tab = 'usage' }) {
         <DialogTitle sx={{ fontWeight: 800, color: 'error.main' }}>전체 초기화</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            모든 <b>세션</b>과 <b>대화·응대 로그</b>, <b>AI 요약</b>이 영구 삭제됩니다. 되돌릴 수 없습니다.
+            모든 <b>대화·응대 기록</b>이 영구 삭제됩니다. <b>안내데스크 세션은 유지</b>되어 인쇄한 QR 을 다시 발급할 필요가 없습니다. 되돌릴 수 없습니다.
             <br />계정·안내데스크 정의·용어 설정·정형 안내·사용량 통계는 유지됩니다.
             <br />필요하면 먼저 '전체 데이터 백업(JSON)'을 받아 두세요.
           </Alert>

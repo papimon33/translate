@@ -46,7 +46,7 @@
 - **발화 배타 락**: room.hostTalking(마이크 연결=true, '발화 멈춤' 토글 시 `micState` 로 갱신) + room.speaking(뷰어). 점유 중 `ptt-denied`, 상태는 `ptt-state{busy}` 브로드캐스트 — 호스트가 발화 멈춤을 눌러야 뷰어가 발화 가능.
 - **모드 변경**: 번역 이력 없는 세션은 옵션바 '모드' 셀렉터로 live/oneway/twoway 전환(PATCH preset, 모드별 기본값 리셋).
 - 유휴(1분) 자동중지는 **전체 소스 기준**(audio.js `notifyActivityAll` — 어느 소스든 소리가 있으면 모든 host WS 에 activity).
-- 옵션 숨김 토글: 콘텐츠 중앙·헤더 밀착 탭(공간 미차지, 숨김 시 opacity 0.4). 텍스트 크기 슬라이더(고급설정, `kac-font-scale`). AI 요약은 항상 한국어·누락 없이 상세(+맨 위 '한눈에 보기' 3줄).
+- 옵션 숨김 토글: 콘텐츠 중앙·헤더 밀착 탭(공간 미차지, 숨김 시 opacity 0.4). 텍스트 크기 슬라이더(고급설정, `kac-font-scale`).
 
 ## 운영/보안 (SECURITY_GUIDE.md 참고)
 - `FORCE_HTTPS=1` http→https 리다이렉트. 관리자 **2FA(TOTP)**: env `ADMIN_TOTP_SECRET` 우선, 아니면 관리자>시스템·보안에서 설정(data/security.json). 로그인 시 `need2fa` 응답 → Login.jsx 코드 입력. `DATA_KEY` 설정 시 data/*.json **AES-256-GCM 암호화**(평문 하위호환, security_util.js).
@@ -56,6 +56,7 @@
 - 모바일: 세션 화면 옵션바 기본 접힘(<600px), 타이틀바·간격 축소, 하단 버튼 세이프에어리어. 관리자 카드류 borderRadius 3→2.
 - 테스트: `npm test` = smoke + `test/security.test.mjs`(base32/TOTP RFC 벡터/암호화 라운드트립·변조감지/에코 매칭) + `test/boot.test.mjs`(더미 키로 실제 기동→/health).
 - **전면 감사 후 안정화(49건 수정)**: 공개 GET 세션은 화이트리스트 필드만(deskLog 등 미노출) · 운영 기동 게이트(AUTH_SECRET/ADMIN_PASSWORD 필수, ALLOW_INSECURE=1 우회) · 쿠키 토큰 30일 만료(id.ts.sig — 구 쿠키는 재로그인 1회) · WS 하트비트 30s(ping/pong, 죽은 소켓 락 해제) + 빈 room GC · 세션 삭제 시 연결 강제 종료·부속맵 정리 · 원자적 파일 쓰기(tmp+rename) · JSON 바디 기본 256kb(terms-config만 16mb)·client-log IP당 분당 10회 · api.js json 이 r.ok 검사(오류 전파) · 에코/crossDup 매칭은 길이비 0.6 이상만(따라 말하기 오탐 제거) · 중복 확정은 5초 창 내만 · 빈 커밋/에코 드랍 시 클라 카드 제거(sentence 빈 페이로드=삭제 규약) · runSoniox 자동 재연결+全 pending 큐 24프레임 상한 · runWhisper flush 보류 재실행(마지막 문장 유실 수정) · desk endConversation 은 현 등록 ctrl 만 세션 조작(좀비 가드)+guestCommit 포함, 여객 스트림 소유 소켓만 수용, wayfind 비동기 세대 가드 · langVotes 동률 유지 · takeover 레이스(클라 stop 후 제어 메시지 무시)+호스트 WS 자동 재연결(audio.js wire/pipe.ws) · 언마운트 시 stopReq 로 권한 대기 레코더 정리 · desk.html enterStage 재진입/thanks 타이머/절전 후 meta 동기화(started 재전송 제거)/keepalive 보류 재전송/지도 스크립트 재시도 상한/#stage 스페이서 스크롤 · mobile.html connect 중복 가드/PTT 재접속 재전송·이중탭 가드·백프레셔/카드 300개 상한 · desktop mac loopback 분기.
+- **미완성·미사용 기능 폐기 + 전체 초기화 개선(2026-07-30, 사용자 결정)**: ① **정형 안내 멘트(canned) 삭제** — 관리자 입력 UI는 있었으나 데스크 재생 경로가 끝내 없었다(미완성). 서버 `CANNED_FILE`·`cannedConfig`·`cannedCol`·`persistCanned`·라우트 2개 + `/api/admin/export` 의 `canned` 필드(백업 JSON 스키마 변경), 클라 `CannedPanel`·Nav 탭·api 2개. ⚠ 운영 Mongo `canned` 에 실제 문안 1건("수하물 규정 안내")이 있었고 함께 폐기됨. ② **AI 요약 일체 삭제** — 도달 불가였던 `SummaryPage` 뿐 아니라 **세션 내 요약 패널까지 전부**. 서버 AI 요약 섹션 160줄(`SUMMARY_SYS`·`chatComplete`·`sessionTranscript`·`summarizeTranscript`·`runSummary`·`pubSummary`·라우트 4개) + 저장 헬퍼 35줄 + `summaries`/`summariesCol`/`SUMMARIES_FILE`, 클라 `SummaryPage.jsx`·TranslateView 요약 state/버튼/패널·api 6개. ③ **전체 초기화(reset-all) 개선 — 데스크 세션 보존**: 기존에는 `sessions=[]` 로 **데스크 세션까지 삭제**돼 세션 id 가 바뀌고, 뷰어 토큰이 `HMAC(secret,'viewer:'+id)` 이라 **현장에 인쇄·게시한 QR 이 전부 무효**가 됐다. 이제 데스크 세션은 남기고 `items`/`deskLog`/`wayfindLog` 만 비운다(Mongo 는 `deleteMany({id:{$nin:keptIds}})` + kept 재저장). 응답에 `keptDesks`·`clearedDeskLogs` 추가, 관리자 문구도 "데스크 세션 유지" 로 수정. → 실운영 전 테스트 데이터 정리를 **QR 재발급 없이** 버튼 하나로. 검증: 라우트 404 확인(`/api/summaries`·`/api/canned`), 테스트 25/25, 빌드, 기동 스모크.
 - **과잉·죽은 코드 1단계 정리(2026-07-30, 감사 48건 중 검증 통과 36건에서 safe 묶음만)**: ⚠ **뷰어 접속 거부 안내 추가(삭제 아님)** — 뷰어 상한(세션 300·IP 8) 초과 시 서버가 `{type:'error'}`를 보내는데 **수신부가 클라 어디에도 없어**(참조 0건) 거부된 폰이 이유 표시 없이 무한 재연결하던 문제. mobile/desk.html 에 `refused` 플래그 + 안내 표시 + 재연결 중단 추가. 삭제분: **B** WS 쿼리 잔재(`ws._refine`·`ws._model`·`refineModel`·`const polish`·`langsOut` + audio.js/TranslateView 배선) · **C** whisper 문장경계 95줄(`segmentTranslate`·`splitSentences`·전역 `ABBR`/`CLOSERS` — ⚠ `runSoniox` 지역 `ABBR`(TTS 문장분리 실사용)은 별개 심볼이라 유지) · **D** `showSource`/`toggleSrc`/`srcVisible`/`kac-src`, Nav 죽은 prop `onSummaries`·`onTerms` (⚠ `showPartial`·`NavItem muted` 는 실사용이라 유지 — 감사 초기 발견의 오류) · **F** desk.html `#langMore` 죽은 CSS(요소 없음)·`order` 배열(push만) · **G** POST preset 화이트리스트를 현행 3종으로(읽기 호환 경로는 유지) · **H** `@breezystack/lamejs` → devDependencies(eval 전용, 락파일 재생성) · **I** `test/smoke.test.mjs`(1+1=2 자리표시자) · **M-1** `/map` 디렉터리 통째 static → **필요한 2파일 화이트리스트**(제작도구 `test.html`·`_serve.py`·`original/*` 가 인증 앞에서 무인증 공개되던 문제 차단, 실기동 curl 검증) · **R** 짝 없는 WS 타입(`commit` 송신+`vad` 블록 — 게이트는 `noiseFloor`/`gateOpenUntil`/`prevRaw` 만 쓰므로 무영향, `viewerPTT`·`viewers` 수신·송신). **A** 저장소 위생: `.gitignore` 에 `.DS_Store`·`eval/tts-audio/*`·`eval/*.out.json` 추가 후 `.DS_Store`×3·`w.bat`·`manifest.json` 추적 해제 — ⚠ 선행으로 **manifest 의 러시아어 질문 30문장(저장소 유일본)을 `eval/dataset.json` `question.src.ru` 로 이식**(30/30 매칭 확인). 미실행(2·3단계): usage 집계·diar·desk-stats 사전집계·map 도구 파일·문서 정리, canned/데스크로그삭제/SummaryPage/translate 는 판단 대기.
 - **실시간 번역 입력언어 재감지 + 용어 UI 언어 축소 + 연결중 문구(2026-07-30)**: ① **1회 재감지 재연결**(runSoniox): `config` → `buildConfig()` 함수화, `lockedIn`·`relockPending` 신설. auto 세션은 광역 힌트(L4 8언어)로 시작 → 첫 확정 발화의 언어(`commit` 내 `lockDetected(src)`)로 잠그고 `language_hints=[타깃, 감지언어]`·context 도 그 언어로 좁혀 **한 번만** 재연결. 데스크 `lockDetected` 와 동일 패턴. `relockPending` 으로 close 핸들러가 이걸 '실패'로 세지 않게(백오프·8회 상한 무영향), 그 사이 발화는 pending 리플레이 버퍼가 복구. 비용: context 재과금 1회(주기적 재연결과 달리 무해). `roomCfg` 는 `cfg0=buildConfig()` 로 클램프값 참조. 회귀 테스트 `test/live-relock.test.mjs`(1차 광역→2차 [ko,es], 재연결 1회만, 감지 발화 보존 — 수정 제거 시 실패 확인). ② **용어 UI 언어 축소**: `ALL_LANGS` → `ko,en,ja,zh`. es·fr·pt·ar 는 서버가 영어 표기로 폴백하므로 채울 필요가 없어 빈칸 노출을 없앰. ⚠ `toEntries` 도 이 배열을 순회해 **저장 시 해당 언어 표기는 제거**된다 — 운영 데이터에 es/fr/pt/ar 값 0건·servedLangs 도 ko/en/ja/zh 라 손실 없음(확인). 되돌리려면 배열에 추가. ③ **'엔진 연결 중…' 문구 잔존 수정**: `connecting` 이 첫 인식 결과(`partial`/`sentence`)에서만 해제돼, 시작 후 말을 하지 않으면 연결이 끝났는데도 최대 12초간 스피너가 남았다 → 서버 '엔진 연결됨' status 수신 시 즉시 해제.
 - **용어 context 한도 초과 수정(2026-07-29, 실세션 ms5bwpkgfqtc9 분석 근거)**: 증상 두 건 — ① `Jeju Air`→"제주에어" 오역 ② 스페인어 첫 12발화가 번역 없이 원문 그대로 표시. 원인: `buildSonioxContextRaw` 의 `pair` 모드가 **활성 언어 전 조합**(4언어=12쌍/항목)을 만들어 `auto` 세션(구 L4=ko/en/ja/zh)에서 752쌍·31,384자 → 한도 9,500자 절삭에 **752쌍 전부 삭제**(번역쌍 0개로 전송). ja→zh 처럼 그 세션에서 쓰이지 않는 쌍이 자리를 차지한 게 원인. 수정: **`opts.target`(단방향 타깃) 신설 — 주면 `X→타깃` 방향만 생성**. 호출부: runSoniox one_way → `{target: sxTarget}`(two_way 는 전 방향 유지), desk `baseConfig(langs, target)` — 2채널 직원 채널 `target=lockedB`, 여객 채널·단일 `target=ko`. 결과(실 용어집 109항목 검증): auto 752쌍/31,384자·전부잘림 → **203쌍/10,169자·34개만 잘림**, 항공사 6사 번역쌍 전부 생존. 세션 ko↔en 7,071자·데스크 2,522자로 잘림 없음. 함께: `L4` → `ko,en,ja,zh,es,fr,de,ru`, `GUEST_LANGS` → `+es,fr,de` (힌트에 없는 언어의 첫 발화 미번역 원인 제거 — 표기 없는 언어는 영어로 폴백돼 context 증가 없음). **미채택**: GPT 번역 폴백(드문 상황에 상시 판정·과금 경로 추가는 과도 — 세션 재시작으로 해소되고 실사용에 3개 언어가 한 세션에 섞이지 않음), 카테고리 우선순위 절삭.
@@ -106,13 +107,6 @@
 - **Soniox 주입**: runSoniox config 에 `buildSonioxContext()` → `{ terms:[고유명사+번역source], translation_terms:[{source,target}] }`. 세션 시작 시점에 반영(녹음 중 변경은 다음 세션부터).
 - **프론트**: Nav '용어 설정' → `TermsConfigPage`(고유명사=칩 입력 Enter추가/✕삭제, 번역=source→target 행 추가/편집/삭제). 관리자만 수정 가능(`user.role`), 일반 사용자는 읽기 전용. api: `termsConfig()`/`saveTermsConfig(body)`.
 
-## AI 요약 (gpt-5-nano)
-- 세션 케밥 'AI 요약' → `POST /api/summaries {sessionId}` → 서버가 **비동기 백그라운드**로 요약(화면 이탈해도 진행). 세션당 1개(재요청 시 덮어쓰기/재시도).
-- 요약 로직(server.js): `sessionTranscript`(ko 우선, **화자 있으면 `* [화자] : 발언` 형식**) → `summarizeTranscript`. 16000자 초과면 **map-reduce**(청크별 노트→통합). 프롬프트 `SUMMARY_SYS`(머리말 없이 본문만, ##/불릿, 지어내기 금지, **화자별 입장 구분**). 전문<10자면 즉시 `error`.
-- 상태 `pending|done|error`. 서버 재시작 시 `pending`→`error`(무한 스피너 방지). 저장: Mongo `summaries`/파일 `data/summaries.json`, 사용자별.
-- 라우트: `GET /api/summaries`(목록·본문 제외), `GET /:id`(본문 포함), `POST`(생성/재생성), `DELETE`.
-- 프론트: Nav 'AI 요약' → `SummaryPage`(목록 최신순, 상태뱃지 요약중/완료/실패, 폴링 3s, 검색, 빈상태, 펼치면 본문+복사·다운로드, 실패 시 재시도, 삭제).
-
 ## 운영 보강 (production hardening)
 - **유휴 자동 종료**: 호스트 WS 에서 1분간 음성 활동(전사/번역 델타) 없으면 OA 세션 닫음(`bumpIdle`/`idleClose`, IDLE_LIMIT_MS=60000). 서버가 `{type:'idle-stop'}` → 클라가 stop()+안내. whisper=transcription.delta, translate=output_transcript.delta 에서 리셋, oa open 시 시작.
 - **로그인 무차별 대입 방어**: IP당 15분 내 8회 실패 시 15분 잠금(429), 메모리 `loginFails`. 성공/실패 로그.
@@ -121,8 +115,8 @@
 - **Mongo 견고화**: 연결 3회 재시도(serverSelectionTimeoutMS 8s). `MONGODB_URI` 설정됐는데 실패 시 — 운영(NODE_ENV=production)에선 파일모드 폴백 대신 **기동 중단**(데이터 분리/유실 방지), 개발에선 파일 폴백.
 - `NODE_ENV=production` + `AUTH_SECRET` 미설정 시 경고.
 - **관리자 비밀번호 재설정**: `POST /api/admin/users/:id/password`(requireAdmin) + AdminPage 행별 🔑 버튼/다이얼로그.
-- **코드 스플리팅**: App.jsx 에서 TranslateView/AdminPage/SummaryPage/TermsConfigPage 를 React.lazy + Suspense.
-- **CI/테스트**: `npm test`(node:test, `test/smoke.test.mjs`) + `.github/workflows/ci.yml`(ci: npm ci→test→build).
+- **코드 스플리팅**: App.jsx 에서 TranslateView/AdminPage 를 React.lazy + Suspense.
+- **CI/테스트**: `npm test`(node:test, `test/*.test.mjs` — logic·desk-pipeline·live-relock·security·boot·store) + `.github/workflows/ci.yml`(ci: npm ci→test→build).
 
 ## 주의
 - OpenAI 실시간 모델은 **GA API** 사용(베타 헤더 X). `gpt-realtime-translate`는 `/v1/realtime/translations` 전용 엔드포인트.
@@ -353,8 +347,6 @@
   {topics:[{topic,count,examples}]} 저장(faqReport, Mongo faqReport/파일 faq_report.json) · GET `/api/admin/faq-report`. 실검증: 160건 → "화장실 위치 문의 9건" 등.
 - **용어 적중 분석**(용어 설정 탭 TermsHitPanel): GET `/api/admin/terms-hit` — 전 대화 코퍼스(응대+세션, source+texts) 문자열 매칭, ko 기준 병합,
   적중 상위 20 + 0회 필터(정리 후보). GPT 미사용. 실검증: 코퍼스 2,879줄, 터미널 66회, 0회 69개.
-- **정형 안내 멘트 설정창**(관리자 새 탭 '정형 안내'): GET `/api/canned`(로그인)/PUT(관리자) — items[{id,title,texts:{ko,en,ja,zh}}] ≤50,
-  ko·제목 필수, Mongo canned/파일 canned.json. CRUD UI(제목+4언어 멀티라인). **데스크 원터치 재생 버튼 연결은 다음 단계.** 실검증: 저장·조회 왕복.
 - **오프라인 안내 배너**: React App(전역 온라인/오프라인 리스너, 상단 주황 배너) + desk.html/mobile.html(#netBanner) — 연결 복구 시 자동 숨김(WS 재연결이 이어받음).
 ### TTS 음성 검증
 - `scripts/verify_tts_samples.mjs`: tts_samples mp3 → **Soniox 비동기 전사 API**(stt-async-preview, mp3 직접 업로드 — ffmpeg 불필요) → CER(≤10% PASS) →
@@ -669,7 +661,7 @@
   Cartesia 는 벤더 API 가 태그 미지원 → **자체 집계**(vendorUsage.cartesiaSelf, 합성 요청 시 문자수·건수 recordTts) 로 카드에 표시.
 - **유저별 사용량(④)**: Soniox 카드에서 분리해 사용량 페이지 하단 별도 패널(UserUsagePanel).
 - **전체 초기화(⑤)**: POST /api/admin/reset-all — requireAdmin + 본문에서 관리자 비밀번호 재확인(timingSafeEqual).
-  라이브 연결 close 후 세션(응대 로그 포함)·AI 요약 전량 삭제(Mongo deleteMany/파일). 보존: 계정·데스크 정의·용어·정형 안내·사용량.
+  라이브 연결 close 후 대화·응대 기록 삭제(Mongo deleteMany/파일). 보존: 계정·데스크 정의·용어·사용량. (2026-07-30: 안내데스크 세션 자체는 보존하고 내용만 비우도록 변경 — 세션 id 가 바뀌면 뷰어 토큰·인쇄 QR 이 무효가 되기 때문)
   시스템·보안 탭에 위험 버튼 + 경고 모달(백업 안내 포함). 프리뷰에서 오입력 403 + 데이터 무손상 확인.
 - 검증: 빌드·테스트 24/24, 프리뷰 스모크(목록 hover 케밥·구분선 제거·안내데스크 통계 14일/월별·파이프라인별 카드·초기화 403).
 
@@ -731,7 +723,7 @@
 - 검증: 빌드·테스트 8/8, 프리뷰 라이트/다크에서 막대·스파크라인·툴팁·월별 전환·시간대별 렌더 확인, 콘솔 무오류.
 
 ## 2026-07-16(2) — 관리자 메뉴 개편(시안 승인분 구현)
-- **상단 탭 제거 → 좌측 nav 하위메뉴**: `Nav.jsx` `ADMIN_TABS`(사용량/로그/안내데스크/계정 관리/용어 설정/정형 안내/시스템·보안).
+- **상단 탭 제거 → 좌측 nav 하위메뉴**: `Nav.jsx` `ADMIN_TABS`(사용량/로그/안내데스크/계정 관리/용어 설정/시스템·보안). (정형 안내 탭은 2026-07-30 폐지)
   view=admin 일 때 '관리자' 아래 펼침, 활성 항목=시그니처 보라(ACCENT) 글자+연보라 배경. adminTab 상태는 `App.jsx`(onAdmin(tab)).
   AdminPage 는 `tab` prop 수신 — 상단 제목(23px/800) + 컨텐츠 maxWidth 1240(전폭).
 - **보라 사용 범위**: theme.js ACCENT(라이트 #5b4fe8/다크 #8579ff) = 로고+관리자 그래프·강조 수치·활성 하위메뉴 전용(버튼·본문은 뉴트럴 유지).
