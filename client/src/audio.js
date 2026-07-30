@@ -152,9 +152,9 @@ function downsampleTo24k(f32, inRate) {
   return out;
 }
 
-/* opts: { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter } */
+/* opts: { sessionId, mode, inLang, outLang, pipeline, onMessage, onMeter } */
 export async function startRecorder(opts) {
-  const { sessionId, mode, inLang, outLang, pipeline, refine, onMessage, onMeter, audioOut, volume, micSens, sxSens, sxMaxDelay, sxLatency, model, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
+  const { sessionId, mode, inLang, outLang, pipeline, onMessage, onMeter, audioOut, volume, micSens, sxSens, sxMaxDelay, sxLatency, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
   // 마이크 음성인식 민감도(0~100): 100=가장 민감(게이트 없음), 낮출수록 조용한 소리를 무시.
   //  · 게이트 기준은 RMS(프레임 평균 음량) — peak(순간 최대) 는 속삭임의 자음(ㅅ·ㅌ) 스파이크에도
   //    열려 버려 소용없었다. RMS 는 '지속적으로 일정 음량 이상'일 때만 열려 속삭임·주변소음을 잘 거른다.
@@ -227,7 +227,7 @@ export async function startRecorder(opts) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const q = `session=${sessionId}&out=${encodeURIComponent(outLang)}&in=${encodeURIComponent(
     inLang
-  )}&pipeline=${pipeline}&refine=${refine ? '1' : '0'}&audioOut=${audioOut ? '1' : '0'}${
+  )}&pipeline=${pipeline}&audioOut=${audioOut ? '1' : '0'}${
     pipeline === 'soniox'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}&sxMode=${encodeURIComponent(sxMode || 'one')}&sxTarget=${encodeURIComponent(sxTarget || 'en')}&sxA=${encodeURIComponent(sxA || 'ko')}&sxB=${encodeURIComponent(sxB || 'en')}${
           tts ? `&tts=1&gender=${encodeURIComponent(gender || 'f')}` : ''
@@ -239,7 +239,7 @@ export async function startRecorder(opts) {
           deskLangs ? `&deskLangs=${encodeURIComponent(deskLangs)}` : ''
         }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}${deskGuestSens != null ? `&deskGuestSens=${encodeURIComponent(deskGuestSens)}` : ''}${opts.wayfind === false ? '&wayfind=0' : ''}`
       : ''
-  }${model ? `&model=${encodeURIComponent(model)}` : ''}`;
+  }`;
 
   const pipes = [];
   const streams = [];
@@ -433,7 +433,6 @@ export async function startRecorder(opts) {
       // 네이티브 마이크(안드로이드 앱): AudioRecord(AGC 없음)가 24kHz PCM16 청크를 base64 로 전달.
       // 게이트·VAD·음소거는 브라우저 경로와 동일 로직 — 카운터만 프레임 수 대신 ms 로 센다(청크 길이 가변).
       const TH = 0.015;
-      const vad = { speaking: false, silenceMs: 0, sinceMs: 0 };
       let lastActivitySent = 0;
       let gateOpenUntil = 0;
       let prevRaw = null; // 직전 무음화 프레임(게이트 온셋 프리롤용)
@@ -479,14 +478,6 @@ export async function startRecorder(opts) {
         if (wOpen) w.send(gated ? new ArrayBuffer(n * 2) : ab);
         prevRaw = gated ? ab : null; // 무음화된 프레임만 보관(프리롤 후보)
         if (peak > TH) notifyActivityAll();
-        vad.sinceMs += frameMs;
-        if (peak > TH) { vad.speaking = true; vad.silenceMs = 0; } else vad.silenceMs += frameMs;
-        if (vad.speaking && (vad.silenceMs >= 800 || vad.sinceMs >= 2500)) {
-          if (wOpen) w.send(JSON.stringify({ type: 'commit' }));
-          vad.speaking = false;
-          vad.silenceMs = 0;
-          vad.sinceMs = 0;
-        }
       };
       if (!window.AndroidAudio.start()) {
         // 시작 실패(권한 미허용 등) — 이미 연 자원을 정리하고 getUserMedia 거부와 동일하게 실패 전파
@@ -516,10 +507,7 @@ export async function startRecorder(opts) {
 
     const frameMs = (4096 / inRate) * 1000;
     // 클라이언트는 자주 커밋해 원문을 흘려보내고, 표시 단위는 서버의 N초 배칭이 결정
-    const SIL = Math.ceil(800 / frameMs); // 약 0.8초 무음 = 커밋
-    const MAXF = Math.ceil(2500 / frameMs); // 연속 발화도 2.5초마다 커밋(서버가 모아서 N초 단위로 표시)
     const TH = 0.015;
-    const vad = { speaking: false, silence: 0, since: 0 };
     let lastActivitySent = 0;
     let gateOpenUntil = 0; // 게이트가 열려 있는(전송) 시한 — 마지막 큰 소리 이후 hold
     let prevRaw = null;    // 직전 무음화 프레임(게이트 온셋 프리롤용)
@@ -612,18 +600,6 @@ export async function startRecorder(opts) {
 
       // 소리(시스템 오디오 포함)가 들리면 유휴 자동종료 방지 신호 — 모든 연결에 전송(전역)
       if (peak > TH) notifyActivityAll();
-
-      vad.since++;
-      if (peak > TH) {
-        vad.speaking = true;
-        vad.silence = 0;
-      } else vad.silence++;
-      if (vad.speaking && (vad.silence >= SIL || vad.since >= MAXF)) {
-        if (wOpen) w.send(JSON.stringify({ type: 'commit' }));
-        vad.speaking = false;
-        vad.silence = 0;
-        vad.since = 0;
-      }
     };
     pipe.proc = proc;
 

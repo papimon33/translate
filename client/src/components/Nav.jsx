@@ -70,7 +70,7 @@ export const ADMIN_TABS = [
   { v: 'system', label: '시스템·보안' },
 ];
 
-export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, adminTab, currentSessionId, onHome, onDesk, onSummaries, onTerms, onAdmin, onOpenSession, onLogout, onUserUpdate }) {
+export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, adminTab, currentSessionId, onHome, onDesk, onAdmin, onOpenSession, onLogout, onUserUpdate }) {
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
   const [edit, setEdit] = useState(false);

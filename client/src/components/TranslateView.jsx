@@ -226,7 +226,6 @@ export default function TranslateView({ session: initial, onBack }) {
   const [preset, setPreset] = useState(initial.preset || null); // 번역 이력이 없으면 세션 안에서 변경 가능
   const onewayPreset = ['live', 'oneway', 'online'].includes(preset);
   const [sourceMode, setSourceMode] = useState(['oneway', 'online'].includes(initial.preset) ? 'system' : 'mic');
-  const [srcVisible, setSrcVisible] = useState(localStorage.getItem('kac-src') !== '0');
   const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
   const [volume, setVolume] = useState(() => {
     const s = localStorage.getItem('kac-vol'); // 0(음소거)도 유효한 저장값 — v > 0 판정으로 무시되던 문제 수정
@@ -618,7 +617,6 @@ export default function TranslateView({ session: initial, onBack }) {
         inLang: cfg.inLang,
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
-        refine: true,
         audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn),
         tts: cfg.pipeline === 'soniox' && ttsOn, // 음성재생(TTS)
         gender,
@@ -736,12 +734,6 @@ export default function TranslateView({ session: initial, onBack }) {
     if (recRef.current && recRef.current.setMuted) recRef.current.setMuted(next);
   };
 
-  const toggleSrc = (v) => {
-    setSrcVisible(v);
-    localStorage.setItem('kac-src', v ? '1' : '0');
-  };
-  // 토글은 '완성 문장 아래 회색 원어'만 제어. 실시간 한 줄(partial)은 항상 표시.
-  const showSource = cfg.pipeline === 'desk' ? true : (cfg.pipeline !== 'translate' && srcVisible);
   const showPartial = true;
   const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
   const PRESET_LABEL = { live: '현장 음성 번역', oneway: 'PC 음성 번역', twoway: '대화 번역', mobile: '대화 번역', online: 'PC 음성 번역', field: '대화 번역', meeting: '대화 번역' };

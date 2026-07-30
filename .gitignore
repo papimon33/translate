@@ -6,11 +6,13 @@ data/
 .env
 *.log
 
-# eval TTS 오디오(생성물, make-tts-audio.mjs 로 재생성)
-eval/tts-audio/*.mp3
-# STT 회귀 루프 생성물(TTS PCM 캐시 + 리포트)
-eval/tts-audio/regression/
-eval/stt-regression.out.json
+.DS_Store
+
+# eval 생성물(오디오·캐시·리포트) — 스크립트로 재생성. 소스(*.mjs/*.json 스크립트·스크립트 데이터)는 커밋.
+#  ⚠ 디렉터리형(eval/tts-audio/)으로 무시하면 ! 예외가 먹지 않으므로 와일드카드로 지정한다.
+eval/tts-audio/*
+eval/*.out.json
+eval/tts-audio.zip
 
 android/.gradle/
 android/build/

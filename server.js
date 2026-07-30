@@ -118,8 +118,12 @@ if (!fs.existsSync(STATIC_DIR)) {
   console.warn('\n[경고] dist 폴더가 없습니다. 먼저 `npm run build` 를 실행하세요. (npm start 는 자동 빌드)\n');
 }
 app.use(express.static(STATIC_DIR));
-// 2.5D 맵 라이브러리/데이터/아이콘 — 데스크 뷰어 길안내용
-app.use('/map', express.static(new URL('./map/', import.meta.url).pathname));
+// 2.5D 맵 라이브러리/데이터 — 데스크 뷰어 길안내용.
+// 디렉터리 통째 서빙(express.static)은 인증 미들웨어보다 앞이라 제작용 도구 파일(test.html,
+// _serve.py, original/*.html 등)까지 무인증 공개됐다 → 뷰어가 실제로 로드하는 2개만 노출한다.
+for (const f of ['wayfinding_data.js', 'airport25d.js']) {
+  app.get('/map/' + f, (req, res) => res.sendFile(new URL('./map/' + f, import.meta.url).pathname));
+}
 
 // 데스크 뷰어 PWA manifest(세션별 start_url) — '홈 화면에 추가'로 실행 시 항상 전체화면 유지
 app.get('/desk.webmanifest', (req, res) => {
@@ -1981,7 +1985,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice());
   // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
-  const preset = ['live', 'oneway', 'twoway', 'mobile', 'meeting', 'online', 'field'].includes(b.preset) ? b.preset : undefined;
+  const preset = ['live', 'oneway', 'twoway'].includes(b.preset) ? b.preset : undefined; // 신규 생성은 현행 3종만(구 preset 세션의 읽기 호환은 유지)
   // 데스크 안내: 레지스트리(관리자 사전 정의)에서 데스크 선택 → 층/방향/데스크명 복사.
   // deskId 없이 직접 deskFloor/deskSide 를 주는 구형 경로도 하위호환으로 유지.
   let deskName;
@@ -2779,101 +2783,6 @@ async function spacingPolish(text) {
   }
 }
 
-/* 누적된 원문에서 "완결된 문장만" 번역하고, 끝의 미완성 부분은 remainder 로 돌려준다.
-   whisper 가 마침표를 안 찍어도 GPT 가 문법으로 경계를 판단한다. */
-async function segmentTranslate(text, context, force, targetLang, polish, model) {
-  const useModel = model && /^gpt-/.test(model) ? model : REFINE_MODEL;
-  const langName = LANG_NAMES[targetLang] || targetLang;
-  const ctxLine =
-    context && context.length
-      ? '\n참고(직전 번역, 말투 맞추기용): ' + context.map((p) => p.tr).join(' ')
-      : '';
-  const sys =
-    `너는 실시간 음성 통역사다. 입력은 음성 인식으로 받아쓴 것이라 문장부호가 빠져 있거나 문장 중간에서 끝날 수 있다.\n` +
-    `할 일:\n` +
-    `- 입력에서 의미가 완결된 문장들만 골라 ${langName}로 옮긴다. 딱딱한 직역투를 피하고, 원문에 얽매이기보다 의미가 매끄럽게 전달되도록 적당히 의역하여 부드럽고 자연스러운 구어체로 다듬는다.\n` +
-    (force
-      ? `- 입력 전체를 번역한다(끝이 미완성이라도). remainder 는 빈 문자열.\n`
-      : `- translation 에는 주어와 서술어를 갖춘 '완결된 문장'만 넣는다.\n` +
-        `- 끝이 문장 도중에서 끊겼거나, 동사가 없는 도입부 조각(예: 전치사구만 있음)뿐이면 번역하지 말고 원문 그대로 remainder 에 남긴다.\n` +
-        `- 완결 문장이 하나도 없으면 translation 은 빈 문자열, remainder 에 입력 전체.\n`) +
-    `- remainder 에는 입력의 '맨 뒤 미완성 부분(꼬리)'만 원문 그대로 담는다. 이미 번역한 앞부분은 절대 remainder 에 넣지 않는다. 입력 전체를 remainder 로 주지 마라.\n` +
-    `- 입력의 어떤 내용도 버리지 마라(번역에 넣거나 remainder 에 넣거나 둘 중 하나).\n` +
-    `- 음성 인식 특성상 같은 단어/구가 연달아 중복될 수 있다(예: "we We", "they They", "between In my best"). 중복은 한 번만 반영한다.\n` +
-    `- 여러 문장이면 각 문장을 그대로 유지하고 서로 합치지 않는다.\n` +
-    `- 문체는 글이 아니라 '말'이다. 실제 말하듯 자연스러운 구어체로 옮긴다(딱딱한 문어체·번역체 금지, '~예요/~해요/~거든요/~네요' 같은 말투). 정중함은 유지하되 반말은 섞지 않는다.\n` +
-    `- 직역해서 어색한 표현은 한국어다운 자연스러운 표현으로 바꾼다(자연스러움 우선, 단 의미는 정확히 유지).\n` +
-    `- 학년은 한국식으로 자연스럽게 옮긴다(예: seventh grade → 7학년).\n` +
-    `- 고유명사·지명은 발음을 살리고, 추측성 괄호·부연은 넣지 않는다.${ctxLine}\n` +
-    `출력은 JSON 한 개: {"translation": "...", "remainder": "..."}`;
-  try {
-    const body = {
-      model: useModel,
-      messages: [
-        { role: 'system', content: sys },
-        { role: 'user', content: text },
-      ],
-      max_completion_tokens: 600,
-      response_format: { type: 'json_object' },
-    };
-    const re = reasoningEffort(useModel);
-    if (re) body.reasoning_effort = re;
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      console.error('[segment] HTTP', r.status, await r.text());
-      return { translation: await translateText(text, targetLang, polish, context, useModel), remainder: '' };
-    }
-    const data = await r.json();
-    const obj = JSON.parse(data?.choices?.[0]?.message?.content || '{}');
-    return { translation: (obj.translation || '').trim(), remainder: (obj.remainder || '').trim() };
-  } catch (e) {
-    console.error('[segment] error', e);
-    return { translation: await translateText(text, targetLang, polish, context, useModel), remainder: '' };
-  }
-}
-
-/* 약어(Dr. Mr. U.S. e.g. 등)·소수(3.5)·머리글자(J.)를 문장 끝으로 오인하지 않는 문장 분리기 */
-const ABBR = new Set([
-  'mr', 'mrs', 'ms', 'dr', 'prof', 'st', 'sr', 'jr', 'vs', 'etc', 'e.g', 'i.e',
-  'a.m', 'p.m', 'u.s', 'u.k', 'mt', 'no', 'vol', 'fig', 'inc', 'ltd', 'co', 'corp',
-  'dept', 'gen', 'sen', 'rep', 'gov', 'lt', 'col', 'sgt', 'capt', 'cmdr', 'rev', 'hon', 'ph.d',
-]);
-const CLOSERS = '\'"”’」』)]';
-function splitSentences(buf) {
-  const sentences = [];
-  let start = 0;
-  const pushFrom = (i) => {
-    let j = i + 1;
-    while (j < buf.length && (CLOSERS.includes(buf[j]) || buf[j] === ' ')) j++;
-    const s = buf.slice(start, j).trim();
-    if (s) sentences.push(s);
-    start = j;
-    return j - 1;
-  };
-  for (let i = 0; i < buf.length; i++) {
-    const ch = buf[i];
-    if (ch === '\n' || '!?。！？…'.includes(ch)) {
-      i = pushFrom(i);
-    } else if (ch === '.') {
-      const prev = buf[i - 1] || '';
-      const next = buf[i + 1] || '';
-      if (next === '.') continue; // 생략부호/연속점
-      if (/\d/.test(prev) && /\d/.test(next)) continue; // 소수 3.5
-      const before2 = buf[i - 2];
-      if (/[A-Za-z0-9]/.test(prev) && (before2 === undefined || /\s/.test(before2))) continue; // 머리글자/번호 "J." "1."
-      const wm = buf.slice(start, i).match(/([A-Za-z][A-Za-z.]*)$/);
-      const lastWord = wm ? wm[1].toLowerCase().replace(/\.+$/, '') : '';
-      if (ABBR.has(lastWord)) continue; // 약어
-      i = pushFrom(i);
-    }
-  }
-  return { sentences, rest: buf.slice(start) };
-}
-
 /* ------------------------------------------------------------------ */
 /*  데스크 길안내 — 시설 데이터 로드 + 카테고리→인스턴스 해석                */
 /* ------------------------------------------------------------------ */
@@ -2964,13 +2873,11 @@ server.on('upgrade', (req, socket, head) => {
       ws._src = searchParams.get('src') || 'mic'; // mic | system
       ws._out = searchParams.get('out') || TARGET_LANG;
       ws._in = searchParams.get('in'); // 입력 언어 코드 | 'auto' | null
-      ws._refine = searchParams.get('refine'); // '0' | '1' | null
       ws._pipeline = searchParams.get('pipeline'); // 'whisper' | 'translate' | null
       ws._audioOut = searchParams.get('audioOut') === '1'; // translate 번역 음성 재생 여부
       ws._sxSens = searchParams.get('sxSens');       // soniox endpoint_sensitivity (-1~1)
       ws._sxMaxDelay = searchParams.get('sxMaxDelay'); // soniox max_endpoint_delay_ms (500~3000)
       ws._sxLatency = searchParams.get('sxLatency');   // soniox endpoint_latency_adjustment_level (0~3)
-      ws._model = searchParams.get('model');           // 번역 GPT 모델 오버라이드(테스트용)
       ws._sxMode = searchParams.get('sxMode');     // soniox 번역 방향 'one'|'two'
       ws._sxTarget = searchParams.get('sxTarget'); // 단방향 타깃 언어
       ws._sxA = searchParams.get('sxA');           // 양방향 언어 A
@@ -3142,7 +3049,6 @@ function handleViewer(ws) {
     const m2 = dc && dc.mic2 ? dc.mic2() : undefined; // PC 호스트가 여객 마이크 공급 중이면 뷰어는 표출 전용
     if (s && s.sxInfo) ws.send(JSON.stringify({ type: 'meta', sxInfo: s.sxInfo, ...(gs != null ? { guestSens: gs } : {}), ...(m2 != null ? { mic2: m2 } : {}) })); // 접속/재접속 시 현재 상태 동기화
   }
-  broadcast(ws._session, { type: 'viewers', count: room.viewers.size }); // 뷰어 수(랜딩 표시)
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
       // 데스크 여객 태블릿 마이크(2채널) — desk-mic on 을 보낸 뷰어의 오디오는 여객 채널로
@@ -3201,7 +3107,6 @@ function handleViewer(ws) {
     if (talk) { talk.stop(); talk = null; }
     if (room.speaking === ws) { room.speaking = null; broadcastPttState(ws._session); } // 발화 중 이탈 → 락 해제
     if (ws._deskMic) { const dc = deskCtrl.get(ws._session); if (dc && dc.guestMic) dc.guestMic(false, ws); } // 여객 마이크 이탈 → 단일 채널 폴백
-    broadcast(ws._session, { type: 'viewers', count: room.viewers.size });
     maybeGcRoom(ws._session);
   });
 }
@@ -3321,12 +3226,9 @@ function handleHost(ws) {
       if (JSON.parse(data.toString()).type === 'activity') bumpIdle();
     } catch {}
   });
-  const polish = true; // 다듬기 필수
   const inRaw = ws._in != null ? ws._in : session ? session.inLang : null;
   const inLang = inRaw && inRaw !== 'auto' ? inRaw : null;
   const pipeline = ws._pipeline || (session && session.pipeline) || 'whisper';
-  // 번역 GPT 모델(테스트용 오버라이드). 미지정/이상값이면 기본 REFINE_MODEL.
-  const refineModel = ws._model && /^gpt-/.test(ws._model) ? ws._model : REFINE_MODEL;
   // 출력 언어 목록: whisper 는 다국어, translate 는 1개
   const sessionLangs =
     session && Array.isArray(session.langs) && session.langs.length
@@ -3552,7 +3454,6 @@ function handleHost(ws) {
     // context(용어집, input_text_tokens $4/1M)가 재청구돼 Soniox 비용의 71%를 차지했던 원인이라 제거.
     // 오인식 고착은 confFix(저신뢰 자동 교정)가 완화한다. 상세: PROJECT_NOTES 2026-07-15.
     idleClose = () => { sxClosed = true; try { sx && sx.close(); } catch {} };
-    const langsOut = sxMode === 'two' ? [sxA, sxB] : [sxTarget];
     // 폰 PTT 가 재사용할 호스트 설정 저장
     const cfg0 = buildConfig(); // 엔드포인트 파라미터 참조용(클램프된 값) — 폰 PTT 재사용 설정
     roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: cfg0.endpoint_sensitivity, maxDelay: cfg0.max_endpoint_delay_ms, latency: cfg0.endpoint_latency_adjustment_level, ttsOn, gender });

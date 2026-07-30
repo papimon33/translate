@@ -37,7 +37,8 @@
           "es": "¿Dónde está el baño?",
           "fr": "Où sont les toilettes ?",
           "pt": "Onde fica o banheiro?",
-          "ar": "أين دورة المياه؟"
+          "ar": "أين دورة المياه؟",
+          "ru": "Где находится туалет?"
         }
       },
       "answer": {
@@ -69,7 +70,8 @@
           "es": "¿Dónde está el mostrador de facturación de Korean Air?",
           "fr": "Où se trouve le comptoir d'enregistrement de Korean Air ?",
           "pt": "Onde fica o balcão de check-in da Korean Air?",
-          "ar": "أين مكتب تسجيل الوصول للخطوط الجوية الكورية (Korean Air)؟"
+          "ar": "أين مكتب تسجيل الوصول للخطوط الجوية الكورية (Korean Air)؟",
+          "ru": "Где находится стойка регистрации Korean Air?"
         }
       },
       "answer": {
@@ -99,7 +101,8 @@
           "es": "¿Dónde está el cajero automático?",
           "fr": "Où se trouve le distributeur automatique de billets ?",
           "pt": "Onde fica o caixa eletrônico?",
-          "ar": "أين جهاز الصراف الآلي؟"
+          "ar": "أين جهاز الصراف الآلي؟",
+          "ru": "Где здесь есть банкомат?"
         }
       },
       "answer": {
@@ -129,7 +132,8 @@
           "es": "¿Dónde está la tienda de conveniencia?",
           "fr": "Où se trouve la supérette ?",
           "pt": "Onde fica a loja de conveniência?",
-          "ar": "أين المتجر الصغير؟"
+          "ar": "أين المتجر الصغير؟",
+          "ru": "Где находится ближайший магазин?"
         }
       },
       "answer": {
@@ -161,7 +165,8 @@
           "es": "¿En qué piso está el mostrador de Asiana Airlines?",
           "fr": "À quel étage se trouve le comptoir d'Asiana Airlines ?",
           "pt": "Em que andar fica o balcão da Asiana Airlines?",
-          "ar": "في أي طابق يقع مكتب الخطوط الجوية الآسيوية (Asiana Airlines)؟"
+          "ar": "في أي طابق يقع مكتب الخطوط الجوية الآسيوية (Asiana Airlines)؟",
+          "ru": "아시아나항공 카운터는 몇 층인가요?"
         }
       },
       "answer": {
@@ -191,7 +196,8 @@
           "es": "¿Dónde está la sala de fumadores?",
           "fr": "Où se trouve le fumoir ?",
           "pt": "Onde fica a sala de fumantes?",
-          "ar": "أين غرفة التدخين؟"
+          "ar": "أين غرفة التدخين؟",
+          "ru": "Где находится курящая комната?"
         }
       },
       "answer": {
@@ -221,7 +227,8 @@
           "es": "¿Dónde puedo cargar mi teléfono?",
           "fr": "Où puis-je recharger mon téléphone ?",
           "pt": "Onde posso carregar meu celular?",
-          "ar": "أين يمكنني شحن هاتفي؟"
+          "ar": "أين يمكنني شحن هاتفي؟",
+          "ru": "Где можно зарядить телефон?"
         }
       },
       "answer": {
@@ -251,7 +258,8 @@
           "es": "¿Dónde puedo tomar un taxi?",
           "fr": "Où puis-je prendre un taxi ?",
           "pt": "Onde posso pegar um táxi?",
-          "ar": "من أين آخذ سيارة أجرة؟"
+          "ar": "من أين آخذ سيارة أجرة؟",
+          "ru": "Такси откуда брать?"
         }
       },
       "answer": {
@@ -283,7 +291,8 @@
           "es": "¿Dónde está el mostrador de Jeju Air?",
           "fr": "Où se trouve le comptoir de Jeju Air ?",
           "pt": "Onde fica o balcão da Jeju Air?",
-          "ar": "أين مكتب خطوط جيجو الجوية (Jeju Air)؟"
+          "ar": "أين مكتب خطوط جيجو الجوية (Jeju Air)؟",
+          "ru": "Где находится стойка Jeju Air?"
         }
       },
       "answer": {
@@ -313,7 +322,8 @@
           "es": "¿Dónde está la salida más cercana?",
           "fr": "Où est la sortie la plus proche ?",
           "pt": "Onde fica a saída mais próxima?",
-          "ar": "أين أقرب مخرج؟"
+          "ar": "أين أقرب مخرج؟",
+          "ru": "Где ближайший выход?"
         }
       },
       "answer": {
@@ -346,7 +356,8 @@
           "es": "¿Cómo llego a la puerta 27?",
           "fr": "Comment aller à la porte 27 ?",
           "pt": "Como chego ao portão 27?",
-          "ar": "كيف أصل إلى البوابة 27؟"
+          "ar": "كيف أصل إلى البوابة 27؟",
+          "ru": "Как пройти к выходу 27?"
         }
       },
       "answer": {
@@ -379,7 +390,8 @@
           "es": "¿Dónde está el mostrador de tránsito?",
           "fr": "Où se trouve le comptoir de correspondance ?",
           "pt": "Onde fica o balcão de conexão?",
-          "ar": "أين مكتب الترانزيت؟"
+          "ar": "أين مكتب الترانزيت؟",
+          "ru": "Где находится стойка перехода (transit)?\""
         }
       },
       "answer": {
@@ -409,7 +421,8 @@
           "es": "¿Dónde puedo envolver mi equipaje?",
           "fr": "Où puis-je faire emballer mes bagages ?",
           "pt": "Onde posso embalar minha bagagem?",
-          "ar": "أين يمكنني تغليف أمتعتي؟"
+          "ar": "أين يمكنني تغليف أمتعتي؟",
+          "ru": "Где можно воспользоваться услугой упаковки чемоданов?"
         }
       },
       "answer": {
@@ -442,7 +455,8 @@
           "es": "¿Cuándo abre la facturación de Jin Air?",
           "fr": "Quand ouvre l'enregistrement de Jin Air ?",
           "pt": "Quando abre o check-in da Jin Air?",
-          "ar": "متى يبدأ تسجيل الوصول لطيران جين (Jin Air)؟"
+          "ar": "متى يبدأ تسجيل الوصول لطيران جين (Jin Air)؟",
+          "ru": "Когда начинается регистрация на Flight Jen?"
         }
       },
       "answer": {
@@ -474,7 +488,8 @@
           "es": "¿Dónde tomo el autobús del aeropuerto hacia la ciudad?",
           "fr": "Où puis-je prendre le bus de l'aéroport pour aller en ville ?",
           "pt": "Onde pego o ônibus do aeroporto para a cidade?",
-          "ar": "من أين آخذ حافلة المطار المتجهة إلى المدينة؟"
+          "ar": "من أين آخذ حافلة المطار المتجهة إلى المدينة؟",
+          "ru": "Где садится автобус до города от аэропорта?"
         }
       },
       "answer": {
@@ -504,7 +519,8 @@
           "es": "¿Dónde está la oficina de objetos perdidos?",
           "fr": "Où se trouve le bureau des objets trouvés ?",
           "pt": "Onde fica o achados e perdidos?",
-          "ar": "أين مكتب المفقودات؟"
+          "ar": "أين مكتب المفقودات؟",
+          "ru": "Где находится бюро находок?"
         }
       },
       "answer": {
@@ -534,7 +550,8 @@
           "es": "¿Dónde está la sala de oración?",
           "fr": "Où se trouve la salle de prière ?",
           "pt": "Onde fica a sala de oração?",
-          "ar": "أين غرفة الصلاة؟"
+          "ar": "أين غرفة الصلاة؟",
+          "ru": "Где находится молельная комната?"
         }
       },
       "answer": {
@@ -566,7 +583,8 @@
           "es": "¿Dónde está el punto de recogida de artículos libres de impuestos?",
           "fr": "Où se trouve le point de retrait des achats hors taxes ?",
           "pt": "Onde fica o balcão de retirada de produtos duty-free?",
-          "ar": "أين نقطة استلام مشتريات السوق الحرة؟"
+          "ar": "أين نقطة استلام مشتريات السوق الحرة؟",
+          "ru": "Где находится выдача беспошлинной торговли?"
         }
       },
       "answer": {
@@ -598,7 +616,8 @@
           "es": "¿Dónde puedo preguntar sobre las normas de equipaje de T'way Air?",
           "fr": "Où puis-je me renseigner sur les règles de bagages de T'way Air ?",
           "pt": "Onde posso perguntar sobre as regras de bagagem da T'way Air?",
-          "ar": "أين يمكنني الاستفسار عن قواعد الأمتعة لطيران تيوي (T'way Air)؟"
+          "ar": "أين يمكنني الاستفسار عن قواعد الأمتعة لطيران تيوي (T'way Air)؟",
+          "ru": "Где узнать правила багажа у авиакомпании T’Way Air?"
         }
       },
       "answer": {
@@ -628,7 +647,8 @@
           "es": "¿Dónde puedo solicitar asistencia en silla de ruedas?",
           "fr": "Où puis-je demander une assistance en fauteuil roulant ?",
           "pt": "Onde posso solicitar assistência de cadeira de rodas?",
-          "ar": "أين يمكنني طلب مساعدة الكرسي المتحرك؟"
+          "ar": "أين يمكنني طلب مساعدة الكرسي المتحرك؟",
+          "ru": "Куда обратиться за помощью с инвалидной коляской?"
         }
       },
       "answer": {
@@ -661,7 +681,8 @@
           "es": "¿Cuánto cuesta el exceso de equipaje?",
           "fr": "Combien coûtent les frais d'excédent de bagages ?",
           "pt": "Quanto custa a taxa de excesso de bagagem?",
-          "ar": "كم رسوم الوزن الزائد للأمتعة؟"
+          "ar": "كم رسوم الوزن الزائد للأمتعة؟",
+          "ru": "Сколько стоит оплата за перевес багажа?"
         }
       },
       "answer": {
@@ -695,7 +716,8 @@
           "es": "¿El vuelo KE123 está retrasado?",
           "fr": "Le vol KE123 est-il retardé ?",
           "pt": "O voo KE123 está atrasado?",
-          "ar": "هل الرحلة KE123 متأخرة؟"
+          "ar": "هل الرحلة KE123 متأخرة؟",
+          "ru": "Задержится рейс KE123?"
         }
       },
       "answer": {
@@ -728,7 +750,8 @@
           "es": "¿Me puede decir la hora de embarque del vuelo KE081 de Korean Air?",
           "fr": "Pouvez-vous me dire l'heure d'embarquement du vol KE081 de Korean Air ?",
           "pt": "Pode me dizer o horário de embarque do voo KE081 da Korean Air?",
-          "ar": "هل يمكنك إخباري بوقت الصعود للرحلة KE081 للخطوط الجوية الكورية؟"
+          "ar": "هل يمكنك إخباري بوقت الصعود للرحلة KE081 للخطوط الجوية الكورية؟",
+          "ru": "Можете подсказать время посадки на рейс KE081 авиакомпании Korean Air?"
         }
       },
       "answer": {
@@ -762,7 +785,8 @@
           "es": "Tengo una conexión muy justa con el vuelo OZ102 de Asiana. ¿Qué debo hacer?",
           "fr": "J'ai une correspondance très serrée pour le vol OZ102 d'Asiana. Que dois-je faire ?",
           "pt": "Tenho uma conexão apertada para o voo OZ102 da Asiana. O que devo fazer?",
-          "ar": "لدي وقت ضيق للتوصيلة إلى رحلة الخطوط الآسيوية OZ102. ماذا أفعل؟"
+          "ar": "لدي وقت ضيق للتوصيلة إلى رحلة الخطوط الآسيوية OZ102. ماذا أفعل؟",
+          "ru": "У меня очень мало времени, чтобы сделать пересадку на рейс Asiana OZ102. Что мне делать?"
         }
       },
       "answer": {
@@ -795,7 +819,8 @@
           "es": "Llegué en un vuelo de Jeju Air, pero mi equipaje no salió.",
           "fr": "Je suis arrivé sur un vol de Jeju Air, mais mes bagages ne sont pas sortis.",
           "pt": "Cheguei em um voo da Jeju Air, mas minha bagagem não saiu.",
-          "ar": "وصلت على متن رحلة لخطوط جيجو الجوية، لكن أمتعتي لم تخرج."
+          "ar": "وصلت على متن رحلة لخطوط جيجو الجوية، لكن أمتعتي لم تخرج.",
+          "ru": "Я прилетел(а) рейсом Jeju Air, но багаж не вышел."
         }
       },
       "answer": {
@@ -828,7 +853,8 @@
           "es": "Mi vuelo de T'way Air fue cancelado. ¿Cómo obtengo un reembolso?",
           "fr": "Mon vol T'way Air a été annulé. Comment obtenir un remboursement ?",
           "pt": "Meu voo da T'way Air foi cancelado. Como consigo o reembolso?",
-          "ar": "أُلغيت رحلتي على طيران تيوي. كيف أحصل على استرداد المبلغ؟"
+          "ar": "أُلغيت رحلتي على طيران تيوي. كيف أحصل على استرداد المبلغ؟",
+          "ru": "Как получить возврат за отменённый рейс по авиакомпании T’Way?"
         }
       },
       "answer": {
@@ -860,7 +886,8 @@
           "es": "¿Hay un cargo adicional por una bolsa de golf?",
           "fr": "Y a-t-il un supplément pour un sac de golf ?",
           "pt": "Há uma taxa extra para uma bolsa de golfe?",
-          "ar": "هل هناك رسوم إضافية لحقيبة الغولف؟"
+          "ar": "هل هناك رسوم إضافية لحقيبة الغولف؟",
+          "ru": "Гольф‑чемодан перевозится за дополнительную плату?"
         }
       },
       "answer": {
@@ -893,7 +920,8 @@
           "es": "¿Puedo llevar medicamentos líquidos en el equipaje de mano?",
           "fr": "Puis-je emporter des médicaments liquides dans mon bagage à main ?",
           "pt": "Posso levar medicamentos líquidos na bagagem de mão?",
-          "ar": "هل يمكنني إحضار أدوية سائلة في أمتعة اليد؟"
+          "ar": "هل يمكنني إحضار أدوية سائلة في أمتعة اليد؟",
+          "ru": "Можно ли провозить жидкие лекарства в ручной клади?"
         }
       },
       "answer": {
@@ -926,7 +954,8 @@
           "es": "¿Ha cambiado la puerta de mi vuelo de Air Busan (BX)?",
           "fr": "La porte de mon vol Air Busan (BX) a-t-elle changé ?",
           "pt": "O portão do meu voo da Air Busan (BX) mudou?",
-          "ar": "هل تغيّرت بوابة رحلتي على طيران بوسان (BX)؟"
+          "ar": "هل تغيّرت بوابة رحلتي على طيران بوسان (BX)؟",
+          "ru": "BX 항공편의 게이트가 바뀌었나요?"
         }
       },
       "answer": {
@@ -959,7 +988,8 @@
           "es": "¿Cuál es el límite de la franquicia libre de impuestos?",
           "fr": "Quelle est la limite de la franchise hors taxes ?",
           "pt": "Qual é o limite da isenção de impostos?",
-          "ar": "ما هو حد الإعفاء الجمركي؟"
+          "ar": "ما هو حد الإعفاء الجمركي؟",
+          "ru": "НДС-льготная сумма до какой величины?"
         }
       },
       "answer": {
