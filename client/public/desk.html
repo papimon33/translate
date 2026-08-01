@@ -95,7 +95,7 @@
   #consentOk:active { filter:brightness(.92); }
 
   /* 무음 종료 예고 배너(터치로 연장) */
-  #idleWarn { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 30px); transform:translateX(-50%); z-index:15;
+  #idleWarn { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 104px); transform:translateX(-50%); z-index:15;
     display:none; align-items:center; background:var(--accent); color:#fff; font-size:15px; font-weight:700;
     padding:13px 22px; border-radius:18px; cursor:pointer; box-shadow:0 10px 30px rgba(79,70,229,.4); max-width:88vw; text-align:center; }
   #idleWarn.show { display:flex; }
@@ -117,7 +117,7 @@
   /* 하단 정렬은 justify-content:flex-end 대신 ::before 스페이서로 — flex-end + overflow 조합은
      iOS 사파리에서 위쪽 넘친 내용이 스크롤 불가(clipping)해지는 문제가 있음 */
   #stage { flex-direction:column; align-items:stretch; overflow-y:auto;
-    padding:calc(9vh + env(safe-area-inset-top)) 6vw calc(5vh + env(safe-area-inset-bottom));
+    padding:calc(9vh + env(safe-area-inset-top)) 6vw calc(env(safe-area-inset-bottom) + 104px);
     -webkit-mask-image:linear-gradient(to top,#000 62%,transparent 100%);
     mask-image:linear-gradient(to top,#000 62%,transparent 100%); }
   #stage::-webkit-scrollbar { display:none; }
@@ -172,12 +172,16 @@
   #a11y button:active { background:var(--chip); opacity:1; }
   #a11y .s { font-size:14px; } #a11y .l { font-size:20px; }
 
-  /* 종료(대기모드) 버튼 — 자동 숨김 */
-  #endBtn { position:fixed; top:calc(env(safe-area-inset-top) + 12px); right:14px; z-index:12;
-    width:40px; height:40px; border-radius:13px; border:1px solid var(--line);
-    background:var(--card); color:var(--muted); display:flex; align-items:center; justify-content:center;
-    cursor:pointer; opacity:0; pointer-events:none; transition:opacity .25s; }
-  #endBtn.show { opacity:1; pointer-events:auto; }
+  /* 종료 버튼 — 손님 대화 화면 하단에 항상 보인다.
+     이전에는 우상단 40px 아이콘이 화면 탭 후 3초만 나타났는데, 손님이 그 존재를 알 방법이 없었다.
+     #stage 의 하단 padding(104px)이 이 버튼 높이를 비워 두므로 말풍선이 가려지지 않는다. */
+  #endBtn { position:fixed; left:50%; transform:translateX(-50%); z-index:12;
+    bottom:calc(env(safe-area-inset-bottom) + 20px); width:min(560px, calc(100vw - 12vw));
+    min-height:64px; padding:16px 24px; border-radius:20px; border:1px solid var(--line);
+    background:var(--card); color:var(--muted); font-size:calc(19px * var(--fs)); font-weight:800;
+    display:none; align-items:center; justify-content:center; gap:10px; cursor:pointer; }
+  #endBtn.show { display:flex; }
+  #endBtn:active { background:var(--chip); }
   /* 오프라인 안내 배너 — 연결이 끊긴 줄 모르고 대기하는 문제 방지 */
   #netBanner { display:none; position:fixed; top:0; left:0; right:0; z-index:90; background:#e8912d; color:#fff;
     text-align:center; padding:7px 10px calc(7px + env(safe-area-inset-top, 0px)); font-size:13px; font-weight:700; }
@@ -244,7 +248,7 @@
     <button class="s" data-d="-1" aria-label="글씨 작게">A−</button>
     <button class="l" data-d="1" aria-label="글씨 크게">A+</button>
   </div>
-  <div id="endBtn" aria-label="대기모드로">✕</div>
+  <div id="endBtn" role="button" tabindex="0"><span id="endBtnTxt"></span></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -265,6 +269,9 @@ function show(id){
   const svc = (id === 'stage');
   $('svcBar').classList.toggle('show', svc);
   $('a11y').classList.toggle('show', svc);
+  // 종료 버튼은 대화 화면에서만, 손님 언어로. 자동 숨김 없이 항상 보인다.
+  $('endBtn').classList.toggle('show', svc);
+  if (svc) $('endBtnTxt').textContent = curLang === 'auto' ? UI.endBtn.ko + ' · ' + UI.endBtn.en : t('endBtn');
 }
 function esc(s){ return String(s).replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 let toastTimer = null;
@@ -318,6 +325,7 @@ const UI = {
     ar:'لتقديم خدمة الترجمة، قد تتم معالجة بياناتك الصوتية بواسطة خدمة خارجية للتعرف على الكلام، وقد يتم حفظ محتوى المحادثة لتحسين جودة الخدمة.',
   },
   consentBtn: { ko:'동의하고 시작', en:'Agree and start', ja:'同意して開始', zh:'同意并开始', vi:'Đồng ý và bắt đầu', th:'ยอมรับและเริ่ม', id:'Setuju dan mulai', ru:'Принять и начать', tl:'Sumang-ayon at magsimula', es:'Aceptar y comenzar', fr:'Accepter et commencer', de:'Zustimmen und starten', ar:'الموافقة والبدء' },
+  endBtn: { ko:'대화 종료', en:'End conversation', ja:'会話を終了', zh:'结束对话', vi:'Kết thúc', th:'จบการสนทนา', id:'Akhiri percakapan', ru:'Завершить', tl:'Tapusin', es:'Finalizar', fr:'Terminer', de:'Beenden', ar:'إنهاء المحادثة' },
   walk:         { ko:'도보', en:'Walk', ja:'徒歩', zh:'步行', vi:'Đi bộ' },
   min:          { ko:'분', en:' min', ja:'分', zh:'分钟', vi:' phút' },
 };
@@ -794,10 +802,6 @@ async function loadRooms(){
   } catch { box.innerHTML = '<div id="roomsEmpty">목록을 불러오지 못했습니다.</div>'; }
 }
 
-/* ---- 종료 버튼 자동 숨김 ---- */
-let endTimer = null;
-function flashEnd(){ $('endBtn').classList.add('show'); clearTimeout(endTimer); endTimer = setTimeout(() => $('endBtn').classList.remove('show'), 3000); }
-
 /* ---- 화면 전환 이벤트 ---- */
 $('enterBtn').addEventListener('click', () => { entered = true; goFullscreen(); ensureWs(); show('touchWrap'); });
 // 대기 화면: 언어 버튼 원탭으로 바로 시작
@@ -807,7 +811,6 @@ $('consentOk').addEventListener('click', consentAndStart);
 // 기타 언어: 언어 선택 없이 바로 발화 화면 — 서버가 첫 발화로 언어를 감지해 양방향 전환
 $('otherLangBtn').addEventListener('click', () => startWithLang('auto'));
 $('endBtn').addEventListener('click', end);
-$('stage').addEventListener('click', flashEnd);
 // 전체화면이 풀렸으면(ESC·시스템 제스처) 다음 터치에서 자동으로 전체화면 복귀
 // + 여객 마이크 AudioContext 가 제스처 없이 시작돼 suspended 면(호스트 측 시작 케이스) 터치로 재개
 document.addEventListener('click', () => {
