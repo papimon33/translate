@@ -56,6 +56,35 @@
 - 모바일: 세션 화면 옵션바 기본 접힘(<600px), 타이틀바·간격 축소, 하단 버튼 세이프에어리어. 관리자 카드류 borderRadius 3→2.
 - 테스트: `npm test` = smoke + `test/security.test.mjs`(base32/TOTP RFC 벡터/암호화 라운드트립·변조감지/에코 매칭) + `test/boot.test.mjs`(더미 키로 실제 기동→/health).
 - **전면 감사 후 안정화(49건 수정)**: 공개 GET 세션은 화이트리스트 필드만(deskLog 등 미노출) · 운영 기동 게이트(AUTH_SECRET/ADMIN_PASSWORD 필수, ALLOW_INSECURE=1 우회) · 쿠키 토큰 30일 만료(id.ts.sig — 구 쿠키는 재로그인 1회) · WS 하트비트 30s(ping/pong, 죽은 소켓 락 해제) + 빈 room GC · 세션 삭제 시 연결 강제 종료·부속맵 정리 · 원자적 파일 쓰기(tmp+rename) · JSON 바디 기본 256kb(terms-config만 16mb)·client-log IP당 분당 10회 · api.js json 이 r.ok 검사(오류 전파) · 에코/crossDup 매칭은 길이비 0.6 이상만(따라 말하기 오탐 제거) · 중복 확정은 5초 창 내만 · 빈 커밋/에코 드랍 시 클라 카드 제거(sentence 빈 페이로드=삭제 규약) · runSoniox 자동 재연결+全 pending 큐 24프레임 상한 · runWhisper flush 보류 재실행(마지막 문장 유실 수정) · desk endConversation 은 현 등록 ctrl 만 세션 조작(좀비 가드)+guestCommit 포함, 여객 스트림 소유 소켓만 수용, wayfind 비동기 세대 가드 · langVotes 동률 유지 · takeover 레이스(클라 stop 후 제어 메시지 무시)+호스트 WS 자동 재연결(audio.js wire/pipe.ws) · 언마운트 시 stopReq 로 권한 대기 레코더 정리 · desk.html enterStage 재진입/thanks 타이머/절전 후 meta 동기화(started 재전송 제거)/keepalive 보류 재전송/지도 스크립트 재시도 상한/#stage 스페이서 스크롤 · mobile.html connect 중복 가드/PTT 재접속 재전송·이중탭 가드·백프레셔/카드 300개 상한 · desktop mac loopback 분기.
+- **안내데스크 태블릿 3건(2026-08-01, 설계 `docs/superpowers/specs/2026-08-01-desk-tablet-access-language-consent-design.md`)**:
+  ① **공개 목록에서 뷰어 토큰 제거** — `GET /api/desk-sessions` 가 무인증인데 `t: viewerToken(s.id)` 를 실어
+  보내, 인터넷에서 누구나 진행 중인 승객 대화를 수신하고 `desk-end` 로 응대를 원격 종료할 수 있었다
+  (`deskCtlAllowed` 는 빈도만 제한). 토큰은 세션 파생 HMAC 이라 만료가 없다 — 바꾼 것은 수명이 아니라
+  **얻는 경로**로, 이미 인증 게이트(`viewerAccessOk`)가 있는 `GET /api/qr?session=..` 로만 배포한다.
+  ⚠ 랜딩 목록 선택 경로가 사라지지만 **안내원 부담은 줄어든다** — 그 경로는 매 부팅 데스크를 탭해야 했고,
+  세션 QR 로 설치한 태블릿은 부팅하면 바로 그 데스크다. 회귀 테스트 `test/desk-access.test.mjs`,
+  헬퍼 `deskToken()`(`test/helpers/boot.mjs`) — 기존 데스크 E2E 3개도 이 경로로 이관.
+  ② **손님 언어 12개 스크롤 리스트** — `en ja zh vi th id ru tl es fr de ar`. 드럼 휠 대신 리스트인 이유:
+  김포 국제선은 en/ja/zh 가 대다수인데 휠은 그 손님까지 스핀+확인 2동작을 요구한다. ⚠ **몽골어(mn)는 제외** —
+  `LANGNAME` 에는 있으나 `SONIOX_LANGS` 에 없어 명시 선택도 자동감지도 불가(엔진 제약, 벤더를 바꿔도 동일).
+  함께: `startConversation` 이 `GUEST_LANGS` 밖 선택을 조용히 `'en'` 으로 바꾸던 폴백 제거 → `SONIOX_LANGS`
+  (60개)로 검증하고 미지원이면 자동감지로. **`GUEST_LANGS` 는 그대로 둔다** — 자동감지 `language_hints`
+  전용이라 늘리면 힌트가 희석된다.
+  ③ **개인정보 고지 모달** — 언어 선택 → 그 언어로 고지 → `[동의하고 시작]` → 발화 대기. 손님당 1회
+  (응대 종료 후 다음 손님에게 다시). 자동감지 경로는 한국어+영어 병기, 아랍어는 `dir=rtl`.
+  동의 시각은 `desk-start` 의 `consent` 필드 → `deskLog[].consentAt`(구버전 캐시 클라는 안 보내므로 생략 허용).
+  문구에 **'AI 학습'은 쓰지 않았다** — 실제로 학습에 쓰지 않고, 그렇게 쓰면 별도 동의가 필요한 처리로
+  해석될 여지가 있다. 보유기간·국외이전 업체명을 담은 전체 처리방침은 기관 산출물(범위 밖).
+  고지 화면은 `desk-reset` 수신 조건에 `pendingLang` 을 포함시키고 45초 방치 타이머를 둬야 한다 —
+  안 그러면 손님 A가 미동의 이탈한 뒤 손님 B가 A의 언어로 시작된다.
+  하단 종료 버튼은 `--fs`(손님 글자 배율)에 연동돼 커지므로, `#stage` 하단 여백과 `#idleWarn`·`#toast`
+  위치가 CSS 변수 `--endH`(버튼 실측 높이)를 따라가야 한다. 고정값이면 큰 글씨에서 말풍선이 가린다.
+  ④ **코드로 해결 못 하는 운영 사항** — 안내원이 **노트북을 덮으면 그 데스크가 오프라인**이 된다. OS 절전으로
+  마이크 캡처와 WS 가 끊기고 손님 화면은 '안내원 준비 중'이 된다. 덮개를 열면 조작 없이 복구되는 것은
+  `test/desk-host-recovery.test.mjs` 로 확인했으나(급이탈·승계 두 경우 모두), 덮혀 있는 동안은 죽어 있다.
+  게다가 하트비트가 30초(`HEARTBEAT_MS`)라 서버가 이탈을 알아채기 전 최대 30초 동안 태블릿은 데스크를
+  '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
+  → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
 - **과금 폭주 방어 + 시범 데이터 손실 차단(2026-08-01, 시범운영 전 필수 A2·A5)**:
   ① **데스크 엔진 재연결 상한·백오프** — `connectSx`/`connectGuest` 의 close 핸들러가 **고정 800ms 무한 재시도**였다.
   `runSoniox` 에는 `sxFails` 8회 상한 + 지수 백오프가 있는데 데스크에만 빠져 있었다. 재연결 1회마다 용어집 context 가
