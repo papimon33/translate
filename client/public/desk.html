@@ -107,8 +107,12 @@
   #thanks .big { font-size:clamp(34px,7vw,60px); font-weight:800; color:var(--fg); }
   #thanks .small { font-size:16px; color:var(--muted); font-weight:600; }
 
-  /* 토스트(안내원 미준비 등) */
-  #toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 34px); transform:translateX(-50%);
+  /* 토스트(안내원 미준비 등)
+     하단 34px는 손님 대화 화면(#endBtn 상시노출 + #idleWarn)과 겹쳤다(리뷰 지적).
+     실측(375px 폭, 최장 문구 기준): #idleWarn 최대 높이 96px(id/ru, 3줄 래핑) → 상단 끝 = safe+104+96=safe+200.
+     #endBtn 은 항상 그보다 훨씬 낮게 끝난다(safe+84). 화면별 분기 없이 한 값으로
+     #idleWarn 위 10px 여유를 두고 배치 — 대기 화면 등 버튼 없는 화면에선 조금 높이 뜨지만 문제 없음. */
+  #toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 210px); transform:translateX(-50%);
     background:var(--fg); color:var(--bg); font-size:15px; font-weight:700; padding:13px 22px; border-radius:16px;
     opacity:0; pointer-events:none; transition:opacity .25s; z-index:20; max-width:86vw; text-align:center; }
   #toast.show { opacity:.94; }
@@ -271,7 +275,12 @@ function show(id){
   $('a11y').classList.toggle('show', svc);
   // 종료 버튼은 대화 화면에서만, 손님 언어로. 자동 숨김 없이 항상 보인다.
   $('endBtn').classList.toggle('show', svc);
-  if (svc) $('endBtnTxt').textContent = curLang === 'auto' ? UI.endBtn.ko + ' · ' + UI.endBtn.en : t('endBtn');
+  if (svc) syncEndBtnLabel();
+}
+// 종료 버튼 라벨 — curLang 이 바뀌는 모든 지점(재확정 포함)에서 호출해야 라벨이 어긋나지 않는다.
+// auto(기타 언어, 자동감지 중)는 아직 손님 언어를 모르므로 한국어+영어 병기.
+function syncEndBtnLabel(){
+  $('endBtnTxt').textContent = curLang === 'auto' ? UI.endBtn.ko + ' · ' + UI.endBtn.en : t('endBtn');
 }
 function esc(s){ return String(s).replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 let toastTimer = null;
@@ -410,7 +419,7 @@ function applySxInfo(info){
   }
   if(!started){ if (entered && hostActive) enterStage(info.b); return; } // 접속 시 이미 통역 중이면 바로 통역 화면으로
   curLang = info.b || curLang; setSvcPair();
-  rerender(); try { mapApi && mapApi.setLang(curLang); } catch {}
+  rerender(); syncEndBtnLabel(); try { mapApi && mapApi.setLang(curLang); } catch {}
 }
 function setSvcPair(){
   if (curLang === 'auto') { $('svcPair').textContent = 'Detecting language…'; $('svcLive').textContent = 'Speak in your language'; $('svcDot').style.display = ''; return; }
@@ -549,7 +558,7 @@ function enterStage(lang){
   clearTimeout(activeGuard);
   clearTimeout(thanksTimer); $('thanks').classList.remove('show'); // 감사 인사 잔여 타이머가 새 응대 화면을 덮지 않게
   // meta 와 desk-active 가 연달아 도착해 이중 진입하던 것 가드(여객 마이크 파이프라인 2개 생성 방지)
-  if (started && gotActive) { if (lang) { curLang = lang; setSvcPair(); rerender(); } return; }
+  if (started && gotActive) { if (lang) { curLang = lang; setSvcPair(); rerender(); syncEndBtnLabel(); } return; }
   pendingStart = false; gotActive = true; started = true;
   if (lang) curLang = lang;
   $('speakTxt').textContent = t('speak'); // 발화 유도(손님 언어)
@@ -811,6 +820,13 @@ $('consentOk').addEventListener('click', consentAndStart);
 // 기타 언어: 언어 선택 없이 바로 발화 화면 — 서버가 첫 발화로 언어를 감지해 양방향 전환
 $('otherLangBtn').addEventListener('click', () => startWithLang('auto'));
 $('endBtn').addEventListener('click', end);
+// role="button" div 는 네이티브 <button> 과 달리 Enter/Space 를 클릭으로 자동 변환하지 않는다 —
+// tabindex="0" 로 포커스만 가능하고 실제로는 키보드로 못 누르던 상태를 수정.
+$('endBtn').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar' && e.code !== 'Space') return;
+  e.preventDefault(); // Space 의 기본동작(페이지 스크롤) 방지
+  end();
+});
 // 전체화면이 풀렸으면(ESC·시스템 제스처) 다음 터치에서 자동으로 전체화면 복귀
 // + 여객 마이크 AudioContext 가 제스처 없이 시작돼 suspended 면(호스트 측 시작 케이스) 터치로 재개
 document.addEventListener('click', () => {
