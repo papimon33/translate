@@ -128,8 +128,10 @@
   #stage { flex-direction:column; align-items:stretch; overflow-y:auto;
     /* 하단 padding 은 --endH(종료 버튼 실측 높이)를 따라간다 — 고정 104px 이던 시절엔 --fs(글자
        배율) 를 최대(1.6)로 올려 버튼 라벨이 2줄로 래핑되면 버튼이 실제로는 더 커지는데 이 여백은
-       그대로라 마지막 말풍선이 버튼에 가려졌다(재리뷰 지적). 공식은 #idleWarn 과 동일. */
-    padding:calc(9vh + env(safe-area-inset-top)) 6vw calc(env(safe-area-inset-bottom) + var(--endH, 64px) + 40px);
+       그대로라 마지막 말풍선이 버튼에 가려졌다(재리뷰 지적).
+       +86px 인 이유: #idleWarn·#a11y 가 --endH+40px 에 놓이는데 #a11y(글자 크기 버튼)는 높이가
+       46px 라 그만큼 콘텐츠 영역 안으로 올라온다. +40 이면 마지막 말풍선의 앞부분을 덮는다. */
+    padding:calc(9vh + env(safe-area-inset-top)) 6vw calc(env(safe-area-inset-bottom) + var(--endH, 64px) + 86px);
     -webkit-mask-image:linear-gradient(to top,#000 62%,transparent 100%);
     mask-image:linear-gradient(to top,#000 62%,transparent 100%); }
   #stage::-webkit-scrollbar { display:none; }

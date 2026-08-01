@@ -78,7 +78,7 @@ export async function until(fn, { timeout = 8000, step = 100, desc = '조건' } 
   throw new Error(`시간 초과: ${desc}`);
 }
 
-/* 데스크 뷰어 접근 토큰 — 관리자만 열 수 있는 QR 라우트에서 받는다.
+/* 데스크 뷰어 접근 토큰 — 로그인한 직원만 열 수 있는 QR 라우트에서 받는다.
    공개 목록(/api/desk-sessions)은 토큰을 배포하지 않으므로 실제 프로비저닝과 같은 경로를 쓴다. */
 export async function deskToken(base, cookie, sessionId) {
   const r = await fetch(`${base}/api/qr?session=${encodeURIComponent(sessionId)}`, { headers: { Cookie: cookie } });
