@@ -261,6 +261,7 @@ const UI = {
   connecting:   { ko:'연결 중…', en:'Connecting…', ja:'接続中…', zh:'连接中…', vi:'Đang kết nối…' },
   speak:        { ko:'말씀하세요', en:'Please speak', ja:'お話しください', zh:'请讲话', vi:'Xin hãy nói', th:'กรุณาพูด', id:'Silakan bicara', ru:'Говорите' },
   warn:         { ko:'곧 종료됩니다 — 계속하려면 터치하거나 말씀하세요', en:'Ending soon — tap or speak to continue', ja:'まもなく終了します — 続けるにはタッチ', zh:'即将结束 — 触摸或讲话以继续', vi:'Sắp kết thúc — chạm để tiếp tục', th:'ใกล้สิ้นสุด — แตะเพื่อดำเนินการต่อ', id:'Segera berakhir — ketuk untuk lanjut', ru:'Скоро завершится — коснитесь экрана' },
+  engineDown:   { ko:'일시적인 오류로 통역이 중단되었습니다. 안내원에게 말씀해 주세요.', en:'Interpretation stopped due to a temporary error. Please speak to the staff.', ja:'一時的なエラーで通訳が停止しました。係員にお声がけください。', zh:'因临时故障，翻译已停止。请告知工作人员。', vi:'Phiên dịch đã dừng do lỗi tạm thời. Vui lòng báo nhân viên.' },
   walk:         { ko:'도보', en:'Walk', ja:'徒歩', zh:'步行', vi:'Đi bộ' },
   min:          { ko:'분', en:' min', ja:'分', zh:'分钟', vi:' phút' },
 };
@@ -471,6 +472,8 @@ function ensureWs(){
     else if (m.type === 'desk-idle-warn') showIdleWarn(m.secondsLeft || 10); // 무음 종료 예고(터치로 연장)
     else if (m.type === 'desk-reset') { if (started || pendingStart) backToTouch(started); } // 대화 종료 → (인사 후) 터치 화면
     else if (m.type === 'status' && pendingStart && !gotActive && m.message) { toast(m.message); backToTouch(); } // 안내원 미준비 등
+    // 통역 엔진이 반복 실패해 서버가 재연결을 포기 — 화면이 조용히 멈춘 것처럼 보이지 않게 알린다
+    else if (m.type === 'desk-engine-down') toast(t('engineDown'));
   };
 }
 function sendStart(){ try { ws && ws.send(JSON.stringify({ type:'desk-start', lang: curLang })); } catch {} }

@@ -29,6 +29,17 @@ const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 // 초과 시 가장 오래된 문장부터 버린다(화면 히스토리만 잘림, 데스크 응대 기록 deskLog·통계는
 // 별도 저장이라 영향 없음). 5,000 ≈ 5~8시간 연속 강의 분량(2시간 강의는 보통 1~1.8천).
 const ITEMS_CAP = 5000;
+// STT 엔진 재연결 연속 실패 상한 — 초과하면 재시도를 멈춘다. 재연결 1회마다 용어집 context 가
+// input_text_tokens 로 다시 청구되므로(데스크 기준 약 $0.008/회) 상한이 없으면 장애 시 과금이 폭주한다.
+// 토큰이 실제로 수신되면 0 으로 리셋되므로 정상 세션의 간헐적 끊김은 누적되지 않는다.
+const SX_MAX_FAILS = 8;
+// 재연결 지수 백오프: 800ms → 15s. 기준 간격만 env 로 낮출 수 있게 둔다(테스트가 수십 초를 기다리지 않도록).
+const SX_RETRY_BASE_MS = Number(process.env.SX_RETRY_BASE_MS) || 800;
+const sxRetryDelay = (n) => Math.min(SX_RETRY_BASE_MS * 2 ** (n - 1), 15000);
+// 데스크 세션 1개가 보존하는 응대(deskLog) 건수 상한 — 초과 시 가장 오래된 응대가 조용히 사라진다.
+// 시범운영 기간의 응대 전문은 보고서의 원천 데이터라 유실되면 복구 수단이 없어 넉넉히 잡는다.
+// 응대 1건 ≈ 2~4KB(toks 제외 후)이므로 1,000건이라도 세션 문서는 수 MB 수준 — Mongo 16MB 한도 안.
+const DESKLOG_CAP = 1000;
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
 // Soniox stt-rt-v5 지원 언어(60) — 번역은 지원 언어 임의 쌍. 선택 UI/검증에 사용.
 const SONIOX_LANGS = ['af','sq','ar','az','eu','be','bn','bs','bg','ca','zh','hr','cs','da','nl','en','et','fi','fr','gl','de','el','gu','he','hi','hu','id','it','ja','kn','kk','ko','lv','lt','mk','ms','ml','mr','no','fa','pl','pt','pa','ro','ru','sr','sk','sl','es','sw','sv','tl','ta','te','th','tr','uk','ur','vi','cy'];
@@ -294,7 +305,14 @@ function saveSessions(id) {
   saveTimer = setTimeout(() => {
     saveTimer = null;
     sessionsFlushInflight = flushSessions()
-      .catch((e) => console.error('[sessions] 저장 실패', e))
+      // 저장이 죽어도 화면은 정상으로 보인다 — 관리자 > 시스템·보안(/api/admin/health)에 노출해
+      // 응대 기록이 사라지고 있다는 사실을 운영 중에 알 수 있게 한다.
+      .then(() => { metrics.saveFail = null; })
+      .catch((e) => {
+        console.error('[sessions] 저장 실패', e);
+        const msg = String((e && e.message) || e).slice(0, 300);
+        metrics.saveFail = { at: Date.now(), msg, count: ((metrics.saveFail || {}).count || 0) + 1 };
+      })
       .finally(() => { sessionsFlushInflight = null; });
   }, 400);
 }
@@ -883,7 +901,34 @@ app.patch('/api/me', requireAuth, (req, res) => {
   res.json({ user: { id: stored.id, username: stored.username, role: stored.role } });
 });
 /* ---- 경량 모니터링: 프로세스 상태 + 최근 오류(서버·클라이언트) ---- */
-const metrics = { startedAt: Date.now(), errors: [], clientErrors: [] };
+const metrics = { startedAt: Date.now(), errors: [], clientErrors: [], saveFail: null, deskLogFull: [] };
+/* deskLog(응대 기록) 보존 상한 — 넘치면 가장 오래된 응대부터 버리되, 관리자가 알 수 있게 기록을 남긴다.
+   (지금까지는 조용히 잘려서 데이터가 사라진 사실 자체를 아무도 몰랐다)
+
+   건수 상한과 별개로 **바이트 상한**을 함께 둔다: 데스크 세션은 deskLog 를 품은 문서 1개라
+   Mongo 문서 한도(16MB)를 넘기면 replaceOne 이 통째로 실패한다 — 오래된 응대 몇 건이 잘리는 것과 달리
+   그 데스크의 저장이 전부 멈춰 새 응대까지 사라진다. 잘림보다 훨씬 나쁜 실패라 먼저 막는다.
+   item.toks(단어별 신뢰도)는 지우지 않는다 — eval/conf-analyze.mjs 가 이걸 읽어 confFix 임계값 근거를
+   뽑고, 공항 실소음·실억양의 신뢰도 분포는 시범 기간에만 얻을 수 있는 데이터다. */
+const DESKLOG_MAX_BYTES = 8 * 1024 * 1024;
+function capDeskLog(session) {
+  if (!Array.isArray(session.deskLog)) return;
+  let dropped = 0;
+  if (session.deskLog.length > DESKLOG_CAP) {
+    dropped = session.deskLog.length - DESKLOG_CAP;
+    session.deskLog = session.deskLog.slice(-DESKLOG_CAP);
+  }
+  let bytes = Buffer.byteLength(JSON.stringify(session.deskLog));
+  while (bytes > DESKLOG_MAX_BYTES && session.deskLog.length > 1) {
+    bytes -= Buffer.byteLength(JSON.stringify(session.deskLog.shift()));
+    dropped++;
+  }
+  if (!dropped) return;
+  const hit = metrics.deskLogFull.find((x) => x.id === session.id);
+  if (hit) { hit.dropped += dropped; hit.at = Date.now(); }
+  else metrics.deskLogFull.push({ id: session.id, title: session.title || '', dropped, at: Date.now() });
+  if (metrics.deskLogFull.length > 30) metrics.deskLogFull.shift();
+}
 function logErr(scope, err) {
   const e = { at: Date.now(), scope, msg: String((err && err.message) || err).slice(0, 300) };
   metrics.errors.push(e);
@@ -918,6 +963,9 @@ app.get('/api/admin/health', requireAdmin, (req, res) => {
     dataEncrypted: !!dataKey,
     twoFaEnabled: !!adminTotpSecret(),
     forceHttps: process.env.FORCE_HTTPS === '1',
+    saveFail: metrics.saveFail,           // 세션 저장(디스크·Mongo) 최근 실패 — null 이면 정상
+    deskLogFull: metrics.deskLogFull.slice(-10).reverse(), // 응대 보존 상한 초과로 잘려 나간 기록
+    deskLogCap: DESKLOG_CAP,
     recentErrors: metrics.errors.slice(-20).reverse(),
     clientErrors: metrics.clientErrors.slice(-20).reverse(),
   });
@@ -2855,6 +2903,10 @@ function handleViewer(ws) {
         const pttAllowed = sess && sess.pipeline === 'soniox' && ['twoway', 'mobile', 'field', 'meeting'].includes(sess.preset || '');
         if (!pttAllowed) return;
         const r = getRoom(ws._session);
+        // on 마다 유료 엔진(soniox)이 새로 열리므로 desk-start/desk-mic 과 동일하게 난사를 차단한다.
+        // 이게 없으면 유효한 뷰어 토큰을 가진 단말 1대가 on/off 를 반복해 과금을 무한히 밀어 올릴 수 있다.
+        // off 는 절대 막지 않는다 — 드랍하면 엔진이 열린 채 남아 오히려 과금이 계속되고 발화권도 잠긴다.
+        if (m.on && !deskCtlAllowed(ws, r, true)) { ws.send(JSON.stringify({ type: 'ptt-denied' })); return; }
         if (m.on) {
           // 발화 배타: 호스트가 말하는 중이거나 다른 뷰어가 발화 중이면 거절
           if (r.hostTalking || (r.speaking && r.speaking !== ws)) { ws.send(JSON.stringify({ type: 'ptt-denied' })); return; }
@@ -3468,13 +3520,13 @@ function handleHost(ws) {
           return;
         }
         sxFails++;
-        if (sxFails >= 8) { // 연결 직후 반복 종료 — 재시도할수록 과금만 누적되므로 명시적으로 중지
+        if (sxFails >= SX_MAX_FAILS) { // 연결 직후 반복 종료 — 재시도할수록 과금만 누적되므로 명시적으로 중지
           idleStopped = true;
           toHost({ type: 'idle-stop' });
           toHost({ type: 'status', message: '엔진 연결이 반복 실패해 번역을 중지했습니다. 잠시 후 다시 시작해 주세요.' });
           return;
         }
-        const delay = Math.min(800 * 2 ** (sxFails - 1), 15000);
+        const delay = sxRetryDelay(sxFails);
         toHost({ type: 'status', message: '엔진 재연결 중…' });
         setTimeout(() => { if (sx === cur && !sxClosed && !idleStopped) connectEngine(); }, delay);
       } else {
@@ -3554,6 +3606,11 @@ function handleHost(ws) {
     let phase = 'idle';     // 'idle'(대기, soniox 없음) | 'active'(통역 중)
     let lockedB = null;     // 손님 언어
     let sx = null, sxReady = false;
+    // 예기치 않은 종료만 누적 — 토큰 수신·새 응대 시작 시 0. 의도적 재체결(언어 감지·2채널 전환·
+    // 여객 마이크 토글)은 closeSx() 가 sx 를 먼저 null 로 만들어 close 핸들러가 걸러내므로 세지 않는다.
+    // 상한이 없으면 엔진이 연결 즉시 끊는 상황에서 800ms 무한 재시도가 돌고, 재연결마다 context 가
+    // input_text_tokens 로 재청구돼 데스크 1대당 시간 수만원이 나간다(PROJECT_NOTES 2026-07-15 와 동일 사유).
+    let sxFails = 0;
     let closed = false;     // 호스트 중지/종료 — 자동 재연결 금지 플래그
     let pending = [];       // 리플레이 버퍼(마지막 확정 이후 프레임, 상한 ~2초) — 재체결 시 재전송
     let lastVoiceArm = 0;   // 음량 기반 무음타이머 리셋 스로틀
@@ -3571,6 +3628,7 @@ function handleHost(ws) {
     // 채널 자체가 화자 귀속이므로 언어 추정이 필요 없고, 동시 발화도 채널별로 독립 인식된다.
     let guestMicOn = false;
     let gsx = null, gsxReady = false;
+    let gsxFails = 0;       // 여객 채널 재연결 실패 누적(데스크 채널과 독립) — 한쪽만 죽어도 상한이 걸리게
     let gPending = [];
     let gCurId = null, gFinalText = '', gFinalTrans = '', gLastTrans = '', gLastCommitText = '';
     let gLastCommitAt = 0;
@@ -3826,7 +3884,7 @@ function handleHost(ws) {
           // 응대 언어: 잠긴 언어(lockedB) 우선, 미잠금 종료(감지 전 이탈 등)면 발화 items 에서 유추 — 로그 '미상' 방지
           const convLang = lockedB || (session.items.find((x) => x.lang && x.lang !== 'ko') || {}).lang || null;
           session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: convLang, items: session.items, stats: { ...chStats } });
-          if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200); // 보존 상한
+          capDeskLog(session);
           session.items = [];
         }
         saveSessions(session.id);
@@ -3860,6 +3918,7 @@ function handleHost(ws) {
       if (phase === 'active') endConversation(false);
       if (phase !== 'active') { convStartedAt = Date.now(); ws._deskActiveStart = convStartedAt; } // 응대 시작 시각(통계·사용량용)
       phase = 'active'; lockedB = lang; autoDetect = auto; lastCommitText = ''; resetUtterance();
+      sxFails = 0; gsxFails = 0; // 새 손님 응대는 이전 응대의 실패 이력을 물려받지 않는다
       pending = [];
       setMeta();
       armForeignTimer();
@@ -3894,8 +3953,18 @@ function handleHost(ws) {
       next.on('close', () => {
         if (sx === next && !closed && phase === 'active') {
           sxReady = false; // 죽은 소켓으로 send 하지 않고 재연결까지 pending 큐에 쌓이도록(발화 앞부분 유실 방지)
-          toHost({ type: 'status', message: '엔진 재연결 중…' });
-          setTimeout(() => { if (sx === next && !closed && phase === 'active') connectSx(); }, 800);
+          sxFails++;
+          if (sxFails >= SX_MAX_FAILS) {
+            // 상한 도달: 재시도만 멈춘다. endConversation 은 부르지 않는다 — 손님 앞에서 응대를 강제
+            // 종료시키는 것보다, 안내원이 상황을 알고 판단하게 두는 편이 낫다(유인 데스크).
+            sx = null;
+            toHost({ type: 'status', message: `엔진 연결에 ${SX_MAX_FAILS}회 연속 실패해 자동 재연결을 멈췄습니다. 응대를 종료했다가 다시 시작해 주세요.` });
+            broadcast(sessionId, { type: 'desk-engine-down' });
+            return;
+          }
+          const delay = sxRetryDelay(sxFails);
+          toHost({ type: 'status', message: `엔진 재연결 중… (${sxFails}/${SX_MAX_FAILS})` });
+          setTimeout(() => { if (sx === next && !closed && phase === 'active') connectSx(); }, delay);
         }
       });
       try { if (old && old !== next) old.close(); } catch {}
@@ -3906,6 +3975,7 @@ function handleHost(ws) {
       if (ev.error_code) { toHost({ type: 'status', message: `Soniox 오류 ${ev.error_code}: ${ev.error_message || ''}`.slice(0, 160) }); return; }
       const toks = ev.tokens || [];
       if (!toks.length) return;
+      sxFails = 0; // 실제 토큰 수신 = 정상 연결 — 실패 카운터 리셋
       if (phase === 'active') armForeignTimer(); // 어떤 발화든(안내원 한국어 포함) 들리면 무음 타이머 리셋
       let endHit = false, nonFinal = '', nonFinalTrans = '';
       for (const t of toks) {
@@ -3969,7 +4039,15 @@ function handleHost(ws) {
       next.on('close', () => {
         if (gsx === next && !closed && phase === 'active' && guestMicOn) {
           gsxReady = false; // 재연결까지 gPending 큐에 쌓이도록(여객 발화 앞부분 유실 방지)
-          setTimeout(() => { if (gsx === next && !closed && phase === 'active' && guestMicOn) connectGuest(); }, 800);
+          gsxFails++;
+          if (gsxFails >= SX_MAX_FAILS) {
+            // 여객 채널만 죽은 경우 — 데스크(안내원) 채널은 그대로 두고 단일 채널로 계속 응대한다.
+            gsx = null;
+            toHost({ type: 'status', message: `여객 마이크 엔진이 ${SX_MAX_FAILS}회 연속 실패했습니다. 데스크 마이크만으로 계속됩니다.` });
+            return;
+          }
+          const delay = sxRetryDelay(gsxFails);
+          setTimeout(() => { if (gsx === next && !closed && phase === 'active' && guestMicOn) connectGuest(); }, delay);
         }
       });
       try { if (old && old !== next) old.close(); } catch {}
@@ -4008,6 +4086,7 @@ function handleHost(ws) {
       if (ev.error_code) return;
       const toks = ev.tokens || [];
       if (!toks.length) return;
+      gsxFails = 0; // 실제 토큰 수신 = 정상 연결 — 실패 카운터 리셋
       if (phase === 'active') armForeignTimer();
       let endHit = false, nonFinal = '', nonFinalTrans = '';
       for (const t of toks) {
@@ -4057,6 +4136,7 @@ function handleHost(ws) {
       guestMicOn = !!on;
       const m = { type: 'desk-guest-mic', on: guestMicOn };
       toHost(m); broadcast(sessionId, m);
+      gsxFails = 0; // 안내원이 직접 켠 것 = 재시도 의사 — 이전 장애의 실패 이력을 물려받지 않는다
       if (guestMicOn && phase === 'active') connectGuest();
       if (!guestMicOn) closeGuest();
       // 채널별 언어 고정 전환: 2채널이 되면 호스트 채널을 one_way(ko→손님 언어)로, 해제되면 two_way 로 재체결
@@ -4159,7 +4239,7 @@ function handleHost(ws) {
     if (session && Array.isArray(session.items) && session.items.length) {
       session.deskLog = session.deskLog || [];
       session.deskLog.push({ startedAt: null, endedAt: Date.now(), lang: (session.items.find((x) => x.lang && x.lang !== 'ko') || {}).lang || null, interrupted: true, items: session.items, stats: null });
-      if (session.deskLog.length > 200) session.deskLog = session.deskLog.slice(-200);
+      capDeskLog(session);
       session.items = [];
       saveSessions(session.id);
       broadcast(sessionId, { type: 'desk-reset' });

@@ -7,7 +7,9 @@
    - conn.end() = <end> 토큰(발화 확정 트리거) */
 import { WebSocketServer } from 'ws';
 
-export async function startFakeSoniox() {
+/* opts.autoClose: 연결되자마자 끊는다 — 엔진 장애(연결 즉시 종료)를 재현해
+   서버의 재연결 백오프·상한을 검증하는 데 쓴다. */
+export async function startFakeSoniox(opts = {}) {
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise((res) => wss.once('listening', res));
   const connections = [];
@@ -37,6 +39,7 @@ export async function startFakeSoniox() {
     ws.on('error', () => {});
     connections.push(conn);
     if (waiters.length) waiters.shift()(conn);
+    if (opts.autoClose) setImmediate(() => { try { ws.close(); } catch {} });
   });
   let claimed = 0; // nextConnection() 이 같은 연결을 두 번 반환하지 않게
   return {

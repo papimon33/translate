@@ -823,7 +823,27 @@ function SystemPanel() {
               <Chip size="small" color={health.dataEncrypted ? 'success' : 'default'} label={health.dataEncrypted ? '저장 데이터 암호화 켜짐' : '저장 데이터 암호화 꺼짐 — DATA_KEY 미설정'} />
               <Chip size="small" color={health.twoFaEnabled ? 'success' : 'default'} label={health.twoFaEnabled ? '관리자 2FA 켜짐' : '관리자 2FA 꺼짐'} />
               <Chip size="small" color={health.forceHttps ? 'success' : 'default'} label={health.forceHttps ? 'HTTPS 강제 켜짐' : 'HTTPS 강제 꺼짐 — FORCE_HTTPS 미설정'} />
+              {/* 저장이 죽으면 화면은 정상으로 보이므로 여기서만 알 수 있다 — 응대 기록이 유실되는 중이라는 뜻 */}
+              {health.saveFail && (
+                <Chip size="small" color="error" label={`기록 저장 실패 ${health.saveFail.count}회 — ${health.saveFail.msg}`} />
+              )}
             </Box>
+            {/* 응대 보존 상한 초과: 오래된 응대 전문이 잘려 나갔다(되돌릴 수 없음) */}
+            {health.deskLogFull && health.deskLogFull.length > 0 && (
+              <Box sx={{ mt: 1.5 }}>
+                <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: 'warning.main', mb: 0.5 }}>
+                  응대 기록 보존 상한({health.deskLogCap}건) 초과 — 오래된 응대가 삭제되었습니다
+                </Typography>
+                {health.deskLogFull.map((d, i) => (
+                  <Typography key={i} sx={{ fontSize: 12, color: 'text.secondary' }}>
+                    {d.title || d.id} · {d.dropped}건 삭제 · {new Date(d.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </Typography>
+                ))}
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
+                  기록이 더 필요하면 관리자 &gt; 시스템·보안의 <b>전체 데이터 백업</b>을 먼저 내려받으세요.
+                </Typography>
+              </Box>
+            )}
             {(health.recentErrors.length > 0 || health.clientErrors.length > 0) && (
               <Box sx={{ mt: 2 }}>
                 <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: 'text.secondary', mb: 0.75 }}>최근 오류</Typography>
