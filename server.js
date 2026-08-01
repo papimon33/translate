@@ -1074,7 +1074,7 @@ app.get('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
   if (!s || s.pipeline !== 'desk') return res.status(404).json({ error: 'not found' });
   const e = (s.deskLog || [])[Number(req.params.idx)];
   if (!e) return res.status(404).json({ error: 'not found' });
-  res.json({ startedAt: e.startedAt || null, endedAt: e.endedAt || null, lang: e.lang || null, stats: e.stats || null, items: e.items || [] });
+  res.json({ startedAt: e.startedAt || null, endedAt: e.endedAt || null, lang: e.lang || null, consentAt: e.consentAt || null, stats: e.stats || null, items: e.items || [] });
 });
 app.get('/api/admin/logs/session/:id', requireAdmin, (req, res) => {
   const s = getSessionAny(req.params.id);
@@ -2923,7 +2923,9 @@ function handleViewer(ws) {
         // 데스크: 손님이 태블릿에서 언어 선택 → 호스트 파이프라인에서 soniox 양방향 통역 시작
         if (!deskCtlAllowed(ws, room)) { ws.send(JSON.stringify({ type: 'status', message: '요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.' })); return; }
         const ctrl = deskCtrl.get(ws._session);
-        if (ctrl) ctrl.start(String(m.lang || '').toLowerCase());
+        // consent: 손님이 태블릿 고지 모달에서 '동의하고 시작'을 누른 시점(감사 근거).
+        // 구버전 캐시 클라는 이 필드를 안 보내므로 없으면 기록만 생략한다(하위 호환).
+        if (ctrl) ctrl.start(String(m.lang || '').toLowerCase(), m.consent ? Date.now() : null);
         else ws.send(JSON.stringify({ type: 'status', message: '안내원이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.' }));
       } else if (m.type === 'desk-end') {
         // 데스크: 손님 화면의 종료(✕) — 대화 종료 후 대기 모드로
@@ -3623,6 +3625,7 @@ function handleHost(ws) {
     let pendingWayfind = null;  // 호스트 승인 대기 중인 길안내 제안
     let wayfindOn = ws._wayfind !== '0'; // 길안내 지도 기능(기본 on) — 끄면 감지·GPT 분류 자체를 생략
     let convStartedAt = 0;      // 현재 응대 시작 시각(통계용)
+    let convConsentAt = null;   // 현재 응대의 손님 동의 시각(고지 모달 '동의하고 시작')
 
     // ---- 여객(뷰어 태블릿) 마이크 채널 — 2채널 화자 귀속 프로토타입 ----
     // 뷰어가 desk-mic on 을 보내고 바이너리 오디오를 올리면 별도 soniox one_way(선택언어→ko)로 처리.
@@ -3884,7 +3887,7 @@ function handleHost(ws) {
           // stats: 채널별 확정 수 + 누화 드랍 수 — 2채널 프로토타입 누화율 측정용
           // 응대 언어: 잠긴 언어(lockedB) 우선, 미잠금 종료(감지 전 이탈 등)면 발화 items 에서 유추 — 로그 '미상' 방지
           const convLang = lockedB || (session.items.find((x) => x.lang && x.lang !== 'ko') || {}).lang || null;
-          session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: convLang, items: session.items, stats: { ...chStats } });
+          session.deskLog.push({ startedAt: convStartedAt || null, endedAt: Date.now(), lang: convLang, ...(convConsentAt ? { consentAt: convConsentAt } : {}), items: session.items, stats: { ...chStats } });
           capDeskLog(session);
           session.items = [];
         }
@@ -3909,7 +3912,7 @@ function handleHost(ws) {
     }
 
     // 통역 시작: 손님(뷰어)이 언어를 고르거나 호스트가 수동 시작 — 이때 처음 soniox 연결
-    const startConversation = (B) => {
+    const startConversation = (B, consentAt) => {
       if (closed) return;
       // 명시 선택은 엔진 지원 전체(SONIOX_LANGS 60개)로 검증한다. 미지원 값이면 영어로 바꾸지 않고
       // 자동감지로 넘긴다 — 손님이 고른 언어가 아닌 언어로 조용히 통역되는 것보다 낫다.
@@ -3923,6 +3926,7 @@ function handleHost(ws) {
       if (phase !== 'active') { convStartedAt = Date.now(); ws._deskActiveStart = convStartedAt; } // 응대 시작 시각(통계·사용량용)
       phase = 'active'; lockedB = lang; autoDetect = auto; lastCommitText = ''; resetUtterance();
       sxFails = 0; gsxFails = 0; // 새 손님 응대는 이전 응대의 실패 이력을 물려받지 않는다
+      convConsentAt = consentAt || null; // 이 응대의 손님 동의 시각(아카이브에 함께 저장)
       pending = [];
       setMeta();
       armForeignTimer();

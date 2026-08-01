@@ -127,3 +127,42 @@ test('데스크: GUEST_LANGS 밖의 언어를 골라도 영어로 바뀌지 않�
   assert.ok(config.language_hints.includes('ar'), '고른 언어(ar)가 힌트에 있어야 함: ' + JSON.stringify(config.language_hints));
   assert.equal(config.translation?.language_b, 'ar', 'two_way 상대 언어가 ar 이어야 함(en 으로 바뀌면 안 됨)');
 });
+
+test('데스크: 손님 동의 시각이 응대 기록에 남는다', { timeout: 60000 }, async (t) => {
+  const fake = await startFakeSoniox();
+  const srv = await bootServer({ SONIOX_WS_URL: fake.url });
+  t.after(async () => { await fake.close(); await srv.stop(); });
+
+  const cookie = await loginAdmin(srv.base);
+  const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
+  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '동의 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '동의 기록', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+
+  const wsBase = srv.base.replace('http', 'ws');
+  const host = wsClient(`${wsBase}/ws/host?session=${sess.id}`, { Cookie: cookie });
+  await host.ready;
+  const tok = await deskToken(srv.base, cookie, sess.id);
+  const viewer = wsClient(`${wsBase}/ws/viewer?session=${sess.id}&t=${tok}`);
+  await viewer.ready;
+  await until(() => viewer.messages.some((m) => m.type === 'host' && m.active), { desc: '호스트 활성' });
+
+  const before = Date.now();
+  viewer.send({ type: 'desk-start', lang: 'en', consent: true });
+  const conn = await fake.nextConnection();
+  await conn.waitConfig;
+  conn.sendTokens([
+    { text: 'Hello', is_final: true, language: 'en', confidence: 0.98 },
+    { text: '안녕하세요', is_final: true, translation_status: 'translation' },
+  ]);
+  conn.end();
+  await until(() => viewer.messages.some((m) => m.type === 'sentence' && m.source === 'Hello'), { desc: '카드 확정' });
+
+  host.ws.close(); // 응대 종료 → deskLog 아카이브
+  await until(async () => {
+    const l = await fetch(`${srv.base}/api/admin/logs`, { headers: { Cookie: cookie } }).then((r) => r.json());
+    return ((l.desks || []).find((d) => d.id === sess.id)?.logs || []).length === 1;
+  }, { desc: '응대 아카이브' });
+
+  const detail = await fetch(`${srv.base}/api/admin/logs/desk/${sess.id}/0`, { headers: { Cookie: cookie } }).then((r) => r.json());
+  assert.ok(detail.consentAt >= before, '동의 시각이 기록돼야 함: ' + JSON.stringify(detail).slice(0, 200));
+});

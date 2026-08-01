@@ -80,6 +80,20 @@
     color:var(--muted); font-size:calc(17px * var(--fs)); font-weight:800; padding:18px 10px; cursor:pointer; }
   #otherLangBtn:active { background:var(--chip); }
 
+  /* 개인정보 고지 — 언어 선택 직후, 그 언어로 표시하고 동의를 받는다 */
+  #consentWrap { flex-direction:column; align-items:center; justify-content:center;
+    padding:6vh 6vw calc(6vh + env(safe-area-inset-bottom)); background:var(--bg); }
+  .consentCard { width:100%; max-width:640px; background:var(--card); border:1px solid var(--line);
+    border-radius:22px; padding:30px 26px; text-align:left; }
+  .consentCard h2 { margin:0 0 14px; font-size:calc(20px * var(--fs)); font-weight:800; color:var(--fg); }
+  /* pre-line: 자동감지 경로에서 한국어+영어를 \n\n 로 병기한다 */
+  .consentCard p { margin:0; font-size:calc(17px * var(--fs)); line-height:1.65; color:var(--fg); word-break:keep-all;
+    white-space:pre-line; }
+  #consentWrap[dir="rtl"] .consentCard { text-align:right; }
+  #consentOk { width:100%; max-width:640px; margin-top:18px; border:none; cursor:pointer; color:#fff; font-weight:800;
+    background:#4f46e5; border-radius:20px; padding:22px 20px; font-size:calc(21px * var(--fs)); }
+  #consentOk:active { filter:brightness(.92); }
+
   /* 무음 종료 예고 배너(터치로 연장) */
   #idleWarn { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 30px); transform:translateX(-50%); z-index:15;
     display:none; align-items:center; background:var(--accent); color:#fff; font-size:15px; font-weight:700;
@@ -201,6 +215,15 @@
     </div>
   </div>
 
+  <!-- 개인정보 고지: 언어 선택 → 그 언어로 고지 → 동의 → 발화 대기 -->
+  <div id="consentWrap" class="screen">
+    <div class="consentCard">
+      <h2 id="consentTitle"></h2>
+      <p id="consentBody"></p>
+    </div>
+    <button id="consentOk"></button>
+  </div>
+
   <!-- 무음 종료 예고(터치로 연장) -->
   <div id="idleWarn"><span id="warnTxt"></span>&nbsp;<b id="warnCnt"></b></div>
 
@@ -238,7 +261,7 @@ function isStandalone(){
   try { return window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; }
 }
 function show(id){
-  ['landing','enterWrap','touchWrap','stage'].forEach(s => $(s).classList.toggle('show', s===id));
+  ['landing','enterWrap','touchWrap','consentWrap','stage'].forEach(s => $(s).classList.toggle('show', s===id));
   const svc = (id === 'stage');
   $('svcBar').classList.toggle('show', svc);
   $('a11y').classList.toggle('show', svc);
@@ -278,6 +301,23 @@ const UI = {
   speak:        { ko:'말씀하세요', en:'Please speak', ja:'お話しください', zh:'请讲话', vi:'Xin hãy nói', th:'กรุณาพูด', id:'Silakan bicara', ru:'Говорите' },
   warn:         { ko:'곧 종료됩니다 — 계속하려면 터치하거나 말씀하세요', en:'Ending soon — tap or speak to continue', ja:'まもなく終了します — 続けるにはタッチ', zh:'即将结束 — 触摸或讲话以继续', vi:'Sắp kết thúc — chạm để tiếp tục', th:'ใกล้สิ้นสุด — แตะเพื่อดำเนินการต่อ', id:'Segera berakhir — ketuk untuk lanjut', ru:'Скоро завершится — коснитесь экрана' },
   engineDown:   { ko:'일시적인 오류로 통역이 중단되었습니다. 안내원에게 말씀해 주세요.', en:'Interpretation stopped due to a temporary error. Please speak to the staff.', ja:'一時的なエラーで通訳が停止しました。係員にお声がけください。', zh:'因临时故障，翻译已停止。请告知工作人员。', vi:'Phiên dịch đã dừng do lỗi tạm thời. Vui lòng báo nhân viên.' },
+  consentTitle: { ko:'안내', en:'Privacy notice', ja:'ご案内', zh:'须知', vi:'Thông báo', th:'ประกาศ', id:'Pemberitahuan', ru:'Уведомление', tl:'Paunawa', es:'Aviso', fr:'Information', de:'Hinweis', ar:'إشعار' },
+  consentBody: {
+    ko:'원활한 번역 서비스를 위해 음성 데이터가 외부 음성인식 서비스에서 처리될 수 있으며, 서비스 품질 개선을 위해 대화 내용이 저장될 수 있습니다.',
+    en:'To provide translation, your voice data may be processed by an external speech recognition service, and conversation content may be stored to improve service quality.',
+    ja:'翻訳サービスのため、音声データが外部の音声認識サービスで処理される場合があり、サービス品質向上のため会話内容が保存される場合があります。',
+    zh:'为提供翻译服务，您的语音数据可能由外部语音识别服务处理，且为改善服务质量，对话内容可能会被保存。',
+    vi:'Để cung cấp dịch vụ phiên dịch, dữ liệu giọng nói của bạn có thể được xử lý bởi dịch vụ nhận dạng giọng nói bên ngoài, và nội dung cuộc trò chuyện có thể được lưu để cải thiện chất lượng dịch vụ.',
+    th:'เพื่อให้บริการแปลภาษา ข้อมูลเสียงของท่านอาจถูกประมวลผลโดยบริการรู้จำเสียงภายนอก และเนื้อหาการสนทนาอาจถูกจัดเก็บเพื่อปรับปรุงคุณภาพบริการ',
+    id:'Untuk menyediakan layanan penerjemahan, data suara Anda dapat diproses oleh layanan pengenalan suara eksternal, dan isi percakapan dapat disimpan untuk meningkatkan kualitas layanan.',
+    ru:'Для предоставления услуг перевода ваши голосовые данные могут обрабатываться внешним сервисом распознавания речи, а содержание разговора может сохраняться для улучшения качества обслуживания.',
+    tl:'Upang maibigay ang serbisyo ng pagsasalin, ang iyong datos ng boses ay maaaring iproseso ng panlabas na serbisyo ng pagkilala sa boses, at maaaring itago ang nilalaman ng usapan upang mapabuti ang kalidad ng serbisyo.',
+    es:'Para ofrecer el servicio de traducción, sus datos de voz pueden ser procesados por un servicio externo de reconocimiento de voz, y el contenido de la conversación puede almacenarse para mejorar la calidad del servicio.',
+    fr:'Pour assurer le service de traduction, vos données vocales peuvent être traitées par un service externe de reconnaissance vocale, et le contenu de la conversation peut être conservé afin d\'améliorer la qualité du service.',
+    de:'Zur Bereitstellung der Übersetzung können Ihre Sprachdaten von einem externen Spracherkennungsdienst verarbeitet und Gesprächsinhalte zur Verbesserung der Servicequalität gespeichert werden.',
+    ar:'لتقديم خدمة الترجمة، قد تتم معالجة بياناتك الصوتية بواسطة خدمة خارجية للتعرف على الكلام، وقد يتم حفظ محتوى المحادثة لتحسين جودة الخدمة.',
+  },
+  consentBtn: { ko:'동의하고 시작', en:'Agree and start', ja:'同意して開始', zh:'同意并开始', vi:'Đồng ý và bắt đầu', th:'ยอมรับและเริ่ม', id:'Setuju dan mulai', ru:'Принять и начать', tl:'Sumang-ayon at magsimula', es:'Aceptar y comenzar', fr:'Accepter et commencer', de:'Zustimmen und starten', ar:'الموافقة والبدء' },
   walk:         { ko:'도보', en:'Walk', ja:'徒歩', zh:'步行', vi:'Đi bộ' },
   min:          { ko:'분', en:' min', ja:'分', zh:'分钟', vi:' phút' },
 };
@@ -492,7 +532,8 @@ function ensureWs(){
     else if (m.type === 'desk-engine-down') toast(t('engineDown'));
   };
 }
-function sendStart(){ try { ws && ws.send(JSON.stringify({ type:'desk-start', lang: curLang })); } catch {} }
+// consent: 손님이 고지 모달에서 '동의하고 시작'을 눌렀다는 표시 — 서버가 응대 기록에 시각을 남긴다
+function sendStart(){ try { ws && ws.send(JSON.stringify({ type:'desk-start', lang: curLang, consent: true })); } catch {} }
 
 // 통역 화면 진입 — 서버의 desk-active 확인 시(언어 선택 직후 또는 호스트 측 시작)
 function enterStage(lang){
@@ -513,6 +554,7 @@ function enterStage(lang){
 function backToTouch(withThanks){
   started = false; gotActive = false; pendingStart = false;
   clearTimeout(activeGuard);
+  pendingLang = null; // 고지 화면에서 이탈했을 때 선택이 남지 않게
   guestMicStop();
   hideIdleWarn();
   clearAll();
@@ -683,8 +725,25 @@ function goFullscreen(){
 }
 
 /* ---- 통역 시작(언어 선택 후) / 종료 ---- */
+/* 언어 선택 → 개인정보 고지(그 언어로) → 동의 → 발화 대기.
+   손님당 1회이며, 응대가 끝나 대기 화면으로 돌아오면 다음 손님에게 다시 표시된다. */
+let pendingLang = null;
 function startWithLang(lang){
   if (started) return;
+  pendingLang = lang;
+  curLang = lang; // t() 가 이 언어로 사전을 조회한다
+  const auto = lang === 'auto';
+  // 자동감지는 아직 손님 언어를 모른다 → 한국어+영어 병기
+  $('consentTitle').textContent = auto ? UI.consentTitle.ko + ' · ' + UI.consentTitle.en : t('consentTitle');
+  $('consentBody').textContent = auto ? UI.consentBody.ko + '\n\n' + UI.consentBody.en : t('consentBody');
+  $('consentOk').textContent = auto ? UI.consentBtn.ko + ' · ' + UI.consentBtn.en : t('consentBtn');
+  $('consentWrap').setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  show('consentWrap');
+}
+function consentAndStart(){
+  const lang = pendingLang;
+  if (!lang || started) return;
+  pendingLang = null;
   curLang = lang; gotActive = false; pendingStart = true;
   clearAll();
   setSvcConnecting();
@@ -737,6 +796,7 @@ $('enterBtn').addEventListener('click', () => { entered = true; goFullscreen(); 
 // 대기 화면: 언어 버튼 원탭으로 바로 시작
 const pickLang = (e) => { const b = e.target.closest('button[data-lang]'); if (!b) return; startWithLang(b.dataset.lang); };
 $('langList').addEventListener('click', pickLang);
+$('consentOk').addEventListener('click', consentAndStart);
 // 기타 언어: 언어 선택 없이 바로 발화 화면 — 서버가 첫 발화로 언어를 감지해 양방향 전환
 $('otherLangBtn').addEventListener('click', () => startWithLang('auto'));
 $('endBtn').addEventListener('click', end);
