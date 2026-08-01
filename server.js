@@ -1879,9 +1879,10 @@ app.get('/api/desk-sessions', (req, res) => {
     .filter((s) => s.pipeline === 'desk' && !s.deletedAt)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     // active = 호스트(안내원)가 마이크 캡처 중(대기 가능). 비활성이면 손님이 선택 못 함.
-    // t: 뷰어 접근 토큰 — 데스크 랜딩은 손님이 목록에서 방을 고르는 공개 디렉터리라, 고른 뒤
-    //    ws/viewer 접속에 쓸 토큰을 함께 내려줘야 흐름이 이어진다(데스크 세션은 공개 게시 대상).
-    .map((s) => ({ id: s.id, title: s.title || '안내데스크', active: !!(rooms.get(s.id) && rooms.get(s.id).hosts.size > 0), t: viewerToken(s.id) }));
+    // t(뷰어 접근 토큰)는 여기서 내려보내지 않는다 — 이 라우트는 무인증 공개라, 토큰을 실으면
+    // 인터넷에서 누구나 진행 중인 승객 대화를 수신하고 desk-end 로 응대를 종료할 수 있다.
+    // 태블릿은 관리자만 열 수 있는 GET /api/qr?session=.. 로 1회 프로비저닝한다(안내원 조작 0회).
+    .map((s) => ({ id: s.id, title: s.title || '안내데스크', active: !!(rooms.get(s.id) && rooms.get(s.id).hosts.size > 0) }));
   res.json(list);
 });
 

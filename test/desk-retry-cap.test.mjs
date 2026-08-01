@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { startFakeSoniox } from './helpers/fake-soniox.mjs';
-import { bootServer, loginAdmin, until, wait } from './helpers/boot.mjs';
+import { bootServer, loginAdmin, until, wait, deskToken } from './helpers/boot.mjs';
 
 function wsClient(url, headers) {
   const ws = new WebSocket(url, { headers });
@@ -32,8 +32,7 @@ test('데스크: 엔진이 연결 즉시 끊겨도 재연결이 8회에서 멈�
   const wsBase = srv.base.replace('http', 'ws');
   const host = wsClient(`${wsBase}/ws/host?session=${sess.id}`, { Cookie: cookie });
   await host.ready;
-  const dl = await fetch(`${srv.base}/api/desk-sessions`).then((r) => r.json());
-  const tok = dl.find((x) => x.id === sess.id)?.t;
+  const tok = await deskToken(srv.base, cookie, sess.id);
   const viewer = wsClient(`${wsBase}/ws/viewer?session=${sess.id}&t=${tok}`);
   await viewer.ready;
   await until(() => viewer.messages.some((m) => m.type === 'host' && m.active), { desc: '뷰어가 호스트 활성 신호 수신' });

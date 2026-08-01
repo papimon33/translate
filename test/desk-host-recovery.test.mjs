@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { startFakeSoniox } from './helpers/fake-soniox.mjs';
-import { bootServer, loginAdmin, until, wait } from './helpers/boot.mjs';
+import { bootServer, loginAdmin, until, wait, deskToken } from './helpers/boot.mjs';
 
 function wsClient(url, headers) {
   const ws = new WebSocket(url, { headers });
@@ -50,8 +50,7 @@ test('안내데스크: 안내원 PC 급이탈 → 복귀 후 태블릿 조작 �
   assert.ok(sess.id, '세션 생성 실패: ' + JSON.stringify(sess));
 
   const wsBase = srv.base.replace('http', 'ws');
-  const dl = await fetch(`${srv.base}/api/desk-sessions`).then((r) => r.json());
-  const tok = dl.find((x) => x.id === sess.id)?.t;
+  const tok = await deskToken(srv.base, cookie, sess.id);
 
   // 태블릿: 한 번 붙으면 끝까지 이 소켓을 유지한다(안내원이 손대지 않는다는 전제)
   const viewer = wsClient(`${wsBase}/ws/viewer?session=${sess.id}&t=${tok}`);
@@ -115,8 +114,7 @@ test('안내데스크: 승계(새 호스트 먼저 접속) 후 구 소켓 close 
   const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '승계', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
 
   const wsBase = srv.base.replace('http', 'ws');
-  const dl = await fetch(`${srv.base}/api/desk-sessions`).then((r) => r.json());
-  const tok = dl.find((x) => x.id === sess.id)?.t;
+  const tok = await deskToken(srv.base, cookie, sess.id);
   const viewer = wsClient(`${wsBase}/ws/viewer?session=${sess.id}&t=${tok}`);
   await viewer.ready;
 

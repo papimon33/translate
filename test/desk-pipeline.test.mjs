@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { startFakeSoniox } from './helpers/fake-soniox.mjs';
-import { bootServer, loginAdmin, until, wait } from './helpers/boot.mjs';
+import { bootServer, loginAdmin, until, wait, deskToken } from './helpers/boot.mjs';
 
 function wsClient(url, headers) {
   const ws = new WebSocket(url, { headers });
@@ -33,10 +33,8 @@ test('데스크: 응대 시작→발화 확정→호스트 급이탈 시 응대�
   const wsBase = srv.base.replace('http', 'ws');
   const host = wsClient(`${wsBase}/ws/host?session=${sess.id}`, { Cookie: cookie });
   await host.ready;
-  // 실제 손님 뷰어처럼 공개 디렉터리에서 접근 토큰을 받아 접속(뷰어 라우트는 토큰 필수)
-  const dl = await fetch(`${srv.base}/api/desk-sessions`).then((r) => r.json());
-  const tok = dl.find((x) => x.id === sess.id)?.t;
-  assert.ok(tok, '데스크 세션 토큰 취득 실패: ' + JSON.stringify(dl));
+  // 실제 태블릿 프로비저닝과 같은 경로로 토큰을 받는다(관리자 QR — 공개 목록은 토큰을 주지 않는다)
+  const tok = await deskToken(srv.base, cookie, sess.id);
   const viewer = wsClient(`${wsBase}/ws/viewer?session=${sess.id}&t=${tok}`);
   await viewer.ready;
   await until(() => viewer.messages.some((m) => m.type === 'host' && m.active), { desc: '뷰어가 호스트 활성 신호 수신' });
