@@ -139,7 +139,15 @@ for (const f of ['wayfinding_data.js', 'airport25d.js']) {
 // 데스크 뷰어 PWA manifest(세션별 start_url) — '홈 화면에 추가'로 실행 시 항상 전체화면 유지
 app.get('/desk.webmanifest', (req, res) => {
   const session = String(req.query.session || '');
-  const start = '/desk.html' + (session ? `?session=${encodeURIComponent(session)}` : '');
+  const t = String(req.query.t || '');
+  let start = '/desk.html' + (session ? `?session=${encodeURIComponent(session)}` : '');
+  // 홈 화면 아이콘으로 재실행되면 이 start_url 이 그대로 열린다 — t 가 없으면 /ws/viewer 가 403 을 내고
+  // 태블릿이 영원히 '안내원 준비 중'에 멈춘다(복구 경로가 QR 재스캔뿐이 됨, 리뷰 지적).
+  // 여기서 새 토큰을 발급하지 않는다: viewerTokenValid() 를 통과한 값만 그대로 되돌려 싣는다 —
+  // 이 라우트를 호출한 사람은 이미 desk.html(정상 QR 프로비저닝 경로)에서 그 토큰을 받아 쥐고 있었을
+  // 뿐이라, 검증 후 에코는 새로운 유출 경로가 아니다(검증 없이 아무 t 나 실었다면 그때는 위조 토큰을
+  // 심어 유효하지 않은 세션을 뷰어에 노출시킬 수 있었을 것).
+  if (session && viewerTokenValid(session, t)) start += `&t=${encodeURIComponent(t)}`;
   res.type('application/manifest+json').json({
     name: 'KAC Desk', short_name: 'KAC Desk',
     display: 'fullscreen', display_override: ['fullscreen', 'standalone'],
@@ -1873,7 +1881,9 @@ app.get('/api/sessions/:id', (req, res) => {
   });
 });
 
-// 데스크 뷰어 랜딩(공개): 안내데스크 세션 목록(id·제목만) — 뷰어가 방을 선택해 접속
+// 데스크 뷰어 랜딩(공개): 안내데스크 세션 목록(id·제목·가동 여부) — 표시 전용이다.
+// 뷰어 토큰이 없어 여기서 방을 골라 입장할 수는 없고(태블릿은 로그인한 직원이 발급한 세션별 QR 로 1회 설치),
+// 이 목록은 어떤 데스크가 등록·가동 중인지 보여주기만 한다.
 app.get('/api/desk-sessions', (req, res) => {
   const list = sessions
     .filter((s) => s.pipeline === 'desk' && !s.deletedAt)

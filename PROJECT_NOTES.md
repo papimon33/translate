@@ -60,7 +60,8 @@
   ① **공개 목록에서 뷰어 토큰 제거** — `GET /api/desk-sessions` 가 무인증인데 `t: viewerToken(s.id)` 를 실어
   보내, 인터넷에서 누구나 진행 중인 승객 대화를 수신하고 `desk-end` 로 응대를 원격 종료할 수 있었다
   (`deskCtlAllowed` 는 빈도만 제한). 토큰은 세션 파생 HMAC 이라 만료가 없다 — 바꾼 것은 수명이 아니라
-  **얻는 경로**로, 이미 인증 게이트(`viewerAccessOk`)가 있는 `GET /api/qr?session=..` 로만 배포한다.
+  **얻는 경로**로, 이미 인증 게이트(`viewerAccessOk` — `currentUser` 만 확인, 로그인한 직원이면 누구나 통과하고
+  `role==='admin'` 은 요구하지 않는다)가 있는 `GET /api/qr?session=..` 로만 배포한다.
   ⚠ 랜딩 목록 선택 경로가 사라지지만 **안내원 부담은 줄어든다** — 그 경로는 매 부팅 데스크를 탭해야 했고,
   세션 QR 로 설치한 태블릿은 부팅하면 바로 그 데스크다. 회귀 테스트 `test/desk-access.test.mjs`,
   헬퍼 `deskToken()`(`test/helpers/boot.mjs`) — 기존 데스크 E2E 3개도 이 경로로 이관.

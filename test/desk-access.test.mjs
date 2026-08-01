@@ -1,6 +1,7 @@
 /* 데스크 뷰어 접근제어 회귀 — 공개 목록이 뷰어 토큰을 배포하면 안 된다.
    배포하면 인터넷에서 누구나 승객 대화를 실시간 수신하고 desk-end 로 응대를 종료할 수 있다.
-   태블릿은 관리자만 열 수 있는 /api/qr 로 1회 프로비저닝한다(안내원 조작 0회). */
+   태블릿은 로그인한 직원만 열 수 있는 /api/qr 로 1회 프로비저닝한다(안내원 조작 0회).
+   (viewerAccessOk 는 currentUser 만 보고 role==='admin' 을 요구하지 않으므로 관리자 한정이 아니다) */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
