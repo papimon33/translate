@@ -526,7 +526,8 @@ function ensureWs(){
     else if (m.type === 'desk-active') enterStage(m.lang);   // 통역 시작(손님 선택 또는 호스트 시작)
     else if (m.type === 'wayfind') showWayfind(m);           // 시설 안내(호스트 승인 후) → 채팅 아래 인라인 지도
     else if (m.type === 'desk-idle-warn') showIdleWarn(m.secondsLeft || 10); // 무음 종료 예고(터치로 연장)
-    else if (m.type === 'desk-reset') { if (started || pendingStart) backToTouch(started); } // 대화 종료 → (인사 후) 터치 화면
+    // pendingLang(고지 화면, 동의 전)도 포함 — 아니면 손님이 언어만 고르고 자리를 떠도 '대기모드로'가 안 먹혀 다음 손님이 그 언어로 오인 시작됨
+    else if (m.type === 'desk-reset') { if (started || pendingStart || pendingLang) backToTouch(started); } // 대화 종료 → (인사 후) 터치 화면
     else if (m.type === 'status' && pendingStart && !gotActive && m.message) { toast(m.message); backToTouch(); } // 안내원 미준비 등
     // 통역 엔진이 반복 실패해 서버가 재연결을 포기 — 화면이 조용히 멈춘 것처럼 보이지 않게 알린다
     else if (m.type === 'desk-engine-down') toast(t('engineDown'));
@@ -554,6 +555,7 @@ function enterStage(lang){
 function backToTouch(withThanks){
   started = false; gotActive = false; pendingStart = false;
   clearTimeout(activeGuard);
+  clearTimeout(consentGuard); // 고지 화면 방치 감시 타이머 — 여기서 안 지우면 응대 중에 터져 화면이 튕긴다
   pendingLang = null; // 고지 화면에서 이탈했을 때 선택이 남지 않게
   guestMicStop();
   hideIdleWarn();
@@ -727,7 +729,7 @@ function goFullscreen(){
 /* ---- 통역 시작(언어 선택 후) / 종료 ---- */
 /* 언어 선택 → 개인정보 고지(그 언어로) → 동의 → 발화 대기.
    손님당 1회이며, 응대가 끝나 대기 화면으로 돌아오면 다음 손님에게 다시 표시된다. */
-let pendingLang = null;
+let pendingLang = null, consentGuard = null;
 function startWithLang(lang){
   if (started) return;
   pendingLang = lang;
@@ -739,11 +741,16 @@ function startWithLang(lang){
   $('consentOk').textContent = auto ? UI.consentBtn.ko + ' · ' + UI.consentBtn.en : t('consentBtn');
   $('consentWrap').setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
   show('consentWrap');
+  // 손님이 동의 없이 자리를 뜨면(안내원 조작도 없으면) 이 화면에 무기한 멈춘다 — 45초는 12개 언어 문구를
+  // 훑어볼 시간은 주면서, 방치된 태블릿이 다음 손님을 앞 손님 언어로 오인 시작시키지 않게 하는 상한.
+  clearTimeout(consentGuard);
+  consentGuard = setTimeout(() => { if (pendingLang) backToTouch(); }, 45000);
 }
 function consentAndStart(){
   const lang = pendingLang;
   if (!lang || started) return;
   pendingLang = null;
+  clearTimeout(consentGuard);
   curLang = lang; gotActive = false; pendingStart = true;
   clearAll();
   setSvcConnecting();
