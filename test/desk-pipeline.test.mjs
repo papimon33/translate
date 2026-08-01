@@ -101,3 +101,29 @@ test('뷰어 접근 토큰: 토큰 없거나 틀리면 /ws/viewer·/api/sessions
   const bad = new WebSocket(`${wsBase}/ws/viewer?session=${sess.id}`);
   await assert.rejects(new Promise((res, rej) => { bad.once('open', res); bad.once('error', rej); }), /403|Unexpected server response/, '토큰 없는 뷰어 WS 는 거부돼야 함');
 });
+
+test('데스크: GUEST_LANGS 밖의 언어를 골라도 영어로 바뀌지 않는다', { timeout: 60000 }, async (t) => {
+  const fake = await startFakeSoniox();
+  const srv = await bootServer({ SONIOX_WS_URL: fake.url });
+  t.after(async () => { await fake.close(); await srv.stop(); });
+
+  const cookie = await loginAdmin(srv.base);
+  const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
+  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '언어 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '언어 확장', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+
+  const wsBase = srv.base.replace('http', 'ws');
+  const host = wsClient(`${wsBase}/ws/host?session=${sess.id}`, { Cookie: cookie });
+  await host.ready;
+  const tok = await deskToken(srv.base, cookie, sess.id);
+  const viewer = wsClient(`${wsBase}/ws/viewer?session=${sess.id}&t=${tok}`);
+  await viewer.ready;
+  await until(() => viewer.messages.some((m) => m.type === 'host' && m.active), { desc: '호스트 활성' });
+
+  // ar 은 GUEST_LANGS(자동감지 힌트 10개)에 없지만 SONIOX_LANGS(60개)에는 있다
+  viewer.send({ type: 'desk-start', lang: 'ar' });
+  const conn = await fake.nextConnection();
+  const config = await conn.waitConfig;
+  assert.ok(config.language_hints.includes('ar'), '고른 언어(ar)가 힌트에 있어야 함: ' + JSON.stringify(config.language_hints));
+  assert.equal(config.translation?.language_b, 'ar', 'two_way 상대 언어가 ar 이어야 함(en 으로 바뀌면 안 됨)');
+});

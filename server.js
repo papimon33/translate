@@ -3911,8 +3911,11 @@ function handleHost(ws) {
     // 통역 시작: 손님(뷰어)이 언어를 고르거나 호스트가 수동 시작 — 이때 처음 soniox 연결
     const startConversation = (B) => {
       if (closed) return;
-      const auto = B === 'auto'; // 'Other languages' — 첫 발화 언어를 감지해 two_way 전환
-      const lang = auto ? null : (GUEST_LANGS.includes(B) ? B : 'en');
+      // 명시 선택은 엔진 지원 전체(SONIOX_LANGS 60개)로 검증한다. 미지원 값이면 영어로 바꾸지 않고
+      // 자동감지로 넘긴다 — 손님이 고른 언어가 아닌 언어로 조용히 통역되는 것보다 낫다.
+      // (GUEST_LANGS 는 자동감지 language_hints 전용이라 여기 쓰지 않는다. 늘리면 힌트가 희석된다.)
+      const lang = B !== 'auto' && SONIOX_LANGS.includes(B) ? B : null;
+      const auto = !lang; // 'auto' 선택 또는 미지원 값 → 첫 발화로 감지
       if (phase === 'active' && !auto && lang === lockedB) return;
       // 응대 중 다른 언어 선택 = 새 손님 — 이전 응대를 먼저 마감(아카이브)해 두 손님의 기록이
       // 한 deskLog 항목으로 병합되지 않게 한다(즉시 마감 — 새 손님을 기다리게 하지 않음).
