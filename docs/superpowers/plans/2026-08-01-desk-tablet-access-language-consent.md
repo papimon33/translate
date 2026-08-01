@@ -33,7 +33,7 @@
 | `test/desk-pipeline.test.mjs` | 기존 데스크 E2E | 토큰 취득 경로를 `/api/qr`로 교체 (Task 1 필수 동반) |
 | `test/desk-host-recovery.test.mjs` | 기존 호스트 복구 E2E | 토큰 취득 경로 교체 (Task 1 필수 동반) |
 | `test/desk-retry-cap.test.mjs` | 기존 재연결 상한 E2E | 토큰 취득 경로 교체 (Task 1 필수 동반) |
-| `PROJECT_NOTES.md` · `README.md` | 문서 | Task 4 |
+| `PROJECT_NOTES.md` · `README.md` | 문서 | Task 5 |
 
 `client/src/`(React 호스트·관리자)는 건드리지 않는다. `android/`도 코드 변경 없음.
 
@@ -692,7 +692,138 @@ EOF
 
 ---
 
-## Task 4: 문서 갱신 + 실기동 검증
+## Task 4: 손님 대화 화면 하단 종료 버튼
+
+지금 종료(✕)는 화면 **우상단 40px 아이콘**이고 `opacity:0`으로 숨겨져 있다가 화면을 탭해야 3초간 나타난다(`flashEnd`). 손님이 그 존재를 알 방법이 없다. 하단에 항상 보이는 버튼으로 바꾸고, 대화 영역이 그 버튼에 가리지 않게 한다.
+
+**Files:**
+- Modify: `client/public/desk.html` — `#stage` padding · `#endBtn` CSS · `#idleWarn` bottom · 마크업 · `UI` 사전 · `show()` · `flashEnd` 제거
+
+**Interfaces:**
+- Consumes: Task 3의 `show(id)` 화면 목록(`consentWrap` 포함), `t(key)` 사전 조회
+- Produces: 없음 (UI 종결)
+
+**주의 — 겹침 2건:** `#idleWarn`(무음 종료 예고 배너)이 `bottom:calc(env(safe-area-inset-bottom) + 30px)`에 떠 있어 새 버튼과 정확히 겹친다. 같이 올려야 한다. `#stage`의 `mask-image`는 위쪽만 페이드하므로 하단은 손대지 않아도 된다.
+
+- [ ] **Step 1: `#stage` 하단 여백을 버튼 높이만큼 확보한다**
+
+`client/public/desk.html:101-104`의 `#stage` 규칙에서 `padding` 줄을 아래로 바꾼다. 세로 여백만 바뀌고 좌우(6vw)는 그대로다.
+
+```css
+    padding:calc(9vh + env(safe-area-inset-top)) 6vw calc(env(safe-area-inset-bottom) + 104px);
+```
+
+`104px` = 버튼 높이(64) + 아래 여백(20) + 위 숨쉴 틈(20). 이 값 덕분에 마지막 말풍선이 버튼에 가리지 않는다.
+
+- [ ] **Step 2: 종료 버튼을 하단 고정 바로 바꾼다**
+
+`client/public/desk.html:157-162`의 `/* 종료(대기모드) 버튼 — 자동 숨김 */` 주석과 `#endBtn` · `#endBtn.show` 규칙 전체를 아래로 교체한다.
+
+```css
+  /* 종료 버튼 — 손님 대화 화면 하단에 항상 보인다.
+     이전에는 우상단 40px 아이콘이 화면 탭 후 3초만 나타났는데, 손님이 그 존재를 알 방법이 없었다.
+     #stage 의 하단 padding(104px)이 이 버튼 높이를 비워 두므로 말풍선이 가려지지 않는다. */
+  #endBtn { position:fixed; left:50%; transform:translateX(-50%); z-index:12;
+    bottom:calc(env(safe-area-inset-bottom) + 20px); width:min(560px, calc(100vw - 12vw));
+    min-height:64px; padding:16px 24px; border-radius:20px; border:1px solid var(--line);
+    background:var(--card); color:var(--muted); font-size:calc(19px * var(--fs)); font-weight:800;
+    display:none; align-items:center; justify-content:center; gap:10px; cursor:pointer; }
+  #endBtn.show { display:flex; }
+  #endBtn:active { background:var(--chip); }
+```
+
+- [ ] **Step 3: 무음 종료 예고 배너를 버튼 위로 올린다**
+
+`client/public/desk.html`의 `#idleWarn` 규칙에서 `bottom:calc(env(safe-area-inset-bottom) + 30px)` 를 아래로 바꾼다.
+
+```css
+    bottom:calc(env(safe-area-inset-bottom) + 104px);
+```
+
+(하단 종료 버튼과 겹치지 않게 그 위로.)
+
+- [ ] **Step 4: 마크업을 텍스트 버튼으로 바꾼다**
+
+`client/public/desk.html`의
+
+```html
+  <div id="endBtn" aria-label="대기모드로">✕</div>
+```
+
+를 아래로 바꾼다.
+
+```html
+  <div id="endBtn" role="button" tabindex="0"><span id="endBtnTxt"></span></div>
+```
+
+- [ ] **Step 5: 라벨을 `UI` 사전에 추가한다**
+
+`UI` 객체 안, Task 3에서 넣은 `consentBtn:` 줄 **다음**에 넣는다.
+
+```js
+  endBtn: { ko:'대화 종료', en:'End conversation', ja:'会話を終了', zh:'结束对话', vi:'Kết thúc', th:'จบการสนทนา', id:'Akhiri percakapan', ru:'Завершить', tl:'Tapusin', es:'Finalizar', fr:'Terminer', de:'Beenden', ar:'إنهاء المحادثة' },
+```
+
+- [ ] **Step 6: `show()`가 종료 버튼을 대화 화면에서만 띄우게 한다**
+
+Task 3에서 고친 `show()` 함수(`client/public/desk.html:240` 부근) 안, `$('a11y').classList.toggle('show', svc);` 줄 **다음**에 아래를 넣는다.
+
+```js
+  // 종료 버튼은 대화 화면에서만, 손님 언어로. 자동 숨김 없이 항상 보인다.
+  $('endBtn').classList.toggle('show', svc);
+  if (svc) $('endBtnTxt').textContent = curLang === 'auto' ? UI.endBtn.ko + ' · ' + UI.endBtn.en : t('endBtn');
+```
+
+- [ ] **Step 7: 자동 숨김 코드를 제거한다**
+
+`client/public/desk.html:718-719`의
+
+```js
+/* ---- 종료 버튼 자동 숨김 ---- */
+let endTimer = null;
+function flashEnd(){ $('endBtn').classList.add('show'); clearTimeout(endTimer); endTimer = setTimeout(() => $('endBtn').classList.remove('show'), 3000); }
+```
+
+3줄을 삭제한다. 그리고 `:729`의
+
+```js
+$('stage').addEventListener('click', flashEnd);
+```
+
+줄도 삭제한다. **`$('endBtn').addEventListener('click', end);` 줄은 남긴다** — 이게 실제 종료 동작이다.
+
+`flashEnd` 를 부르는 다른 곳이 없는지 확인한다.
+
+Run: `grep -n "flashEnd\|endTimer" client/public/desk.html`
+Expected: 출력 없음
+
+- [ ] **Step 8: 빌드하고 전체 테스트를 돌린다**
+
+Run: `npm run build && npm test`
+Expected: 빌드 성공, `tests 31 / pass 31 / fail 0` (이 태스크는 서버 동작을 바꾸지 않으므로 테스트 수는 그대로)
+
+- [ ] **Step 9: 커밋**
+
+```bash
+git add client/public/desk.html
+git commit -m "$(cat <<'EOF'
+손님 대화 화면 하단에 종료 버튼 상시 노출
+
+기존 종료(✕)는 우상단 40px 아이콘이 opacity:0 으로 숨어 있다가 화면을 탭해야
+3초간 나타났다 — 손님이 그 존재를 알 방법이 없었다.
+
+- 하단 고정 텍스트 버튼(손님 언어, 최소 높이 64px)으로 교체, 자동 숨김 제거
+- #stage 하단 padding 을 104px 로 늘려 말풍선이 버튼에 가리지 않게
+- #idleWarn(무음 종료 예고)이 같은 자리에 떠 있어 함께 위로 이동
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 5: 문서 갱신 + 실기동 검증
 
 세 변경이 실제 태블릿 흐름에서 이어지는지 브라우저로 한 번 훑고, 근거를 문서에 남긴다.
 
@@ -701,7 +832,7 @@ EOF
 - Modify: `README.md` (안내데스크 기능 표의 언어 수)
 
 **Interfaces:**
-- Consumes: Task 1~3의 모든 변경
+- Consumes: Task 1~4의 모든 변경
 - Produces: 없음 (종결)
 
 - [ ] **Step 1: 서버를 띄우고 공개 목록에 토큰이 없음을 확인한다**
@@ -728,6 +859,8 @@ Expected: `[{"id":"...","title":"...","active":false}]` — `"t"` 키가 없어�
 4. ✕ 로 종료 → 대기 화면 복귀 → 다시 탭하면 고지가 **또 뜬다**(손님당 1회)
 5. `Other languages — just speak` 탭 → 고지가 **한국어+영어 병기**로 뜬다
 6. 12개 언어를 차례로 탭해 문구가 잘리거나 카드를 넘치지 않는지 본다(태국어·아랍어 줄높이 주의)
+7. 발화 대기 화면 **하단에 종료 버튼이 손님 언어로 항상 보이고**, 대화가 쌓여도 마지막 말풍선이 그 버튼에 가리지 않는다(창을 좁혀 스크롤을 만들어 확인)
+8. 무음 종료 예고 배너(30초 중 20초 경과 시)가 종료 버튼과 겹치지 않는다
 
 - [ ] **Step 3: 세션 없이 열었을 때 입장이 불가능함을 확인한다**
 
@@ -809,6 +942,6 @@ EOF
 
 - `npm test` 31/31 통과, `npm run build` 성공
 - `curl /api/desk-sessions` 응답에 `t` 없음
-- 태블릿 QR URL 로 열면: 언어 12개 리스트 → 고지(선택 언어) → 동의 → 발화 대기
+- 태블릿 QR URL 로 열면: 언어 12개 리스트 → 고지(선택 언어) → 동의 → 발화 대기(하단 종료 버튼 상시 노출)
 - 세션 없이 `desk.html` 을 열면 입장 불가 + 관리자 QR 안내
-- 커밋 4개
+- 커밋 5개
