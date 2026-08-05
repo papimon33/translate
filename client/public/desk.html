@@ -141,6 +141,9 @@
   .turn.self  { align-items:flex-end; }
   .bub { max-width:88%; padding:.46em .64em; border-radius:20px; line-height:1.34; word-break:keep-all; overflow-wrap:anywhere;
     font-size:calc(clamp(23px,4.6vw,44px) * var(--fs)); font-weight:700; }
+  /* 진행 중(미확정) 발화 — 말풍선 배경이 색이라 글자색을 바꾸는 대신 통째로 흐리게.
+     확정되면 draft 가 빠지며 또렷해진다(서버 liveSend draft:true → buildMsg 는 미포함). */
+  .turn.draft .bub { opacity:.5; }
   .turn.staff .bub { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:7px; }
   .turn.self  .bub { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:7px; }
 
@@ -403,7 +406,7 @@ function scrollBottom(){ const s=$('stage'); s.scrollTop = s.scrollHeight; }
 function renderCard(c){
   const r = textOf(c);
   c.bub.textContent = r.t;
-  c.el.className = 'item turn ' + (r.staff ? 'staff' : 'self');
+  c.el.className = 'item turn ' + (r.staff ? 'staff' : 'self') + (c.draft ? ' draft' : '');
   c.el.style.display = r.t ? '' : 'none';
 }
 function upsert(item){
@@ -416,6 +419,8 @@ function upsert(item){
     // (지도는 상단 플로팅 — 새 발화가 와도 유지, 10초 뒤 또는 탭으로 닫힘)
   }
   c.texts = item.texts || {}; c.source = item.source || '';
+  // 확정 메시지는 draft 를 아예 안 보내므로 매번 덮어써야 한다(유지하면 영영 흐린 채로 남는다)
+  c.draft = !!item.draft;
   if (item.lang) c.lang = item.lang;
   renderCard(c);
   hideIdleWarn(); // 발화가 이어지면 종료 예고 해제(서버 타이머도 리셋됨)

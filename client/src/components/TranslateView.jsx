@@ -571,10 +571,13 @@ export default function TranslateView({ session: initial, onBack }) {
             speaker: m.speaker ?? copy[i].speaker,
             lang: m.lang ?? copy[i].lang, // 화자 색 구분용 — 유실되면 단일 채널 데스크에서 색이 전부 호스트색이 됨
             toks: m.toks ?? copy[i].toks, // 원문 토큰(신뢰도) — 저신뢰 단어 하이라이트용
+            // draft 는 ?? 로 유지하면 안 된다 — 확정 메시지(buildMsg)는 이 필드를 아예 안 보내므로
+            // 유지하면 카드가 영영 흐린 채로 남는다. 매 메시지가 현재 상태의 정본이다.
+            draft: !!m.draft,
           };
           return copy;
         }
-        const next = [...arr, { id: m.id, side, texts: m.texts || {}, source: m.source, speaker: m.speaker || null, lang: m.lang || null, toks: m.toks || null }];
+        const next = [...arr, { id: m.id, side, texts: m.texts || {}, source: m.source, speaker: m.speaker || null, lang: m.lang || null, toks: m.toks || null, draft: !!m.draft }];
         return next.length > 800 ? next.slice(-800) : next; // 장시간 세션 렌더 보호(전문은 서버 세션에 보존)
       });
     }
@@ -1150,7 +1153,7 @@ export default function TranslateView({ session: initial, onBack }) {
               // 데스크: 안내원(한국어) 발화는 texts 에 ko 가 없음 → 원문을 본문으로('번역 중…' 표시 없이)
               if (cfg.pipeline === 'desk' && !t) {
                 if (!m.source) return null;
-                return <Row key={m.id} side={m.side} text={m.source} source={null} dir={deskDir} scale={fontScale} />;
+                return <Row key={m.id} side={m.side} text={m.source} source={null} dir={deskDir} scale={fontScale} draft={!!m.draft} />;
               }
               // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
               let dir = deskDir;
@@ -1158,7 +1161,7 @@ export default function TranslateView({ session: initial, onBack }) {
                 const tk = Object.keys(m.texts)[0];
                 if (tk) dir = tk === sxA ? 'b' : 'a'; // 타깃이 언어1 → 언어2가 말함(b), 타깃이 언어2 → 언어1이 말함(a)
               }
-              return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} scale={fontScale} />;
+              return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} scale={fontScale} draft={!!m.draft} />;
             })}
             {showPartial && partials.left && <PartialLine side="left" text={partials.left} scale={fontScale} />}
             {showPartial && partials.right && <PartialLine side="right" text={partials.right} scale={fontScale} />}
@@ -1481,12 +1484,14 @@ function PartialLine({ side, text, scale = 1 }) {
 // memo: 마이크 미터 등 무관한 상태 변경 때 수백 개 행이 재렌더되지 않도록
 // (저신뢰 단어 하이라이트 표시(TokenizedSource)는 사용자 요청으로 삭제 — toks 기록 자체는
 //  confFix·품질 평가용으로 서버에 계속 저장된다.)
-const Row = React.memo(function Row({ side, text, source, dir, scale = 1 }) {
+const Row = React.memo(function Row({ side, text, source, dir, scale = 1, draft = false }) {
   const isMic = side === 'right'; // 마이크 입력
   const pending = !text && !!source; // 번역 대기 중 → 원문을 흐리게
   const mainText = pending ? source : text;
   const mainColor = (t) => {
     if (pending) return t.palette.text.secondary;
+    // 진행 중(미확정): 방향별 색을 쓰지 않고 회색으로 — 확정되는 순간 제 색으로 또렷해져 경계가 눈에 보인다
+    if (draft) return t.palette.text.secondary;
     const accent = (t.palette.accent && t.palette.accent.main) || t.palette.primary.main;
     if (dir === 'a') return accent; // 게스트/언어1 발화 — 전용 파란 액센트(뉴트럴 primary 는 텍스트색과 같아 구분 불가였음)
     if (dir === 'b') return t.palette.text.primary; // 호스트/언어2 발화(무채색)

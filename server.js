@@ -3102,8 +3102,12 @@ function handleHost(ws) {
   // sideOv = 채널별 side 오버라이드(데스크 여객 마이크 채널='left', 기본은 이 연결의 소스 기준).
   const buildMsg = (id, item) => ({ type: 'sentence', id, side: item.side || side, source: item.source || null, texts: item.texts, speaker: item.speaker || null, ...(item.lang ? { lang: item.lang } : {}), ...(item.toks ? { toks: item.toks } : {}) });
   // 화면에만 보냄(저장 안 함) — translate 스트리밍/whisper 진행표시용
+  // draft:true — 아직 확정되지 않은(엔진이 <end> 를 주기 전) 진행 중 발화·번역이라는 표시.
+  // 클라는 이걸 흐리게 그리고, 확정 시 buildMsg 가 draft 없이 같은 id 를 다시 보내면 또렷해진다.
+  // 다듬기(polish)까지 끝나도 같은 경로(upsertItem→buildMsg)라 확정 표시가 유지된다.
+  // 구버전 캐시 클라(desk.html 태블릿)는 이 필드를 무시하므로 지금과 똑같이 그려진다 — 추가는 안전.
   const liveSend = (id, langTexts, source, speaker, lang, sideOv) => {
-    const m = { type: 'sentence', id, side: sideOv || side, source: source || null, texts: langTexts, speaker: speaker || null, ...(lang ? { lang } : {}) };
+    const m = { type: 'sentence', id, side: sideOv || side, source: source || null, texts: langTexts, speaker: speaker || null, ...(lang ? { lang } : {}), draft: true };
     toHost(m);
     broadcast(sessionId, m);
   };

@@ -50,6 +50,9 @@
   /* 양방향: 언어1 발화=액센트 / 언어2 발화=무채색(검정/흰색) (최신 강조보다 우선) */
   .msg.dirA .line:not(.pending) { color:var(--accent); }
   .msg.dirB .line:not(.pending) { color:var(--txt); }
+  /* 진행 중(미확정) 발화·번역 — 확정되면 draft 가 빠지며 본래 색으로 또렷해진다.
+     latest/dirA/dirB 규칙보다 뒤에 두고 셀렉터를 같은 특이도로 맞춰 확실히 이긴다. */
+  .msg .line.draft, .msg.latest .line.draft, .msg.dirA .line.draft, .msg.dirB .line.draft { color:var(--muted); font-weight:400; }
   .msg .src { font-size:calc(var(--fs) - 5px); color:var(--muted); line-height:1.4; margin-top:2px; }
   #partial { padding:4px 16px 28px; }
   #partial .line { font-size:var(--fs); color:var(--muted); font-style:italic; line-height:1.4; }
@@ -406,6 +409,8 @@ function upsert(item){
   }
   card.texts = item.texts || (item.text ? { [curLang]: item.text } : {});
   card.source = item.source || '';
+  // 확정 메시지는 draft 를 아예 안 보내므로 매번 덮어써야 한다(유지하면 영영 흐린 채로 남는다)
+  card.draft = !!item.draft;
   if(item.speaker) card.speaker = item.speaker;
   renderSpk(card);
   renderLine(card);
@@ -425,7 +430,7 @@ function renderLine(c){
     c.el.classList.toggle('self', !r.staff);
     c.el.classList.remove('latest');
     if (c.spk){ c.spk.className = 'who'; c.spk.style.display = r.t ? '' : 'none'; c.spk.textContent = r.staff ? dt('staff') : (dt('you') + ' · ' + String(curLang).toUpperCase()); }
-    c.line.className = 'line';
+    c.line.className = 'line' + (c.draft ? ' draft' : ''); // className 통째 교체라 여기서 같이 얹는다
     c.line.textContent = r.t;
     if (c.src) c.src.style.display = 'none';
     c.el.style.display = r.t ? '' : 'none';
@@ -433,6 +438,7 @@ function renderLine(c){
   }
   const txt = pick(c.texts);
   c.line.classList.toggle('pending', !txt && !!c.source);
+  c.line.classList.toggle('draft', !!c.draft); // 진행 중 → 회색, 확정되면 제 색으로
   c.line.textContent = txt || c.source || '';
   // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
   c.el.classList.remove('dirA', 'dirB');
