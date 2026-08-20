@@ -259,7 +259,9 @@ export default function TranslateView({ session: initial, onBack }) {
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 50; // 여객 태블릿 마이크 민감도(데스크) — 50=기존 근접 게이트와 동일
   });
   // 프리셋: 단방향=one→ko, 양방향/모바일=two. (없으면 기존 localStorage)
-  const [sxMode, setSxMode] = useState(() => (initial.preset ? (onewayPreset ? 'one' : 'two') : (localStorage.getItem('kac-sx-mode') || 'one')));
+  // PC 음성 번역(oneway)에서도 양방향을 켤 수 있다(화상회의: 시스템=상대, 마이크=나 — 서로의 언어로 번역).
+  // 별도 키로 저장 — 'kac-sx-mode' 는 프리셋 없는 구세션용이라 섞으면 서로의 설정을 오염시킨다.
+  const [sxMode, setSxMode] = useState(() => (initial.preset ? (onewayPreset ? (localStorage.getItem('kac-oneway-two') === '1' ? 'two' : 'one') : 'two') : (localStorage.getItem('kac-sx-mode') || 'one')));
   const [sxTarget, setSxTarget] = useState(() => (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
@@ -718,7 +720,7 @@ export default function TranslateView({ session: initial, onBack }) {
   };
 
   const showPartial = true;
-  const twoway = cfg.pipeline === 'soniox' && !onewayPreset; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
+  const twoway = cfg.pipeline === 'soniox' && (!onewayPreset || sxMode === 'two'); // 양방향 번역(언어1↔언어2) — 방향별 색상 구분(PC 음성 번역의 양방향 토글 포함)
   const PRESET_LABEL = { live: '현장 음성 번역', oneway: 'PC 음성 번역', twoway: '대화 번역', mobile: '대화 번역', online: 'PC 음성 번역', field: '대화 번역', meeting: '대화 번역' };
   const pipeLabel = preset ? (PRESET_LABEL[preset] || '지원 종료 모드') : (PIPES.find((p) => p.v === cfg.pipeline)?.label || '지원 종료 모드'); // 구 multi 등
   // 모드 변경(번역 이력 없을 때만): 프리셋 + 모드별 기본값(소스·방향·TTS)을 함께 리셋
@@ -728,6 +730,7 @@ export default function TranslateView({ session: initial, onBack }) {
     api.patch(initial.id, { preset: v }).catch(() => {});
     setSourceMode(v === 'oneway' ? 'system' : 'mic');
     setSxMode(v === 'twoway' ? 'two' : 'one');
+    localStorage.removeItem('kac-oneway-two'); // 모드 변경 = 모드별 기본값으로 리셋(문서화된 동작) — 저장된 양방향 토글도 함께 초기화
     if (v !== 'twoway') setSxTarget('ko');
     setTtsOn(v === 'twoway');
     localStorage.setItem('kac-sx-tts', v === 'twoway' ? '1' : '0'); // 저장값과 동기화(리로드 시 되돌아가던 문제)
@@ -926,31 +929,59 @@ export default function TranslateView({ session: initial, onBack }) {
           )}
           {cfg.pipeline === 'soniox' && onewayPreset && (
             <>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.02em' }}>입력 언어</Typography>
-                  <Tooltip title="말하는 언어를 지정하면 더 정확하게 인식합니다. 자동 감지를 고르면 여러 언어를 자동으로 알아듣습니다." arrow>
-                    <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'help' }} />
-                  </Tooltip>
-                </Box>
-                <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 130 }}>
-                  <MenuItem value="auto">자동 감지</MenuItem>
-                  {LANGS.filter((l) => l.code !== 'auto').map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                </Select>
-              </Box>
-              <Field label="출력 언어">
-                <Select size="small" value={sxTarget} disabled={recording} onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
-                  {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                </Select>
-              </Field>
+              {sxMode === 'two' ? (
+                // 양방향(화상회의): 시스템=상대·마이크=나, 채널별로 방향이 자동 판별되므로 입력/출력 대신 언어쌍만 고른다
+                <>
+                  <Field label="언어 1">
+                    <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} sx={{ ...selSx, minWidth: 110 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                      {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                    </Select>
+                  </Field>
+                  <Field label="언어 2">
+                    <Select size="small" value={sxB} disabled={recording} onChange={(e) => { setSxB(e.target.value); localStorage.setItem('kac-sx-b', e.target.value); }} sx={{ ...selSx, minWidth: 110 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                      {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                    </Select>
+                  </Field>
+                </>
+              ) : (
+                <>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
+                      <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', letterSpacing: '0.02em' }}>입력 언어</Typography>
+                      <Tooltip title="말하는 언어를 지정하면 더 정확하게 인식합니다. 자동 감지를 고르면 여러 언어를 자동으로 알아듣습니다." arrow>
+                        <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'help' }} />
+                      </Tooltip>
+                    </Box>
+                    <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 130 }}>
+                      <MenuItem value="auto">자동 감지</MenuItem>
+                      {LANGS.filter((l) => l.code !== 'auto').map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                    </Select>
+                  </Box>
+                  <Field label="출력 언어">
+                    <Select size="small" value={sxTarget} disabled={recording} onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                      {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+                    </Select>
+                  </Field>
+                </>
+              )}
               {['oneway', 'online'].includes(preset) && (
-                <InfoToggle
-                  label="내 음성 인식"
-                  hint="시스템 소리에 더해 내 마이크로 말한 내용도 함께 인식해 번역합니다."
-                  checked={sourceMode === 'both'}
-                  disabled={recording}
-                  onChange={(e) => setSourceMode(e.target.checked ? 'both' : 'system')}
-                />
+                <>
+                  {/* 화상회의: 시스템(상대)+마이크(나)를 two_way 로 — 서버는 프리셋을 보지 않고 sxMode 만 보므로 UI 만 열면 된다 */}
+                  <InfoToggle
+                    label="양방향 번역"
+                    hint="두 언어를 자동 판별해 서로의 언어로 번역합니다. 화상회의에서 상대 음성(시스템 소리)과 내 음성(마이크)을 함께 번역하려면 '내 음성 인식'도 켜세요. 상대 소리가 마이크로 되들어가지 않게 이어폰 사용을 권장합니다."
+                    checked={sxMode === 'two'}
+                    disabled={recording}
+                    onChange={(e) => { const v = e.target.checked ? 'two' : 'one'; setSxMode(v); localStorage.setItem('kac-oneway-two', v === 'two' ? '1' : '0'); }}
+                  />
+                  <InfoToggle
+                    label="내 음성 인식"
+                    hint="시스템 소리에 더해 내 마이크로 말한 내용도 함께 인식해 번역합니다."
+                    checked={sourceMode === 'both'}
+                    disabled={recording}
+                    onChange={(e) => setSourceMode(e.target.checked ? 'both' : 'system')}
+                  />
+                </>
               )}
               <InfoToggle
                 label="TTS"
