@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="light">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -136,55 +136,55 @@
 <div id="landing">
   <div class="lcard">
     <div class="lbrand"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 19V9M10 19V5M15 19v-7M20 19v-4"/></svg><span id="lBrandName">AirTalk</span></div>
-    <div class="ltitle" id="lTitle">세션</div>
-    <div class="lmeta"><span class="d" id="lLiveDot"></span><span id="lLive">대기 중</span></div>
-    <button id="enterBtn">입장</button>
+    <div class="ltitle" id="lTitle">Session</div>
+    <div class="lmeta"><span class="d" id="lLiveDot"></span><span id="lLive">Waiting</span></div>
+    <button id="enterBtn">Enter</button>
   </div>
 </div>
 <header>
   <div class="htop">
-    <span id="liveDot" title="대기 중"></span>
+    <span id="liveDot" title="Waiting"></span>
     <div class="brand" id="brand">AirTalk</div>
-    <button class="iconbtn" id="audioBtn" aria-label="음성 듣기" style="display:none">
+    <button class="iconbtn" id="audioBtn" aria-label="Listen" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path id="audioWave" d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
     </button>
-    <button class="iconbtn" id="fullBtn" aria-label="전체화면">
+    <button class="iconbtn" id="fullBtn" aria-label="Fullscreen">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
     </button>
-    <button class="iconbtn" id="settingsBtn" aria-label="설정">
+    <button class="iconbtn" id="settingsBtn" aria-label="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
   </div>
-  <div class="stitle" id="title">세션</div>
+  <div class="stitle" id="title">Session</div>
   <select id="langSel"></select>
 </header>
 
-<div id="feed"><div class="empty" id="empty">번역을 기다리는 중입니다...</div></div>
+<div id="feed"><div class="empty" id="empty">Waiting for translation…</div></div>
 <div id="partial"></div>
-<button id="pttBtn" aria-label="발화 (탭하여 시작/중지)">
+<button id="pttBtn" aria-label="Speak (tap to start/stop)">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
 </button>
 
 <!-- 설정 시트 -->
 <div class="backdrop" id="backdrop"></div>
 <div class="sheet" id="sheet">
-  <h3>설정</h3>
+  <h3>Settings</h3>
   <div class="srow">
-    <span class="lbl">글자 크기</span>
+    <span class="lbl">Text size</span>
     <div class="stepper">
       <button id="fsDown">−</button><span class="v" id="fsVal">100%</span><button id="fsUp">+</button>
     </div>
   </div>
   <div class="srow click" id="rowQr">
-    <span class="lbl">QR코드 보기</span>
+    <span class="lbl">Show QR code</span>
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><polyline points="9 18 15 12 9 6"/></svg>
   </div>
   <div class="srow click" id="rowSrc">
-    <span class="lbl">원문 동시 보기</span>
+    <span class="lbl">Show original text</span>
     <label class="sw"><input type="checkbox" id="srcToggle" /><span class="sl"></span></label>
   </div>
   <div class="srow click" id="rowDark">
-    <span class="lbl">다크 모드</span>
+    <span class="lbl">Dark mode</span>
     <label class="sw"><input type="checkbox" id="darkToggle" /><span class="sl"></span></label>
   </div>
 </div>
@@ -195,7 +195,7 @@
     <button class="qrx" id="qrClose">×</button>
     <img id="qrImg" alt="QR" />
     <input id="qrLink" type="text" readonly />
-    <button class="copy" id="qrCopy">링크 복사</button>
+    <button class="copy" id="qrCopy">Copy link</button>
   </div>
 </div>
 
@@ -219,7 +219,7 @@ let sessionOutLang = 'ko';
 let sessionViewerPTT = false; // 참여자 PTT 허용 여부(세션 preset 에서 파생, REST 로 수신) — 켜졌을 때만 '누르고 말하기' 노출
 let sxTwo = false, sxAlang = null, sxBlang = null; // 양방향 번역(언어1↔언어2) — 방향별 색상
 let speakerNames = {}; // 화자번호 -> 지정이름
-function spkLabel(id){ return id ? (speakerNames[id] || ('화자 '+id)) : ''; }
+function spkLabel(id){ return id ? (speakerNames[id] || ('Speaker '+id)) : ''; }
 
 /* 브랜드(플레이스홀더 — 운영 시 교체) */
 const BRAND = { name: 'AirTalk' };
@@ -495,7 +495,7 @@ function connect(){
     let m; try { m = JSON.parse(ev.data); } catch { return; } // 비 JSON 프레임 방어
     // 서버가 접속을 거부(뷰어 정원 초과·동일 IP 상한): 이유를 보여주고 재연결을 멈춘다.
     // 이 분기가 없으면 거부된 폰이 아무 표시 없이 무한 재연결만 반복한다.
-    if(m.type==='error'){ refused = true; setPartial(m.message || '지금은 접속할 수 없습니다. 잠시 후 다시 시도해 주세요.'); try { cur.close(); } catch {} return; }
+    if(m.type==='error'){ refused = true; setPartial({room_full:'Too many viewers right now — please try again later.',ip_limit:'Too many connections from this device.'}[m.code] || m.message || 'Cannot connect right now — please try again later.'); try { cur.close(); } catch {} return; }
     if(m.type==='snapshot'){ m.items.forEach(it => upsert(it)); }
     else if(m.type==='partial'){ setPartial(m.text); }
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
@@ -515,9 +515,9 @@ function updatePttBtn(){ const pb=$('pttBtn'); const usable = hostOn && (!pttBus
 // 호스트(번역) 활성/중지 → 상태 표시등(초록/회색) + 랜딩 + 발화 버튼 활성/비활성
 function setHostActive(active){
   hostOn = !!active;
-  $('liveDot').classList.toggle('on', active); $('liveDot').title = active ? '번역 진행 중' : '대기 중';
+  $('liveDot').classList.toggle('on', active); $('liveDot').title = active ? 'Live' : 'Waiting';
   const ld = $('lLiveDot'); if(ld) ld.classList.toggle('on', active);
-  const ll = $('lLive'); if(ll) ll.textContent = active ? '진행 중' : '대기 중';
+  const ll = $('lLive'); if(ll) ll.textContent = active ? 'Live' : 'Waiting';
   if(!active && pttActive) pttStop();
   updatePttBtn();
 }
@@ -549,7 +549,7 @@ $('qrModal').onclick = (e) => { if(e.target.id==='qrModal') $('qrModal').classLi
 $('qrCopy').onclick = async () => {
   const link = $('qrLink').value;
   try { await navigator.clipboard.writeText(link); } catch { const i=$('qrLink'); i.select(); document.execCommand('copy'); }
-  const b=$('qrCopy'); const t=b.textContent; b.textContent='복사됨!'; setTimeout(()=>b.textContent=t, 1200);
+  const b=$('qrCopy'); const t=b.textContent; b.textContent='Copied!'; setTimeout(()=>b.textContent=t, 1200);
 };
 
 /* ---- 폰 PTT: 누르고 말하기 → 마이크 오디오를 24kHz PCM16 으로 서버에 전송 ---- */
@@ -571,7 +571,7 @@ async function pttStart(){
       for(let i=0;i<nb;i++) u8[i]=bin.charCodeAt(i);
       ws.send(buf);
     };
-    if(!window.AndroidAudio.start()){ window.__kacNA=null; alert('마이크를 사용할 수 없습니다. 앱의 마이크 권한을 허용해 주세요.'); return; }
+    if(!window.AndroidAudio.start()){ window.__kacNA=null; alert('Microphone unavailable — please allow microphone access for the app.'); return; }
     pttNative=true; pttActive=true; duckTts(true); $('pttBtn').classList.add('rec'); updatePttBtn();
     try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ptt', on:true})); } catch {}
     return;
@@ -579,7 +579,7 @@ async function pttStart(){
   pttStarting=true;
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
-  catch(e){ pttStarting=false; alert('마이크 권한이 필요합니다. 브라우저 주소가 https 인지 확인해 주세요.'); return; }
+  catch(e){ pttStarting=false; alert('Microphone permission required. Make sure the page address starts with https.'); return; }
   pttStarting=false;
   // 권한 프롬프트 대기 중 상태가 바뀌었으면(호스트 중지·참여자 발화 꺼짐) 시작하지 않는다 —
   // 버튼이 숨김/비활성이 된 뒤 녹음이 시작되면 사용자가 끌 방법이 없는 핫 마이크가 됨
@@ -639,7 +639,7 @@ connect();
 /* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음) */
 (function(){
   var b = document.createElement('div'); b.id = 'netBanner';
-  b.textContent = '인터넷 연결이 끊겼습니다 — 연결이 복구되면 자동으로 이어집니다.';
+  b.textContent = 'No internet connection — will resume automatically once back online.';
   document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(b); if(!navigator.onLine) b.classList.add('show'); });
   window.addEventListener('offline', function(){ b.classList.add('show'); });
   window.addEventListener('online', function(){ b.classList.remove('show'); });
