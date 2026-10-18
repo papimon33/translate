@@ -254,7 +254,10 @@ export default function TranslateView({ session: initial, onBack }) {
   const [micSens, setMicSens] = useState(() => {
     const s = localStorage.getItem('kac-mic-sens'); // 미저장 시 Number(null)=0 으로 오인되지 않게 원문 확인
     const v = s == null ? NaN : Number(s);
-    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 70; // 마이크 음성인식 민감도 0~100 (100=가장 민감, 낮출수록 조용한 소리 무시). 기본 70=속삭임·주변소음 걸러냄. 기기 저장
+    // 마이크 음성인식 민감도 0~100 (100=게이트 없음, 낮출수록 조용한 소리 무시). 기기 저장.
+    // 기본 100: 70(게이트)이던 시절 회의에서 발화 중간의 작은 소리 구간이 무음 처리돼 문장이 토막 났다
+    // (2026-10-08 KAC-센트레아 회의 — 게이트가 없는 PC 소리 채널은 멀쩡하고 마이크 채널만 끊김). 슬라이더를 만진 기기는 저장값 유지.
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100;
   });
   const [guestSens, setGuestSens] = useState(() => {
     const s = localStorage.getItem('kac-desk-guest-sens');
@@ -1231,7 +1234,7 @@ export default function TranslateView({ session: initial, onBack }) {
             onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
           <SettingsCap first>마이크</SettingsCap>
           {/* 녹음(캡처) 중에도 실시간 조절 — 데스크는 상시 캡처라 비활성화하면 아예 바꿀 수 없었음 */}
-          <SxSlider label={cfg.pipeline === 'desk' ? '호스트 마이크 민감도' : '마이크 음성인식 민감도'} hint="100=모든 소리, 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 기본 70. 속삭임이 잡히면 더 낮추고, 작게 말하는데 끊기면 높이세요. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
+          <SxSlider label={cfg.pipeline === 'desk' ? '호스트 마이크 민감도' : '마이크 음성인식 민감도'} hint="100=모든 소리(기본), 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 주변 잡담이 자막에 섞이면 낮추세요 — 너무 낮으면 말하는 중간이 끊깁니다. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
             fmt={(v) => String(v)}
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
           {cfg.pipeline === 'desk' && (
