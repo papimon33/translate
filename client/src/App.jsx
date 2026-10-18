@@ -140,7 +140,9 @@ export default function App() {
 
   const main =
     session ? (
-      <TranslateView session={session} onBack={() => window.history.back()} />
+      // key: 세션을 바꾸면 화면을 새로 만든다 — 세션 화면은 상태를 첫 렌더의 세션 값으로 초기화하므로,
+      // 키가 없으면 사이드바에서 다른 세션을 골라도 이전 세션의 모드·언어·녹음 대상이 그대로 남았다.
+      <TranslateView key={session.id} session={session} onBack={() => window.history.back()} />
     ) : view === 'desk' ? (
       <SessionList onOpen={openSession} user={user} deskMode createSignal={createSignal} />
     ) : view === 'admin' && user.role === 'admin' ? (

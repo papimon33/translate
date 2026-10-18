@@ -73,16 +73,16 @@ export function IconMode3(props) {
     </Box>
   );
 }
-// 새 세션 모달 — 상황 4종.
+// 새 세션 모달 — 모드 2종(번역 방향). 소리 입력(마이크/PC 소리)은 세션 안에서 고른다.
 export const SITUATIONS = [
-  { v: 'live', title: '현장 음성 번역', badge: '강의·컨퍼런스 등', example: '스피커로 들리는 음성을 실시간 번역', Icon: IconMode1 },
-  { v: 'oneway', title: 'PC 음성 번역', badge: 'Zoom·영상·온라인 회의', example: '컴퓨터에서 재생되는 소리를 실시간 번역', Icon: IconMode2 },
-  { v: 'twoway', title: '대화 번역', badge: '외국인과 대화', example: '서로의 언어를 실시간으로 번역', Icon: IconMode3 },
+  { v: 'oneway', title: '실시간 번역', badge: '강의·영상·웨비나', example: '들리는 음성을 원하는 언어로 번역 — 마이크 또는 PC 소리', Icon: IconMode1 },
+  { v: 'twoway', title: '양방향 통역', badge: '대면 대화·온라인 회의', example: '서로의 언어를 실시간으로 번역 — 마이크 또는 PC 소리 + 마이크', Icon: IconMode3 },
 ];
-// 세션 모드 표시명(라이브 헤더·목록 배지). 레거시(mobile/online/field/meeting) 매핑 포함.
-export const TYPE_NAME = { live: '현장 음성 번역', oneway: 'PC 음성 번역', twoway: '대화 번역', mobile: '대화 번역', online: 'PC 음성 번역', field: '대화 번역', meeting: '대화 번역' };
+// 세션 모드 표시명(라이브 헤더·목록 배지). 구 프리셋(live/online/mobile/field/meeting)은 서버가 부팅 시
+// 이 둘로 이전하지만, 이전 전 응답·캐시 대비로 같은 이름에 매핑해 둔다.
+export const TYPE_NAME = { oneway: '실시간 번역', twoway: '양방향 통역', live: '실시간 번역', online: '실시간 번역', mobile: '양방향 통역', field: '양방향 통역', meeting: '양방향 통역' };
 // 세션 모드 → 아이콘(목록·모달 공용)
-export const MODE_ICON = { live: IconMode1, oneway: IconMode2, twoway: IconMode3, mobile: IconMode3, online: IconMode2, field: IconMode3, meeting: IconMode3 };
+export const MODE_ICON = { oneway: IconMode1, twoway: IconMode3, live: IconMode1, online: IconMode1, mobile: IconMode3, field: IconMode3, meeting: IconMode3 };
 
 // 세션 목록 행 아이콘 — 유형 무관 단일 채팅 아이콘(요청: 목록 아이콘 통일)
 export function IcoChat(props) {
@@ -127,7 +127,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
-  const [preset, setPreset] = useState('live'); // 세션 모드(live=라이브 청취 / oneway=온라인 회의 / twoway=양방향)
+  const [preset, setPreset] = useState('oneway'); // 세션 모드(oneway=실시간 번역 / twoway=양방향 통역)
   const [deskStat, setDeskStat] = useState({}); // 데스크 현황판: id → { hostOn, active, lang, viewers }
   const [regDesks, setRegDesks] = useState(null); // 안내데스크 레지스트리(관리자 사전 정의) — 데스크 세션 생성 시 선택
   const [deskId, setDeskId] = useState('');
@@ -169,7 +169,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     const titles = (list || []).map((s) => s.title);
     setName(uniqueName(base, titles));
     setEditName(false);
-    setPreset('live');
+    setPreset('oneway'); // 모달을 열 때마다 기본 모드(실시간 번역)로
     if (deskMode) {
       // 레지스트리(관리자 사전 정의)에서 데스크 목록 로드 — 세션은 '데스크 선택 + 세션명'으로만 생성
       api.deskRegistry().then((r) => {

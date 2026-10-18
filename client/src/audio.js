@@ -351,10 +351,9 @@ export async function startRecorder(opts) {
   let nativeMicUsed = false; // 네이티브 캡처가 실제로 시작됐는지(stop 에서 브리지 정지용)
   // 녹음 중 변경된 제어 상태 — 자동 재연결 시 새 소켓은 시작 시점 URL 파라미터로 초기화되므로
   // 변경분(TTS on/off, 발화멈춤, 여객 민감도)을 재전송해 서버 상태가 되돌아가는 문제를 막는다
-  const ctlState = { audioOut: null, tts: null, muted: null, guestSens: null, deskIdle: null, dropAcks: null, confFix: null, wayfindOn: null };
+  const ctlState = { audioOut: null, tts: null, guestSens: null, deskIdle: null, dropAcks: null, confFix: null, wayfindOn: null };
   const resendState = (sock) => {
     try {
-      if (ctlState.muted != null) sock.send(JSON.stringify({ type: 'micState', muted: ctlState.muted }));
       if (ctlState.tts != null) sock.send(JSON.stringify({ type: 'tts', on: ctlState.tts.on, ...(ctlState.tts.gender ? { gender: ctlState.tts.gender } : {}) }));
       if (ctlState.audioOut != null) sock.send(JSON.stringify({ type: 'audioOut', on: ctlState.audioOut }));
       if (ctlState.guestSens != null) sock.send(JSON.stringify({ type: 'desk-guest-sens', value: ctlState.guestSens }));
@@ -556,9 +555,12 @@ export async function startRecorder(opts) {
 
       // 발화 일시정지(mute), 또는 (AEC 미지원 폴백일 때만) TTS 재생 중 자동 음소거: 무음 전송 + keepalive
       // AEC 루프백이 켜져 있으면 재생음이 마이크에서 제거되므로 TTS 중에도 발화 가능(음소거 안 함)
-      if (muted || (!aecActive && audioCtx.currentTime < ttsMutedUntil)) {
+      // '발화 멈춤'은 내 마이크만 끈다 — PC 소리(system) 채널은 상대 발화라 계속 번역해야 한다
+      // (양방향 통역 'PC 소리+마이크'에서 누르면 상대 말 번역까지 멈추던 버그).
+      const micOff = muted && src !== 'system';
+      if (micOff || (!aecActive && audioCtx.currentTime < ttsMutedUntil)) {
         // TTS 자동 음소거 중 barge-in: 크게 말하면 재생을 끊고 마이크를 살린다(발화 통째 유실 방지)
-        if (!muted) { if (rms > 0.06) { if (++bargeStreak >= 2) { bargeStreak = 0; ttsBargeIn(); } } else bargeStreak = 0; }
+        if (!micOff) { if (rms > 0.06) { if (++bargeStreak >= 2) { bargeStreak = 0; ttsBargeIn(); } } else bargeStreak = 0; }
         if (wOpen) {
           const ds = downsampleTo24k(input, inRate);
           w.send(new ArrayBuffer(ds.length * 2));
@@ -651,12 +653,9 @@ export async function startRecorder(opts) {
     try { outGain.gain.value = Math.max(0, v); } catch {}
   }
 
-  // 발화 on/off (세션 유지). on=true 면 일시정지(무음), false 면 발화중.
-  // 서버에도 알림 → 발화 배타 락(호스트가 멈추면 뷰어가 발화 가능)
+  // 발화 on/off (세션 유지). on=true 면 내 마이크만 일시정지(무음 전송), PC 소리 채널은 계속.
   function setMuted(on) {
     muted = !!on;
-    ctlState.muted = !!on;
-    for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'micState', muted: !!on })); } catch {} }
   }
 
   // 녹음 중 TTS(음성 재생) 토글 — 로컬 재생 + 서버 합성/호스트 전송 on/off

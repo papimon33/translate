@@ -29,6 +29,22 @@ const TARGET_LANG = process.env.TARGET_LANG || 'ko';
 // 초과 시 가장 오래된 문장부터 버린다(화면 히스토리만 잘림, 데스크 응대 기록 deskLog·통계는
 // 별도 저장이라 영향 없음). 5,000 ≈ 5~8시간 연속 강의 분량(2시간 강의는 보통 1~1.8천).
 const ITEMS_CAP = 5000;
+// 실시간 번역 모드(2026-10, 메뉴 3종 → 2종 개편).
+// 모드(preset) = 번역 방향, 소스(src) = 소리를 어디서 듣나. 유효한 조합만 존재한다.
+//   oneway(실시간 번역): src ∈ mic | system      — 단방향 고정
+//   twoway(양방향 통역): src ∈ mic | both        — 양방향 고정('PC 소리만'은 단방향으로 충분해 선택지에 없다)
+// 구 프리셋은 같은 상황으로 이전: live→oneway/mic, online→oneway/system, mobile·field·meeting→twoway/mic.
+// 서버의 번역 동작은 원래 preset 이 아니라 WS 쿼리(sxMode·src)를 따른다 — 이 값은 클라 UI 상태의 저장용이다.
+const PRESET_SRC = { oneway: ['mic', 'system'], twoway: ['mic', 'both'] };
+const LEGACY_PRESET = { live: ['oneway', 'mic'], online: ['oneway', 'system'], mobile: ['twoway', 'mic'], field: ['twoway', 'mic'], meeting: ['twoway', 'mic'] };
+function normalizeMode(preset, src, defaultSrc) {
+  const legacy = LEGACY_PRESET[preset];
+  const p = legacy ? legacy[0] : preset;
+  const allowed = PRESET_SRC[p];
+  if (!allowed) return null; // 프리셋 없는 구세션·데스크 등은 대상 아님
+  const fb = legacy ? legacy[1] : defaultSrc;
+  return { preset: p, src: allowed.includes(src) ? src : (allowed.includes(fb) ? fb : 'mic') };
+}
 // STT 엔진 재연결 연속 실패 상한 — 초과하면 재시도를 멈춘다. 재연결 1회마다 용어집 context 가
 // input_text_tokens 로 다시 청구되므로(데스크 기준 약 $0.008/회) 상한이 없으면 장애 시 과금이 폭주한다.
 // 토큰이 실제로 수신되면 0 으로 리셋되므로 정상 세션의 간헐적 끊김은 누적되지 않는다.
@@ -776,6 +792,18 @@ function newId() {
     if (!col) saveSessions();
     console.log(`[store] 소유자 없는 구 세션 ${legacy.length}개 삭제`);
   }
+}
+
+// 실시간 번역 모드 개편(3종 → 2종) 이전 — 부팅 시 1회, 바뀐 세션만 저장.
+// 구 'PC 음성 번역'(oneway)은 소스가 PC 소리였으므로 src 가 없으면 system 으로 채운다(신규 생성 기본값 mic 과 다름).
+{
+  let moved = 0;
+  for (const s of sessions) {
+    if (s.pipeline !== 'soniox' || !s.preset) continue;
+    const m = normalizeMode(s.preset, s.src, s.preset === 'oneway' ? 'system' : 'mic');
+    if (m && (m.preset !== s.preset || m.src !== s.src)) { s.preset = m.preset; s.src = m.src; saveSessions(s.id); moved++; }
+  }
+  if (moved) console.log(`[store] 실시간 번역 모드 이전 ${moved}개 (live/oneway/twoway·구 프리셋 → 실시간 번역/양방향 통역 + 소스)`);
 }
 
 /* ================================================================== */
@@ -1814,7 +1842,7 @@ app.get('/api/sessions', requireAuth, (req, res) => {
     // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 전 직원이 공용으로 운영 → 모두에게 노출.
     .filter((s) => (s.pipeline === 'desk' ? true : s.owner === req.user.id))
     .filter((s) => (q ? matches(s) : true))
-    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, deskName: s.deskName || null, snippet: snippetOf(s) }))
+    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, deskName: s.deskName || null, snippet: snippetOf(s) }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
 });
@@ -1828,8 +1856,9 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   // translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장). soniox 다국어.
   const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
   const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice());
-  // 통역 용도 프리셋(대면/온라인/현장) — 클라가 소스·방향 기본값을 매핑
-  const preset = ['live', 'oneway', 'twoway'].includes(b.preset) ? b.preset : undefined; // 신규 생성은 현행 3종만(구 preset 세션의 읽기 호환은 유지)
+  // 실시간 번역 모드: oneway(실시간 번역)/twoway(양방향 통역) + 소스. 신규 기본 소스는 마이크
+  // (구 프리셋 키가 들어와도 같은 상황으로 매핑 — 캐시된 구 클라 대비).
+  const mode = pipeline === 'soniox' ? normalizeMode(b.preset, b.src, 'mic') : null;
   // 데스크 안내: 레지스트리(관리자 사전 정의)에서 데스크 선택 → 층/방향/데스크명 복사.
   // deskId 없이 직접 deskFloor/deskSide 를 주는 구형 경로도 하위호환으로 유지.
   let deskName;
@@ -1849,7 +1878,7 @@ app.post('/api/sessions', requireAuth, (req, res) => {
     createdAt: now,
     updatedAt: now,
     pipeline, // 생성 후 변경 불가
-    ...(preset ? { preset } : {}),
+    ...(mode ? { preset: mode.preset, src: mode.src } : {}),
     ...(deskFloor ? { deskFloor, deskSide } : {}),
     ...(deskName ? { deskName } : {}),
     langs,
@@ -1866,18 +1895,15 @@ app.get('/api/sessions/:id', (req, res) => {
   const s = getSession(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   if (!viewerAccessOk(req, s.id)) return res.status(403).json({ error: 'forbidden' }); // 공개 뷰어: 유효 토큰 또는 로그인 필요
-  // 참여자 발화(PTT)는 양방향 모드의 기본 기능(토글 폐지) — 양방향 계열 preset 에서만 제공
-  const twoway = (s.pipeline === 'soniox') && ['twoway', 'mobile', 'field', 'meeting'].includes(s.preset || '');
   // 공개 라우트(뷰어용) — 필요한 필드만 화이트리스트로 반환.
   // 전체 스프레드 금지: deskLog(지난 손님 응대 기록)·wayfindLog·owner 등이 노출됐던 문제 수정.
   res.json({
     id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt,
-    pipeline: s.pipeline || 'whisper', preset: s.preset || null,
+    pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, // src: 호스트 화면 재진입 시 소리 입력 복원(목록에서 열 때 이 값이 쓰인다)
     langs: s.langs || [], outLang: s.outLang, inLang: s.inLang,
     sxInfo: s.sxInfo || null, speakers: s.speakers || {},
     deskFloor: s.deskFloor || null, deskSide: s.deskSide || null,
     items: s.items || [],
-    viewerPTT: twoway,
   });
 });
 
@@ -1909,8 +1935,12 @@ app.patch('/api/sessions/:id', requireAuth, (req, res) => {
   if (typeof b.inLang === 'string') s.inLang = b.inLang;
   // 모드(preset) 변경: 번역 이력이 없고 '녹음 중이 아닌' soniox 세션만 허용(진행 중 방향/설정 desync 방지)
   const activeHosts = rooms.get(req.params.id)?.hosts.size || 0;
-  if (typeof b.preset === 'string' && ['live', 'oneway', 'twoway'].includes(b.preset) && s.pipeline === 'soniox' && activeHosts === 0 && (!Array.isArray(s.items) || s.items.length === 0)) {
-    s.preset = b.preset;
+  if (typeof b.preset === 'string' && s.pipeline === 'soniox' && activeHosts === 0 && (!Array.isArray(s.items) || s.items.length === 0)) {
+    const m = normalizeMode(b.preset, typeof b.src === 'string' ? b.src : s.src, 'mic');
+    if (m) { s.preset = m.preset; s.src = m.src; }
+  } else if (typeof b.src === 'string' && s.pipeline === 'soniox' && (PRESET_SRC[s.preset] || []).includes(b.src)) {
+    // 소스는 번역 이력과 무관(방향이 바뀌지 않음) — 이력이 있어도 변경 허용. 녹음 중 변경은 클라가 막는다.
+    s.src = b.src;
   }
   if (s.pipeline === 'desk') { // 데스크 출발 층/방향
     if (['1F', '2F', '3F', '4F'].includes(b.deskFloor)) s.deskFloor = b.deskFloor;
@@ -1971,7 +2001,6 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
     }
   }
   rooms.delete(req.params.id);
-  roomCfg.delete(req.params.id);
   recentTts.delete(req.params.id);
   deskCtrl.delete(req.params.id);
   res.json({ ok: true });
@@ -1986,10 +2015,9 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
 const VIEWERS_PER_SESSION = 300;
 const VIEWERS_PER_IP = 8;
 const rooms = new Map(); // sessionId -> { viewers:Set<ws>, hosts:Set<ws> }
-const roomCfg = new Map(); // sessionId -> 호스트가 시작한 soniox 설정(폰 PTT가 재사용)
 const deskCtrl = new Map(); // sessionId -> { start(lang), end() } — 데스크: 뷰어(손님)의 통역 시작/종료를 호스트 파이프라인에 전달
 function getRoom(sessionId) {
-  if (!rooms.has(sessionId)) rooms.set(sessionId, { viewers: new Set(), hosts: new Set(), speaking: null, hostTalking: false });
+  if (!rooms.has(sessionId)) rooms.set(sessionId, { viewers: new Set(), hosts: new Set() });
   return rooms.get(sessionId);
 }
 function broadcast(sessionId, payload) {
@@ -1999,31 +2027,6 @@ function broadcast(sessionId, payload) {
   for (const v of room.viewers) {
     if (v.readyState === WebSocket.OPEN) v.send(msg);
   }
-}
-// 폰 PTT 결과를 호스트(데스크톱) 화면에도 실시간 반영
-function sendToHosts(sessionId, payload) {
-  const room = rooms.get(sessionId);
-  if (!room) return;
-  const msg = JSON.stringify(payload);
-  for (const h of room.hosts) {
-    if (h.readyState === WebSocket.OPEN) h.send(msg);
-  }
-}
-// 세션 항목 저장 + 표시 메시지 생성(폰 PTT용 — handleHost 클로저 밖에서 사용)
-function applyItem(sessionId, id, side, langTexts, source) {
-  const session = getSession(sessionId);
-  let item;
-  if (session) {
-    item = session.items.find((x) => x.id === id);
-    if (item) { item.texts = { ...(item.texts || {}), ...langTexts }; if (source) item.source = source; }
-    else { item = { id, side, source: source || null, texts: { ...langTexts } }; session.items.push(item); if (session.items.length > ITEMS_CAP) session.items.splice(0, session.items.length - ITEMS_CAP); }
-    if (session.title === '새 세션' && session.items.length === 1) { const f = Object.values(item.texts)[0] || ''; if (f) session.title = f.slice(0, 40); }
-    session.updatedAt = Date.now();
-    saveSessions(session.id);
-  } else {
-    item = { id, side, source: source || null, texts: { ...langTexts } };
-  }
-  return { type: 'sentence', id, side, source: item.source || null, texts: item.texts, terms: {} };
 }
 // 번역 음성은 '음성 듣기'를 켠(구독한) 뷰어에게만 전송 → 무료 티어 대역폭 절약
 function broadcastAudio(sessionId, b64) {
@@ -2072,14 +2075,6 @@ function isSelfEcho(sessionId, text) {
   return false;
 }
 
-/* ---- 발화 배타(PTT 락): 호스트가 발화 중이거나 다른 뷰어가 발화 중이면 새 발화 불가 ---- */
-function pttBusy(room) { return !!(room && (room.hostTalking || room.speaking)); }
-function broadcastPttState(sessionId) {
-  const room = rooms.get(sessionId);
-  if (!room) return;
-  const msg = JSON.stringify({ type: 'ptt-state', busy: pttBusy(room) });
-  for (const v of room.viewers) if (v.readyState === WebSocket.OPEN) v.send(msg);
-}
 
 /* ------------------------------------------------------------------ */
 /*  로컬 네트워크 IP (모바일 접속용)                                    */
@@ -2759,7 +2754,7 @@ wss.on('connection', (ws) => {
 });
 
 // 하트비트: 절전·망 단절로 FIN 없이 사라진 소켓을 주기 감지·정리.
-// 없으면 죽은 연결이 발화 락(hostTalking/speaking)과 데스크 active 표시를 영구 점유한다.
+// 없으면 죽은 연결이 데스크 active 표시와 room 을 영구 점유한다.
 const HEARTBEAT_MS = 30000;
 const hbTimer = setInterval(() => {
   for (const ws of wss.clients) {
@@ -2775,91 +2770,8 @@ function maybeGcRoom(sessionId) {
   const r = rooms.get(sessionId);
   if (r && r.hosts.size === 0 && r.viewers.size === 0 && !r.guestFeeder) { // 여객 피더(PC 직결)만 남은 room 은 유지
     rooms.delete(sessionId);
-    roomCfg.delete(sessionId);
     recentTts.delete(sessionId);
   }
-}
-
-/* 폰 PTT(누르고 말하기) 파이프라인: 폰 마이크 오디오 → Soniox 양방향 번역 →
-   호스트·뷰어에 브로드캐스트(+TTS). 호스트 설정(roomCfg)을 재사용. */
-function startTalkPipeline(sessionId, side) {
-  if (!SONIOX_API_KEY) return null;
-  const cfg = roomCfg.get(sessionId) || {};
-  const a = SONIOX_LANGS.includes(cfg.sxA) ? cfg.sxA : 'ko';
-  const b = SONIOX_LANGS.includes(cfg.sxB) ? cfg.sxB : (cfg.sxMode === 'one' && SONIOX_LANGS.includes(cfg.sxTarget) ? cfg.sxTarget : 'en');
-  const config = {
-    api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
-    enable_language_identification: true, enable_endpoint_detection: true,
-    endpoint_sensitivity: cfg.sens || 0, max_endpoint_delay_ms: cfg.maxDelay || 2000, endpoint_latency_adjustment_level: cfg.latency || 0,
-    language_hints: [a, b], translation: { type: 'two_way', language_a: a, language_b: b },
-    client_reference_id: 'u:' + ((getSession(sessionId) || {}).owner || 'anon') + '|p:live', // 유저별+파이프라인 사용량(발화자는 익명 뷰어 → 세션 소유자로 귀속)
-    ...((() => { const c = buildSonioxContext([a, b]); return c ? { context: c } : {}; })()), // 고유명사/번역 설정(활성 쌍)
-  };
-  const sx = new WebSocket(SONIOX_WS_URL);
-  let ready = false; const pending = [];
-  let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommit = '', lastCommitAt = 0;
-  const targetKeyFor = (src) => (src === a ? b : a);
-  const clearCard = (id) => { const m0 = { type: 'sentence', id, side, source: null, texts: {} }; broadcast(sessionId, m0); sendToHosts(sessionId, m0); };
-  const commit = () => {
-    const id = curId, txt = finalText.trim(), src = curSrc, tgt = (finalTrans.trim() || lastTrans).trim();
-    curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = '';
-    if (!id || !txt) { if (id) clearCard(id); return; } // 비확정만 있던 고스트 카드 제거
-    // TTS 자기음성 재입력(에코) → 버리고 화면에서도 제거
-    if (isSelfEcho(sessionId, txt)) { clearCard(id); return; }
-    const out = tgt || txt;
-    if (out === lastCommit && Date.now() - lastCommitAt < 5000) return;
-    lastCommit = out;
-    lastCommitAt = Date.now();
-    const target = targetKeyFor(src || a);
-    const msg = applyItem(sessionId, id, side, { [target]: out }, txt);
-    broadcast(sessionId, msg); sendToHosts(sessionId, msg);
-    // 번역 다듬기(nano): 카드가 살아 있고 텍스트 그대로일 때만 다듬은 문장으로 교체(비동기)
-    if (tgt) polishText(txt, tgt, target, '').then((p) => {
-      if (!p) return;
-      const s2 = getSession(sessionId);
-      const it = s2 && Array.isArray(s2.items) ? s2.items.find((x) => x.id === id) : null;
-      if (!(it && it.texts && it.texts[target] === out)) return;
-      const m2 = applyItem(sessionId, id, side, { [target]: p });
-      broadcast(sessionId, m2); sendToHosts(sessionId, m2);
-    }).catch(() => {});
-    if (cfg.ttsOn) {
-      const voiceId = cartesiaVoiceId(target, cfg.gender || 'f');
-      noteTts(sessionId, out); // 에코 필터 등록
-      // 뷰어(폰 PTT) 발화 번역 → 호스트로 음성 전달(+다른 뷰어). 호스트가 상대 말을 듣게 함.
-      recordTts('live', out.length); // 폰 PTT = 실시간 번역 계열
-      cartesiaTTSStream(out, voiceId, target, (b64) => { sendAudioToHosts(sessionId, b64); broadcastAudio(sessionId, b64); }).catch(() => {});
-    }
-  };
-  sx.on('open', () => { try { sx.send(JSON.stringify(config)); } catch {} ready = true; while (pending.length) sx.send(pending.shift()); });
-  sx.on('message', (raw) => {
-    let ev; try { ev = JSON.parse(raw.toString()); } catch { return; }
-    if (ev.error_code) return;
-    const toks = ev.tokens || []; if (!toks.length) return;
-    let endHit = false, nonFinal = '', nonFinalTrans = '';
-    for (const t of toks) {
-      if (t.text === '<end>') { endHit = true; continue; }
-      if (t.translation_status === 'translation') { if (t.is_final) finalTrans += t.text; else nonFinalTrans += t.text; }
-      else { if (t.language && !curSrc) curSrc = String(t.language).split('-')[0].toLowerCase(); if (t.is_final) finalText += t.text; else nonFinal += t.text; }
-    }
-    const shownSrc = (finalText + nonFinal).trim(), shownTgt = (finalTrans + nonFinalTrans).trim();
-    if (shownTgt) lastTrans = shownTgt;
-    if (!curId && (shownSrc || shownTgt)) curId = newId();
-    if (curId) { const msg = { type: 'sentence', id: curId, side, source: shownSrc || null, texts: { [targetKeyFor(curSrc || a)]: shownTgt } }; broadcast(sessionId, msg); sendToHosts(sessionId, msg); }
-    if (endHit) commit(); // 길이 기반 강제 확정 제거 — 문장 중간 절단이 오역·언어 오인식 유발
-  });
-  sx.on('error', () => {});
-  return {
-    feed: (data) => { if (ready) { try { sx.send(data); } catch {} } else { pending.push(data); if (pending.length > 24) pending.shift(); } }, // 연결 전 큐는 최근 ~2초만
-    // PTT 는 말 끝나자마자 버튼을 떼는 게 표준 흐름 — finalize('') 후 1초간 토큰을 계속 받아
-    // <end> 커밋을 기다리고, 그래도 남은 확정분은 강제 커밋 후 닫는다(마지막 문장 유실 방지).
-    stop: () => {
-      try { sx.send(''); } catch {}
-      setTimeout(() => {
-        try { if (curId && finalText.trim()) commit(); } catch {}
-        try { sx.close(); } catch {}
-      }, 1000);
-    },
-  };
 }
 
 /* ----------------------------- 뷰어 ------------------------------- */
@@ -2884,12 +2796,10 @@ function handleViewer(ws) {
   }
   room.viewers.add(ws);
   ws._audioWanted = false; // '음성 듣기' 구독 여부
-  let talk = null; // 폰 PTT 파이프라인
   const s = getSession(ws._session);
   // tm(레이턴시)·toks(신뢰도)는 저장 전용 — 뷰어 스냅샷에서 제외(라이브 buildMsg 와 동일 규약)
   ws.send(JSON.stringify({ type: 'snapshot', items: s ? s.items.map(({ tm, toks, ...it }) => it) : [] }));
   ws.send(JSON.stringify({ type: 'host', active: room.hosts.size > 0 })); // 현재 호스트 활성 여부
-  ws.send(JSON.stringify({ type: 'ptt-state', busy: pttBusy(room) })); // 발화 가능 여부(배타 락)
   {
     const dc = deskCtrl.get(ws._session);
     const gs = dc && dc.guestSens ? dc.guestSens() : undefined;
@@ -2899,37 +2809,14 @@ function handleViewer(ws) {
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
       // 데스크 여객 태블릿 마이크(2채널) — desk-mic on 을 보낸 뷰어의 오디오는 여객 채널로
+      // 그 외 뷰어 오디오는 버린다 — 뷰어 발화(PTT)는 폐지됐고, 뷰어 소켓이 유료 엔진을 여는 경로는 데스크 여객 마이크뿐이다.
       if (ws._deskMic) { const dc = deskCtrl.get(ws._session); if (dc && dc.feedGuest) { dc.feedGuest(data, ws); return; } }
-      if (talk) talk.feed(data);
       return;
     }
     try {
       const m = JSON.parse(data.toString());
       if (m.type === 'audioSub') ws._audioWanted = !!m.on;
-      else if (m.type === 'ptt') {
-        // 뷰어 PTT 는 GET /api/sessions 가 viewerPTT=true 로 알려주는 세션(soniox 양방향 계열)에서만.
-        // 서버에서도 동일 조건을 강제 — 조작된 클라이언트가 임의/존재하지 않는 세션에 유료 엔진을 열거나
-        // 타인 세션 기록에 문장을 주입하는 것 차단.
-        const sess = getSession(ws._session);
-        const pttAllowed = sess && sess.pipeline === 'soniox' && ['twoway', 'mobile', 'field', 'meeting'].includes(sess.preset || '');
-        if (!pttAllowed) return;
-        const r = getRoom(ws._session);
-        // on 마다 유료 엔진(soniox)이 새로 열리므로 desk-start/desk-mic 과 동일하게 난사를 차단한다.
-        // 이게 없으면 유효한 뷰어 토큰을 가진 단말 1대가 on/off 를 반복해 과금을 무한히 밀어 올릴 수 있다.
-        // off 는 절대 막지 않는다 — 드랍하면 엔진이 열린 채 남아 오히려 과금이 계속되고 발화권도 잠긴다.
-        if (m.on && !deskCtlAllowed(ws, r, true)) { ws.send(JSON.stringify({ type: 'ptt-denied' })); return; }
-        if (m.on) {
-          // 발화 배타: 호스트가 말하는 중이거나 다른 뷰어가 발화 중이면 거절
-          if (r.hostTalking || (r.speaking && r.speaking !== ws)) { ws.send(JSON.stringify({ type: 'ptt-denied' })); return; }
-          r.speaking = ws;
-          broadcastPttState(ws._session);
-          if (!talk) talk = startTalkPipeline(ws._session, 'right');
-          if (!talk) ws.send(JSON.stringify({ type: 'status', message: '음성 입력 불가 — SONIOX_API_KEY 미설정' }));
-        } else {
-          if (r.speaking === ws) { r.speaking = null; broadcastPttState(ws._session); }
-          if (talk) { talk.stop(); talk = null; }
-        }
-      } else if (m.type === 'desk-start') {
+      else if (m.type === 'desk-start') {
         // 데스크: 손님이 태블릿에서 언어 선택 → 호스트 파이프라인에서 soniox 양방향 통역 시작
         if (!deskCtlAllowed(ws, room)) { ws.send(JSON.stringify({ type: 'status', message: '요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.' })); return; }
         const ctrl = deskCtrl.get(ws._session);
@@ -2957,8 +2844,6 @@ function handleViewer(ws) {
   });
   ws.on('close', () => {
     room.viewers.delete(ws);
-    if (talk) { talk.stop(); talk = null; }
-    if (room.speaking === ws) { room.speaking = null; broadcastPttState(ws._session); } // 발화 중 이탈 → 락 해제
     if (ws._deskMic) { const dc = deskCtrl.get(ws._session); if (dc && dc.guestMic) dc.guestMic(false, ws); } // 여객 마이크 이탈 → 단일 채널 폴백
     maybeGcRoom(ws._session);
   });
@@ -2971,7 +2856,7 @@ function handleViewer(ws) {
 function runDeskGuestFeed(ws) {
   const sessionId = ws._session;
   ws._deskGuestFeed = true; // guestMic 소유권 우선순위 판단용(호스트 공급 > 뷰어 태블릿)
-  // room.hosts 에 넣지 않는다 — 발화 락(hostTalking)·host active 계산·PTT 미러링을 오염시키지 않기 위해
+  // room.hosts 에 넣지 않는다 — host active 계산을 오염시키지 않기 위해
   // 전용 슬롯(guestFeeder)로만 추적. 하트비트는 wss.clients 전체를 돌므로 좀비 감지엔 문제 없음.
   const room = getRoom(sessionId);
   if (room.guestFeeder && room.guestFeeder !== ws) {
@@ -3029,17 +2914,13 @@ function handleHost(ws) {
       try { h.close(); } catch {}
     }
   }
-  // 폰 PTT 결과를 이 호스트 화면에도 보내기 위해 room.hosts 에 등록 + 활성 신호
+  // room.hosts 에 등록 + 활성 신호(뷰어의 '진행 중' 표시·데스크 가동 여부)
   getRoom(sessionId).hosts.add(ws);
   broadcast(sessionId, { type: 'host', active: true });
-  // 마이크 캡처 연결 = 호스트 발화 상태(발화 배타 락). '발화 멈춤' 토글은 micState 메시지로 갱신.
-  if (side === 'right') { getRoom(sessionId).hostTalking = true; broadcastPttState(sessionId); }
   ws.on('close', () => {
     const r = rooms.get(sessionId);
     if (r) {
       r.hosts.delete(ws);
-      // 승계된 새 연결이 남아 있으면 발화 상태 유지(takeover 시 구 연결 close 가 늦게 도착하는 경우)
-      if (side === 'right' && ![...r.hosts].some((h) => h._src !== 'system')) { r.hostTalking = false; broadcastPttState(sessionId); }
       if (r.hosts.size === 0) broadcast(sessionId, { type: 'host', active: false });
     }
     maybeGcRoom(sessionId);
@@ -3311,9 +3192,6 @@ function handleHost(ws) {
     // context(용어집, input_text_tokens $4/1M)가 재청구돼 Soniox 비용의 71%를 차지했던 원인이라 제거.
     // 오인식 고착은 confFix(저신뢰 자동 교정)가 완화한다. 상세: PROJECT_NOTES 2026-07-15.
     idleClose = () => { sxClosed = true; try { sx && sx.close(); } catch {} };
-    // 폰 PTT 가 재사용할 호스트 설정 저장
-    const cfg0 = buildConfig(); // 엔드포인트 파라미터 참조용(클램프된 값) — 폰 PTT 재사용 설정
-    roomCfg.set(sessionId, { sxMode, sxTarget, sxA, sxB, sens: cfg0.endpoint_sensitivity, maxDelay: cfg0.max_endpoint_delay_ms, latency: cfg0.endpoint_latency_adjustment_level, ttsOn, gender });
     // 번역 방향 정보 — 뷰어(모바일)가 언어 표시에 사용
     const sxInfo = { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
     if (session) { session.sxInfo = sxInfo; saveSessions(session.id); }
@@ -3577,12 +3455,6 @@ function handleHost(ws) {
           if (m.gender === 'm' || m.gender === 'f') gender = m.gender;
           if (!!m.on && !CARTESIA_API_KEY) toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 재생을 사용할 수 없습니다.' });
           if (ttsOn) { const wLang = sxMode === 'two' ? 'ko' : sxTarget; cartesiaWarmup(cartesiaVoiceId(wLang, gender), wLang).then(() => {}).catch(() => {}); }
-          const rc = roomCfg.get(sessionId); if (rc) { rc.ttsOn = ttsOn; rc.gender = gender; } // 폰 PTT 도 토글 즉시 반영
-        } else if (m.type === 'micState') {
-          // 호스트 발화/멈춤 → 발화 배타 락 갱신(뷰어 발화 버튼 활성/비활성)
-          const r = getRoom(sessionId);
-          r.hostTalking = !m.muted;
-          broadcastPttState(sessionId);
         }
       } catch {}
     });
