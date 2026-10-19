@@ -15,23 +15,26 @@ android {
         versionName '1.0.0'
     }
 
-    // 사이드로드(안내데스크 태블릿 직접 설치) 전용 서명 —
-    // 같은 키로 서명해야 덮어쓰기 업데이트가 되므로 키를 repo 에 커밋해 CI 빌드 간 서명을 고정한다.
-    // 스토어 배포용 비밀키가 아니며, 유출돼도 스토어 계정과 무관하다.
+    // 사이드로드(태블릿·폰 직접 설치) 서명 — 같은 키로 서명해야 덮어쓰기 업데이트가 된다.
+    // 키는 repo 에 두지 않는다: CI 는 GitHub Secrets(ANDROID_KEYSTORE_B64·ANDROID_KEYSTORE_PASSWORD)를
+    // 파일로 풀어 아래 환경변수로 넘긴다. 로컬 빌드도 같은 환경변수를 지정한다(없으면 미서명 APK).
+    def ksPath = System.getenv('ANDROID_KEYSTORE')
     signingConfigs {
         release {
-            storeFile file('airtalk-release.p12')
-            storeType 'pkcs12'
-            storePassword 'airtalk-sideload'
-            keyAlias 'airtalk'
-            keyPassword 'airtalk-sideload'
+            if (ksPath) {
+                storeFile file(ksPath)
+                storeType 'pkcs12'
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias 'airtalk'
+                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD') // PKCS12 는 키 비밀번호 = 저장소 비밀번호
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.release
+            if (ksPath) signingConfig signingConfigs.release
         }
     }
 

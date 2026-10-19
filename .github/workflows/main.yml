@@ -26,6 +26,41 @@ jobs:
               --title "KAC Translator 데스크톱 $tag" \
               --notes "데스크톱 앱 설치본. 웹앱 프로필 → '데스크톱 앱'에서 자동으로 내려받습니다."
 
+  android:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+      - name: Decode signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          test -n "$KS_B64" || { echo "::error::ANDROID_KEYSTORE_B64 secret 이 없습니다(android/README.md 서명 항목 참고)"; exit 1; }
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/airtalk-release.p12"
+      - name: Build APK
+        env:
+          ANDROID_KEYSTORE: ${{ runner.temp }}/airtalk-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: gradle -p android assembleRelease
+      - name: Verify signature
+        # 미서명·다른 키 APK 가 릴리스에 올라가면 기존 설치본 위에 덮어쓰기가 안 된다 — 업로드 전에 확인
+        run: |
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$bt/apksigner" verify --print-certs android/app/build/outputs/apk/release/*.apk | tee /dev/stderr \
+            | grep -qi "DF33A8E6858BF1DBEE5DC87734BFC987D5A6B6B398985FB49B487391D580CD6F" \
+            || { echo "::error::APK 서명 인증서가 AirTalk 서명키와 다릅니다"; exit 1; }
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.release.outputs.tag }}" android/app/build/outputs/apk/release/*.apk --clobber
+
   build:
     needs: release
     strategy:

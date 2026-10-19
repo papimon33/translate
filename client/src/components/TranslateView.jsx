@@ -226,7 +226,9 @@ export default function TranslateView({ session: initial, onBack }) {
   // 서버가 부팅 시 구 프리셋(live/online/mobile…)을 이 둘로 이전해 두므로 아래 목록은 이전 전 응답 대비 안전망이다.
   const [preset, setPreset] = useState(initial.preset || null); // 번역 이력이 없으면 세션 안에서 변경 가능
   const onewayPreset = ['live', 'oneway', 'online'].includes(preset);
-  const [sourceMode, setSourceMode] = useState(() => initial.src || (['oneway', 'online'].includes(initial.preset) ? 'system' : 'mic'));
+  // 안드로이드 앱은 PC 소리 캡처(getDisplayMedia)가 불가 → 세션 설정과 무관하게 이 기기에선 마이크만(서버 값은 그대로 둔다)
+  const nativeApp = !!window.AndroidAudio;
+  const [sourceMode, setSourceMode] = useState(() => nativeApp ? 'mic' : initial.src || (['oneway', 'online'].includes(initial.preset) ? 'system' : 'mic'));
   const srcOpts = onewayPreset ? ['mic', 'system'] : ['mic', 'both']; // 모드별로 유효한 소스는 정확히 두 가지
   const [audioOutOn, setAudioOutOn] = useState(localStorage.getItem('kac-audioout') === '1');
   const [volume, setVolume] = useState(() => {
@@ -835,7 +837,7 @@ export default function TranslateView({ session: initial, onBack }) {
         <Collapse in={optsOpen}>
         <Paper variant="outlined" sx={{ borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.text.primary, 0.015), overflow: 'hidden' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1.25, sm: 2 }, flexWrap: 'wrap', px: { xs: 1, sm: 1.5 }, py: 1, pr: { xs: 5, sm: 7 } }}>
-          {cfg.pipeline !== 'desk' && cfg.pipeline !== 'soniox' && (
+          {cfg.pipeline !== 'desk' && cfg.pipeline !== 'soniox' && !nativeApp && (
             <Field label="오디오 소스">
               <Select size="small" value={sourceMode} disabled={recording} onChange={(e) => setSourceMode(e.target.value)} sx={{ ...selSx, minWidth: 120 }}>
                 {SRC.map((s) => (
@@ -936,7 +938,7 @@ export default function TranslateView({ session: initial, onBack }) {
               </Select>
             </Field>
           )}
-          {cfg.pipeline === 'soniox' && preset && (
+          {cfg.pipeline === 'soniox' && preset && !nativeApp && (
             <Field label="소리 입력">
               <Select size="small" value={srcOpts.includes(sourceMode) ? sourceMode : 'mic'} disabled={recording} onChange={(e) => changeSource(e.target.value)} sx={{ ...selSx, minWidth: 150 }}>
                 <MenuItem value="mic">마이크</MenuItem>

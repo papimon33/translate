@@ -232,6 +232,7 @@ class MainActivity : Activity() {
             .setTitle("AirTalk $ver")
             .setMessage(
                 "서버: ${prefs.getString("url", "-")}\n" +
+                    "마이크 입력: ${nativeAudio.inputStatus()}\n" +
                     "마이크 게인: ×${prefs.getFloat("gain", 1.0f)}\n" +
                     "오디오: ${nativeAudio.info()}\n\n" +
                     "네이티브 마이크(AGC 차단)로 캡처합니다. 문제 시 PC 크롬 chrome://inspect 로 원격 점검할 수 있습니다."

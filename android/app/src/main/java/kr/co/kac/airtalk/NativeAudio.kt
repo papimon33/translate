@@ -4,18 +4,24 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
+import android.media.AudioRouting
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.Toast
 import org.json.JSONObject
 
 /**
@@ -25,6 +31,8 @@ import org.json.JSONObject
  *  - 소스 = VOICE_RECOGNITION(안드로이드 CDD 상 AGC 미적용) + AutomaticGainControl 명시 해제
  *  - AEC(이 기기가 재생하는 TTS 를 마이크에서 제거)·NS(정상 소음 억제)는 지원 기기만 부착
  *  - 소프트웨어 게인(0.1~8.0×)으로 기기별 하드웨어 감도 편차를 보정(앱 관리 메뉴에서 조절)
+ *  - 외부 마이크 우선: USB-C 무선 수신기 등이 꽂혀 있으면 그쪽으로 명시 라우팅하고,
+ *    번역 중 꽂거나 뽑아도 캡처를 끊지 않고 입력만 바꾼다(전환 시 토스트로 알림)
  *
  * 청크는 약 100ms 단위 base64 로 `window.__kacNA(b64)` 콜백에 전달(≈6.4KB/회).
  * 게이트·VAD 판정은 웹 쪽(기존 적응형 게이트 로직)이 그대로 수행한다 — 이 브리지는
@@ -38,13 +46,38 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             field = value.coerceIn(0.1f, 8.0f)
         }
 
+    /** 열려 있는 캡처 하나 — 효과는 해당 AudioRecord 세션에 묶여 있으므로 함께 해제한다 */
+    private class Capture(val record: AudioRecord, val rate: Int, val effects: List<AudioEffect>)
+
     @Volatile
     private var running = false
     private var thread: Thread? = null
-    private val effects = mutableListOf<AudioEffect>()
+
+    /** stop() 이 늦게 끝난 이전 스레드가 새 캡처와 동시에 돌지 않게 하는 세대 번호 */
+    @Volatile
+    private var gen = 0
+
+    /** 현재 캡처(장치 연결·분리 시 선호 입력을 바꾸는 데 사용) */
+    @Volatile
+    private var cur: Capture? = null
 
     @Volatile
     private var stat: String = "{}"
+
+    private val am by lazy { activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    private val main = Handler(Looper.getMainLooper())
+    private var lastNotified: String? = null // main 스레드 전용
+
+    private val deviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) = reroute()
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) = reroute()
+    }
+
+    private val routingListener: AudioRouting.OnRoutingChangedListener = object : AudioRouting.OnRoutingChangedListener {
+        override fun onRoutingChanged(router: AudioRouting) {
+            notifyInput(router.routedDevice)
+        }
+    }
 
     /** 페이지가 브리지 존재+권한을 한 번에 확인할 때 사용 */
     @JavascriptInterface
@@ -61,7 +94,22 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             }
             return false
         }
+        val c = open() ?: return false
+        running = true
+        val myGen = ++gen
+        try {
+            am.registerAudioDeviceCallback(deviceCallback, main)
+        } catch (_: Exception) {
+        }
+        thread = Thread({ loop(c, myGen) }, "airtalk-audio").apply {
+            isDaemon = true
+            start()
+        }
+        return true
+    }
 
+    /** AudioRecord 생성 → 입력 장치 지정 → 효과 부착 → 녹음 시작. 실패 시 null(자원 정리 완료). */
+    private fun open(): Capture? {
         var rec: AudioRecord? = null
         var rate = 0
         for (r in intArrayOf(48000, 44100, 24000, 16000)) {
@@ -84,9 +132,16 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             } catch (_: Exception) {
             }
         }
-        val record = rec ?: return false
+        val record = rec ?: return null
+        val dev = pickInput()
+        if (dev != null) {
+            try {
+                record.setPreferredDevice(dev)
+            } catch (_: Exception) {
+            }
+        }
 
-        effects.clear()
+        val effects = mutableListOf<AudioEffect>()
         var aec = false
         var ns = false
         try {
@@ -112,47 +167,75 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             }
         } catch (_: Exception) {
         }
+        val c = Capture(record, rate, effects)
+        try {
+            record.addOnRoutingChangedListener(routingListener, main)
+        } catch (_: Exception) {
+        }
+        try {
+            record.startRecording()
+        } catch (_: Exception) {
+            close(c)
+            return null
+        }
+        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            close(c)
+            return null
+        }
         stat = JSONObject()
             .put("source", "voice_recognition")
             .put("rate", rate)
             .put("aec", aec)
             .put("ns", ns)
+            .put("preferred", describe(dev))
             .toString()
-        Log.i(TAG, "capture start rate=$rate aec=$aec ns=$ns gain=$gain")
-
-        try {
-            record.startRecording()
-        } catch (e: Exception) {
-            releaseAll(record)
-            return false
-        }
-        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-            releaseAll(record)
-            return false
-        }
-        running = true
-        thread = Thread({ loop(record, rate) }, "airtalk-audio").apply {
-            isDaemon = true
-            start()
-        }
-        return true
+        Log.i(TAG, "capture start rate=$rate aec=$aec ns=$ns gain=$gain preferred=${describe(dev)}")
+        cur = c
+        notifyInput(record.routedDevice)
+        return c
     }
 
-    private fun loop(record: AudioRecord, rate: Int) {
-        val inBuf = ShortArray(rate / 10) // 100ms
-        while (running) {
+    private fun loop(first: Capture, myGen: Int) {
+        fun alive() = running && gen == myGen
+        var c = first
+        var inBuf = ShortArray(c.rate / 10) // 100ms
+        while (alive()) {
             var off = 0
-            while (off < inBuf.size && running) {
-                val n = record.read(inBuf, off, inBuf.size - off)
+            var dead = false
+            while (off < inBuf.size && alive()) {
+                val n = c.record.read(inBuf, off, inBuf.size - off)
                 if (n <= 0) {
-                    if (n < 0) running = false
+                    if (n < 0) dead = true
                     break
                 }
                 off += n
             }
-            if (!running) break
+            if (dead && alive()) {
+                // 장치 분리(USB 수신기 뽑힘 등)로 AudioRecord 가 죽어도 캡처를 끝내지 않고 다시 연다 —
+                // 웹은 네이티브 오류를 알 수 없어, 여기서 멈추면 '번역 중'인데 소리만 끊긴 상태가 된다
+                Log.w(TAG, "capture read error — reopening")
+                close(c)
+                var next: Capture? = null
+                while (next == null && alive()) {
+                    try {
+                        Thread.sleep(300)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                    next = open()
+                }
+                if (next == null) return // 이미 정리됨(stop 됐거나 중단)
+                if (!alive()) {
+                    close(next)
+                    return
+                }
+                c = next
+                if (inBuf.size != c.rate / 10) inBuf = ShortArray(c.rate / 10)
+                continue
+            }
+            if (!alive()) break
             if (off <= 0) continue
-            val out = to24k(inBuf, off, rate)
+            val out = to24k(inBuf, off, c.rate)
             val bytes = ByteArray(out.size * 2)
             var j = 0
             for (s in out) {
@@ -166,25 +249,86 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
                 webView.evaluateJavascript("window.__kacNA&&window.__kacNA(\"$b64\")", null)
             }
         }
-        try {
-            record.stop()
-        } catch (_: Exception) {
-        }
-        releaseAll(record)
+        close(c)
         Log.i(TAG, "capture stop")
     }
 
-    private fun releaseAll(record: AudioRecord) {
-        for (e in effects) {
+    private fun close(c: Capture) {
+        if (cur === c) cur = null
+        try {
+            c.record.removeOnRoutingChangedListener(routingListener)
+        } catch (_: Exception) {
+        }
+        try {
+            c.record.stop()
+        } catch (_: Exception) {
+        }
+        for (e in c.effects) {
             try {
                 e.release()
             } catch (_: Exception) {
             }
         }
-        effects.clear()
         try {
-            record.release()
+            c.record.release()
         } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * 외부 마이크 우선: USB(USB-C 무선 수신기·USB 마이크) → 유선 이어폰 마이크 → 없으면 null(OS 기본 = 내장 마이크).
+     * 블루투스 마이크는 통화용 협대역(SCO) 경로라 인식률이 떨어지므로 고르지 않는다.
+     */
+    private fun pickInput(): AudioDeviceInfo? = try {
+        val ins = am.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        ins.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_DEVICE }
+            ?: ins.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** 장치 연결·분리 → 진행 중인 캡처의 선호 입력만 교체(AudioRecord 가 끊김 없이 재라우팅) */
+    private fun reroute() {
+        val c = cur ?: return
+        try {
+            c.record.setPreferredDevice(pickInput())
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 실제 입력 장치가 바뀌면 토스트로 알린다 — 내장 마이크로 처음 시작할 때는 조용히 */
+    private fun notifyInput(d: AudioDeviceInfo?) {
+        if (d == null) return // 라우팅 확정 전 — 확정되면 리스너로 다시 온다
+        val label = describe(d)
+        main.post {
+            if (label == lastNotified) return@post
+            val first = lastNotified == null
+            lastNotified = label
+            if (first && d.type == AudioDeviceInfo.TYPE_BUILTIN_MIC) return@post
+            Toast.makeText(activity, "마이크 입력: $label", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun describe(d: AudioDeviceInfo?): String {
+        if (d == null) return "기본 입력"
+        val kind = when (d.type) {
+            AudioDeviceInfo.TYPE_BUILTIN_MIC -> return "내장 마이크"
+            AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE -> "USB 마이크"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET -> "유선 이어폰 마이크"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "블루투스 마이크"
+            else -> "입력 장치(${d.type})"
+        }
+        val name = d.productName?.toString()?.trim().orEmpty()
+        return if (name.isEmpty()) kind else "$kind ($name)"
+    }
+
+    /** 앱 정보용: 캡처 중이면 실제로 쓰는 입력, 대기 중이면 다음 시작 때 고를 입력 */
+    fun inputStatus(): String {
+        val c = cur
+        return if (c != null) {
+            "사용 중 — ${describe(c.record.routedDevice)}"
+        } else {
+            "대기 — 시작하면 ${pickInput()?.let { describe(it) } ?: "내장 마이크"}"
         }
     }
 
@@ -217,6 +361,10 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
     fun stop() {
         if (!running && thread == null) return
         running = false
+        try {
+            am.unregisterAudioDeviceCallback(deviceCallback)
+        } catch (_: Exception) {
+        }
         thread?.let {
             try {
                 it.join(500)
@@ -234,7 +382,7 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
     @JavascriptInterface
     fun getGain(): Float = gain
 
-    /** 마지막 캡처 구성(JSON): {source, rate, aec, ns} — 앱 정보·현장 진단용 */
+    /** 마지막 캡처 구성(JSON): {source, rate, aec, ns, preferred} — 앱 정보·현장 진단용 */
     @JavascriptInterface
     fun info(): String = stat
 
@@ -242,7 +390,6 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
     @JavascriptInterface
     fun setMediaVolume(v: Float) {
         try {
-            val am = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             am.setStreamVolume(AudioManager.STREAM_MUSIC, (v.coerceIn(0f, 1f) * max + 0.5f).toInt(), 0)
         } catch (_: Exception) {
@@ -251,7 +398,6 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
 
     @JavascriptInterface
     fun getMediaVolume(): Float = try {
-        val am = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
     } catch (_: Exception) {
         1f

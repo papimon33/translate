@@ -86,6 +86,25 @@
   게다가 하트비트가 30초(`HEARTBEAT_MS`)라 서버가 이탈을 알아채기 전 최대 30초 동안 태블릿은 데스크를
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
+- **안드로이드 앱 서명키 교체 + 외부 마이크(USB-C 무선 수신기) 자동 선택(2026-10-19)**: 첫 빌드·배포 직전 정리.
+  - **서명키 교체**: 기존 `android/app/airtalk-release.p12` 와 비밀번호가 **공개 repo 에 평문 커밋**돼 있었다(누구나 같은 서명의
+    가짜 업데이트 APK 를 만들 수 있음). 설치된 기기가 0대인 지금 바꾸면 비용 0(설치 후 바꾸면 전 기기 삭제·재설치). 새 키(RSA 4096,
+    30년, SHA-256 `DF:33:A8:E6:…:CD:6F`)는 **repo 밖** `~/Documents/claude/airtalk-signing/`(백업 필수) + GitHub Secrets
+    `ANDROID_KEYSTORE_B64`·`ANDROID_KEYSTORE_PASSWORD`. `build.gradle` 은 환경변수 `ANDROID_KEYSTORE`(+비밀번호)가 있을 때만 서명.
+    CI `android` 잡이 Secret 을 `$RUNNER_TEMP` 에 풀어 빌드하고, **업로드 전 apksigner 로 인증서 지문 검증**(미서명·다른 키 APK 차단).
+    `.gitignore` 에 `*.p12`·`*.jks`·`*.keystore`. 옛 키는 git 기록에 남지만 새 키로 서명하므로 무의미(기록 정리 불요).
+  - **외부 마이크 우선 라우팅**(`NativeAudio.kt`): 이전엔 입력 장치를 OS 에 맡겼다. 이제 `pickInput()` = USB(HEADSET/DEVICE) →
+    유선 이어폰 마이크 → 없으면 OS 기본(내장)을 `setPreferredDevice` 로 명시. **번역 중 꽂거나 뽑으면** `AudioDeviceCallback` →
+    진행 중 AudioRecord 의 선호 장치만 교체(끊김 없이 재라우팅). 실제 라우팅이 바뀌면 토스트 "마이크 입력: USB 마이크 (모델명)"
+    (내장 마이크로 처음 시작할 땐 조용히). 블루투스는 통화용 협대역(SCO)이라 일부러 안 고른다.
+  - **장치 분리로 read() 오류 시 재개방**: 이전엔 오류 = 캡처 스레드 종료였는데 웹은 이를 알 길이 없어 '번역 중'인데 소리만 끊긴
+    상태가 됐다. 이제 300ms 간격으로 다시 열어 이어간다. 캡처·효과를 `Capture` 묶음으로 관리, 세대 번호(`gen`)로 stop 이 늦게 끝난
+    이전 스레드와 새 캡처가 동시에 돌지 않게 함. 앱 정보에 '마이크 입력: 사용 중 — …/대기 — 시작하면 …' 표시.
+  - 웹: 안드로이드 앱에선 **소리 입력을 마이크로 고정**(PC 소리 캡처 getDisplayMedia 가 WebView 에 없음 — 부팅 이전으로 src=system 이
+    된 구 PC 음성 번역 세션을 폰에서 열면 시작 즉시 실패했을 것). 서버 세션 값은 건드리지 않고 이 기기 상태만, 선택 UI 숨김.
+  - **미검증**: 이 맥엔 JDK·Android SDK 가 없어 Kotlin 컴파일은 CI 에서 처음 확인된다. 실기기 확인 항목 — 수신기 꽂고 시작 시 토스트,
+    번역 중 뽑기/꽂기, 그리고 **수신기가 USB 출력 장치도 겸하면 TTS 가 폰 스피커 대신 수신기(모니터 단자)로 나갈 수 있음**
+    (WebView 미디어 출력은 앱이 장치를 고를 수 없다).
 - **실시간 번역 메뉴 3종 → 2종 + 뷰어 발화 폐지 + 발화 멈춤 버그(2026-10-18)**: 모드가 '소스+방향'을 섞어 정의하고
   모드 안 토글이 다시 그걸 바꾸던 구조(예: 'PC 음성 번역'이 양방향·내 음성 인식 토글로 사실상 다른 모드로 변신)를 정리.
   **모드 = 번역 방향, 소리 입력(소스) = 모드 안 선택지 하나** — 모드마다 유효한 소스가 정확히 두 개라 잘못된 조합이 없다.
@@ -608,7 +627,7 @@
   · `NativeAudio.kt` — `window.AndroidAudio` 브리지: AudioRecord **VOICE_RECOGNITION**(CDD상 AGC 미적용) + AutomaticGainControl 명시 off,
     AEC(자기 TTS 에코 제거)·NS 지원 기기만 on, 48k(폴백 44.1k/24k/16k) 캡처→선형보간 24kHz PCM16, **소프트웨어 게인 0.1~8.0×**(앱 메뉴, prefs 저장),
     100ms base64 청크 → `window.__kacNA(b64)` (evaluateJavascript). setMediaVolume/getMediaVolume(STREAM_MUSIC) 브리지도 포함(추후 호스트 원격 볼륨용).
-  · 서명: `app/airtalk-release.p12`(openssl PKCS12, 사이드로드 전용, repo 커밋 — CI 빌드 간 서명 고정으로 덮어쓰기 업데이트 가능). 아이콘: favicon 심볼 어댑티브 벡터.
+  · 서명: `app/airtalk-release.p12`(openssl PKCS12, 사이드로드 전용, repo 커밋 — CI 빌드 간 서명 고정으로 덮어쓰기 업데이트 가능) → **2026-10-19 폐기·교체**(공개 repo 평문 노출, 새 키는 GitHub Secrets — 상단 해당 항목). 아이콘: favicon 심볼 어댑티브 벡터.
 - **웹 3곳 연동(window.AndroidAudio 있으면 getUserMedia 대신 네이티브, 없으면 기존 그대로)**:
   · audio.js(호스트): getSources 가 {native:true} 소스 반환, 루프에서 __kacNA 핸들러가 게이트(noiseFloor/micRatio/micAbsMin 동일)·VAD(ms 카운터)·
     mute/TTS 음소거·activity·commit 를 브라우저 경로와 동일 수행. **네이티브면 AEC 루프백 생략**(기기 AEC + 재생 중 음소거 폴백). stop 에서 브리지 정지.

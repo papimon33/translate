@@ -1,4 +1,4 @@
-# AirTalk Android (안내데스크 태블릿용)
+# AirTalk Android (안내데스크 태블릿·현장 폰용)
 
 기존 웹앱(호스트 세션·데스크 뷰어·모바일 뷰어)을 WebView 로 그대로 띄우고,
 **마이크만 네이티브 AudioRecord(VOICE_RECOGNITION 소스, AGC 완전 차단)** 로 캡처해
@@ -13,26 +13,33 @@
   (새로고침 / 서버 주소 변경 / 마이크 입력 게인 / 앱 정보).
 - `NativeAudio.kt` — AudioRecord 캡처 → 24kHz PCM16 리샘플 → 소프트웨어 게인 →
   100ms base64 청크를 `window.__kacNA(b64)` 로 전달. AGC 명시 해제, AEC·NS 는 지원 기기만 부착.
-- 웹 쪽 연동: `client/src/audio.js`(호스트), `client/public/desk.html`(여객 마이크),
-  `client/public/mobile.html`(참여자 발화) — `window.AndroidAudio` 있으면 getUserMedia 대신 네이티브 사용.
-  게이트(적응형 소음바닥)·VAD·전송 프로토콜은 브라우저 경로와 동일.
+  **외부 마이크 우선**: USB(USB-C 무선 수신기 등) → 유선 이어폰 마이크 → 내장 마이크 순으로 자동 선택하고,
+  번역 중 꽂거나 뽑아도 끊지 않고 입력만 바꾼다(토스트로 알림). 블루투스 마이크는 음질 문제로 쓰지 않는다.
+- 웹 쪽 연동: `client/src/audio.js`(호스트), `client/public/desk.html`(여객 마이크)
+  — `window.AndroidAudio` 있으면 getUserMedia 대신 네이티브 사용. 게이트(적응형 소음바닥)·VAD·전송 프로토콜은 브라우저 경로와 동일.
+  앱에선 PC 소리 캡처가 불가하므로 호스트 화면의 '소리 입력'은 마이크로 고정된다.
 
 ## 빌드
 CI(GitHub Actions `main.yml` 의 `android` 잡)가 `desktop-v*` 태그/수동 실행 시 APK 를 빌드해
 GitHub Release 에 올린다. 웹앱 프로필 → '데스크톱 앱' 모달에서 내려받는다.
 
-로컬 빌드(Android SDK + JDK 17 필요):
+로컬 빌드(Android SDK + JDK 17 필요, 서명키 환경변수 없으면 미서명 APK):
 ```
-gradle -p android assembleRelease   # 산출물: android/app/build/outputs/apk/release/AirTalk-<ver>-android.apk
+ANDROID_KEYSTORE=/경로/airtalk-release.p12 ANDROID_KEYSTORE_PASSWORD=… gradle -p android assembleRelease
+# 산출물: android/app/build/outputs/apk/release/AirTalk-<ver>-android.apk
 ```
 
-서명: `app/airtalk-release.p12` (사이드로드 전용, repo 커밋 — 같은 키로 서명해야 덮어쓰기
-업데이트가 되므로 CI 빌드 간 서명을 고정한다. 스토어 배포용 비밀키가 아님.)
+**서명키는 repo 에 없다.** 같은 키로 서명한 APK 만 덮어쓰기 업데이트가 되므로 키를 잃으면 모든 기기에서
+앱을 지우고 다시 설치해야 한다. 보관 위치: 관리자 PC 의 repo 밖 폴더(백업 필수) + GitHub Secrets
+`ANDROID_KEYSTORE_B64`(p12 의 base64)·`ANDROID_KEYSTORE_PASSWORD`. CI 는 업로드 전 인증서 지문
+(SHA-256 `DF:33:A8:E6:…:CD:6F`)을 검사해 다른 키로 서명된 APK 를 막는다.
 
-## 태블릿 설치·운영
-1. 태블릿 브라우저(크롬)로 서버 접속 → 로그인 → 프로필 → '데스크톱 앱' → Android APK 다운로드.
+## 설치·운영
+1. 태블릿·폰 브라우저(크롬)로 서버 접속 → 로그인 → 프로필 → '데스크톱 앱' → Android APK 다운로드.
 2. 설치 시 '알 수 없는 앱 설치 허용'(크롬에 대해 1회) → 설치.
-3. 첫 실행: **서버 주소 입력**(전체 URL 가능 — 여객 뷰어 태블릿이면
-   `https://…/desk.html?session=<데스크세션ID>` 를 그대로 입력) → 마이크 권한 허용.
-4. 소리가 너무 작거나 크면: 뒤로가기 → '마이크 입력 게인'으로 보정(AGC 가 없으므로 이 값이 그대로 유지됨).
-5. 문제 진단: 같은 네트워크 PC 크롬에서 `chrome://inspect` → 이 앱 WebView 원격 디버깅 가능.
+3. 첫 실행: **서버 주소 입력** → 마이크 권한 허용. 여객 뷰어 태블릿이면 관리자 화면의 데스크 세션 QR 주소
+   (`https://…/desk.html?session=<ID>&t=<토큰>`)를 그대로 입력한다 — 공개 목록에선 토큰이 빠져 입장할 수 없다.
+4. 무선마이크: USB-C 수신기를 꽂으면 자동으로 그쪽을 쓴다(시작 시 '마이크 입력: USB 마이크 …' 토스트).
+   지금 어떤 입력을 쓰는지는 뒤로가기 → '앱 정보'에서 확인.
+5. 소리가 너무 작거나 크면: 뒤로가기 → '마이크 입력 게인'으로 보정(AGC 가 없으므로 이 값이 그대로 유지됨).
+6. 문제 진단: 같은 네트워크 PC 크롬에서 `chrome://inspect` → 이 앱 WebView 원격 디버깅 가능.
