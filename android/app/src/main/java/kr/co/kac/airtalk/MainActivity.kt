@@ -49,7 +49,7 @@ class MainActivity : Activity() {
         setupWebView()
 
         nativeAudio = NativeAudio(this, webView)
-        nativeAudio.gain = prefs.getFloat("gain", 1.0f)
+        nativeAudio.inputGain = prefs.getFloat("gain", 1.0f)
         webView.addJavascriptInterface(nativeAudio, "AndroidAudio")
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -216,7 +216,7 @@ class MainActivity : Activity() {
             .setPositiveButton("적용") { _, _ ->
                 val g = (seek.progress + 1) / 10f
                 prefs.edit().putFloat("gain", g).apply()
-                nativeAudio.gain = g
+                nativeAudio.inputGain = g
             }
             .setNegativeButton("취소", null)
             .show()

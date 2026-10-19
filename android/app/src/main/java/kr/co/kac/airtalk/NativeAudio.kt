@@ -40,8 +40,9 @@ import org.json.JSONObject
  */
 class NativeAudio(private val activity: Activity, private val webView: WebView) {
 
+    // 이름이 gain 이면 자동 생성 getGain()/setGain() 이 아래 브리지 함수와 JVM 시그니처가 겹쳐 컴파일 실패
     @Volatile
-    var gain: Float = 1.0f
+    var inputGain: Float = 1.0f
         set(value) {
             field = value.coerceIn(0.1f, 8.0f)
         }
@@ -189,7 +190,7 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             .put("ns", ns)
             .put("preferred", describe(dev))
             .toString()
-        Log.i(TAG, "capture start rate=$rate aec=$aec ns=$ns gain=$gain preferred=${describe(dev)}")
+        Log.i(TAG, "capture start rate=$rate aec=$aec ns=$ns gain=$inputGain preferred=${describe(dev)}")
         cur = c
         notifyInput(record.routedDevice)
         return c
@@ -334,7 +335,7 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
 
     /** 선형 보간 리샘플 → 24kHz(서버·soniox 파이프라인 규격) + 소프트웨어 게인(클리핑 클램프) */
     private fun to24k(buf: ShortArray, len: Int, rate: Int): ShortArray {
-        val g = gain
+        val g = inputGain
         if (rate == 24000) {
             val out = ShortArray(len)
             for (i in 0 until len) {
@@ -376,11 +377,11 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
 
     @JavascriptInterface
     fun setGain(v: Float) {
-        gain = v
+        inputGain = v
     }
 
     @JavascriptInterface
-    fun getGain(): Float = gain
+    fun getGain(): Float = inputGain
 
     /** 마지막 캡처 구성(JSON): {source, rate, aec, ns, preferred} — 앱 정보·현장 진단용 */
     @JavascriptInterface
