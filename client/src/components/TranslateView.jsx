@@ -1511,7 +1511,8 @@ const Row = React.memo(function Row({ side, text, source, dir, scale = 1, draft 
         {mainText}
       </Typography>
       {pending && <Typography sx={{ fontSize: 12.5, color: 'text.disabled', mt: 0.3 }}>번역 중…</Typography>}
-      {!pending && source && (
+      {/* 원문이 표시 문장과 같으면(출력 언어로 말한 발화 — 예: 한국어→한국어 기록) 두 번 쓰지 않는다 */}
+      {!pending && source && source.trim() !== String(text || '').trim() && (
         <Typography sx={{ fontSize: Math.round(14.5 * scale), color: 'text.secondary', lineHeight: 1.5, mt: 0.6, wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
           {source}
         </Typography>

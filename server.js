@@ -3311,7 +3311,8 @@ function handleHost(ws) {
       if (confFix) maybeConfFix(id, toks, txt, src, target); // 저신뢰 자동 교정(고급옵션)
       // 실시간 TTS: 발화 중 문장 단위로 이미 흘려보냈고, 여기선 남은 꼬리만 합성.
       //  재입력은 브라우저 AEC(마이크 경로) + 서버 에코 텍스트 필터(시스템 캡처·기기 간 경로)로 차단.
-      if (ttsOn) {
+      // 출력 언어로 말한 발화는 읽어 줄 번역이 없다 — 방금 한 말을 그대로 되읽지 않는다
+      if (ttsOn && !(sxMode === 'one' && src === sxTarget && !tgt)) {
         ttsLang = target;
         const tl = tail.trim();
         if (tl) speakTts(tl, id);                   // 종결부호 없이 남은 번역 꼬리
@@ -3396,8 +3397,11 @@ function handleHost(ws) {
       if (shownTgt) lastTrans = shownTgt;
       if (!curId && (shownSrc || shownTgt)) { curId = newId(); utterTm = { s: Date.now() }; }
       if (curId) {
-        // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시
-        liveSend(curId, { [targetKeyFor(curSrc)]: shownTgt }, shownSrc || null, spkLabel(curSpeaker));
+        // 타깃=번역(주 텍스트), 원문은 source 로 동시 표시.
+        // 출력 언어로 말한 발화(예: 한국어 회의를 한국어로 기록)는 엔진이 번역하지 않는다 — 원문이 곧 표시 문장.
+        // 비워 두면 화면이 확정 때까지 '번역 중…'으로 흐리게 남는다(확정 commit 은 원래 원문으로 폴백).
+        const sameLang = sxMode === 'one' && curSrc === sxTarget && !shownTgt;
+        liveSend(curId, { [targetKeyFor(curSrc)]: sameLang ? shownSrc : shownTgt }, shownSrc || null, spkLabel(curSpeaker));
       }
       // 발화 종료(<end>) 또는 과도하게 길면 확정
       if (endHit) { if (utterTm && utterTm.e == null) utterTm.e = Date.now(); commit(); }

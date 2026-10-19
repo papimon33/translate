@@ -296,7 +296,9 @@ let fsPct = parseInt(localStorage.getItem('kac-mfs')||'100',10);
 if(!(fsPct>=50 && fsPct<=200)) fsPct = 100; // 옛 px 저장값 보정
 function applyFs(){ document.documentElement.style.setProperty('--fs', Math.round(FS_BASE*fsPct/100)+'px'); $('fsVal').textContent = fsPct+'%'; localStorage.setItem('kac-mfs', fsPct); }
 let showSrc = localStorage.getItem('kac-msrc') !== '0'; // 원문 동시 보기 기본 ON
-function applySrc(){ $('srcToggle').checked = showSrc; cards.forEach(c => { c.src.style.display = (showSrc && c.source) ? 'block':'none'; }); }
+// 원문이 표시 문장과 같으면(출력 언어로 말한 발화 — 예: 한국어→한국어 기록) 두 번 쓰지 않는다
+function srcShown(c){ return !isDesk() && showSrc && !!c.source && c.source.trim() !== String(pick(c.texts || {}) || '').trim(); }
+function applySrc(){ $('srcToggle').checked = showSrc; cards.forEach(c => { c.src.style.display = srcShown(c) ? 'block':'none'; }); }
 
 applyTheme(localStorage.getItem('kac-theme') || 'light');
 applyFs();
@@ -399,7 +401,7 @@ function upsert(item){
   renderSpk(card);
   renderLine(card);
   card.src.textContent = card.source;
-  card.src.style.display = (!isDesk() && showSrc && card.source) ? 'block' : 'none';
+  card.src.style.display = srcShown(card) ? 'block' : 'none';
   if(stick) scrollDown();
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
@@ -432,7 +434,7 @@ function renderLine(c){
     else if (tk === sxAlang) c.el.classList.add('dirB'); // 타깃=언어1 → 언어2 발화
   }
 }
-function rerender(){ cards.forEach(renderLine); }
+function rerender(){ cards.forEach(renderLine); applySrc(); } // 언어를 바꾸면 '원문=표시 문장' 여부도 바뀐다
 // 데스크: 대화 종료 시 화면 초기화(다음 손님)
 function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); removeMap(); if(empty) empty.style.display=''; }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
