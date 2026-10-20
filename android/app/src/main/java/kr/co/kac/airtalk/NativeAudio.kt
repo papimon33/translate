@@ -323,6 +323,21 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
         return if (name.isEmpty()) kind else "$kind ($name)"
     }
 
+    /** 웹 화면 표시용(폰 화면의 마이크 칩): 캡처 중이면 실제 입력, 대기 중이면 시작하면 쓸 입력 */
+    @JavascriptInterface
+    fun inputLabel(): String {
+        val c = cur
+        if (c != null) {
+            val d = try {
+                c.record.routedDevice
+            } catch (_: Exception) {
+                null
+            }
+            if (d != null) return describe(d)
+        }
+        return pickInput()?.let { describe(it) } ?: "내장 마이크"
+    }
+
     /** 앱 정보용: 캡처 중이면 실제로 쓰는 입력, 대기 중이면 다음 시작 때 고를 입력 */
     fun inputStatus(): String {
         val c = cur

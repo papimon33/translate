@@ -2120,7 +2120,9 @@ async function fetchLatestDesktop() {
         // mac: universal(인텔+애플실리콘 겸용) 우선, 없으면 첫 dmg
         const macs = assets.filter((a) => /\.dmg$/i.test(a.name));
         const mac = macs.find((a) => /universal/i.test(a.name)) || macs[0];
-        const android = assets.find((a) => /\.apk$/i.test(a.name));
+        // android: 버전마다 파일명이 달라 한 릴리스에 여러 개가 쌓일 수 있다 → 가장 최근에 올라온 것
+        const android = assets.filter((a) => /\.apk$/i.test(a.name))
+          .sort((x, y) => String(y.updated_at || '').localeCompare(String(x.updated_at || '')))[0];
         if (win || mac || android) { found = { rel, win, mac, android }; break; }
       }
       data = found

@@ -7,55 +7,115 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 
 /**
- * AirTalk 안내데스크용 키오스크 셸.
+ * AirTalk 앱 셸 — 현장 폰(호스트 화면)과 안내데스크 손님 태블릿(desk.html) 겸용.
  *
- * 기존 웹앱(호스트 세션·데스크 뷰어·모바일 뷰어)을 WebView 로 그대로 띄우되,
- * 마이크만 네이티브 AudioRecord(AGC 완전 차단)로 캡처해 `window.AndroidAudio` 브리지로 공급한다 —
- * 브라우저(WebView 포함)의 오디오 스택은 AGC off 요청을 기기에 따라 무시해
- * 민감도 게이트를 아무리 낮춰도 속삭임·원거리 소음이 통과하던 문제의 근본 해결.
+ * 기존 웹앱을 WebView 로 그대로 띄우되(화면은 서버에서 오므로 서버만 고치면 모든 기기가 즉시 갱신),
+ * 마이크만 네이티브 AudioRecord(AGC 완전 차단)로 캡처해 `window.AndroidAudio` 브리지로 공급한다.
+ * 웹이 할 수 없는 것만 여기서 한다:
+ *  - 시작 화면·서버 연결 끊김 화면(서버에 못 붙어도 보여야 하므로 네이티브) + 자동 재연결
+ *  - 저장(녹취록 → 저장 위치 선택)·공유 시트·화면 꺼짐 제어 — `window.AndroidApp`
+ *  - 뒤로가기: 폰은 웹 화면 뒤로 → 첫 화면에서 두 번 누르면 종료 / 손님 태블릿은 관리 메뉴(키오스크)
  */
 class MainActivity : Activity() {
 
     private lateinit var webView: WebView
     private lateinit var nativeAudio: NativeAudio
+    private lateinit var overlay: LinearLayout
+    private lateinit var ovTitle: TextView
+    private lateinit var ovBody: TextView
+    private lateinit var ovStatus: TextView
+    private lateinit var ovButtons: LinearLayout
     private val prefs by lazy { getSharedPreferences("airtalk", Context.MODE_PRIVATE) }
+    private val main = Handler(Looper.getMainLooper())
+
+    private var loadFailed = false      // 이번 페이지 로드 실패 여부(onPageStarted 에서 초기화)
+    private var retryCount = 0
+    private var retryAt = 0L
+    private var kiosk = false           // 손님 태블릿(desk.html): 몰입 전체화면·화면 상시 켜짐·뒤로가기=관리 메뉴
+    private var webKeepOn = false       // 웹이 요청한 화면 켜짐(번역 중에만)
+    private var darkUi = false          // 웹 화면이 어두운 테마인지(상태바 색 맞춤)
+    private var clearHistoryOnLoad = false
+    private var lastBackAt = 0L
+    private var backLongPressed = false
+    private var pendingSave: String? = null
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+
+    private val retryTick = object : Runnable {
+        override fun run() {
+            if (!isOfflineShown()) return
+            val left = ((retryAt - System.currentTimeMillis() + 999) / 1000).toInt()
+            if (left <= 0) {
+                retryNow()
+                return
+            }
+            ovStatus.text = "${left}초 후 다시 시도 · ${retryCount}번째"
+            main.postDelayed(this, 1000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 안내데스크 상시 화면: 절전으로 꺼지면 뷰어 터치 화면이 사라진다
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
 
         webView = WebView(this)
-        setContentView(webView)
+        webView.setBackgroundColor(BG) // 첫 페인트 전 흰 화면 번쩍임 방지
+        overlay = buildOverlay()
+        val root = FrameLayout(this)
+        root.addView(webView, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(overlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        setContentView(root)
         setupWebView()
+        applyBars()
+        applyKeepScreen()
 
         nativeAudio = NativeAudio(this, webView)
         nativeAudio.inputGain = prefs.getFloat("gain", 1.0f)
         webView.addJavascriptInterface(nativeAudio, "AndroidAudio")
+        webView.addJavascriptInterface(AppBridge(), "AndroidApp")
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
         }
 
+        showSplash()
+        registerNetwork()
         val url = prefs.getString("url", null)
         if (url.isNullOrBlank()) askUrl(first = true) else webView.loadUrl(url)
     }
@@ -67,10 +127,10 @@ class MainActivity : Activity() {
             domStorageEnabled = true
             // 데스크 뷰어·TTS 는 사용자 제스처 없이도 소리를 내야 한다(호스트가 원격으로 응대 시작)
             mediaPlaybackRequiresUserGesture = false
-            userAgentString = "$userAgentString AirTalkApp/1.0"
+            userAgentString = "$userAgentString AirTalkApp/1.1"
         }
         CookieManager.getInstance().setAcceptCookie(true)
-        // 현장 문제를 PC chrome://inspect 로 바로 들여다볼 수 있게 항상 허용(내부 운영 앱)
+        // 현장 문제를 PC 크롬 chrome://inspect 로 바로 들여다볼 수 있게 항상 허용(내부 운영 앱)
         WebView.setWebContentsDebuggingEnabled(true)
 
         webView.webViewClient = object : WebViewClient() {
@@ -78,6 +138,32 @@ class MainActivity : Activity() {
                 // 페이지 이동/새로고침 시 진행 중이던 네이티브 캡처를 반드시 끊는다 —
                 // 웹 쪽 핸들러(window.__kacNA)가 사라진 채 마이크만 계속 도는 것을 방지
                 nativeAudio.stop()
+                loadFailed = false
+                updateMode(url)
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                if (loadFailed) return // 실패한 로드의 오류 페이지 — 연결 끊김 화면 유지
+                retryCount = 0
+                hideOverlay()
+                if (clearHistoryOnLoad) {
+                    clearHistoryOnLoad = false
+                    webView.clearHistory() // 서버 주소를 바꾼 뒤 뒤로가기로 옛 서버가 열리지 않게
+                }
+            }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                if (request?.isForMainFrame != true) return
+                Log.w(TAG, "main frame error ${error?.errorCode} ${error?.description}")
+                loadFailed = true
+                showOffline()
+            }
+
+            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                // 서버 오류(5xx: 배포 중·무료 플랜 기동 대기 등)도 오류 페이지 대신 연결 끊김 화면 + 자동 재시도
+                if (request?.isForMainFrame != true || (errorResponse?.statusCode ?: 0) < 500) return
+                loadFailed = true
+                showOffline()
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -116,10 +202,244 @@ class MainActivity : Activity() {
         }
     }
 
+    /* ---- 웹 브리지(window.AndroidApp): 웹이 못 하는 저장·공유·화면 제어 ---- */
+    inner class AppBridge {
+        @JavascriptInterface
+        fun version(): String = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+
+        @JavascriptInterface
+        fun openMenu() {
+            runOnUiThread { showMenu() }
+        }
+
+        /** 번역 중에만 화면 켜짐(폰 배터리) — 손님 태블릿은 항상 켜짐 */
+        @JavascriptInterface
+        fun setKeepScreenOn(on: Boolean) {
+            runOnUiThread {
+                webKeepOn = on
+                applyKeepScreen()
+            }
+        }
+
+        @JavascriptInterface
+        fun setDarkUi(dark: Boolean) {
+            runOnUiThread {
+                if (darkUi != dark) {
+                    darkUi = dark
+                    applyBars()
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun shareText(text: String) {
+            runOnUiThread {
+                try {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    startActivity(Intent.createChooser(send, "링크 공유"))
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        /** 녹취록 저장 — WebView 는 blob 다운로드를 못 하므로 안드로이드 '저장 위치 선택' 창으로 */
+        @JavascriptInterface
+        fun saveText(name: String, text: String) {
+            runOnUiThread {
+                pendingSave = text
+                try {
+                    val i = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TITLE, name)
+                    }
+                    startActivityForResult(i, REQ_SAVE)
+                } catch (_: Exception) {
+                    pendingSave = null
+                    Toast.makeText(this@MainActivity, "이 기기에서는 파일로 저장할 수 없습니다", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_SAVE) return
+        val text = pendingSave
+        pendingSave = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null || text == null) return
+        try {
+            contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+            Toast.makeText(this, "녹취록을 저장했습니다", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.w(TAG, "save failed", e)
+            Toast.makeText(this, "저장하지 못했습니다", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /* ---- 시작 화면 · 연결 끊김 화면(네이티브) ---- */
+    private fun dp(v: Float): Int = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()
+
+    private fun lp(w: Int, h: Int, top: Int = 0) = LinearLayout.LayoutParams(w, h).apply { topMargin = top }
+
+    private fun pillButton(label: String, filled: Boolean, onClick: () -> Unit): Button = Button(this).apply {
+        text = label
+        isAllCaps = false
+        textSize = 16f
+        setTypeface(typeface, Typeface.BOLD)
+        stateListAnimator = null
+        setTextColor(if (filled) Color.WHITE else INK)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(16f).toFloat()
+            setColor(if (filled) INK else Color.TRANSPARENT)
+        }
+        setOnClickListener { onClick() }
+    }
+
+    private fun buildOverlay(): LinearLayout {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(32f), dp(32f), dp(32f), dp(32f))
+            setBackgroundColor(BG)
+            isClickable = true // 아래 WebView 로 터치가 새지 않게
+        }
+        val progress = ProgressBar(this).apply { isIndeterminate = true }
+        ovTitle = TextView(this).apply {
+            textSize = 22f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(INK)
+            gravity = Gravity.CENTER
+        }
+        ovBody = TextView(this).apply {
+            textSize = 15f
+            setTextColor(MUTED)
+            gravity = Gravity.CENTER
+            setLineSpacing(0f, 1.35f)
+        }
+        ovStatus = TextView(this).apply {
+            textSize = 13f
+            setTextColor(MUTED)
+            gravity = Gravity.CENTER
+        }
+        ovButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(pillButton("지금 다시 시도", filled = true) { retryNow() }, lp(MATCH, dp(56f)))
+            addView(pillButton("서버 주소 확인", filled = false) { askUrl(first = false) }, lp(MATCH, dp(48f), dp(8f)))
+        }
+        box.addView(progress, lp(dp(36f), dp(36f)))
+        box.addView(ovTitle, lp(MATCH, WRAP, dp(20f)))
+        box.addView(ovBody, lp(MATCH, WRAP, dp(10f)))
+        box.addView(ovStatus, lp(MATCH, WRAP, dp(14f)))
+        box.addView(ovButtons, lp(MATCH, WRAP, dp(36f)))
+        return box
+    }
+
+    private fun showSplash() {
+        ovTitle.text = "AirTalk"
+        ovBody.text = ""
+        ovStatus.text = "연결하는 중…"
+        ovButtons.visibility = View.GONE
+        overlay.visibility = View.VISIBLE
+    }
+
+    private fun showOffline() {
+        ovTitle.text = "서버에 다시 연결하는 중"
+        ovBody.text = "네트워크가 돌아오면 자동으로 다시 연결합니다.\n확정된 대화는 서버에 저장돼 있어 사라지지 않습니다."
+        ovButtons.visibility = View.VISIBLE
+        overlay.visibility = View.VISIBLE
+        retryCount++
+        val delay = RETRY_SEC[minOf(retryCount - 1, RETRY_SEC.size - 1)]
+        retryAt = System.currentTimeMillis() + delay * 1000L
+        main.removeCallbacks(retryTick)
+        main.post(retryTick)
+    }
+
+    private fun hideOverlay() {
+        main.removeCallbacks(retryTick)
+        overlay.visibility = View.GONE
+    }
+
+    private fun isOfflineShown() = overlay.visibility == View.VISIBLE && ovButtons.visibility == View.VISIBLE
+
+    private fun retryNow() {
+        main.removeCallbacks(retryTick)
+        ovStatus.text = "연결하는 중…"
+        val u = webView.url
+        if (u.isNullOrBlank() || u == "about:blank" || u.startsWith("data:")) {
+            prefs.getString("url", null)?.let { webView.loadUrl(it) }
+        } else {
+            webView.reload()
+        }
+    }
+
+    /** 네트워크가 돌아오면 다음 재시도까지 기다리지 않고 바로 연결 */
+    private fun registerNetwork() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    main.post { if (isOfflineShown()) retryNow() }
+                }
+            }
+            cm.registerDefaultNetworkCallback(cb)
+            netCallback = cb
+        } catch (_: Exception) {
+        }
+    }
+
+    /* ---- 화면 모드: 손님 태블릿(키오스크) vs 폰 ---- */
+    private fun updateMode(url: String?) {
+        // 경로로만 판정(도메인에 desk 가 들어간 서버 주소를 키오스크로 오인하지 않게)
+        val path = try {
+            Uri.parse(url ?: "").path ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+        val k = path.contains("desk", ignoreCase = true)
+        if (k == kiosk) return
+        kiosk = k
+        applyBars()
+        applyKeepScreen()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyBars() {
+        if (kiosk) {
+            hideSystemBars()
+            return
+        }
+        // 폰: 상태바·내비게이션바를 앱 배경색으로(몰입 전체화면은 손님 태블릿만)
+        val bg = if (darkUi) BG_DARK else BG
+        window.statusBarColor = bg
+        window.navigationBarColor = bg
+        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        if (!darkUi) flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        window.decorView.systemUiVisibility = flags
+        webView.setBackgroundColor(bg)
+    }
+
+    private fun applyKeepScreen() {
+        // 손님 태블릿은 상시 화면(꺼지면 터치 화면이 사라진다), 폰은 번역 중에만
+        if (kiosk || webKeepOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     /* ---- 몰입 전체화면(키오스크): 시스템 바 숨김, 가장자리 스와이프로 일시 노출 ---- */
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
+        if (hasFocus && kiosk) hideSystemBars()
     }
 
     @Suppress("DEPRECATION")
@@ -134,13 +454,54 @@ class MainActivity : Activity() {
             )
     }
 
-    /* ---- 뒤로가기 = 관리 메뉴(웹 히스토리 뒤로가 아니라 키오스크 관리 진입점) ---- */
+    /* ---- 뒤로가기 ----
+     * 손님 태블릿: 관리 메뉴(웹 히스토리로 손님이 화면을 벗어나지 않게).
+     * 폰: 웹 화면 뒤로(세션 → 홈), 첫 화면에서는 두 번 누르면 종료. 길게 누르면 언제든 관리 메뉴. */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            showMenu()
+            event?.startTracking()
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            backLongPressed = true
+            showMenu()
+            return true
+        }
+        return super.onKeyLongPress(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (backLongPressed || event?.isCanceled == true) {
+                backLongPressed = false
+                return true
+            }
+            handleBack()
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    private fun handleBack() {
+        if (kiosk) {
+            showMenu()
+            return
+        }
+        if (overlay.visibility != View.VISIBLE && webView.canGoBack()) {
+            webView.goBack()
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastBackAt < 2000) {
+            finish()
+            return
+        }
+        lastBackAt = now
+        Toast.makeText(this, "한 번 더 누르면 종료됩니다", Toast.LENGTH_SHORT).show()
     }
 
     private fun showMenu() {
@@ -181,6 +542,9 @@ class MainActivity : Activity() {
                 }
                 if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
                 prefs.edit().putString("url", u).apply()
+                retryCount = 0
+                clearHistoryOnLoad = true
+                showSplash()
                 webView.loadUrl(u)
             }
         if (!first) b.setNegativeButton("취소", null)
@@ -251,6 +615,13 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         nativeAudio.stop()
+        main.removeCallbacks(retryTick)
+        netCallback?.let {
+            try {
+                (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
+            } catch (_: Exception) {
+            }
+        }
         try {
             webView.destroy()
         } catch (_: Exception) {
@@ -261,5 +632,13 @@ class MainActivity : Activity() {
     companion object {
         private const val TAG = "AirTalk"
         private const val REQ_MIC = 1
+        private const val REQ_SAVE = 2
+        private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+        private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+        private val RETRY_SEC = intArrayOf(2, 4, 8, 15)
+        private val BG = Color.parseColor("#FAFAF8")
+        private val BG_DARK = Color.parseColor("#1F1E1D")
+        private val INK = Color.parseColor("#1F1E1D")
+        private val MUTED = Color.parseColor("#6B6A63")
     }
 }

@@ -73,10 +73,10 @@ export function IconMode3(props) {
     </Box>
   );
 }
-// 새 세션 모달 — 모드 2종(번역 방향). 소리 입력(마이크/PC 소리)은 세션 안에서 고른다.
+// 새 세션 모달 — 모드 2종(번역 방향). 음성 입력(마이크/시스템)은 세션 안에서 고른다.
 export const SITUATIONS = [
-  { v: 'oneway', title: '실시간 번역', badge: '강의·영상·웨비나', example: '들리는 음성을 원하는 언어로 번역 — 마이크 또는 PC 소리', Icon: IconMode1 },
-  { v: 'twoway', title: '양방향 통역', badge: '대면 대화·온라인 회의', example: '서로의 언어를 실시간으로 번역 — 마이크 또는 PC 소리 + 마이크', Icon: IconMode3 },
+  { v: 'oneway', title: '실시간 번역', badge: '강의·영상·웨비나', example: '들리는 음성을 원하는 언어로 번역 — 마이크 또는 시스템', Icon: IconMode1 },
+  { v: 'twoway', title: '양방향 통역', badge: '대면 대화·온라인 회의', example: '서로의 언어를 실시간으로 번역 — 마이크 또는 시스템 + 마이크', Icon: IconMode3 },
 ];
 // 세션 모드 표시명(라이브 헤더·목록 배지). 구 프리셋(live/online/mobile/field/meeting)은 서버가 부팅 시
 // 이 둘로 이전하지만, 이전 전 응답·캐시 대비로 같은 이름에 매핑해 둔다.

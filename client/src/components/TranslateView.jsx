@@ -51,6 +51,7 @@ import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutli
 import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import MobileLive from './mobile/MobileLive.jsx';
 import { api } from '../api.js';
 
 function VolumeIcon({ level }) {
@@ -212,7 +213,9 @@ function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange 
   );
 }
 
-export default function TranslateView({ session: initial, onBack }) {
+// mobile: 안드로이드 앱 전용 폰 화면(MobileLive). 상태·엔진 로직은 이 컴포넌트 하나를 그대로 쓰고 레이아웃만 바꾼다 —
+// 화면별로 로직을 복제하면 한쪽만 고쳐지는 사고가 난다(2026-10-18 뷰어 발화 폐지의 교훈).
+export default function TranslateView({ session: initial, onBack, mobile = false }) {
   const [cfg, setCfg] = useState({
     pipeline: initial.pipeline || 'soniox',
     inLang: initial.inLang || 'auto',
@@ -268,7 +271,7 @@ export default function TranslateView({ session: initial, onBack }) {
   });
   // 번역 방향은 모드가 정한다(실시간 번역=one→출력 언어, 양방향 통역=two). 프리셋 없는 구세션만 기기 저장값.
   const sxMode = preset ? (onewayPreset ? 'one' : 'two') : (localStorage.getItem('kac-sx-mode') || 'one');
-  const [sxTarget, setSxTarget] = useState(() => (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
+  const [sxTarget, setSxTarget] = useState(() => initial._target || (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   // 다국어 회의: 동시 번역 언어 집합(2~4개). 기기 저장.
@@ -299,6 +302,7 @@ export default function TranslateView({ session: initial, onBack }) {
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
+  const [recStartAt, setRecStartAt] = useState(null); // 녹음 시작 시각 — 폰 화면 경과 시간 표시
   const [micMuted, setMicMuted] = useState(false); // 발화 일시정지(세션 유지, 마이크만 off)
   const [viewerActive, setViewerActive] = useState(false); // 데스크: 통역(응대) 진행 중인지
   const [deskGuestLang, setDeskGuestLang] = useState(null); // 데스크: 현재 응대 중인 손님 언어
@@ -470,6 +474,24 @@ export default function TranslateView({ session: initial, onBack }) {
     return () => { dead = true; try { navigator.mediaDevices.removeEventListener('devicechange', refresh); } catch {} };
   }, [cfg.pipeline, mic2On]);
 
+  // 안드로이드 앱: 번역 중에만 화면 꺼짐 방지(폰 배터리). 화면이 꺼지면 WebView 가 느려져 자막·전송이 밀린다.
+  useEffect(() => {
+    const app = window.AndroidApp;
+    if (!app || !app.setKeepScreenOn) return undefined;
+    try { app.setKeepScreenOn(!!recording); } catch {}
+    return () => { try { app.setKeepScreenOn(false); } catch {} };
+  }, [recording]);
+
+  // 새 세션 시트의 '시작하기'로 연 세션은 바로 번역을 시작한다(세션 정보 로드 후 1회)
+  const autoStartRef = useRef(!!initial._autoStart);
+  useEffect(() => {
+    if (!autoStartRef.current) return undefined;
+    autoStartRef.current = false;
+    const t = setTimeout(() => { startRef.current && startRef.current(); }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, []);
+
   // 녹음 중 실수로 페이지를 닫거나 새로고침하면 번역이 중단됨 — 이탈 전 확인
   useEffect(() => {
     if (!recording) return;
@@ -504,11 +526,14 @@ export default function TranslateView({ session: initial, onBack }) {
       if (m.speaker) lines.push(`* [${speakers[m.speaker] || ('화자 ' + m.speaker)}] : ${t}`);
       else lines.push(`* ${t}`);
     }
+    const fname = `${(sessTitle || initial.title || 'transcript').replace(/[\\/:*?"<>|]/g, '_')}.txt`;
+    // 안드로이드 앱: WebView 는 blob 다운로드를 처리하지 못한다 → 네이티브 '저장 위치 선택' 창으로 저장
+    if (window.AndroidApp && window.AndroidApp.saveText) { try { window.AndroidApp.saveText(fname, lines.join('\n')); } catch {} return; }
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${(initial.title || 'transcript').replace(/[\\/:*?"<>|]/g, '_')}.txt`;
+    a.download = fname;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -635,6 +660,7 @@ export default function TranslateView({ session: initial, onBack }) {
         onEnded: () => { // 장치 뽑힘·화면공유 중지 — 레코더는 스스로 멈추므로 UI 를 함께 정리('진행 중' 고착 방지)
           recRef.current = null;
           setRecording(false);
+          setRecStartAt(null);
           setConnecting(false);
           setConnState('off');
           setLevel(0); setGuestLevel(0);
@@ -657,6 +683,7 @@ export default function TranslateView({ session: initial, onBack }) {
       }
       recRef.current = rec;
       setRecording(true);
+      setRecStartAt(Date.now());
       setConnState('ok');
       setMicMuted(false); // 시작 시 발화 on
       setConnecting(cfg.pipeline !== 'desk'); // 엔진 연결~첫 결과까지 표시 (데스크는 대기 모드라 제외)
@@ -709,6 +736,7 @@ export default function TranslateView({ session: initial, onBack }) {
     recRef.current?.stop();
     recRef.current = null;
     setRecording(false);
+    setRecStartAt(null);
     setMicMuted(false);
     setConnecting(false);
     setLevel(0);
@@ -747,6 +775,272 @@ export default function TranslateView({ session: initial, onBack }) {
     setSourceMode(v);
     api.patch(initial.id, { src: v }).catch(() => {});
   };
+
+  // 대화상자·메뉴·알림 — 데스크톱/폰 화면이 공유한다
+  const overlays = (
+    <>
+      <Dialog open={sxSettingsOpen} onClose={() => setSxSettingsOpen(false)} fullScreen={mobile} PaperProps={{ sx: mobile ? {} : { width: 400, maxWidth: 400 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>고급 설정</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>이 설정은 이 기기에 저장됩니다.</Typography>
+          <SxSlider label="텍스트 크기" hint="번역 텍스트 표시 크기 (80~160%)" value={fontScale} min={0.8} max={1.6} step={0.1} disabled={false}
+            fmt={(v) => Math.round(v * 100) + '%'}
+            onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
+          <SettingsCap first>마이크</SettingsCap>
+          {/* 녹음(캡처) 중에도 실시간 조절 — 데스크는 상시 캡처라 비활성화하면 아예 바꿀 수 없었음 */}
+          <SxSlider label={cfg.pipeline === 'desk' ? '호스트 마이크 민감도' : '마이크 음성인식 민감도'} hint="100=모든 소리(기본), 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 주변 잡담이 자막에 섞이면 낮추세요 — 너무 낮으면 말하는 중간이 끊깁니다. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
+            fmt={(v) => String(v)}
+            onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
+          {cfg.pipeline === 'desk' && (
+            /* 게스트 마이크(2채널) 근접 게이트 — 호스트 민감도 바로 아래 배치. 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */
+            <SxSlider label="게스트 마이크 민감도" hint="100=모든 소리, 낮출수록 게스트 마이크 가까이의 큰 소리에만 반응(호스트 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
+              fmt={(v) => String(v)}
+              onChange={(v) => { setGuestSens(v); localStorage.setItem('kac-desk-guest-sens', String(v)); if (recRef.current && recRef.current.setGuestSens) recRef.current.setGuestSens(v); }} />
+          )}
+          <SettingsCap>실험 기능 (β)</SettingsCap>
+          {!window.AndroidAudio && (
+            <InfoToggle
+              label="잡음 제거 강화 (RNNoise·β)"
+              hint="브라우저 기본 잡음 억제 대신 신경망(RNNoise)으로 배경 소음(에어컨·웅성거림)을 걸러냅니다. 지향성 마이크가 없는 곳에서 배경 소음이 심할 때 켜 보세요. 사람 목소리 누화는 못 거르므로 민감도 게이트는 그대로 필요합니다. 데스크는 즉시 재적용, 일반 세션은 다음 시작부터. 이 기기에 저장됩니다."
+              checked={rnnoise}
+              disabled={false}
+              onChange={(e) => {
+                const v = e.target.checked;
+                setRnnoiseOpt(v);
+                localStorage.setItem('kac-rnnoise', v ? '1' : '0');
+                if (cfg.pipeline === 'desk') restartCapture(); // 상시 캡처는 새 구성으로 재시작
+              }}
+            />
+          )}
+          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
+            <InfoToggle
+              label="단독 응답어 생략"
+              hint="켜면 '네. / Yes. / Okay.'처럼 응답어 하나뿐인 발화를 기록에 남기지 않습니다(회의록 간소화). 문장에 섞인 응답어는 그대로 두며, 번역 중에도 바로 적용됩니다. 기본 꺼짐(모두 기록)."
+              checked={dropAcks}
+              disabled={false}
+              onChange={(e) => { const v = e.target.checked; setDropAcks(v); localStorage.setItem('kac-drop-acks', v ? '1' : '0'); if (recRef.current && recRef.current.setDropAcks) recRef.current.setDropAcks(v); }}
+            />
+          )}
+          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
+            <InfoToggle
+              label="저신뢰 자동 교정 (GPT·β)"
+              hint="음성인식이 연속으로 흔들린 발화만 GPT가 대화 맥락·용어를 보고 원문을 교정해 다시 번역합니다(카드가 잠시 후 바뀜). 명백한 오인식만 고치고 불확실하면 그대로 둡니다. 교정 시 GPT 호출 비용이 추가되며, 이미 재생된 TTS 음성은 바뀌지 않습니다. 번역 중에도 바로 적용. 기본 꺼짐."
+              checked={confFix}
+              disabled={false}
+              onChange={(e) => { const v = e.target.checked; setConfFix(v); localStorage.setItem('kac-conf-fix', v ? '1' : '0'); if (recRef.current && recRef.current.setConfFix) recRef.current.setConfFix(v); }}
+            />
+          )}
+          {cfg.pipeline === 'desk' && (
+            <>
+              <InfoToggle
+                label="길안내 지도"
+                hint="끄면 발화에서 시설·길안내를 감지하지 않고 지도도 표시하지 않습니다(감지용 GPT 호출도 생략). 번역 중에도 바로 적용. 기본 켜짐."
+                checked={wayfindOn}
+                disabled={false}
+                onChange={(e) => { const v = e.target.checked; setWayfindOn(v); localStorage.setItem('kac-desk-wayfind', v ? '1' : '0'); if (recRef.current && recRef.current.setWayfindOn) recRef.current.setWayfindOn(v); }}
+              />
+              <InfoToggle
+                label="지도 자동 표시"
+                hint="켜면 길안내 감지 시 확인 없이 바로 손님 화면에 지도를 표시합니다. 끄면 하단 제안에서 '표시'를 눌러야 표시됩니다."
+                checked={mapAuto}
+                disabled={!wayfindOn}
+                onChange={(e) => { setMapAuto(e.target.checked); localStorage.setItem('kac-desk-map-auto', e.target.checked ? '1' : '0'); }}
+              />
+            </>
+          )}
+          {cfg.pipeline === 'soniox' && ttsAllowed && ttsOn && (
+            <>
+              <SettingsCap>음성 출력</SettingsCap>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {ttsAllowed && ttsOn && (
+                  <Field label="TTS 음성">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Select size="small" value={gender} disabled={recording} onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }} sx={{ minWidth: 110 }}>
+                        <MenuItem value="f">여성</MenuItem>
+                        <MenuItem value="m">남성</MenuItem>
+                      </Select>
+                      <Tooltip title="선택한 음성을 미리 들어봅니다">
+                        <span>
+                          <IconButton size="small" onClick={previewVoice} disabled={previewing} sx={{ border: 1, borderColor: 'divider' }}>
+                            <VolumeUpIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+                  </Field>
+                )}
+              </Box>
+            </>
+          )}
+          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
+            <>
+              <SettingsCap>발화 인식 (끊김 조절)</SettingsCap>
+              {/* 데스크는 상시 캡처라 disabled 로 두면 영영 못 바꿈 → 값 변경 후 0.9초 뒤 자동 재캡처로 적용 */}
+              <SxSlider label="종료 민감도" hint={'높을수록 더 자주/빨리 끊김' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxSens} min={-1} max={1} step={0.1} disabled={cfg.pipeline !== 'desk' && recording}
+                fmt={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
+                onChange={(v) => { setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
+              <SxSlider label="최대 지연" hint={'무음 후 이 시간 안에 강제 종료(ms)' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxMaxDelay} min={500} max={3000} step={100} disabled={cfg.pipeline !== 'desk' && recording}
+                fmt={(v) => v + 'ms'}
+                onChange={(v) => { setSxMaxDelay(v); localStorage.setItem('kac-sx-maxdelay', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
+              <SxSlider label="지연 레벨" hint={'높을수록 저지연(끊김↑, 정확도↓)' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxLatency} min={0} max={3} step={1} disabled={cfg.pipeline !== 'desk' && recording}
+                fmt={(v) => String(v)}
+                onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button variant="contained" onClick={() => setSxSettingsOpen(false)}>닫기</Button>
+        </DialogActions>
+      </Dialog>
+
+
+      <Dialog open={qrOpen} onClose={() => setQrOpen(false)}>
+        <DialogTitle sx={{ fontWeight: 800 }}>{cfg.pipeline === 'desk' ? '뷰어(손님 태블릿) 연결' : '링크 공유'}</DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', pb: 3 }}>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
+            {cfg.pipeline === 'desk'
+              ? '손님 태블릿으로 QR을 스캔하면 이 안내데스크 전용 뷰어(입장 화면)가 열립니다.'
+              : '같은 와이파이의 휴대폰으로 QR을 스캔하세요.'}
+          </Typography>
+          {qr ? (
+            <>
+              <Box component="img" src={qr.qr} alt="QR" sx={{ width: 230, bgcolor: '#fff', borderRadius: 3, p: 1 }} />
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1.5, wordBreak: 'break-all' }}>{qr.url}</Typography>
+              <Box sx={{ mt: 1.5 }}>
+                <Button
+                  size="small"
+                  variant="text"
+                  color={copied ? 'success' : 'inherit'}
+                  startIcon={copied ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                  onClick={async () => {
+                    let ok = false;
+                    try { await navigator.clipboard.writeText(qr.url); ok = true; } catch {}
+                    if (!ok) { // http 사내망·WebView 는 clipboard API 가 막혀 있다 — 구식 복사로 폴백
+                      try { const ta = document.createElement('textarea'); ta.value = qr.url; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch {}
+                    }
+                    if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
+                  }}
+                  sx={{ fontSize: 12, color: copied ? 'success.main' : 'text.secondary' }}
+                >
+                  {copied ? '복사됨' : '주소 복사'}
+                </Button>
+                {window.AndroidApp && window.AndroidApp.shareText && (
+                  <Button size="small" variant="contained" disableElevation onClick={() => { try { window.AndroidApp.shareText(qr.url); } catch {} }} sx={{ ml: 1, fontSize: 12 }}>
+                    공유
+                  </Button>
+                )}
+              </Box>
+            </>
+          ) : (
+            '생성 중...'
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>제목 변경</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth size="small" value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRename(); }} sx={{ mt: 1 }} />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setRenameOpen(false)}>취소</Button>
+          <Button variant="contained" onClick={saveRename}>저장</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 세션 헤더 '…' 메뉴 */}
+      <Menu anchorEl={hdrMenu} open={!!hdrMenu} onClose={() => setHdrMenu(null)} transformOrigin={{ vertical: 'top', horizontal: mobile ? 'right' : 'left' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: mobile ? 'right' : 'left' }}
+        slotProps={{ paper: { sx: { '& .MuiMenuItem-root': mobile ? { fontSize: 15, minHeight: 48 } : { fontSize: 13 } } } }}>
+        {/* 폰 화면엔 헤더 버튼이 없으므로 링크 공유·녹취록 저장·고급 설정을 이 메뉴로 */}
+        {mobile && [
+          <MenuItem key="share" onClick={() => { setHdrMenu(null); setQrOpen(true); }}>
+            <ListItemIcon><QrCode2Icon fontSize="small" /></ListItemIcon>
+            링크 공유
+          </MenuItem>,
+          <MenuItem key="save" disabled={messages.length === 0} onClick={() => { setHdrMenu(null); downloadTranscript(); }}>
+            <ListItemIcon><FileDownloadOutlinedIcon fontSize="small" /></ListItemIcon>
+            녹취록 저장
+          </MenuItem>,
+          <MenuItem key="adv" onClick={() => { setHdrMenu(null); setSxSettingsOpen(true); }}>
+            <ListItemIcon><TuneIcon fontSize="small" /></ListItemIcon>
+            고급 설정
+          </MenuItem>,
+          <Divider key="div" />,
+        ]}
+        <MenuItem onClick={() => { setHdrMenu(null); openRename(); }}>
+          <ListItemIcon><DriveFileRenameOutlineIcon fontSize="small" /></ListItemIcon>
+          세션 이름 수정
+        </MenuItem>
+        <MenuItem onClick={clearHistory} disabled={messages.length === 0}>
+          <ListItemIcon><DeleteSweepOutlinedIcon fontSize="small" /></ListItemIcon>
+          대화 내역 삭제
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={deleteSession} sx={{ color: 'error.main' }}>
+          <ListItemIcon><DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+          세션 삭제
+        </MenuItem>
+      </Menu>
+
+      <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
+
+      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        {snack ? (
+          <MuiAlert elevation={6} variant="filled" severity={snack.ok ? 'success' : 'error'} onClose={() => setSnack(null)}>
+            {snack.msg}
+          </MuiAlert>
+        ) : undefined}
+      </Snackbar>
+    </>
+  );
+
+  if (mobile) {
+    const toggleTts = () => {
+      const v = !ttsOn;
+      setTtsOn(v);
+      localStorage.setItem('kac-sx-tts', v ? '1' : '0');
+      if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender);
+    };
+    return (
+      <>
+        <MobileLive
+          title={sessTitle}
+          modeLabel={pipeLabel}
+          twoway={twoway}
+          recording={recording}
+          connecting={connecting}
+          connState={connState}
+          notice={notice}
+          micMuted={micMuted}
+          level={level}
+          ttsOn={ttsOn}
+          ttsAllowed={ttsAllowed}
+          messages={messages}
+          inLang={cfg.inLang}
+          sxTarget={sxTarget}
+          sxA={sxA}
+          sxB={sxB}
+          recStartAt={recStartAt}
+          fontScale={fontScale}
+          scrollRef={scrollRef}
+          inLangs={LANGS}
+          sxLangs={SX_LANGS}
+          onBack={onBack}
+          onMenu={(el) => setHdrMenu(el)}
+          onStart={start}
+          onStop={stop}
+          onToggleMute={toggleMute}
+          onToggleTts={toggleTts}
+          onInLang={(v) => patch({ inLang: v })}
+          onTarget={(v) => { setSxTarget(v); try { localStorage.setItem('kac-sx-target', v); localStorage.setItem('kac-sx-target:' + initial.id, v); } catch {} }}
+          onA={(v) => { setSxA(v); localStorage.setItem('kac-sx-a', v); }}
+          onB={(v) => { setSxB(v); localStorage.setItem('kac-sx-b', v); }}
+        />
+        {overlays}
+      </>
+    );
+  }
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -804,7 +1098,7 @@ export default function TranslateView({ session: initial, onBack }) {
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="모바일로 보기">
+        <Tooltip title="링크 공유">
           <IconButton onClick={() => setQrOpen(true)} sx={{ border: 1, borderColor: 'divider' }}>
             <QrCode2Icon />
           </IconButton>
@@ -939,16 +1233,30 @@ export default function TranslateView({ session: initial, onBack }) {
             </Field>
           )}
           {cfg.pipeline === 'soniox' && preset && !nativeApp && (
-            <Field label="소리 입력">
+            <Field label="음성 입력">
               <Select size="small" value={srcOpts.includes(sourceMode) ? sourceMode : 'mic'} disabled={recording} onChange={(e) => changeSource(e.target.value)} sx={{ ...selSx, minWidth: 150 }}>
                 <MenuItem value="mic">마이크</MenuItem>
                 {onewayPreset
-                  ? <MenuItem value="system">PC 소리</MenuItem>
-                  : <MenuItem value="both">PC 소리 + 마이크</MenuItem>}
+                  ? <MenuItem value="system">시스템</MenuItem>
+                  : <MenuItem value="both">시스템 + 마이크</MenuItem>}
               </Select>
             </Field>
           )}
-          {/* 입력 언어(실시간)·내 언어(양방향)·음성 성별은 고급 설정으로 — 모드 안에서는 언어 하나만 고른다 */}
+          {/* 언어는 상단 옵션에서 바로 — 입력 언어(실시간)·내 언어(양방향)도 고급 설정에서 꺼냈다(2026-10-20). 음성 성별만 고급 설정. */}
+          {cfg.pipeline === 'soniox' && sxMode === 'one' && (
+            <Field label="입력 언어">
+              <Select size="small" value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                {LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+              </Select>
+            </Field>
+          )}
+          {cfg.pipeline === 'soniox' && sxMode === 'two' && (
+            <Field label="내 언어">
+              <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+                {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
+              </Select>
+            </Field>
+          )}
           {cfg.pipeline === 'soniox' && sxMode === 'one' && (
             <Field label="출력 언어">
               <Select size="small" value={sxTarget} disabled={recording} onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
@@ -966,7 +1274,7 @@ export default function TranslateView({ session: initial, onBack }) {
           {cfg.pipeline === 'soniox' && ttsAllowed && (
             <InfoToggle
               label="TTS"
-              hint="번역된 문장을 음성으로 읽어줍니다. 번역 중에도 켜고 끌 수 있습니다. 음성은 고급 설정에서 고릅니다. (PC 소리를 번역할 때는 그 음성이 다시 인식되므로 사용할 수 없습니다)"
+              hint="번역된 문장을 음성으로 읽어줍니다. 번역 중에도 켜고 끌 수 있습니다. 음성은 고급 설정에서 고릅니다. (시스템 음성을 번역할 때는 그 음성이 다시 인식되므로 사용할 수 없습니다)"
               checked={ttsOn}
               onChange={(e) => { const v = e.target.checked; setTtsOn(v); localStorage.setItem('kac-sx-tts', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender); }}
             />
@@ -1227,210 +1535,7 @@ export default function TranslateView({ session: initial, onBack }) {
 
       </Box>
 
-      <Dialog open={sxSettingsOpen} onClose={() => setSxSettingsOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>고급 설정</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>이 설정은 이 기기에 저장됩니다.</Typography>
-          <SxSlider label="텍스트 크기" hint="번역 텍스트 표시 크기 (80~160%)" value={fontScale} min={0.8} max={1.6} step={0.1} disabled={false}
-            fmt={(v) => Math.round(v * 100) + '%'}
-            onChange={(v) => { setFontScale(v); localStorage.setItem('kac-font-scale', String(v)); }} />
-          <SettingsCap first>마이크</SettingsCap>
-          {/* 녹음(캡처) 중에도 실시간 조절 — 데스크는 상시 캡처라 비활성화하면 아예 바꿀 수 없었음 */}
-          <SxSlider label={cfg.pipeline === 'desk' ? '호스트 마이크 민감도' : '마이크 음성인식 민감도'} hint="100=모든 소리(기본), 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 주변 잡담이 자막에 섞이면 낮추세요 — 너무 낮으면 말하는 중간이 끊깁니다. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
-            fmt={(v) => String(v)}
-            onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
-          {cfg.pipeline === 'desk' && (
-            /* 게스트 마이크(2채널) 근접 게이트 — 호스트 민감도 바로 아래 배치. 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */
-            <SxSlider label="게스트 마이크 민감도" hint="100=모든 소리, 낮출수록 게스트 마이크 가까이의 큰 소리에만 반응(호스트 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
-              fmt={(v) => String(v)}
-              onChange={(v) => { setGuestSens(v); localStorage.setItem('kac-desk-guest-sens', String(v)); if (recRef.current && recRef.current.setGuestSens) recRef.current.setGuestSens(v); }} />
-          )}
-          <SettingsCap>실험 기능 (β)</SettingsCap>
-          {!window.AndroidAudio && (
-            <InfoToggle
-              label="잡음 제거 강화 (RNNoise·β)"
-              hint="브라우저 기본 잡음 억제 대신 신경망(RNNoise)으로 배경 소음(에어컨·웅성거림)을 걸러냅니다. 지향성 마이크가 없는 곳에서 배경 소음이 심할 때 켜 보세요. 사람 목소리 누화는 못 거르므로 민감도 게이트는 그대로 필요합니다. 데스크는 즉시 재적용, 일반 세션은 다음 시작부터. 이 기기에 저장됩니다."
-              checked={rnnoise}
-              disabled={false}
-              onChange={(e) => {
-                const v = e.target.checked;
-                setRnnoiseOpt(v);
-                localStorage.setItem('kac-rnnoise', v ? '1' : '0');
-                if (cfg.pipeline === 'desk') restartCapture(); // 상시 캡처는 새 구성으로 재시작
-              }}
-            />
-          )}
-          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
-            <InfoToggle
-              label="단독 응답어 생략"
-              hint="켜면 '네. / Yes. / Okay.'처럼 응답어 하나뿐인 발화를 기록에 남기지 않습니다(회의록 간소화). 문장에 섞인 응답어는 그대로 두며, 번역 중에도 바로 적용됩니다. 기본 꺼짐(모두 기록)."
-              checked={dropAcks}
-              disabled={false}
-              onChange={(e) => { const v = e.target.checked; setDropAcks(v); localStorage.setItem('kac-drop-acks', v ? '1' : '0'); if (recRef.current && recRef.current.setDropAcks) recRef.current.setDropAcks(v); }}
-            />
-          )}
-          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
-            <InfoToggle
-              label="저신뢰 자동 교정 (GPT·β)"
-              hint="음성인식이 연속으로 흔들린 발화만 GPT가 대화 맥락·용어를 보고 원문을 교정해 다시 번역합니다(카드가 잠시 후 바뀜). 명백한 오인식만 고치고 불확실하면 그대로 둡니다. 교정 시 GPT 호출 비용이 추가되며, 이미 재생된 TTS 음성은 바뀌지 않습니다. 번역 중에도 바로 적용. 기본 꺼짐."
-              checked={confFix}
-              disabled={false}
-              onChange={(e) => { const v = e.target.checked; setConfFix(v); localStorage.setItem('kac-conf-fix', v ? '1' : '0'); if (recRef.current && recRef.current.setConfFix) recRef.current.setConfFix(v); }}
-            />
-          )}
-          {cfg.pipeline === 'desk' && (
-            <>
-              <InfoToggle
-                label="길안내 지도"
-                hint="끄면 발화에서 시설·길안내를 감지하지 않고 지도도 표시하지 않습니다(감지용 GPT 호출도 생략). 번역 중에도 바로 적용. 기본 켜짐."
-                checked={wayfindOn}
-                disabled={false}
-                onChange={(e) => { const v = e.target.checked; setWayfindOn(v); localStorage.setItem('kac-desk-wayfind', v ? '1' : '0'); if (recRef.current && recRef.current.setWayfindOn) recRef.current.setWayfindOn(v); }}
-              />
-              <InfoToggle
-                label="지도 자동 표시"
-                hint="켜면 길안내 감지 시 확인 없이 바로 손님 화면에 지도를 표시합니다. 끄면 하단 제안에서 '표시'를 눌러야 표시됩니다."
-                checked={mapAuto}
-                disabled={!wayfindOn}
-                onChange={(e) => { setMapAuto(e.target.checked); localStorage.setItem('kac-desk-map-auto', e.target.checked ? '1' : '0'); }}
-              />
-            </>
-          )}
-          {cfg.pipeline === 'soniox' && (
-            <>
-              <SettingsCap>번역</SettingsCap>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                {sxMode === 'one' ? (
-                  <Field label="입력 언어 — 기본은 자동 감지(첫 발화의 언어로 고정됩니다)">
-                    <Select size="small" fullWidth value={cfg.inLang} disabled={recording} onChange={(e) => patch({ inLang: e.target.value })}>
-                      <MenuItem value="auto">자동 감지</MenuItem>
-                      {LANGS.filter((l) => l.code !== 'auto').map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                    </Select>
-                  </Field>
-                ) : (
-                  <Field label="내 언어">
-                    <Select size="small" fullWidth value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
-                      {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
-                    </Select>
-                  </Field>
-                )}
-                {ttsAllowed && ttsOn && (
-                  <Field label="TTS 음성">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Select size="small" value={gender} disabled={recording} onChange={(e) => { setGender(e.target.value); localStorage.setItem('kac-sx-gender', e.target.value); }} sx={{ minWidth: 110 }}>
-                        <MenuItem value="f">여성</MenuItem>
-                        <MenuItem value="m">남성</MenuItem>
-                      </Select>
-                      <Tooltip title="선택한 음성을 미리 들어봅니다">
-                        <span>
-                          <IconButton size="small" onClick={previewVoice} disabled={previewing} sx={{ border: 1, borderColor: 'divider' }}>
-                            <VolumeUpIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </Box>
-                  </Field>
-                )}
-              </Box>
-            </>
-          )}
-          {(cfg.pipeline === 'soniox' || cfg.pipeline === 'desk') && (
-            <>
-              <SettingsCap>발화 인식 (끊김 조절)</SettingsCap>
-              {/* 데스크는 상시 캡처라 disabled 로 두면 영영 못 바꿈 → 값 변경 후 0.9초 뒤 자동 재캡처로 적용 */}
-              <SxSlider label="종료 민감도" hint={'높을수록 더 자주/빨리 끊김' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxSens} min={-1} max={1} step={0.1} disabled={cfg.pipeline !== 'desk' && recording}
-                fmt={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
-                onChange={(v) => { setSxSens(v); localStorage.setItem('kac-sx-sens', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
-              <SxSlider label="최대 지연" hint={'무음 후 이 시간 안에 강제 종료(ms)' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxMaxDelay} min={500} max={3000} step={100} disabled={cfg.pipeline !== 'desk' && recording}
-                fmt={(v) => v + 'ms'}
-                onChange={(v) => { setSxMaxDelay(v); localStorage.setItem('kac-sx-maxdelay', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
-              <SxSlider label="지연 레벨" hint={'높을수록 저지연(끊김↑, 정확도↓)' + (cfg.pipeline === 'desk' ? ' (변경 시 잠시 후 자동 재적용)' : '')} value={sxLatency} min={0} max={3} step={1} disabled={cfg.pipeline !== 'desk' && recording}
-                fmt={(v) => String(v)}
-                onChange={(v) => { setSxLatency(v); localStorage.setItem('kac-sx-latency', String(v)); if (cfg.pipeline === 'desk') scheduleRestart(); }} />
-            </>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button variant="contained" onClick={() => setSxSettingsOpen(false)}>닫기</Button>
-        </DialogActions>
-      </Dialog>
-
-
-      <Dialog open={qrOpen} onClose={() => setQrOpen(false)}>
-        <DialogTitle sx={{ fontWeight: 800 }}>{cfg.pipeline === 'desk' ? '뷰어(손님 태블릿) 연결' : '모바일로 보기'}</DialogTitle>
-        <DialogContent sx={{ textAlign: 'center', pb: 3 }}>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
-            {cfg.pipeline === 'desk'
-              ? '손님 태블릿으로 QR을 스캔하면 이 안내데스크 전용 뷰어(입장 화면)가 열립니다.'
-              : '같은 와이파이의 휴대폰으로 QR을 스캔하세요.'}
-          </Typography>
-          {qr ? (
-            <>
-              <Box component="img" src={qr.qr} alt="QR" sx={{ width: 230, bgcolor: '#fff', borderRadius: 3, p: 1 }} />
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1.5, wordBreak: 'break-all' }}>{qr.url}</Typography>
-              <Box sx={{ mt: 1.5 }}>
-                <Button
-                  size="small"
-                  variant="text"
-                  color={copied ? 'success' : 'inherit'}
-                  startIcon={copied ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(qr.url);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 1500);
-                    } catch {}
-                  }}
-                  sx={{ fontSize: 12, color: copied ? 'success.main' : 'text.secondary' }}
-                >
-                  {copied ? '복사됨' : '주소 복사'}
-                </Button>
-              </Box>
-            </>
-          ) : (
-            '생성 중...'
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
-        <DialogTitle sx={{ fontWeight: 800 }}>제목 변경</DialogTitle>
-        <DialogContent>
-          <TextField autoFocus fullWidth size="small" value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRename(); }} sx={{ mt: 1 }} />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setRenameOpen(false)}>취소</Button>
-          <Button variant="contained" onClick={saveRename}>저장</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* 세션 헤더 '…' 메뉴 */}
-      <Menu anchorEl={hdrMenu} open={!!hdrMenu} onClose={() => setHdrMenu(null)} transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        slotProps={{ paper: { sx: { '& .MuiMenuItem-root': { fontSize: 13 } } } }}>
-        <MenuItem onClick={() => { setHdrMenu(null); openRename(); }}>
-          <ListItemIcon><DriveFileRenameOutlineIcon fontSize="small" /></ListItemIcon>
-          세션 이름 수정
-        </MenuItem>
-        <MenuItem onClick={clearHistory} disabled={messages.length === 0}>
-          <ListItemIcon><DeleteSweepOutlinedIcon fontSize="small" /></ListItemIcon>
-          대화 내역 삭제
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={deleteSession} sx={{ color: 'error.main' }}>
-          <ListItemIcon><DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
-          세션 삭제
-        </MenuItem>
-      </Menu>
-
-      <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
-
-      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
-        {snack ? (
-          <MuiAlert elevation={6} variant="filled" severity={snack.ok ? 'success' : 'error'} onClose={() => setSnack(null)}>
-            {snack.msg}
-          </MuiAlert>
-        ) : undefined}
-      </Snackbar>
+      {overlays}
     </Box>
   );
 }

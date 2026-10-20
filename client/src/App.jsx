@@ -16,10 +16,13 @@ import SessionList from './components/SessionList.jsx';
 import Login from './components/Login.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import { api } from './api.js';
+import { MOBILE_UI } from './components/mobile/env.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
 const TranslateView = lazy(() => import('./components/TranslateView.jsx'));
 const AdminPage = lazy(() => import('./components/AdminPage.jsx'));
+// 안드로이드 앱 전용 폰 화면(메뉴바 없음) — 앱에서만 로드
+const MobileApp = lazy(() => import('./components/mobile/MobileApp.jsx'));
 
 export default function App() {
   const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'light');
@@ -69,6 +72,7 @@ export default function App() {
 
   // 브라우저 뒤로가기(popstate) ↔ 앱 화면 연동: 세션 안에서 뒤로가기 → 목록
   useEffect(() => {
+    if (MOBILE_UI) return undefined; // 폰 화면은 MobileApp 이 히스토리를 직접 관리
     try { window.history.replaceState({ view: 'sessions', session: null }, ''); } catch {}
     const onPop = (e) => {
       const st = (e && e.state) || { view: 'sessions', session: null };
@@ -134,6 +138,19 @@ export default function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <Login onSuccess={(u) => setUser(u)} />
+      </ThemeProvider>
+    );
+  }
+
+  // 안드로이드 앱: 메뉴바·안내데스크·관리자 없이 폰 전용 화면
+  if (MOBILE_UI) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        {offlineBanner}
+        <Suspense fallback={<Box sx={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CircularProgress /></Box>}>
+          <MobileApp user={user} mode={mode} onToggleTheme={toggleTheme} onLogout={logout} />
+        </Suspense>
       </ThemeProvider>
     );
   }

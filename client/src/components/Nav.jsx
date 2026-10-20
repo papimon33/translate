@@ -160,10 +160,9 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
         </Box>
       )}
 
-      {/* 최근 항목 — 최근 세션 바로가기(Claude 사이드바 스타일) */}
+      {/* 최근 세션 바로가기(Claude 사이드바 스타일) — 머리글('최근 항목')은 2026-10-20 요청으로 제거 */}
       {!collapsed && recents.length > 0 && (
         <Box sx={{ mt: 2.5, flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          <Typography sx={{ px: 1.5, mb: 0.5, fontSize: 11.5, fontWeight: 700, color: S.muted, letterSpacing: '0.02em' }}>최근 항목</Typography>
           {recents.map((s) => {
             const active = currentSessionId === s.id;
             return (
