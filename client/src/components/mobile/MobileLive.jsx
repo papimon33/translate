@@ -132,14 +132,15 @@ export default function MobileLive(p) {
           {chip}
           {recording ? <LockOutlinedIcon sx={{ fontSize: 15, color: 'text.secondary' }} /> : <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
         </ButtonBase>
-        <Box sx={{ height: 40, px: 1.75, display: 'flex', alignItems: 'center', gap: 1, borderRadius: '999px', bgcolor: 'background.paper', border: 1, borderColor: 'divider', fontSize: 13.5, fontWeight: 500, minWidth: 0 }}>
+        {/* 마이크 칩 → 고급 설정(민감도·입력 크기 기준선)으로 바로 */}
+        <ButtonBase onClick={p.onMicSettings} aria-label="마이크 민감도 설정" sx={{ height: 40, px: 1.75, display: 'flex', alignItems: 'center', gap: 1, borderRadius: '999px', bgcolor: 'background.paper', border: 1, borderColor: 'divider', fontSize: 13.5, fontWeight: 500, minWidth: 0 }}>
           <Box aria-hidden="true" sx={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: 14 }}>
             {bars.map((on, i) => (
               <Box key={i} sx={{ width: 3, height: [6, 9, 12, 14][i], borderRadius: '2px', bgcolor: on ? 'success.main' : 'divider' }} />
             ))}
           </Box>
           <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 500, maxWidth: 170 }}>{p.micMuted && recording ? '발화 멈춤' : mic.name.replace(/\s*\(.*\)$/, '') /* 모델명은 홈·앱 정보에서 — 칩은 한 줄에 */}</Typography>
-        </Box>
+        </ButtonBase>
       </Box>
 
       {(p.notice || (recording && connecting)) && (

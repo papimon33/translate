@@ -60,7 +60,7 @@ function VolumeIcon({ level }) {
   return <VolumeUpIcon fontSize="small" sx={{ color: 'text.secondary' }} />;
 }
 import { LANGS, LANG_LABEL } from '../theme.js';
-import { startRecorder } from '../audio.js';
+import { startRecorder, micGateAbs } from '../audio.js';
 
 const SRC = [
   { v: 'mic', label: '마이크' },
@@ -791,6 +791,22 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           <SxSlider label={cfg.pipeline === 'desk' ? '호스트 마이크 민감도' : '마이크 음성인식 민감도'} hint="100=모든 소리(기본), 낮출수록 조용한 소리 무시(주변소음·속삭임 차단). 주변 잡담이 자막에 섞이면 낮추세요 — 너무 낮으면 말하는 중간이 끊깁니다. 번역 중에도 바로 적용됩니다." value={micSens} min={0} max={100} step={1} disabled={false}
             fmt={(v) => String(v)}
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
+          {/* 지금 입력 크기 + 인식 기준선 — 숫자만으로는 맞추기 어려워 눈으로 보며 조절(번역 중에만) */}
+          {recording && cfg.pipeline !== 'desk' && (() => {
+            const abs = micGateAbs(micSens, !!window.AndroidAudio);
+            const th = abs > 0 ? Math.max(0, Math.min(100, ((20 * Math.log10(abs) + 60) / 60) * 100)) : 0; // onMeter 와 같은 눈금
+            return (
+              <Box sx={{ mt: -2, mb: 3 }}>
+                <Box sx={{ position: 'relative', height: 10, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }}>
+                  <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 5, width: `${level}%`, bgcolor: abs === 0 || level >= th ? 'success.main' : 'text.disabled', transition: 'width 80ms linear' }} />
+                  {abs > 0 && <Box sx={{ position: 'absolute', top: -3, bottom: -3, width: 2, borderRadius: 1, left: `calc(${th}% - 1px)`, bgcolor: 'error.main' }} />}
+                </Box>
+                <Typography sx={{ fontSize: 11.5, color: 'text.secondary', mt: 0.75 }}>
+                  {abs > 0 ? '지금 입력 크기 — 빨간 선을 넘는 소리만 인식합니다. 평소처럼 말할 때는 넘고, 떨어져서 말할 때는 못 넘게 맞추세요.' : '지금 입력 크기 — 100이면 모든 소리를 인식합니다.'}
+                </Typography>
+              </Box>
+            );
+          })()}
           {cfg.pipeline === 'desk' && (
             /* 게스트 마이크(2채널) 근접 게이트 — 호스트 민감도 바로 아래 배치. 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */
             <SxSlider label="게스트 마이크 민감도" hint="100=모든 소리, 낮출수록 게스트 마이크 가까이의 큰 소리에만 반응(호스트 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
@@ -1028,6 +1044,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           sxLangs={SX_LANGS}
           onBack={onBack}
           onMenu={(el) => setHdrMenu(el)}
+          onMicSettings={() => setSxSettingsOpen(true)}
           onStart={start}
           onStop={stop}
           onToggleMute={toggleMute}

@@ -153,6 +153,17 @@ function downsampleTo24k(f32, inRate) {
 }
 
 /* opts: { sessionId, mode, inLang, outLang, pipeline, onMessage, onMeter } */
+// 마이크 민감도(0~100) → 절대 하한(RMS). 100 = 게이트 없음(0).
+//  · 브라우저: 0.004~0.034 선형(기존 그대로 — PC·데스크에서 맞춰 둔 값이 바뀌지 않게).
+//  · 안드로이드 앱(native): 0.004~0.2 지수 곡선. AGC 없는 원음이라 무선 핀마이크 등은 신호가 커서
+//    브라우저 상한(0.034)으로는 50cm 떨어진 말도 통과했다(2026-10-20 현장 보고). 낮은 값일수록 확실히 엄격해지도록 넓힌다.
+//    (민감도 70≈0.013, 50≈0.028, 30≈0.062, 10≈0.13, 1≈0.19)
+export function micGateAbs(sens, native) {
+  if (!(typeof sens === 'number' && sens < 100)) return 0;
+  const k = (100 - sens) / 100;
+  return native ? 0.004 * Math.pow(50, k) : 0.004 + k * 0.03;
+}
+
 export async function startRecorder(opts) {
   const { sessionId, mode, inLang, outLang, pipeline, onMessage, onMeter, audioOut, volume, micSens, sxSens, sxMaxDelay, sxLatency, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
   // 마이크 음성인식 민감도(0~100): 100=가장 민감(게이트 없음), 낮출수록 조용한 소리를 무시.
@@ -164,12 +175,13 @@ export async function startRecorder(opts) {
   //    대신 '주변 소음 바닥(noiseFloor) 대비 몇 배 큰가'로 판정 → 기기 게인과 무관하게 근접/원거리 구분.
   //    슬라이더(민감도)는 '바닥 대비 배수(ratio)'와 '절대 하한(absMin)'을 조절. 100=게이트 없음.
   let micSensVal = typeof micSens === 'number' ? micSens : 100;
-  let micRatio = 0, micAbsMin = 0;
+  let micRatio = 0, micAbsMin = 0, micAbsMinNative = 0;
   const calcGate = (v) => {
-    if (!(typeof v === 'number' && v < 100)) { micRatio = 0; micAbsMin = 0; return; }
+    if (!(typeof v === 'number' && v < 100)) { micRatio = 0; micAbsMin = 0; micAbsMinNative = 0; return; }
     const k = (100 - v) / 100;         // 0(민감)~1(엄격)
     micRatio = 1 + k * 7;              // 바닥의 1~8배 이상이어야 열림
-    micAbsMin = 0.004 + k * 0.03;      // 절대 하한 0.004~0.034(완전 무음·미세잡음 차단)
+    micAbsMin = micGateAbs(v, false);  // 절대 하한 0.004~0.034(완전 무음·미세잡음 차단)
+    micAbsMinNative = micGateAbs(v, true); // 안드로이드 앱(원음): 0.004~0.2
   };
   calcGate(micSensVal);
   // 데스크 2마이크(PC): 직원/여객 장치 지정 — 데스크 파이프라인 + 브라우저 환경에서만
@@ -467,7 +479,7 @@ export async function startRecorder(opts) {
           if (rms < noiseFloor) noiseFloor += (rms - noiseFloor) * 0.3;
           else if (!openNow) noiseFloor += (rms - noiseFloor) * 0.002; // 발화(게이트 열림) 중 바닥 상승 동결 — 연속 발화 중간 절단 방지
           if (noiseFloor < 0.0003) noiseFloor = 0.0003;
-          if (rms >= micAbsMin && rms >= noiseFloor * micRatio) {
+          if (rms >= micAbsMinNative && rms >= noiseFloor * micRatio) {
             // 온셋 프리롤: 닫힘→열림 전이면 직전(무음으로 나간) 프레임을 재전송해 첫 음절을 복구
             if (!openNow && prevRaw && wOpen) { try { w.send(prevRaw); } catch {} }
             gateOpenUntil = Date.now() + 300;
