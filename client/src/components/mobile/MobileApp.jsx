@@ -28,6 +28,7 @@ import MicNoneIcon from '@mui/icons-material/MicNone';
 import TranslateView from '../TranslateView.jsx';
 import { api } from '../../api.js';
 import { BottomSheet, LangSheet, langName, rel, useMicLabel } from './common.jsx';
+import UpdateSheet from './UpdateSheet.jsx';
 
 // 새 세션: 모드 2종. 설명 문구는 2026-10-20 요청 그대로.
 const MODES = [
@@ -268,6 +269,9 @@ export default function MobileApp({ user, mode, onToggleTheme, onLogout }) {
         <AddIcon />
         새 세션
       </ButtonBase>
+
+      {/* 앱 본체 새 버전 알림(홈에서만 — 번역 중에는 방해하지 않는다) */}
+      <UpdateSheet />
 
       <NewSessionSheet open={sheet} onClose={() => setSheet(false)} titles={titles} onCreated={(s) => { setSheet(false); open(s); }} />
 

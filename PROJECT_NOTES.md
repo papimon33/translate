@@ -86,6 +86,14 @@
   게다가 하트비트가 30초(`HEARTBEAT_MS`)라 서버가 이탈을 알아채기 전 최대 30초 동안 태블릿은 데스크를
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
+- **앱 업데이트 알림(2026-10-20, 앱 1.2.0)**: 화면(웹)은 서버에서 오므로 원래 자동 반영 — 이건 **앱 본체(네이티브)가 바뀐 경우**용.
+  홈 진입 시 `UpdateSheet`(mobile/)가 `AndroidApp.version()` 과 `/api/desktop/info` 의 `android.filename`(AirTalk-x.y.z-android.apk)을 비교해
+  새 버전이면 바텀 시트. '업데이트' = `AndroidApp.installUpdate('/download/desktop?platform=android')` → 네이티브가 직접 내려받음
+  (**로그인 쿠키는 우리 서버 요청에만** — 리다이렉트를 직접 따라가 GitHub 로는 쿠키를 안 보냄, 10만 바이트 미만 응답은 오응답으로 거부)
+  → `UpdateFileProvider`(androidx 없이 만든 읽기 전용 ContentProvider, exported=false)로 안드로이드 설치 화면. 진행률 `window.__kacUpd`(0~100, -1 실패, 101 설치 화면).
+  `REQUEST_INSTALL_PACKAGES` 추가 — 처음 한 번은 안드로이드가 'AirTalk 에서 앱 설치 허용' 설정으로 안내(시스템 동작). 마지막 '업데이트' 확인은 정책상 사용자.
+  '나중에' = 같은 버전 24시간 묻지 않음(`kac-upd-skip`). 번역 중엔 안 뜸(홈에서만). 서버 릴리스 정보 캐시 10분이라 새 APK 감지까지 최대 10분.
+  구버전(1.1.x, 브리지 없음)은 브라우저 다운로드로 폴백 — **1.2.0 은 한 번 수동 설치**해야 이후부터 앱 안 업데이트가 된다. versionCode 4.
 - **앱 기본 서버 주소 내장(2026-10-20, 앱 1.1.1)**: 첫 실행의 '서버 주소' 입력 창 삭제 — 앱은 폰 전용이고 손님 태블릿은 웹으로 접속하므로
   운영 서버 `https://translate-voxm.onrender.com`(데스크톱 앱 기본값과 동일)을 `DEFAULT_URL` 로 바로 연다. 관리 메뉴 '서버 주소 변경'은 시험 서버용으로 유지
   (비우고 저장 = 기본값 복귀, 저장값 없으면 기본값). versionCode 3.

@@ -42,6 +42,10 @@ import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * AirTalk 앱 셸 — 현장 폰(호스트 화면) 전용. 첫 실행부터 운영 서버(DEFAULT_URL)로 바로 연다.
@@ -76,6 +80,8 @@ class MainActivity : Activity() {
     private var lastBackAt = 0L
     private var backLongPressed = false
     private var pendingSave: String? = null
+    @Volatile
+    private var updating = false        // 업데이트 내려받는 중(중복 실행 방지)
     private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     private val retryTick = object : Runnable {
@@ -250,6 +256,15 @@ class MainActivity : Activity() {
             }
         }
 
+        /**
+         * 앱 업데이트: path(서버 상대 경로, 예 /download/desktop?platform=android)의 APK 를 내려받아 설치 화면을 연다.
+         * 진행률은 window.__kacUpd(0~100) 로, 실패는 -1, 설치 화면을 띄우면 101.
+         */
+        @JavascriptInterface
+        fun installUpdate(path: String) {
+            runOnUiThread { startUpdate(path) }
+        }
+
         /** 녹취록 저장 — WebView 는 blob 다운로드를 못 하므로 안드로이드 '저장 위치 선택' 창으로 */
         @JavascriptInterface
         fun saveText(name: String, text: String) {
@@ -283,6 +298,108 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             Log.w(TAG, "save failed", e)
             Toast.makeText(this, "저장하지 못했습니다", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /* ---- 앱 안 업데이트 ---- */
+    private fun notifyUpdate(pct: Int) {
+        main.post { webView.evaluateJavascript("window.__kacUpd&&window.__kacUpd($pct)", null) }
+    }
+
+    private fun startUpdate(path: String) {
+        if (updating) return
+        val abs = try {
+            URL(URL(webView.url ?: serverUrl()), path).toString()
+        } catch (_: Exception) {
+            notifyUpdate(-1)
+            return
+        }
+        // 다운로드 경로는 로그인이 필요하다 — WebView 의 로그인 쿠키를 우리 서버 요청에만 싣는다
+        val cookie = CookieManager.getInstance().getCookie(abs)
+        updating = true
+        Thread({ downloadUpdate(abs, cookie) }, "airtalk-update").start()
+    }
+
+    private fun downloadUpdate(abs: String, cookie: String?) {
+        try {
+            val out = UpdateFileProvider.updateApkFile(cacheDir)
+            out.parentFile?.mkdirs()
+            out.delete()
+            val conn = openFollowingRedirects(abs, cookie)
+            val total = conn.contentLengthLong
+            var done = 0L
+            var lastPct = -1
+            conn.inputStream.use { input ->
+                FileOutputStream(out).use { output ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        done += n
+                        if (total > 0) {
+                            val pct = (done * 100 / total).toInt().coerceIn(0, 100)
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                notifyUpdate(pct)
+                            }
+                        }
+                    }
+                }
+            }
+            conn.disconnect()
+            if (out.length() < 100_000) throw IOException("file too small (${out.length()})") // 로그인 페이지 등 오응답 방어
+            notifyUpdate(100)
+            main.post { launchInstaller() }
+        } catch (e: Exception) {
+            Log.w(TAG, "update download failed", e)
+            notifyUpdate(-1)
+            main.post { Toast.makeText(this, "업데이트를 내려받지 못했습니다", Toast.LENGTH_SHORT).show() }
+        } finally {
+            updating = false
+        }
+    }
+
+    /** 리다이렉트를 직접 따라간다 — 로그인 쿠키는 처음 요청한 우리 서버(host)에만 싣고 GitHub 등 외부로는 보내지 않는다 */
+    private fun openFollowingRedirects(abs: String, cookie: String?): HttpURLConnection {
+        val home = URL(abs).host
+        var url = URL(abs)
+        repeat(6) {
+            val conn = url.openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = false
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            if (cookie != null && url.host == home) conn.setRequestProperty("Cookie", cookie)
+            val code = conn.responseCode
+            if (code in 300..399) {
+                val loc = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (loc.isNullOrBlank()) throw IOException("redirect without location")
+                url = URL(url, loc)
+                return@repeat
+            }
+            if (code != 200) {
+                conn.disconnect()
+                throw IOException("HTTP $code")
+            }
+            return conn
+        }
+        throw IOException("too many redirects")
+    }
+
+    private fun launchInstaller() {
+        try {
+            val i = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(UpdateFileProvider.contentUri(packageName), UpdateFileProvider.APK_MIME)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            // 처음 한 번은 안드로이드가 'AirTalk 에서 앱 설치 허용' 설정으로 안내한다(시스템 동작)
+            startActivity(i)
+            notifyUpdate(101)
+        } catch (e: Exception) {
+            Log.w(TAG, "installer launch failed", e)
+            notifyUpdate(-1)
+            Toast.makeText(this, "설치 화면을 열지 못했습니다", Toast.LENGTH_SHORT).show()
         }
     }
 
