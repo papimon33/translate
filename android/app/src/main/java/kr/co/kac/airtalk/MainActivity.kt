@@ -44,7 +44,8 @@ import android.widget.TextView
 import android.widget.Toast
 
 /**
- * AirTalk 앱 셸 — 현장 폰(호스트 화면)과 안내데스크 손님 태블릿(desk.html) 겸용.
+ * AirTalk 앱 셸 — 현장 폰(호스트 화면) 전용. 첫 실행부터 운영 서버(DEFAULT_URL)로 바로 연다.
+ * (손님 태블릿은 웹 브라우저로 접속한다. 관리 메뉴에서 desk 주소를 넣으면 아래 키오스크 동작은 그대로 남아 있다.)
  *
  * 기존 웹앱을 WebView 로 그대로 띄우되(화면은 서버에서 오므로 서버만 고치면 모든 기기가 즉시 갱신),
  * 마이크만 네이티브 AudioRecord(AGC 완전 차단)로 캡처해 `window.AndroidAudio` 브리지로 공급한다.
@@ -116,8 +117,8 @@ class MainActivity : Activity() {
 
         showSplash()
         registerNetwork()
-        val url = prefs.getString("url", null)
-        if (url.isNullOrBlank()) askUrl(first = true) else webView.loadUrl(url)
+        // 앱은 폰 전용(손님 태블릿은 웹 브라우저로 접속) — 첫 실행부터 운영 서버로 바로 연다
+        webView.loadUrl(serverUrl())
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -333,7 +334,7 @@ class MainActivity : Activity() {
         ovButtons = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(pillButton("지금 다시 시도", filled = true) { retryNow() }, lp(MATCH, dp(56f)))
-            addView(pillButton("서버 주소 확인", filled = false) { askUrl(first = false) }, lp(MATCH, dp(48f), dp(8f)))
+            addView(pillButton("서버 주소 확인", filled = false) { askUrl() }, lp(MATCH, dp(48f), dp(8f)))
         }
         box.addView(progress, lp(dp(36f), dp(36f)))
         box.addView(ovTitle, lp(MATCH, WRAP, dp(20f)))
@@ -375,7 +376,7 @@ class MainActivity : Activity() {
         ovStatus.text = "연결하는 중…"
         val u = webView.url
         if (u.isNullOrBlank() || u == "about:blank" || u.startsWith("data:")) {
-            prefs.getString("url", null)?.let { webView.loadUrl(it) }
+            webView.loadUrl(serverUrl())
         } else {
             webView.reload()
         }
@@ -511,7 +512,7 @@ class MainActivity : Activity() {
             .setItems(items) { _, i ->
                 when (i) {
                     0 -> webView.reload()
-                    1 -> askUrl(first = false)
+                    1 -> askUrl()
                     2 -> askGain()
                     3 -> showInfo()
                 }
@@ -520,10 +521,13 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun askUrl(first: Boolean) {
+    /** 접속할 서버 — 관리 메뉴에서 바꾼 주소가 없으면 운영 서버 */
+    private fun serverUrl(): String = prefs.getString("url", null)?.takeIf { it.isNotBlank() } ?: DEFAULT_URL
+
+    private fun askUrl() {
         val input = EditText(this).apply {
-            hint = "예: https://airtalk.example.com 또는 http://192.168.0.10:3001/desk.html?session=..."
-            setText(prefs.getString("url", "") ?: "")
+            hint = DEFAULT_URL
+            setText(serverUrl())
         }
         val wrap = LinearLayout(this).apply {
             setPadding(48, 24, 48, 0)
@@ -531,23 +535,23 @@ class MainActivity : Activity() {
         }
         val b = AlertDialog.Builder(this)
             .setTitle("서버 주소")
-            .setMessage("AirTalk 서버 주소(또는 뷰어 전체 링크)를 입력하세요. 이 기기는 항상 이 주소를 엽니다.")
+            .setMessage("평소에는 바꿀 필요가 없습니다(기본: 운영 서버). 시험 서버에 붙일 때만 바꾸고, 비우고 저장하면 기본 주소로 돌아갑니다.")
             .setView(wrap)
-            .setCancelable(!first)
             .setPositiveButton("저장") { _, _ ->
                 var u = input.text.toString().trim()
-                if (u.isEmpty()) {
-                    if (first) askUrl(true)
-                    return@setPositiveButton
+                if (u.isEmpty() || u == DEFAULT_URL) {
+                    prefs.edit().remove("url").apply()
+                    u = DEFAULT_URL
+                } else {
+                    if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
+                    prefs.edit().putString("url", u).apply()
                 }
-                if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
-                prefs.edit().putString("url", u).apply()
                 retryCount = 0
                 clearHistoryOnLoad = true
                 showSplash()
                 webView.loadUrl(u)
             }
-        if (!first) b.setNegativeButton("취소", null)
+        b.setNegativeButton("취소", null)
         b.show()
     }
 
@@ -595,7 +599,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("AirTalk $ver")
             .setMessage(
-                "서버: ${prefs.getString("url", "-")}\n" +
+                "서버: ${serverUrl()}\n" +
                     "마이크 입력: ${nativeAudio.inputStatus()}\n" +
                     "마이크 게인: ×${prefs.getFloat("gain", 1.0f)}\n" +
                     "오디오: ${nativeAudio.info()}\n\n" +
@@ -633,6 +637,7 @@ class MainActivity : Activity() {
         private const val TAG = "AirTalk"
         private const val REQ_MIC = 1
         private const val REQ_SAVE = 2
+        private const val DEFAULT_URL = "https://translate-voxm.onrender.com" // 운영 서버(데스크톱 앱 기본값과 동일)
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         private val RETRY_SEC = intArrayOf(2, 4, 8, 15)
