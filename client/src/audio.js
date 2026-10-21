@@ -485,7 +485,6 @@ export async function startRecorder(opts) {
      ③ 게이트(민감도) 슬라이더 하나를 두 채널에 똑같이, 소음 바닥만 채널별. 원음이라 앱 곡선(micAbsMinNative). */
   function setupStereo(p0, stream) {
     const plan = stereoPlan;
-    const swap = !!opts.stereoSwap;
     let st = plan.cached === 'stereo' ? 'stereo' : 'detect'; // 'detect'(1채널로 동작하며 판별) | 'mono' | 'stereo'
     let themPipe = null;
     let monoProcessed = false; // 모노 판정 후 브라우저 에코 제거를 다시 켰는지(그러면 브라우저 곡선·AEC 규칙)
@@ -576,7 +575,6 @@ export async function startRecorder(opts) {
     };
     const onFrame = (L, R) => {
       if (stopped) return;
-      if (swap) { const t = L; L = R; R = t; }
       const [rl] = rmsOf(L), [rr] = rmsOf(R);
       // 이 기기 TTS 재생 중: 원음(2채널·판별 중)은 에코 제거가 없으니 무음. 크게 말하면(barge-in) 재생을 끊고 살린다 — 채널 중 큰 쪽 기준
       const ttsGuard = audioCtx.currentTime < ttsMutedUntil && !(monoProcessed && aecActive);

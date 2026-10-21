@@ -70,6 +70,9 @@ export const api = {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '변경 실패');
       return r.json();
     }),
+  // 계정 삭제(본인) — 비밀번호 재확인. 관리자 계정은 서버가 거부한다.
+  deleteMe: (password) =>
+    fetch('/api/me', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }).then(json),
 
   adminUsers: () => fetch('/api/admin/users').then(json),
   adminUsage: () => fetch('/api/admin/usage').then(json),

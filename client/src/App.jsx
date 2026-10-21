@@ -17,6 +17,7 @@ import Login from './components/Login.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import { api } from './api.js';
 import { MOBILE_UI } from './components/mobile/env.js';
+import { getPrefs, subscribePrefs, resolveTheme } from './components/mobile/prefs.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
 const TranslateView = lazy(() => import('./components/TranslateView.jsx'));
@@ -25,7 +26,16 @@ const AdminPage = lazy(() => import('./components/AdminPage.jsx'));
 const MobileApp = lazy(() => import('./components/mobile/MobileApp.jsx'));
 
 export default function App() {
-  const [mode, setMode] = useState(localStorage.getItem('kac-theme') || 'light');
+  // 폰 화면은 설정의 테마(라이트/다크/시스템)를 따른다 — 시스템이면 기기 설정 변경에도 바로 반응
+  const [mode, setMode] = useState(() => (MOBILE_UI ? resolveTheme(getPrefs().theme) : localStorage.getItem('kac-theme') || 'light'));
+  useEffect(() => {
+    if (!MOBILE_UI) return undefined;
+    const sync = () => setMode(resolveTheme(getPrefs().theme));
+    const un = subscribePrefs(sync);
+    let mq = null;
+    try { mq = window.matchMedia('(prefers-color-scheme: dark)'); mq.addEventListener('change', sync); } catch {}
+    return () => { un(); try { mq && mq.removeEventListener('change', sync); } catch {} };
+  }, []);
   const [collapsed, setCollapsed] = useState(localStorage.getItem('kac-nav') === '1');
   const [session, setSession] = useState(null); // 열린 세션(null=목록)
   const [view, setView] = useState('sessions'); // 'sessions' | 'admin'
@@ -149,7 +159,7 @@ export default function App() {
         <CssBaseline />
         {offlineBanner}
         <Suspense fallback={<Box sx={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CircularProgress /></Box>}>
-          <MobileApp user={user} mode={mode} onToggleTheme={toggleTheme} onLogout={logout} />
+          <MobileApp user={user} onUser={setUser} onLogout={logout} />
         </Suspense>
       </ThemeProvider>
     );

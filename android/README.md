@@ -17,7 +17,17 @@
 - `NativeAudio.kt` — AudioRecord 캡처 → 24kHz PCM16 리샘플 → 소프트웨어 게인 →
   100ms base64 청크를 `window.__kacNA(b64)` 로 전달. AGC 명시 해제, AEC·NS 는 지원 기기만 부착.
   **외부 마이크 우선**: USB(USB-C 무선 수신기 등) → 유선 이어폰 마이크 → 내장 마이크 순으로 자동 선택하고,
-  번역 중 꽂거나 뽑아도 끊지 않고 입력만 바꾼다(토스트로 알림). 블루투스 마이크는 음질 문제로 쓰지 않는다.
+  번역 중 꽂거나 뽑아도 끊지 않고 입력만 바꾼다(토스트로 알림). 블루투스 마이크는 음질(통화용 협대역) 문제로 자동으로는 고르지 않는다.
+  - `window.AndroidAudio` 브리지: `start()`·`startStereo()`(2=스테레오 `__kacNA2` / 1=모노 `__kacNA` / 0=실패)·`stop()`,
+    `inputLabel()`(마이크 칩), `inputs()`·`setInput(id)`(1.4.0~), `setGain`/`getGain`, `info()`, `setMediaVolume`/`getMediaVolume`.
+  - **마이크 직접 선택(1.4.0~)**: `inputs()` = JSON 배열 `[{id, kind, label, selected, active?, channels?}]` — 첫 항목은 id 0 '자동'(active 없음),
+    kind = `builtin`/`usb`/`wired`/`bluetooth`, 안드로이드가 두 번 내놓는 같은 장치(USB_DEVICE·USB_HEADSET, 주소별 내장 마이크)는 하나로.
+    `selected` = 저장된 선택, `active` = 실제로 쓰는(대기 중이면 시작하면 쓸) 입력. 고른 장치가 빠져 있으면 '자동' 항목에 `missing`(그 장치 이름).
+    `setInput(id)` = 선택 저장(종류+제품명으로 저장 → 다시 꽂거나 앱을 다시 켜도 유지, 0=자동, 모르는 id 면 false) + 번역 중이면 바로 전환
+    (2채널로 듣는 중 내장·블루투스를 고르면 1채널로 다시 연다). 고른 장치가 빠지면 자동으로 돌다가 다시 연결되면 그 장치로 돌아간다.
+    **블루투스**는 캡처하는 동안만 SCO 링크를 연다(API 31+ `setCommunicationDevice`, 그 이하 `startBluetoothSco`) — 다른 입력으로 바꾸거나
+    정지·종료하면 놓는다. 링크를 못 열면 토스트 후 자동 선택으로 대신한다. 추가 권한 없음(`MODIFY_AUDIO_SETTINGS` 는 원래 있음).
+    2채널(스테레오)은 USB 장치를 쓸 때만, 한 번 1채널이 된 세션은 끝까지 1채널.
 - 웹 쪽 연동: `client/src/audio.js`(호스트), `client/public/desk.html`(여객 마이크)
   — `window.AndroidAudio` 있으면 getUserMedia 대신 네이티브 사용. 게이트(적응형 소음바닥)·VAD·전송 프로토콜은 브라우저 경로와 동일.
   앱에선 PC 소리 캡처가 불가하므로 호스트 화면의 '소리 입력'은 마이크로 고정된다.
@@ -44,7 +54,8 @@ ANDROID_KEYSTORE=/경로/airtalk-release.p12 ANDROID_KEYSTORE_PASSWORD=… gradl
    마이크 권한 허용 → 로그인. 시험 서버로 바꿀 때만 관리 메뉴 '서버 주소 변경'(비우고 저장 = 기본값 복귀).
    안내데스크 손님 태블릿은 앱 대신 웹 브라우저로 데스크 세션 QR 주소(`…/desk.html?session=<ID>&t=<토큰>`)를 연다.
 4. 무선마이크: USB-C 수신기를 꽂으면 자동으로 그쪽을 쓴다(시작 시 '마이크 입력: USB 마이크 …' 토스트).
-   지금 어떤 입력을 쓰는지는 뒤로가기 → '앱 정보'에서 확인.
+   내장·블루투스 등 다른 입력을 쓰려면 폰 화면의 마이크 선택 시트에서 직접 고른다(1.4.0~, 기기에 저장 — '자동'을 고르면 원래 동작).
+   지금 어떤 입력을 쓰는지는 뒤로가기 → '앱 정보'에서 확인(직접 선택/자동 선택 여부도 표시).
 **업데이트**: 화면(웹)은 서버만 고치면 자동 반영. 앱 본체가 바뀌면(versionName 올려 CI 빌드) 앱 홈에서 '새 버전이 나왔습니다' 시트가 뜨고
 '업데이트' 한 번으로 내려받아 설치 화면이 열린다(1.2.0~, 처음 한 번 'AirTalk 에서 앱 설치 허용'). **새 APK 는 반드시 versionName 을 올려야** 알림이 뜬다.
 5. 소리가 너무 작거나 크면: 뒤로가기 → '마이크 입력 게인'으로 보정(AGC 가 없으므로 이 값이 그대로 유지됨).

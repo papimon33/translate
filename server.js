@@ -206,6 +206,7 @@ const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
 const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
 const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
 const DESK_REG_FILE = path.join(DATA_DIR, 'desk_registry.json'); // 안내데스크 사전 정의(이름·층·방향) — 관리자 등록, 세션 생성 시 선택
+const PROFILES_FILE = path.join(DATA_DIR, 'profiles.json'); // 사용자별 프로필(이메일·환경설정) — 관리자(가상 사용자)도 포함
 const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
 const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
 
@@ -219,6 +220,9 @@ let vendorUsage = { soniox: {}, cartesia: {}, openai: {}, cartesiaSelf: {} }; //
 // 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
 let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [], updatedAt: 0 };
 let deskRegistry = { desks: [] }; // 안내데스크 정의 [{ id, name, floor, side }] — 세션과 분리된 마스터
+// 사용자 프로필: userId -> { id, email, prefs, updatedAt }. users 와 분리한 이유 — 관리자는 env 기반 가상 사용자라
+// users 에 없지만 이메일·환경설정(폰 앱 계정 화면)은 저장돼야 한다. Map 인 이유: id 가 '__proto__' 여도 안전.
+let profiles = new Map();
 let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
 let usersCol = null;
 let usageCol = null;
@@ -226,6 +230,7 @@ let usageHourlyCol = null;
 let termsConfigCol = null;
 let vendorUsageCol = null;
 let deskRegistryCol = null;
+let profilesCol = null;
 
 async function loadStore() {
   if (MONGODB_URI) {
@@ -246,6 +251,8 @@ async function loadStore() {
         await usersCol.createIndex({ id: 1 }, { unique: true });
         await usageCol.createIndex({ date: 1 }, { unique: true });
         await usageHourlyCol.createIndex({ hour: 1 }, { unique: true });
+        profilesCol = db.collection('profiles');
+        await profilesCol.createIndex({ id: 1 }, { unique: true });
         sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
         users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
         const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
@@ -261,11 +268,12 @@ async function loadStore() {
         deskRegistryCol = db.collection('deskRegistry');
         const dr = await deskRegistryCol.findOne({ _id: 'singleton' });
         if (dr && Array.isArray(dr.desks)) deskRegistry = { desks: dr.desks };
+        profiles = new Map((await profilesCol.find({}, { projection: { _id: 0 } }).toArray()).filter((p) => p && p.id).map((p) => [p.id, p]));
         console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = vendorUsageCol = deskRegistryCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = vendorUsageCol = deskRegistryCol = profilesCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -298,6 +306,7 @@ async function loadStore() {
   loadFile(TERMS_FILE, (v) => { if (v && typeof v === 'object') termsConfig = { ...v, updatedAt: v.updatedAt || 0 }; }); // 전체 보존, 구형은 부팅 마이그레이션
   loadFile(VENDOR_USAGE_FILE, (v) => { if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {}, cartesiaSelf: v.cartesiaSelf || {} }; });
   loadFile(DESK_REG_FILE, (v) => { if (v && Array.isArray(v.desks)) deskRegistry = { desks: v.desks }; });
+  loadFile(PROFILES_FILE, (v) => { if (Array.isArray(v)) profiles = new Map(v.filter((p) => p && p.id).map((p) => [p.id, p])); });
 }
 // Cartesia 파이프라인별 자체 집계 — 합성 요청 시 문자수·건수 누적(desk=안내데스크, live=실시간 번역)
 let ttsUsageTimer = null;
@@ -400,6 +409,46 @@ async function deleteUserStore(id) {
     }
   } else {
     saveUsers();
+  }
+}
+
+/* ---- 사용자 프로필(이메일·환경설정) 저장 — users 와 같은 디바운스, Mongo 는 변경 문서만 upsert ---- */
+let profileSaveTimer = null;
+const dirtyProfiles = new Set();
+let profilesFlushInflight = null; // 삭제가 진행 중 upsert 완료를 기다려 '삭제 후 부활' 레이스 차단(세션 저장과 동일)
+function saveProfiles(id) {
+  if (id) dirtyProfiles.add(id);
+  if (profileSaveTimer) return;
+  profileSaveTimer = setTimeout(() => {
+    profileSaveTimer = null;
+    profilesFlushInflight = flushProfiles()
+      .catch((e) => console.error('[profiles] 저장 실패', e))
+      .finally(() => { profilesFlushInflight = null; });
+  }, 400);
+}
+async function flushProfiles() {
+  const ids = new Set(dirtyProfiles);
+  dirtyProfiles.clear();
+  if (profilesCol) {
+    const ops = [...ids].filter((id) => profiles.has(id)).map((id) => ({
+      replaceOne: { filter: { id }, replacement: profiles.get(id), upsert: true },
+    }));
+    if (ops.length) await profilesCol.bulkWrite(ops, { ordered: false });
+  } else {
+    writeDataFile(PROFILES_FILE, JSON.stringify([...profiles.values()], null, 2));
+  }
+}
+async function deleteProfileStore(id) {
+  dirtyProfiles.delete(id);
+  if (profilesCol) {
+    try {
+      if (profilesFlushInflight) await profilesFlushInflight;
+      await profilesCol.deleteOne({ id });
+    } catch (e) {
+      console.error('[profiles] 삭제 실패', e);
+    }
+  } else {
+    saveProfiles(); // 파일 모드: 메모리에서 이미 지움 → 전체 재기록
   }
 }
 
@@ -917,24 +966,104 @@ function addUsage(userId, ms) {
   saveUsers();
 }
 
+/* ---- 본인 계정: 프로필(이메일·환경설정) + 정보 변경 + 탈퇴 ----
+   응답의 user 형태는 /api/me·PATCH /api/me·로그인 공통: { id, username, role, email, prefs }. */
+const PASSWORD_MIN_LEN = 4; // 비밀번호 최소 길이 — 본인 변경·관리자 생성/재설정 공통
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; // 단순 형식(x@y.z)만 — 실제 도달 여부는 검증하지 않음
+// 계정 동기화 환경설정(폰 앱 옵션) 화이트리스트 — 키별 검증 함수: 통과 시 저장할 값, 실패 시 undefined.
+// 정책: 모르는 키는 조용히 버린다(구/신 앱 버전 혼재 대비), 아는 키의 잘못된 값은 400(앱 버그를 드러냄),
+//       null 은 해당 키 삭제(기본값으로 되돌리기). 나머지 키는 기존 값에 병합.
+const PREF_RULES = {
+  sysLang: (v) => (['ko', 'en', 'ja'].includes(v) ? v : undefined),           // 시스템 UI 언어
+  nativeLang: (v) => (typeof v === 'string' && /^[a-z]{2,3}$/.test(v) ? v : undefined), // 내 언어(ISO 코드)
+  theme: (v) => (['light', 'dark', 'system'].includes(v) ? v : undefined),
+  fontScale: (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0.8 && v <= 1.6 ? Math.round(v * 20) / 20 : undefined), // 0.05 단위
+  ttsGender: (v) => (['f', 'm'].includes(v) ? v : undefined),                 // TTS 음성 성별
+};
+function publicUser(u) {
+  const p = profiles.get(u.id);
+  return { id: u.id, username: u.username, role: u.role, email: (p && p.email) || '', prefs: { ...((p && p.prefs) || {}) } };
+}
+function clearAuthCookie(res) {
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+}
+
 app.get('/api/me', (req, res) => {
   const u = currentUser(req);
-  res.json({ user: u ? { id: u.id, username: u.username, role: u.role } : null });
+  res.json({ user: u ? publicUser(u) : null });
 });
-// 본인 정보 변경: ID 불가, 사용자명·비밀번호 변경(비번은 password/passwordConfirm 일치 확인).
+// 본인 정보 변경(필드 모두 선택): email·prefs 는 관리자 포함 전원, username·password 는 일반 사용자만
+// (관리자는 env 관리 — 해당 필드가 있을 때만 400 이라 관리자도 이메일·환경설정은 저장 가능).
+// 비밀번호 변경은 currentPassword 확인 + password/passwordConfirm 일치 + 최소 길이.
+// 모든 필드를 먼저 검증한 뒤 반영한다(일부만 저장되는 반쪽 변경 방지).
 app.patch('/api/me', requireAuth, (req, res) => {
-  if (req.user.role === 'admin') return res.status(400).json({ error: '관리자 계정은 환경변수로 관리됩니다.' });
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  const isAdmin = req.user.role === 'admin';
+  const wantName = typeof b.username === 'string' && !!b.username.trim();
+  const wantPw = b.password != null && b.password !== '';
+  if (isAdmin && (wantName || wantPw)) return res.status(400).json({ error: '관리자 계정은 환경변수로 관리됩니다.' });
+  let stored = null;
+  if (wantName || wantPw) {
+    stored = users.find((x) => x.id === req.user.id);
+    if (!stored) return res.status(404).json({ error: 'not found' });
+  }
+  if (wantPw) {
+    const pw = String(b.password);
+    if (pw !== b.passwordConfirm) return res.status(400).json({ error: '비밀번호가 일치하지 않습니다.' });
+    if (pw.length < PASSWORD_MIN_LEN) return res.status(400).json({ error: `비밀번호는 ${PASSWORD_MIN_LEN}자 이상이어야 합니다.` });
+    if (!verifyPassword(stored, String(b.currentPassword || ''))) return res.status(400).json({ error: '현재 비밀번호가 올바르지 않습니다.' });
+  }
+  let email; // undefined = 변경 없음, '' = 지움
+  if (b.email !== undefined) {
+    if (b.email === null || b.email === '') email = '';
+    else if (typeof b.email !== 'string') return res.status(400).json({ error: '이메일 형식이 올바르지 않습니다.' });
+    else {
+      email = b.email.trim();
+      if (email && (email.length > 254 || !EMAIL_RE.test(email))) return res.status(400).json({ error: '이메일 형식이 올바르지 않습니다.' });
+    }
+  }
+  let prefPatch = null;
+  if (b.prefs !== undefined) {
+    if (!b.prefs || typeof b.prefs !== 'object' || Array.isArray(b.prefs)) return res.status(400).json({ error: '환경설정 형식이 올바르지 않습니다.' });
+    prefPatch = {};
+    for (const [k, rule] of Object.entries(PREF_RULES)) {
+      if (!Object.prototype.hasOwnProperty.call(b.prefs, k)) continue;
+      const v = b.prefs[k];
+      if (v === null) { prefPatch[k] = null; continue; }
+      const ok = rule(v);
+      if (ok === undefined) return res.status(400).json({ error: `환경설정 값이 올바르지 않습니다: ${k}` });
+      prefPatch[k] = ok;
+    }
+  }
+  // ---- 반영 ----
+  if (stored) {
+    if (wantName) stored.username = b.username.trim();
+    if (wantPw) {
+      stored.salt = crypto.randomBytes(16).toString('hex');
+      stored.hash = hashPassword(String(b.password), stored.salt);
+    }
+    saveUsers();
+  }
+  if (email !== undefined || prefPatch) {
+    const id = req.user.id;
+    const prev = profiles.get(id) || { id, email: '', prefs: {} };
+    const prefs = { ...(prev.prefs || {}) };
+    for (const [k, v] of Object.entries(prefPatch || {})) { if (v === null) delete prefs[k]; else prefs[k] = v; }
+    profiles.set(id, { id, email: email !== undefined ? email : prev.email || '', prefs, updatedAt: Date.now() });
+    saveProfiles(id);
+  }
+  res.json({ user: publicUser(stored || req.user) });
+});
+// 본인 탈퇴: 비밀번호 재확인 후 관리자 삭제와 동일하게 정리(deleteUserAccount) + 로그아웃. 관리자는 불가.
+app.delete('/api/me', requireAuth, (req, res) => {
+  if (req.user.role === 'admin') return res.status(400).json({ error: '관리자 계정은 삭제할 수 없습니다.' });
   const stored = users.find((x) => x.id === req.user.id);
   if (!stored) return res.status(404).json({ error: 'not found' });
-  const b = req.body || {};
-  if (typeof b.username === 'string' && b.username.trim()) stored.username = b.username.trim();
-  if (b.password) {
-    if (b.password !== b.passwordConfirm) return res.status(400).json({ error: '비밀번호가 일치하지 않습니다.' });
-    stored.salt = crypto.randomBytes(16).toString('hex');
-    stored.hash = hashPassword(b.password, stored.salt);
-  }
-  saveUsers();
-  res.json({ user: { id: stored.id, username: stored.username, role: stored.role } });
+  if (!verifyPassword(stored, String((req.body && req.body.password) || ''))) return res.status(400).json({ error: '비밀번호가 올바르지 않습니다.' });
+  deleteUserAccount(stored.id);
+  console.log(`[auth] 본인 탈퇴 user=${stored.id}`);
+  clearAuthCookie(res);
+  res.json({ ok: true });
 });
 /* ---- 경량 모니터링: 프로세스 상태 + 최근 오류(서버·클라이언트) ---- */
 const metrics = { startedAt: Date.now(), errors: [], clientErrors: [], saveFail: null, deskLogFull: [] };
@@ -1451,10 +1580,10 @@ app.post('/api/login', (req, res) => {
   // remember(자동 로그인) 시 30일 영속 쿠키, 아니면 세션 쿠키(브라우저 종료 시 해제)
   const persist = b.remember ? '; Max-Age=2592000' : '';
   res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/${persist}${secure}`);
-  res.json({ user: { id: user.id, username: user.username, role: user.role } });
+  res.json({ user: publicUser(user) });
 });
 app.post('/api/logout', (req, res) => {
-  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  clearAuthCookie(res);
   res.json({ ok: true });
 });
 
@@ -1473,6 +1602,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
   const username = String(b.username || '').trim();
   const password = String(b.password || '');
   if (!id || !password) return res.status(400).json({ error: 'ID 와 비밀번호는 필수입니다.' });
+  if (password.length < PASSWORD_MIN_LEN) return res.status(400).json({ error: `비밀번호는 ${PASSWORD_MIN_LEN}자 이상이어야 합니다.` });
   if (id === ADMIN_ID || users.some((u) => u.id === id))
     return res.status(409).json({ error: '이미 존재하는 ID 입니다.' });
   const u = makeUser({ id, username, password, role: 'user' });
@@ -1485,15 +1615,17 @@ app.post('/api/admin/users/:id/password', requireAdmin, (req, res) => {
   if (!u) return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
   const pw = String((req.body && req.body.password) || '');
   if (!pw) return res.status(400).json({ error: '비밀번호는 필수입니다.' });
+  if (pw.length < PASSWORD_MIN_LEN) return res.status(400).json({ error: `비밀번호는 ${PASSWORD_MIN_LEN}자 이상이어야 합니다.` });
   u.salt = crypto.randomBytes(16).toString('hex');
   u.hash = hashPassword(pw, u.salt);
   saveUsers();
   console.log(`[admin] 비밀번호 재설정 user=${u.id}`);
   res.json({ ok: true });
 });
-app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
-  const id = req.params.id;
-  if (id === ADMIN_ID) return res.status(400).json({ error: '관리자 계정은 삭제할 수 없습니다.' });
+// 사용자 계정 완전 삭제 — 관리자 삭제(DELETE /api/admin/users/:id)·본인 탈퇴(DELETE /api/me) 공용.
+// 사용자 레코드 + 소유 세션(하드 삭제, 저장소 포함) + 프로필. 소유 세션의 라이브 소켓도 끊는다 —
+// 하드 삭제된 세션에 호스트가 붙어 있으면 좀비 스트리밍(비용)이 계속된다(closeSessionRoom, 세션 삭제와 동일 정리).
+function deleteUserAccount(id) {
   const i = users.findIndex((u) => u.id === id);
   if (i >= 0) {
     users.splice(i, 1);
@@ -1502,9 +1634,15 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   const owned = sessions.filter((s) => s.owner === id).map((s) => s.id);
   if (owned.length) {
     sessions = sessions.filter((s) => s.owner !== id);
-    owned.forEach((sid) => deleteSessionStore(sid));
+    owned.forEach((sid) => { deleteSessionStore(sid); closeSessionRoom(sid); });
     if (!col) saveSessions();
   }
+  if (profiles.delete(id) || profilesCol) deleteProfileStore(id);
+}
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  if (id === ADMIN_ID) return res.status(400).json({ error: '관리자 계정은 삭제할 수 없습니다.' });
+  deleteUserAccount(id);
   res.json({ ok: true });
 });
 
@@ -1991,20 +2129,23 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
     s.deletedAt = Date.now();
     saveSessions();
   }
-  // 연결된 소켓을 먼저 정리 — rooms 만 지우면 이미 접속한 소켓들이 고아 room 상태를 들고
-  // 좀비 스트리밍(비용)·발화 락 오염을 일으킨다.
-  const r = rooms.get(req.params.id);
+  closeSessionRoom(req.params.id);
+  res.json({ ok: true });
+});
+// 삭제된 세션의 연결 소켓(호스트·뷰어)을 먼저 정리하고 방 상태를 지운다 — rooms 만 지우면 이미 접속한
+// 소켓들이 고아 room 상태를 들고 좀비 스트리밍(비용)·발화 락 오염을 일으킨다. (세션 삭제·계정 삭제 공용)
+function closeSessionRoom(sid) {
+  const r = rooms.get(sid);
   if (r) {
     for (const cx of [...r.hosts, ...r.viewers]) {
       try { cx.send(JSON.stringify({ type: 'status', message: '세션이 삭제되어 연결을 종료합니다.' })); } catch {}
       try { cx.close(); } catch {}
     }
   }
-  rooms.delete(req.params.id);
-  recentTts.delete(req.params.id);
-  deskCtrl.delete(req.params.id);
-  res.json({ ok: true });
-});
+  rooms.delete(sid);
+  recentTts.delete(sid);
+  deskCtrl.delete(sid);
+}
 
 /* ================================================================== */
 /*  실시간 방(room) : 세션ID 기준. 호스트(여러 소스) + 뷰어 N           */

@@ -1,98 +1,83 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="color-scheme" content="light" />
+<meta name="theme-color" content="#FFFFFF" />
 <title>AirTalk</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
-  :root { --bg:#0f1115; --panel:#181b22; --line:#272b35; --txt:#e8eaf0; --muted:#8b93a7; --accent:#4f8cff; --accent2:#36d399; --fs:20px;
-    --bubStaff:#232a52; --bubStaffFg:#c7ccff; --bubSelf:#232833; --bubSelfFg:#e8eaf0; }
-  [data-theme="light"] { --bg:#fff; --panel:#f5f6f8; --line:#e1e4ea; --txt:#1a1d24; --muted:#6b7280; --accent:#2563eb; --accent2:#059669;
-    --bubStaff:#eef2ff; --bubStaffFg:#3730a3; --bubSelf:#eef1f5; --bubSelfFg:#1a1d24; }
+  /* 라이트 테마 전용(다크 모드·테마 토글 삭제). --k = 글자 크기 배율(헤더 A−/A+) */
+  :root { --bg:#FFFFFF; --panel:#F7F6F2; --line:rgba(31,30,29,.12); --txt:#1F1E1D; --muted:#6B6A63; --accent:#1F5BBF; --accent2:#22c55e;
+    --k:1; --fs:20px; --seg:#EFEEE9;
+    --bubStaff:#EEF1FD; --bubStaffFg:#2B3A9E; --bubSelf:#F1F1F3; --bubSelfFg:#1F1E1D; }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:'Noto Sans KR',system-ui,'Segoe UI',sans-serif; background:var(--bg); color:var(--txt); }
-  header { position:sticky; top:0; z-index:6; background:var(--bg); padding:12px 16px 8px; border-bottom:1px solid var(--line); }
-  .htop { display:flex; align-items:center; gap:10px; }
-  .brand { font-size:16px; font-weight:800; flex:1; }
-  .stitle { font-size:14px; font-weight:700; color:var(--muted); margin-top:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .iconbtn { width:38px; height:38px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  html { color-scheme:light; }
+  body { margin:0; font-family:'Noto Sans KR',system-ui,'Segoe UI',sans-serif; background:var(--bg); color:var(--txt); -webkit-text-size-adjust:100%; }
+  button { font-family:inherit; -webkit-tap-highlight-color:transparent; }
+  header { position:sticky; top:0; z-index:6; background:var(--bg); padding:10px 16px 12px; border-bottom:1px solid rgba(31,30,29,.08); }
+  /* 헤더 한 줄: 라이브 점 + 세션명(말줄임) | A− A+ 듣기 QR */
+  .htop { display:flex; align-items:center; gap:8px; min-height:40px; }
+  .stitle { flex:1; min-width:0; font-size:16px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .iconbtn { flex:none; width:40px; height:40px; padding:0; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s, border-color .15s, color .15s; }
   .iconbtn svg { width:20px; height:20px; }
-  .iconbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-  #audioBtn:not(.on) #audioWave { opacity:0.25; }
-  /* 언어 방향 라벨(선택 대신 표시) */
-  #langLabel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line);
-    background:var(--panel); color:var(--txt); font-size:14px; font-weight:700; text-align:center; }
-  select#langSel { width:100%; margin-top:8px; padding:9px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--txt); font-size:15px; font-family:inherit; }
+  .iconbtn:active { transform:scale(.96); }
+  .iconbtn:disabled { opacity:.38; cursor:default; transform:none; }
+  .iconbtn:focus-visible, .seg button:focus-visible, .sheet button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .iconbtn .aa { font-size:16px; font-weight:800; line-height:1; letter-spacing:-.02em; }
+  .iconbtn .aa small { font-size:13px; font-weight:800; margin-left:1px; }
+  /* 듣기: 켜짐=파란 채움+흰 스피커(파동) / 꺼짐=회색 스피커(X) */
+  #audioBtn { color:var(--muted); }
+  #audioBtn .icoOn { display:none; }
+  #audioBtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #audioBtn.on .icoOn { display:block; }
+  #audioBtn.on .icoOff { display:none; }
+  /* 내 언어 세그먼트(양방향: 두 언어 — 라벨 없이 각 언어를 그 언어로 표기) */
+  .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; height:48px; padding:4px; margin-top:10px; border-radius:14px; background:var(--seg); }
+  .seg[hidden] { display:none; }
+  .seg button { min-width:0; padding:0 8px; border:0; border-radius:10px; background:transparent; color:var(--muted); font-size:15px; font-weight:600; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:background .15s, color .15s, box-shadow .15s; }
+  .seg button[aria-checked="true"] { background:#fff; color:var(--txt); font-weight:800; box-shadow:0 1px 2px rgba(31,30,29,.10), 0 1px 4px rgba(31,30,29,.06); }
 
-  #feed { display:flex; flex-direction:column; gap:8px; padding:14px 14px 4px; }
+  #feed { display:flex; flex-direction:column; gap:10px; padding:16px 16px 4px; }
   .msg { max-width:92%; }
   .msg .spk { display:inline-flex; align-items:center; gap:3px; font-size:calc(var(--fs) - 8px); font-weight:800; color:#fff; background:var(--accent); border-radius:10px; padding:1px 8px; margin-bottom:3px; }
   .msg .spk svg { width:13px; height:13px; }
-  .msg .line { font-size:var(--fs); line-height:1.5; color:var(--txt); }
+  .msg .line { font-size:var(--fs); line-height:1.5; color:var(--txt); overflow-wrap:anywhere; }
   .msg .line.pending { color:var(--muted); font-style:italic; }
   .msg.latest .line { color:var(--accent); font-weight:700; }
   .msg.latest .line.pending { color:var(--muted); font-weight:400; }
-  /* 양방향: 언어1 발화=액센트 / 언어2 발화=무채색(검정/흰색) (최신 강조보다 우선) */
+  /* 양방향: 언어1 발화=액센트 / 언어2 발화=무채색 (최신 강조보다 우선) */
   .msg.dirA .line:not(.pending) { color:var(--accent); }
   .msg.dirB .line:not(.pending) { color:var(--txt); }
   /* 진행 중(미확정) 발화·번역 — 확정되면 draft 가 빠지며 본래 색으로 또렷해진다.
-     latest/dirA/dirB 규칙보다 뒤에 두고 셀렉터를 같은 특이도로 맞춰 확실히 이긴다. */
+     latest/dirA/dirB·말풍선 규칙보다 뒤에 두고 셀렉터를 같은(이상) 특이도로 맞춰 확실히 이긴다. */
   .msg .line.draft, .msg.latest .line.draft, .msg.dirA .line.draft, .msg.dirB .line.draft { color:var(--muted); font-weight:400; }
-  .msg .src { font-size:calc(var(--fs) - 5px); color:var(--muted); line-height:1.4; margin-top:2px; }
-  #partial { padding:4px 16px 28px; }
+  /* 원문(작은 줄) — 항상 표시(토글 삭제). 표시 문장과 같으면 srcShown 이 숨긴다 */
+  .msg .src { font-size:calc(var(--fs) - 5px); color:var(--muted); line-height:1.45; margin-top:3px; overflow-wrap:anywhere; }
+  #partial { padding:4px 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
   #partial .line { font-size:var(--fs); color:var(--muted); font-style:italic; line-height:1.4; }
-  .empty { color:var(--muted); text-align:center; padding:60px 20px; font-size:14px; }
+  .empty { color:var(--muted); text-align:center; padding:72px 20px; font-size:15px; }
 
-  /* 설정 시트 */
-  .backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; z-index:20; }
-  .backdrop.show { display:block; }
-  .sheet { position:fixed; left:0; right:0; bottom:0; z-index:21; background:var(--panel); border-top-left-radius:18px; border-top-right-radius:18px; padding:18px 18px 28px; transform:translateY(100%); transition:transform .22s; }
-  .sheet.show { transform:translateY(0); }
-  .sheet h3 { margin:4px 0 14px; font-size:16px; }
-  .srow { display:flex; align-items:center; justify-content:space-between; padding:13px 2px; border-top:1px solid var(--line); }
-  .srow:first-of-type { border-top:none; }
-  .srow .lbl { font-size:15px; }
-  .srow.click { cursor:pointer; }
-  .srow.click:active { background:rgba(127,127,127,.12); }
-  .stepper { display:flex; align-items:center; gap:10px; }
-  .stepper button { width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--txt); font-size:18px; cursor:pointer; }
-  .stepper .v { font-size:14px; color:var(--muted); min-width:42px; text-align:center; }
-  .linkbtn { border:1px solid var(--line); background:var(--bg); color:var(--txt); border-radius:9px; padding:8px 14px; font-size:14px; cursor:pointer; }
-  /* 스위치 */
-  .sw { position:relative; width:46px; height:26px; pointer-events:none; }
-  .sw input { opacity:0; width:0; height:0; }
-  .sw .sl { position:absolute; inset:0; background:var(--bg); border:1px solid var(--line); border-radius:26px; transition:.18s; cursor:pointer; }
-  .sw .sl:before { content:''; position:absolute; width:19px; height:19px; left:3px; top:2.5px; background:var(--muted); border-radius:50%; transition:.18s; }
-  .sw input:checked + .sl { background:var(--accent); border-color:var(--accent); }
-  .sw input:checked + .sl:before { transform:translateX(20px); background:#fff; }
-
-  /* QR 모달 */
-  .qrm { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; padding:20px; }
-  .qrm.show { display:flex; }
-  .qrbox { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:26px 22px 22px; width:320px; max-width:92vw; text-align:center; }
-  .qrx { position:absolute; top:10px; right:10px; width:34px; height:34px; border-radius:9px; border:none; background:transparent; color:var(--muted); font-size:22px; cursor:pointer; }
-  .qrbox img { width:230px; max-width:100%; background:#fff; border-radius:12px; padding:10px; }
-  .qrbox input { width:100%; margin-top:16px; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--txt); font-size:13px; text-align:center; }
-  .qrbox .copy { width:100%; margin-top:10px; padding:12px; border-radius:10px; border:none; background:var(--accent); color:#fff; font-weight:700; font-size:15px; cursor:pointer; }
-
-  /* 데스크 뷰어: 언어 pill(라이브 점) + 안내원/손님 말풍선 + 인라인 지도 */
-  #langLabel.pill { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:auto; margin:8px auto 0; padding:7px 15px; border-radius:22px; }
-  #langLabel .dot { width:7px; height:7px; border-radius:50%; background:var(--accent2); flex:0 0 auto; animation:pulseDot 1.4s infinite ease-in-out; }
-  @keyframes pulseDot { 0%,100%{ opacity:1; transform:scale(1); } 50%{ opacity:.4; transform:scale(.75); } }
-  .msg.turn { max-width:100%; display:flex; flex-direction:column; }
+  /* 말풍선(양방향·데스크): 상대 쪽=왼쪽(파랑) / 내 쪽=오른쪽(무채색). 위에 방향 라벨, 아래 원문·상대 언어 줄 */
+  .msg.turn { max-width:100%; display:flex; flex-direction:column; margin-top:4px; }
   .msg.turn.staff { align-items:flex-start; }
   .msg.turn.self  { align-items:flex-end; }
-  .msg.turn .who { font-size:calc(var(--fs) - 7px); color:var(--muted); font-weight:800; margin:0 5px 3px; }
-  .msg.turn .line { max-width:90%; padding:9px 13px; border-radius:16px; font-weight:700; line-height:1.4; }
-  .msg.turn.staff .line { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:5px; }
-  .msg.turn.self  .line { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:5px; }
+  .msg.turn .who { font-size:calc(12px * var(--k)); font-weight:700; line-height:1.3; margin:0 6px 5px; }
+  .msg.turn.staff .who { color:#1F5BBF; }
+  .msg.turn.self  .who { color:#6B6A63; }
+  .msg.turn .line { max-width:88%; padding:11px 15px; font-size:calc(19px * var(--k)); font-weight:700; line-height:1.45; overflow-wrap:anywhere; }
+  .msg.turn.staff .line { background:var(--bubStaff); color:var(--bubStaffFg); border-radius:6px 18px 18px 18px; }
+  .msg.turn.self  .line { background:var(--bubSelf);  color:var(--bubSelfFg);  border-radius:18px 6px 18px 18px; }
   .msg.turn.staff .line.pending, .msg.turn.self .line.pending { opacity:.6; font-style:normal; }
-  /* 양방향(일반 세션): 내 언어 쪽=오른쪽, 상대 언어 쪽=왼쪽. 말풍선 아래 보조 줄(내 말=번역, 상대 말=원문) */
-  .msg.turn .src { max-width:90%; margin:4px 6px 0; }
+  .msg.turn.staff .line.draft, .msg.turn.self .line.draft { color:var(--muted); font-weight:400; }
+  .msg.turn .src { max-width:88%; margin:6px 8px 0; font-size:calc(14px * var(--k)); color:#6B6A63; line-height:1.45; }
   .msg.turn.self .src { text-align:right; }
+  /* 한국어 줄만 어절 단위 줄바꿈(일·중에 keep-all 을 걸면 구두점 앞에서 끊기는 등 줄바꿈이 깨진다) — lang 은 renderLine 이 단다 */
+  .msg.turn .line[lang|="ko"], .msg.turn .src[lang|="ko"] { word-break:keep-all; }
   /* 길안내: 채팅 인라인이 아니라 화면 '상단' 고정 플로팅 — 새 발화가 이어져도 밀려나지 않음 */
   .mapCard { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); left:12px; right:12px; z-index:60; margin:0;
     border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel);
@@ -104,8 +89,34 @@
   .mapCard .mHead .chip { background:var(--bg); border:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:700; padding:3px 9px; border-radius:14px; white-space:nowrap; }
   .mapCard .mHolder { height:300px; overflow:hidden; }
 
+  /* QR 공유 시트(설정 시트 대체) — 다른 사람이 스캔해 같은 번역에 들어오게 */
+  .backdrop { position:fixed; inset:0; z-index:20; background:rgba(31,30,29,.42); opacity:0; pointer-events:none; transition:opacity .2s; }
+  .backdrop.show { opacity:1; pointer-events:auto; }
+  .sheet { position:fixed; left:0; right:0; bottom:0; z-index:21; max-width:480px; margin:0 auto; background:#fff; border-radius:22px 22px 0 0;
+    padding:10px 20px calc(22px + env(safe-area-inset-bottom, 0px)); text-align:center; box-shadow:0 -8px 30px rgba(31,30,29,.12);
+    transform:translateY(105%); visibility:hidden; transition:transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s; }
+  .sheet.show { transform:translateY(0); visibility:visible; transition:transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s; }
+  .sheet .grab { width:36px; height:4px; border-radius:2px; background:rgba(31,30,29,.16); margin:0 auto 16px; }
+  .sheet h3 { margin:0; padding:0 44px; font-size:18px; font-weight:800; }
+  .sheet .hint { margin:6px 0 16px; font-size:14px; color:var(--muted); line-height:1.5; word-break:keep-all; }
+  .qrx { position:absolute; top:12px; right:12px; width:36px; height:36px; padding:0; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .qrx svg { width:18px; height:18px; }
+  .qrframe { width:232px; height:232px; margin:0 auto; padding:10px; border:1px solid var(--line); border-radius:16px; background:#fff; display:flex; align-items:center; justify-content:center; }
+  .qrframe img { width:100%; height:100%; display:block; }
+  .qrframe img[hidden], .qrframe .qmsg[hidden] { display:none; }
+  .qrframe .qmsg { padding:0 12px; font-size:13px; color:var(--muted); line-height:1.5; }
+  .qlink { display:flex; align-items:center; gap:8px; margin-top:16px; }
+  .qlink input { flex:1; min-width:0; height:46px; padding:0 12px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--txt); font-family:inherit; font-size:13px; }
+  .qlink .copy { flex:none; height:46px; padding:0 16px; border:0; border-radius:12px; background:var(--accent); color:#fff; font-size:15px; font-weight:800; cursor:pointer; white-space:nowrap; }
+  .qlink .copy.done { background:#2B3A9E; }
+
+  /* 짧은 알림(글자 크기 %) */
+  #toast { position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom, 0px)); z-index:50; transform:translate(-50%, 8px); opacity:0; pointer-events:none;
+    background:#1F1E1D; color:#fff; font-size:14px; font-weight:700; padding:9px 14px; border-radius:12px; transition:opacity .18s, transform .18s; white-space:nowrap; }
+  #toast.show { opacity:1; transform:translate(-50%, 0); }
+
   /* 라이브 상태 표시등(초록=진행 중 / 회색=대기) */
-  #liveDot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; transition:background .2s, box-shadow .2s; }
+  #liveDot { width:8px; height:8px; border-radius:50%; background:#C9C7BF; flex:none; transition:background .2s, box-shadow .2s; }
   #liveDot.on { background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.18); }
   /* 입장 랜딩 */
   #landing { position:fixed; inset:0; z-index:40; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px; }
@@ -114,7 +125,7 @@
   #landing .lbrand { display:inline-flex; align-items:center; gap:8px; color:var(--accent); font-weight:800; font-size:15px; margin-bottom:22px; }
   #landing .ltitle { font-size:24px; font-weight:800; line-height:1.3; word-break:keep-all; }
   #landing .lmeta { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; color:var(--muted); font-size:14px; font-weight:600; }
-  #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:#C9C7BF; }
   #landing .lmeta .d.on { background:#22c55e; }
   #enterBtn { margin-top:30px; width:100%; padding:15px; border:none; border-radius:14px; background:var(--accent); color:#fff; font-family:inherit; font-size:17px; font-weight:800; cursor:pointer; }
   /* 오프라인 안내 배너 — 연결이 끊긴 줄 모르고 대기하는 문제 방지 */
@@ -134,58 +145,38 @@
 </div>
 <header>
   <div class="htop">
-    <span id="liveDot" title="Waiting"></span>
-    <div class="brand" id="brand">AirTalk</div>
-    <button class="iconbtn" id="audioBtn" aria-label="Listen" style="display:none">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path id="audioWave" d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+    <span id="liveDot" role="img" aria-label="Waiting"></span>
+    <div class="stitle" id="title">Session</div>
+    <button class="iconbtn" id="fsDown" aria-label="Smaller text"><span class="aa" aria-hidden="true">A<small>−</small></span></button>
+    <button class="iconbtn" id="fsUp" aria-label="Larger text"><span class="aa" aria-hidden="true">A<small>+</small></span></button>
+    <button class="iconbtn" id="audioBtn" aria-label="Listen" aria-pressed="false" style="display:none">
+      <svg class="icoOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>
+      <svg class="icoOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
     </button>
-    <button class="iconbtn" id="fullBtn" aria-label="Fullscreen">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
-    </button>
-    <button class="iconbtn" id="settingsBtn" aria-label="Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <button class="iconbtn" id="qrBtn" aria-label="Share via QR code" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM21 14v.01M17 21h.01M21 17v4h-4"/></svg>
     </button>
   </div>
-  <div class="stitle" id="title">Session</div>
-  <select id="langSel"></select>
+  <div class="seg" id="langSeg" role="radiogroup" aria-label="My language" hidden></div>
 </header>
 
 <div id="feed"><div class="empty" id="empty">Waiting for translation…</div></div>
 <div id="partial"></div>
 
-<!-- 설정 시트 -->
-<div class="backdrop" id="backdrop"></div>
-<div class="sheet" id="sheet">
-  <h3>Settings</h3>
-  <div class="srow">
-    <span class="lbl">Text size</span>
-    <div class="stepper">
-      <button id="fsDown">−</button><span class="v" id="fsVal">100%</span><button id="fsUp">+</button>
-    </div>
-  </div>
-  <div class="srow click" id="rowQr">
-    <span class="lbl">Show QR code</span>
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><polyline points="9 18 15 12 9 6"/></svg>
-  </div>
-  <div class="srow click" id="rowSrc">
-    <span class="lbl">Show original text</span>
-    <label class="sw"><input type="checkbox" id="srcToggle" /><span class="sl"></span></label>
-  </div>
-  <div class="srow click" id="rowDark">
-    <span class="lbl">Dark mode</span>
-    <label class="sw"><input type="checkbox" id="darkToggle" /><span class="sl"></span></label>
-  </div>
-</div>
-
-<!-- QR 모달 -->
-<div class="qrm" id="qrModal">
-  <div class="qrbox">
-    <button class="qrx" id="qrClose">×</button>
-    <img id="qrImg" alt="QR" />
+<!-- QR 공유 시트 -->
+<div class="backdrop" id="qrBackdrop"></div>
+<div class="sheet" id="qrSheet" role="dialog" aria-modal="true" aria-labelledby="qrTitle" aria-hidden="true">
+  <div class="grab" aria-hidden="true"></div>
+  <button class="qrx" id="qrClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <h3 id="qrTitle">Scan to join</h3>
+  <p class="hint" id="qrHint"></p>
+  <div class="qrframe"><img id="qrImg" alt="QR" hidden /><span class="qmsg" id="qrMsg"></span></div>
+  <div class="qlink">
     <input id="qrLink" type="text" readonly />
     <button class="copy" id="qrCopy">Copy link</button>
   </div>
 </div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const params = new URLSearchParams(location.search);
@@ -194,17 +185,20 @@ const token = params.get('t') || ''; // 뷰어 접근 토큰(QR 에 포함) — 
 const tq = token ? ('&t=' + encodeURIComponent(token)) : ''; // ws/qr 쿼리용
 const tq1 = token ? ('?t=' + encodeURIComponent(token)) : ''; // 첫 쿼리(REST)용
 const ALL4 = ['ko','en','ja','zh'];
-const LABEL = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', ru:'Русский', vi:'Tiếng Việt', th:'ไทย', id:'Indonesia' };
+// 언어 자기 표기(endonym) 폴백 — Intl.DisplayNames 미지원·실패 시
+const LABEL = { ko:'한국어', en:'English', ja:'日本語', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', ru:'Русский', vi:'Tiếng Việt', th:'ไทย', id:'Bahasa Indonesia', pt:'Português', it:'Italiano', ar:'العربية', hi:'हिन्दी', tr:'Türkçe', uk:'Українська', pl:'Polski', nl:'Nederlands' };
 
 const $ = (id) => document.getElementById(id);
-const feed=$('feed'), empty=$('empty'), partialEl=$('partial'), langSel=$('langSel'), titleEl=$('title');
+const feed=$('feed'), empty=$('empty'), partialEl=$('partial'), langSeg=$('langSeg'), titleEl=$('title');
 const cards = new Map(); // id -> {el, line, src, texts, source}
 let order = []; // 표시 순서 id 목록
 let latestId = null;
 let curLang = 'ko';
+let langKnown = false; // curLang 이 세션 정보로 정해졌는지 — 그 전엔 화면 문구를 폰 언어로
 let sessionPipeline = 'whisper';
 let sessionOutLang = 'ko';
 let sxTwo = false, sxAlang = null, sxBlang = null; // 양방향 번역(언어1↔언어2) — 방향별 색상
+let segPair = null; // 세그먼트에 깔린 언어 목록('ko,ja') — 같으면 다시 그리지 않고 선택만 맞춘다
 // 양방향: 이 뷰어의 '내 언어'(둘 중 하나). 내 언어로 말한 쪽은 오른쪽에 원문, 상대 언어 쪽은 왼쪽에 내 언어 번역.
 // 음성 듣기도 내 언어 음성만 받는다(서버 audioSub.lang). 처음엔 폰 언어로 추정, 고르면 세션별로 기억.
 function pickMyLang(a, b){
@@ -215,9 +209,76 @@ function pickMyLang(a, b){
 let speakerNames = {}; // 화자번호 -> 지정이름
 function spkLabel(id){ return id ? (speakerNames[id] || ('Speaker '+id)) : ''; }
 
+/* ---- 화면 문구(UI 언어) ----
+   양방향: 내 언어를 따르되 한·일·영만 지원 — 그 외 언어는 영어.
+   단방향: 표시 중인 출력 언어가 한·일·영이면 그 언어, 아니면 폰 언어(한·일·영일 때), 그래도 아니면 영어. */
+const UI_LANGS = ['ko','ja','en'];
+const UI = {
+  waiting:  { ko:'번역을 기다리는 중…', ja:'翻訳を待っています…', en:'Waiting for translation…' },
+  live:     { ko:'진행 중', ja:'配信中', en:'Live' },
+  idle:     { ko:'대기 중', ja:'待機中', en:'Waiting' },
+  enter:    { ko:'입장하기', ja:'参加する', en:'Enter' },
+  fsDown:   { ko:'글자 작게', ja:'文字を小さく', en:'Smaller text' },
+  fsUp:     { ko:'글자 크게', ja:'文字を大きく', en:'Larger text' },
+  fsVal:    { ko:'글자 크기', ja:'文字サイズ', en:'Text size' },
+  listen:   { ko:'음성 듣기', ja:'音声を聞く', en:'Listen' },
+  qr:       { ko:'QR 코드로 공유', ja:'QRコードで共有', en:'Share via QR code' },
+  myLang:   { ko:'내 언어', ja:'自分の言語', en:'My language' },
+  qrTitle:  { ko:'QR로 함께 보기', ja:'QRコードで参加', en:'Scan to join' },
+  qrHint:   { ko:'다른 사람이 이 코드를 스캔하면 같은 번역을 함께 볼 수 있어요.', ja:'このコードを読み取ると、同じ翻訳を一緒に見られます。', en:'Anyone who scans this code can follow the same translation.' },
+  qrLoading:{ ko:'불러오는 중…', ja:'読み込み中…', en:'Loading…' },
+  qrFail:   { ko:'QR 코드를 불러오지 못했어요. 아래 링크를 복사해 공유하세요.', ja:'QRコードを読み込めませんでした。下のリンクをコピーして共有してください。', en:'Couldn’t load the QR code. Copy the link below to share.' },
+  link:     { ko:'참여 링크', ja:'参加リンク', en:'Join link' },
+  copy:     { ko:'링크 복사', ja:'リンクをコピー', en:'Copy link' },
+  copied:   { ko:'복사됨', ja:'コピー済み', en:'Copied' },
+  close:    { ko:'닫기', ja:'閉じる', en:'Close' },
+  roomFull: { ko:'지금은 보는 사람이 너무 많아요. 잠시 후 다시 시도해 주세요.', ja:'現在、視聴者が多すぎます。しばらくしてから再度お試しください。', en:'Too many viewers right now — please try again later.' },
+  ipLimit:  { ko:'이 기기에서 연결이 너무 많아요.', ja:'この端末からの接続が多すぎます。', en:'Too many connections from this device.' },
+  cantConn: { ko:'지금은 연결할 수 없어요. 잠시 후 다시 시도해 주세요.', ja:'現在接続できません。しばらくしてから再度お試しください。', en:'Cannot connect right now — please try again later.' },
+  offline:  { ko:'인터넷 연결이 끊겼어요 — 다시 연결되면 자동으로 이어집니다.', ja:'インターネットに接続されていません — 再接続すると自動で再開します。', en:'No internet connection — will resume automatically once back online.' },
+};
+function uiLang(){
+  const c = String(curLang || '').slice(0,2).toLowerCase();
+  if (langKnown && UI_LANGS.includes(c)) return c;
+  if (twoMode()) return 'en'; // 내 언어가 한·일·영이 아니면 영어
+  const nav = String(navigator.language || '').slice(0,2).toLowerCase();
+  return UI_LANGS.includes(nav) ? nav : 'en';
+}
+function T(k){ const d = UI[k] || {}; return d[uiLang()] || d.en || k; }
+
+/* ---- 언어 이름 ----
+   endonym: 세그먼트용 — 각 언어를 그 언어로(한국어 / 日本語 / English …)
+   langName: 말풍선 방향 라벨용 — UI 언어로(일본어 → 한국어 / 韓国語 → 日本語 / Korean → Japanese) */
+const LNAME = {
+  ko: { ko:'한국어', en:'영어', ja:'일본어', zh:'중국어', es:'스페인어', fr:'프랑스어', de:'독일어', ru:'러시아어', vi:'베트남어', th:'태국어', id:'인도네시아어' },
+  ja: { ko:'韓国語', en:'英語', ja:'日本語', zh:'中国語', es:'スペイン語', fr:'フランス語', de:'ドイツ語', ru:'ロシア語', vi:'ベトナム語', th:'タイ語', id:'インドネシア語' },
+  en: { ko:'Korean', en:'English', ja:'Japanese', zh:'Chinese', es:'Spanish', fr:'French', de:'German', ru:'Russian', vi:'Vietnamese', th:'Thai', id:'Indonesian' },
+};
+const ENDO_PREF = { id:'Bahasa Indonesia' }; // CLDR 은 'Indonesia' — 현지에서 흔히 쓰는 표기로
+const dnCache = {};
+function intlName(code, inLang){
+  try {
+    if (!window.Intl || !Intl.DisplayNames) return '';
+    const dn = dnCache[inLang] || (dnCache[inLang] = new Intl.DisplayNames([inLang], { type:'language' }));
+    const s = dn.of(code);
+    return (s && s.toLowerCase() !== String(code).toLowerCase()) ? s : ''; // 모르는 코드는 코드 그대로 돌려준다 → 폴백
+  } catch { return ''; }
+}
+function cap1(s, loc){ if (!s) return s; let h; try { h = s.charAt(0).toLocaleUpperCase(loc); } catch { h = s.charAt(0).toUpperCase(); } return h + s.slice(1); }
+function endonym(code){
+  const c = String(code || ''), b = c.slice(0,2).toLowerCase();
+  if (ENDO_PREF[c]) return ENDO_PREF[c];
+  return cap1(intlName(c, c) || LABEL[c] || LABEL[b] || c.toUpperCase(), c);
+}
+function langName(code){
+  if (!code) return '';
+  const ui = uiLang(), c = String(code), b = c.slice(0,2).toLowerCase();
+  const s = intlName(c, ui) || (LNAME[ui][c] || LNAME[ui][b]) || c.toUpperCase();
+  return ui === 'en' ? cap1(s, 'en') : s;
+}
+
 /* 브랜드(플레이스홀더 — 운영 시 교체) */
 const BRAND = { name: 'AirTalk' };
-$('brand').textContent = BRAND.name;
 $('lBrandName').textContent = BRAND.name;
 // 입장 랜딩 → 전체화면 진입(브라우저는 사용자 제스처에서만 전체화면 허용)
 $('enterBtn').onclick = () => {
@@ -299,50 +360,111 @@ function deskTextOf(c){
   return { t:'', staff:false };
 }
 
-/* ---- 설정 저장값 ---- */
-function applyTheme(t){ document.documentElement.setAttribute('data-theme', t); localStorage.setItem('kac-theme', t); $('darkToggle').checked = (t==='dark'); }
-const FS_BASE = 20; // 100% 기준 px
+/* ---- 글자 크기(헤더 A− / A+) — 저장 키 kac-mfs 그대로, 80~160% 10% 단위 ---- */
+const FS_BASE = 20; // 100% 기준 px(단방향 본문). 말풍선은 --k 배율로 19px/14px 기준
+const FS_MIN = 80, FS_MAX = 160, FS_STEP = 10;
 let fsPct = parseInt(localStorage.getItem('kac-mfs')||'100',10);
 if(!(fsPct>=50 && fsPct<=200)) fsPct = 100; // 옛 px 저장값 보정
-function applyFs(){ document.documentElement.style.setProperty('--fs', Math.round(FS_BASE*fsPct/100)+'px'); $('fsVal').textContent = fsPct+'%'; localStorage.setItem('kac-mfs', fsPct); }
-let showSrc = localStorage.getItem('kac-msrc') !== '0'; // 원문 동시 보기 기본 ON
-// 원문이 표시 문장과 같으면(출력 언어로 말한 발화 — 예: 한국어→한국어 기록) 두 번 쓰지 않는다
-function srcShown(c){
-  if (twoMode()) return showSrc && !!c.sub && c.sub.trim() !== String(c.line.textContent || '').trim();
-  return !isDesk() && showSrc && !!c.source && c.source.trim() !== String(pick(c.texts || {}) || '').trim();
+fsPct = Math.min(FS_MAX, Math.max(FS_MIN, Math.round(fsPct/FS_STEP)*FS_STEP)); // 예전 범위(50~200%) 저장값은 새 범위로
+function applyFs(){
+  const st = document.documentElement.style;
+  st.setProperty('--fs', Math.round(FS_BASE*fsPct/100)+'px');
+  st.setProperty('--k', String(fsPct/100));
+  $('fsDown').disabled = fsPct <= FS_MIN; $('fsUp').disabled = fsPct >= FS_MAX;
+  try { localStorage.setItem('kac-mfs', fsPct); } catch {}
 }
-function applySrc(){ $('srcToggle').checked = showSrc; cards.forEach(c => { c.src.style.display = srcShown(c) ? 'block':'none'; }); }
+// 원문은 항상 함께 보인다('원문 동시 보기' 토글 삭제).
+// 단, 원문이 표시 문장과 같으면(출력 언어로 말한 발화 — 예: 한국어→한국어 기록, 번역 도착 전 원문 표시) 두 번 쓰지 않는다
+function srcShown(c){
+  if (twoMode()) return !!c.sub && c.sub.trim() !== String(c.line.textContent || '').trim();
+  return !isDesk() && !!c.source && c.source.trim() !== String(c.line.textContent || '').trim();
+}
+function applySrc(){ cards.forEach(c => { c.src.style.display = srcShown(c) ? 'block':'none'; }); }
 function twoMode(){ return sxTwo && !isDesk(); }
 
-applyTheme(localStorage.getItem('kac-theme') || 'light');
 applyFs();
 
-/* ---- 언어 select ---- */
-// 번역 방향 라벨(언어 선택은 안 되므로 표시만): 단방향=→타깃, 양방향=A↔B
+/* ---- 짧은 알림 ---- */
+let toastTimer = null;
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1100); }
+
+/* ---- 내 언어 세그먼트 ----
+   양방향: 두 언어 중 '내 언어'(내 언어로 말한 쪽=오른쪽, 음성 듣기도 이 언어). 라벨 없이 각 언어를 그 언어로 표기.
+   구 whisper 세션: 다국어 중 표시 언어 선택도 같은 컨트롤(칸 수만 다름). */
+let segOnPick = null;
+function buildSeg(codes, onPick){
+  const key = codes.join(',');
+  segOnPick = onPick;
+  if (segPair !== key) {
+    segPair = key; langSeg.innerHTML = '';
+    codes.forEach(c => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('role', 'radio'); b.dataset.lang = c; b.lang = c;
+      b.textContent = endonym(c);
+      b.onclick = () => { if (segOnPick && c !== curLang) segOnPick(c); };
+      langSeg.appendChild(b);
+    });
+  }
+  langSeg.hidden = false;
+  syncSeg();
+}
+function syncSeg(){
+  langSeg.querySelectorAll('button').forEach(b => { const on = b.dataset.lang === curLang; b.setAttribute('aria-checked', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
+}
+function hideSeg(){ langSeg.hidden = true; segPair = null; }
+// 키보드: ←/→ 로 선택 이동(radiogroup 관례)
+langSeg.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const bs = [...langSeg.querySelectorAll('button')]; if (!bs.length) return;
+  const i = bs.findIndex(b => b.dataset.lang === curLang);
+  const nb = bs[(i + (e.key === 'ArrowRight' ? 1 : -1) + bs.length) % bs.length];
+  e.preventDefault(); nb.click(); nb.focus();
+});
+
+/* ---- 화면 문구 적용(UI 언어가 바뀔 때마다) ---- */
+let hostActive = false;
+function applyUi(){
+  document.documentElement.lang = uiLang();
+  if (empty) empty.textContent = T('waiting');
+  $('enterBtn').textContent = T('enter');
+  $('fsDown').setAttribute('aria-label', T('fsDown'));
+  $('fsUp').setAttribute('aria-label', T('fsUp'));
+  $('audioBtn').setAttribute('aria-label', T('listen'));
+  $('qrBtn').setAttribute('aria-label', T('qr'));
+  langSeg.setAttribute('aria-label', T('myLang'));
+  $('qrTitle').textContent = T('qrTitle');
+  $('qrHint').textContent = T('qrHint');
+  $('qrClose').setAttribute('aria-label', T('close'));
+  $('qrLink').setAttribute('aria-label', T('link'));
+  if (!$('qrCopy').classList.contains('done')) $('qrCopy').textContent = T('copy');
+  renderQr();
+  setHostActive(hostActive);
+  const nb = $('netBanner'); if (nb) nb.textContent = T('offline');
+}
+
+/* ---- 언어 표시 ---- */
+// 단방향=타깃 언어 표시, 양방향=내 언어 세그먼트
 function applySxInfo(info){
   // 언어쌍 문구 표시는 제거 — 표시할 언어(curLang)만 갱신
   if (!info) { rerender(); return; }
   if (info.mode === 'two') {
-    if (sessionPipeline === 'desk') curLang = info.b; // 데스크 뷰어=손님 언어
+    if (sessionPipeline === 'desk') { curLang = info.b; langKnown = true; } // 데스크 뷰어=손님 언어
     else {
-      // 일반 양방향: 내 언어를 고를 수 있게(두 언어 중 하나) — 정렬·번역·음성이 이 기준
+      // 일반 양방향: 내 언어를 고를 수 있게(두 언어 중 하나) — 정렬·번역·음성·화면 문구가 이 기준
       sxTwo = true; sxAlang = info.a; sxBlang = info.b;
-      curLang = (curLang === info.a || curLang === info.b) && langSel.dataset.pair === info.a+','+info.b ? curLang : pickMyLang(info.a, info.b);
-      if (langSel.dataset.pair !== info.a+','+info.b) {
-        langSel.dataset.pair = info.a+','+info.b;
-        langSel.innerHTML = '';
-        [info.a, info.b].forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent='My language: '+(LABEL[c]||c); langSel.appendChild(o); });
-      }
-      langSel.setAttribute('aria-label', 'My language');
-      langSel.value = curLang;
-      langSel.style.display = '';
-      langSel.onchange = () => { curLang = langSel.value; try { localStorage.setItem('kac-mylang-'+sessionId, curLang); } catch {} rerender(); sendAudioSub(audioOn); };
+      curLang = (curLang === info.a || curLang === info.b) && segPair === info.a+','+info.b ? curLang : pickMyLang(info.a, info.b);
+      langKnown = true;
+      buildSeg([info.a, info.b], (c) => {
+        curLang = c; try { localStorage.setItem('kac-mylang-'+sessionId, curLang); } catch {}
+        syncSeg(); rerender(); sendAudioSub(audioOn);
+      });
       sendAudioSub(audioOn); // 듣는 중이었다면 내 언어 기준으로 다시 구독
     }
   } else {
     curLang = (sessionPipeline === 'desk') ? 'ko' : info.target;
+    langKnown = true;
     sxTwo = false;
-    if (sessionPipeline !== 'desk' && langSel.dataset.pair) { langSel.style.display = 'none'; delete langSel.dataset.pair; }
+    if (sessionPipeline !== 'desk' && segPair) hideSeg();
   }
   rerender();
 }
@@ -351,11 +473,11 @@ async function loadSession(){
   // 접속 순간 일시 네트워크 오류로 세션 타입을 whisper 기본값으로 오판한 채 굳지 않도록 — 실패 시 5초 뒤 재시도
   try { const s = await fetch('/api/sessions/'+sessionId+tq1).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; } }
   catch { setTimeout(loadSession, 5000); }
-  titleEl.textContent = title; $('lTitle').textContent = title;
-  langSel.style.display='none';
+  titleEl.textContent = title; titleEl.title = title; $('lTitle').textContent = title;
+  langSeg.hidden = true;
   if (sessionPipeline === 'translate') {
     // 실시간 통역: 단일 출력 언어
-    curLang = sessionOutLang;
+    curLang = sessionOutLang; langKnown = true;
     $('audioBtn').style.display = 'flex';
   } else if (sessionPipeline === 'soniox') {
     // 실시간 번역: 음성 듣기(TTS 구독). 뷰어 발화(PTT)는 폐지 — 뷰어는 보기·듣기 전용
@@ -365,22 +487,41 @@ async function loadSession(){
     // 데스크 안내: 외국인 자기 언어 자동 표시(입력은 호스트 마이크, 뷰어는 표시 전용)
     applySxInfo(sxInfo);
   } else {
-    // whisper(구): 다국어 select 유지
-    langSel.innerHTML=''; langSel.style.display='';
+    // whisper(구): 표시 언어 선택(세그먼트 4칸)
     const saved = localStorage.getItem('kac-mlang-'+sessionId);
-    curLang = (saved && ALL4.includes(saved)) ? saved : 'ko';
-    ALL4.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=LABEL[c]||c; langSel.appendChild(o); });
-    langSel.value = curLang;
-    langSel.onchange = () => { curLang = langSel.value; localStorage.setItem('kac-mlang-'+sessionId, curLang); rerender(); };
+    curLang = (saved && ALL4.includes(saved)) ? saved : 'ko'; langKnown = true;
+    buildSeg(ALL4, (c) => { curLang = c; localStorage.setItem('kac-mlang-'+sessionId, curLang); syncSeg(); rerender(); });
   }
   rerender();
 }
 
-/* ---- QR ---- */
+/* ---- QR 공유 시트 ---- */
+// 기존 공개 /api/qr(뷰어 토큰 포함 URL + QR 이미지) 재사용. 실패해도 지금 주소로 링크 복사는 가능.
+let qrState = 'idle'; // idle | loading | ok | fail
+$('qrLink').value = location.href;
 async function loadQr(){
-  try { const d = await fetch('/api/qr?session='+sessionId+tq).then(r=>r.json());
-    $('qrImg').src = d.qr; $('qrLink').value = d.url;
-  } catch {}
+  if (qrState === 'loading' || qrState === 'ok') return;
+  qrState = 'loading'; renderQr();
+  try { const r = await fetch('/api/qr?session='+sessionId+tq); if (!r.ok) throw new Error(r.status); const d = await r.json(); if (!d || !d.qr) throw new Error('no qr');
+    $('qrImg').src = d.qr; if (d.url) $('qrLink').value = d.url; qrState = 'ok';
+  } catch { qrState = 'fail'; }
+  renderQr();
+}
+function renderQr(){
+  const ok = qrState === 'ok';
+  $('qrImg').hidden = !ok;
+  const m = $('qrMsg'); m.hidden = ok; m.textContent = qrState === 'fail' ? T('qrFail') : T('qrLoading');
+}
+let qrReturnFocus = null;
+function openQr(){
+  qrReturnFocus = document.activeElement;
+  $('qrBackdrop').classList.add('show'); $('qrSheet').classList.add('show'); $('qrSheet').setAttribute('aria-hidden', 'false');
+  if (qrState !== 'ok') loadQr(); // 처음 실패했으면 열 때 다시 시도
+  setTimeout(() => { try { $('qrClose').focus(); } catch {} }, 60);
+}
+function closeQr(){
+  $('qrBackdrop').classList.remove('show'); $('qrSheet').classList.remove('show'); $('qrSheet').setAttribute('aria-hidden', 'true');
+  if (qrReturnFocus && qrReturnFocus.focus) { try { qrReturnFocus.focus(); } catch {} }
 }
 
 // whisper: 선택 언어만 표시(대체 X). translate: 1개 언어만 저장 → 보유 텍스트로 폴백.
@@ -407,8 +548,8 @@ function upsert(item){
   if(!card){
     const el=document.createElement('div'); el.className='msg';
     const spk=document.createElement('div'); spk.className='spk'; el.appendChild(spk);
-    const line=document.createElement('div'); line.className='line'; el.appendChild(line);
-    const src=document.createElement('div'); src.className='src'; el.appendChild(src);
+    const line=document.createElement('div'); line.className='line'; line.dir='auto'; el.appendChild(line);
+    const src=document.createElement('div'); src.className='src'; src.dir='auto'; el.appendChild(src);
     feed.appendChild(el);
     card={el, line, src, spk}; cards.set(item.id, card); order.push(item.id);
     // 최신 강조 이동
@@ -428,15 +569,13 @@ function upsert(item){
   card.draft = !!item.draft;
   if(item.speaker) card.speaker = item.speaker;
   renderSpk(card);
-  renderLine(card);
-  if (!twoMode()) { // 양방향은 renderLine 이 보조 줄(번역/원문)을 직접 채운다
-    card.src.textContent = card.source;
-    card.src.style.display = srcShown(card) ? 'block' : 'none';
-  }
+  renderLine(card); // 보조 줄(원문/번역)까지 renderLine 이 채운다
   if(stick) scrollDown();
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
-function renderSpk(c){ if(!c.spk) return; c.spk.style.display='none'; } // 화자 구분 표시 제거(데스크는 renderLine에서 역할 라벨 처리)
+// 화자 구분 표시 제거. 양방향·데스크는 같은 자리(.who)를 방향/역할 라벨로 쓰므로 건드리지 않는다
+// (예전엔 speakers 메시지가 오면 그 라벨까지 숨겨졌다)
+function renderSpk(c){ if(!c.spk || c.spk.className === 'who') return; c.spk.style.display='none'; }
 function rerenderSpk(){ cards.forEach(renderSpk); }
 // 선택 언어 번역이 아직 없으면 원문을 흐리게(placeholder)
 function renderLine(c){
@@ -468,18 +607,32 @@ function renderLine(c){
     c.el.classList.toggle('self', mine);
     c.el.classList.toggle('staff', !mine);
     c.el.classList.remove('latest', 'dirA', 'dirB');
-    if (c.spk){ c.spk.className = 'who'; c.spk.style.display = main ? '' : 'none'; c.spk.textContent = LABEL[spoken] || (spoken ? String(spoken).toUpperCase() : ''); }
+    // 방향 라벨 '말한 언어 → 번역 언어'(UI 언어로): 상대 쪽=말한 언어→내 언어, 내 쪽=내 언어→상대 언어
+    const to = mine ? other : curLang;
+    if (c.spk){ c.spk.className = 'who'; c.spk.style.display = main ? '' : 'none'; c.spk.textContent = spoken ? (langName(spoken) + ' → ' + langName(to)) : langName(to); }
     c.line.className = 'line' + (pending ? ' pending' : '') + (c.draft ? ' draft' : '');
     c.line.textContent = main;
     c.src.textContent = c.sub || '';
+    // 줄마다 언어 표시 — 한국어만 어절 줄바꿈 + 한자 글꼴(일/중) 선택이 맞게
+    c.line.lang = pending ? (spoken || '') : curLang;
+    c.src.lang = mine ? (other || '') : (spoken || '');
     c.src.style.display = srcShown(c) ? 'block' : 'none';
     c.el.style.display = main ? '' : 'none';
     return;
+  }
+  // 단방향: 세션 도중 양방향→단방향으로 바뀌어도 말풍선·라벨이 남지 않게 원상 복구
+  if (c.el.classList.contains('turn')) {
+    c.el.classList.remove('turn', 'self', 'staff'); c.el.style.display = '';
+    c.line.removeAttribute('lang'); c.src.removeAttribute('lang');
+    if (c.spk) { c.spk.className = 'spk'; c.spk.style.display = 'none'; }
   }
   const txt = pick(c.texts);
   c.line.classList.toggle('pending', !txt && !!c.source);
   c.line.classList.toggle('draft', !!c.draft); // 진행 중 → 회색, 확정되면 제 색으로
   c.line.textContent = txt || c.source || '';
+  // 원문은 번역 아래 작은 줄로 항상(표시 문장과 같으면 생략)
+  c.src.textContent = c.source || '';
+  c.src.style.display = srcShown(c) ? 'block' : 'none';
   // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
   c.el.classList.remove('dirA', 'dirB');
   if (sxTwo && c.texts) {
@@ -488,7 +641,8 @@ function renderLine(c){
     else if (tk === sxAlang) c.el.classList.add('dirB'); // 타깃=언어1 → 언어2 발화
   }
 }
-function rerender(){ cards.forEach(renderLine); applySrc(); } // 언어를 바꾸면 '원문=표시 문장' 여부도 바뀐다
+// 언어를 바꾸면 화면 문구·방향 라벨 언어와 '원문=표시 문장' 여부도 바뀐다
+function rerender(){ applyUi(); cards.forEach(renderLine); applySrc(); }
 // 데스크: 대화 종료 시 화면 초기화(다음 손님)
 function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); removeMap(); if(empty) empty.style.display=''; }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
@@ -533,7 +687,7 @@ function connect(){
     let m; try { m = JSON.parse(ev.data); } catch { return; } // 비 JSON 프레임 방어
     // 서버가 접속을 거부(뷰어 정원 초과·동일 IP 상한): 이유를 보여주고 재연결을 멈춘다.
     // 이 분기가 없으면 거부된 폰이 아무 표시 없이 무한 재연결만 반복한다.
-    if(m.type==='error'){ refused = true; setPartial({room_full:'Too many viewers right now — please try again later.',ip_limit:'Too many connections from this device.'}[m.code] || m.message || 'Cannot connect right now — please try again later.'); try { cur.close(); } catch {} return; }
+    if(m.type==='error'){ refused = true; setPartial({room_full:T('roomFull'),ip_limit:T('ipLimit')}[m.code] || m.message || T('cantConn')); try { cur.close(); } catch {} return; }
     if(m.type==='snapshot'){ m.items.forEach(it => upsert(it)); }
     else if(m.type==='partial'){ setPartial(m.text); }
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
@@ -547,39 +701,35 @@ function connect(){
 }
 // 호스트(번역) 활성/중지 → 상태 표시등(초록/회색) + 랜딩
 function setHostActive(active){
-  $('liveDot').classList.toggle('on', active); $('liveDot').title = active ? 'Live' : 'Waiting';
-  const ld = $('lLiveDot'); if(ld) ld.classList.toggle('on', active);
-  const ll = $('lLive'); if(ll) ll.textContent = active ? 'Live' : 'Waiting';
+  hostActive = !!active;
+  const lbl = hostActive ? T('live') : T('idle');
+  $('liveDot').classList.toggle('on', hostActive); $('liveDot').title = lbl; $('liveDot').setAttribute('aria-label', lbl);
+  const ld = $('lLiveDot'); if(ld) ld.classList.toggle('on', hostActive);
+  const ll = $('lLive'); if(ll) ll.textContent = lbl;
 }
 
-/* ---- 설정 UI ---- */
-function openSheet(){ $('backdrop').classList.add('show'); $('sheet').classList.add('show'); }
-function closeSheet(){ $('backdrop').classList.remove('show'); $('sheet').classList.remove('show'); }
-$('settingsBtn').onclick = openSheet;
-$('backdrop').onclick = closeSheet;
-$('fsUp').onclick = (e) => { e.stopPropagation(); fsPct = Math.min(200, fsPct+10); applyFs(); };
-$('fsDown').onclick = (e) => { e.stopPropagation(); fsPct = Math.max(50, fsPct-10); applyFs(); };
-// QR / 원문 / 다크모드: 행 전체 클릭으로 동작
-$('rowQr').onclick = () => { closeSheet(); $('qrModal').classList.add('show'); };
-// 전체화면: 헤더 버튼(설정 시트에서 이동). 진입/해제 토글
-$('fullBtn').onclick = () => {
-  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-  if (fsEl) { (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document); return; }
-  const el = document.documentElement;
-  const fn = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (fn) { try { fn.call(el); } catch {} }
-};
-$('rowSrc').onclick = () => { showSrc = !showSrc; $('srcToggle').checked = showSrc; localStorage.setItem('kac-msrc', showSrc?'1':'0'); applySrc(); };
+/* ---- 헤더 버튼(설정 시트 삭제 — 글자 크기·QR 은 여기로, 원문은 항상 표시, 다크 모드 없음) ---- */
+function stepFs(d){
+  const s = atBottom();
+  fsPct = Math.min(FS_MAX, Math.max(FS_MIN, fsPct + d)); applyFs();
+  toast(T('fsVal') + ' ' + fsPct + '%');
+  if (s) scrollDown(); // 맨 아래 보던 중이면 커진 글자에도 최신 문장이 보이게
+}
+$('fsDown').onclick = () => stepFs(-FS_STEP);
+$('fsUp').onclick = () => stepFs(FS_STEP);
 $('audioBtn').onclick = () => {
-  audioOn = !audioOn; $('audioBtn').classList.toggle('on', audioOn); if(audioOn) enableAudio(); sendAudioSub(audioOn);
+  audioOn = !audioOn; $('audioBtn').classList.toggle('on', audioOn); $('audioBtn').setAttribute('aria-pressed', audioOn ? 'true' : 'false');
+  if(audioOn) enableAudio(); sendAudioSub(audioOn);
 };
-$('rowDark').onclick = () => { applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); };
-$('qrClose').onclick = () => $('qrModal').classList.remove('show');
-$('qrModal').onclick = (e) => { if(e.target.id==='qrModal') $('qrModal').classList.remove('show'); };
+$('qrBtn').onclick = openQr;
+$('qrClose').onclick = closeQr;
+$('qrBackdrop').onclick = closeQr;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('qrSheet').classList.contains('show')) closeQr(); });
 $('qrCopy').onclick = async () => {
   const link = $('qrLink').value;
-  try { await navigator.clipboard.writeText(link); } catch { const i=$('qrLink'); i.select(); document.execCommand('copy'); }
-  const b=$('qrCopy'); const t=b.textContent; b.textContent='Copied!'; setTimeout(()=>b.textContent=t, 1200);
+  try { await navigator.clipboard.writeText(link); } catch { const i=$('qrLink'); i.select(); try { document.execCommand('copy'); } catch {} }
+  const b=$('qrCopy'); b.classList.add('done'); b.textContent = T('copied');
+  setTimeout(() => { b.classList.remove('done'); b.textContent = T('copy'); }, 1200);
 };
 
 
@@ -600,16 +750,17 @@ window.addEventListener('error', (e) => {
   try { fetch('/api/client-log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ msg: 'mobile: ' + e.message, src: (e.filename||'') + ':' + (e.lineno||0) }) }); } catch {}
 });
 
+applyUi();
 applySrc();
 loadSession();
 loadQr();
 connect();
 </script>
 <script>
-/* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음) */
+/* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음). 문구는 UI 언어(applyUi 가 갱신) */
 (function(){
-  var b = document.createElement('div'); b.id = 'netBanner';
-  b.textContent = 'No internet connection — will resume automatically once back online.';
+  var b = document.createElement('div'); b.id = 'netBanner'; b.setAttribute('role', 'status');
+  b.textContent = (typeof T === 'function') ? T('offline') : 'No internet connection — will resume automatically once back online.';
   document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(b); if(!navigator.onLine) b.classList.add('show'); });
   window.addEventListener('offline', function(){ b.classList.add('show'); });
   window.addEventListener('online', function(){ b.classList.remove('show'); });

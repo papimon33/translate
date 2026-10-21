@@ -52,6 +52,7 @@ import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import MobileLive from './mobile/MobileLive.jsx';
+import { setPref } from './mobile/prefs.js';
 import { api } from '../api.js';
 
 function VolumeIcon({ level }) {
@@ -74,7 +75,7 @@ const OUT4 = [
   { code: 'zh', label: '中文' },
 ];
 // Soniox stt-rt-v5 지원 언어 전체(60) — 한·영·일·중을 상단에, 나머지는 가나다순
-const SX_LANGS = [
+export const SX_LANGS = [
   ...OUT4,
   { code: 'el', label: '그리스어' }, { code: 'nl', label: '네덜란드어' }, { code: 'no', label: '노르웨이어' },
   { code: 'da', label: '덴마크어' }, { code: 'de', label: '독일어' }, { code: 'lv', label: '라트비아어' },
@@ -277,8 +278,11 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     try { saved = localStorage.getItem('kac-sx-target:' + initial.id); } catch {}
     return initial._target || saved || (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en'));
   });
-  const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
-  const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
+  // 양방향 두 언어: 이 세션에서 마지막으로 쓴 값(kac-sx-pair:<id>) → 없으면 기기 공통값
+  const savedPair = (() => { try { return String(localStorage.getItem('kac-sx-pair:' + initial.id) || '').split('|'); } catch { return []; } })();
+  const [sxA, setSxA] = useState(() => savedPair[0] || localStorage.getItem('kac-sx-a') || 'ko');
+  const [sxB, setSxB] = useState(() => savedPair[1] || localStorage.getItem('kac-sx-b') || 'en');
+  const savePair = (a, b) => { try { localStorage.setItem('kac-sx-a', a); localStorage.setItem('kac-sx-b', b); localStorage.setItem('kac-sx-pair:' + initial.id, `${a}|${b}`); } catch {} };
   // 다국어 회의: 동시 번역 언어 집합(2~4개). 기기 저장.
   // 고급옵션: 단독 응답어(네/Yes/Okay 단독 발화) 기록 생략 — 기본 꺼짐(보존)
   const [dropAcks, setDropAcks] = useState(() => localStorage.getItem('kac-drop-acks') === '1');
@@ -326,7 +330,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   // 스테레오 2채널(양방향 통역 + 마이크): 수신기가 송신기 2개를 좌우로 나눠 보내면 자동으로 채널 분리.
   // stereoInfo = { state: 'detect'|'mono'|'stereo', them: 상대 채널 연결 여부 } (녹음 중에만)
   const [stereoInfo, setStereoInfo] = useState(null);
-  const [stereoSwap, setStereoSwap] = useState(() => localStorage.getItem('kac-stereo-swap') === '1'); // 송신기 좌우 바꾸기
   // TTS 를 이 기기에서는 재생하지 않고 뷰어(각자 폰·이어폰)에게만 — 설명자 기기 스피커 소리가 마이크로 다시 들어가지 않게
   const [ttsViewerOnly, setTtsViewerOnly] = useState(() => localStorage.getItem('kac-tts-viewer-only') === '1');
   // 데스크 마이크 2대(PC): 지향성 마이크 2대를 이 PC 에 직결 — 직원/여객 장치 지정, 뷰어는 표출 전용이 됨
@@ -494,15 +497,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     return () => { try { app.setKeepScreenOn(false); } catch {} };
   }, [recording]);
 
-  // 새 세션 시트의 '시작하기'로 연 세션은 바로 번역을 시작한다(세션 정보 로드 후 1회)
-  const autoStartRef = useRef(!!initial._autoStart);
-  useEffect(() => {
-    if (!autoStartRef.current) return undefined;
-    autoStartRef.current = false;
-    const t = setTimeout(() => { startRef.current && startRef.current(); }, 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line
-  }, []);
 
   // 녹음 중 실수로 페이지를 닫거나 새로고침하면 번역이 중단됨 — 이탈 전 확인
   useEffect(() => {
@@ -654,23 +648,22 @@ export default function TranslateView({ session: initial, onBack, mobile = false
         volume,
         micSens, // 마이크 음성인식 민감도(0~100): 일정 볼륨 이상만 전송하는 클라이언트 볼륨 게이트
         deskGuestSens: cfg.pipeline === 'desk' ? guestSens : undefined, // 여객 태블릿 마이크 민감도(서버 경유 뷰어 근접 게이트)
-        sxSens,
-        sxMaxDelay,
-        sxLatency,
+        sxSens: mobile ? 0 : sxSens, // 폰 화면엔 고급 설정이 없다 — 발화 끊김·실험 기능은 기본값 고정
+        sxMaxDelay: mobile ? 2000 : sxMaxDelay,
+        sxLatency: mobile ? 0 : sxLatency,
         sxMode,
         sxTarget,
         sxA,
         sxB,
-        dropAcks, // 고급옵션: 단독 응답어(네/Yes) 기록 생략
-        confFix, // 고급옵션: 저신뢰 자동 교정(GPT) — 연속 저신뢰 발화만 맥락 교정
+        dropAcks: mobile ? false : dropAcks, // 고급옵션: 단독 응답어(네/Yes) 기록 생략
+        confFix: mobile ? false : confFix, // 고급옵션: 저신뢰 자동 교정(GPT) — 연속 저신뢰 발화만 맥락 교정
         // 데스크 마이크 2대(PC): 여객 장치가 지정된 경우에만 — 여객 오디오는 src=guestmic 별도 연결로 공급
         mic2: cfg.pipeline === 'desk' && mic2On && micGuestId && !window.AndroidAudio ? { staff: micStaffId || null, guest: micGuestId } : undefined,
-        rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
+        rnnoise: mobile ? false : rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
         micId: cfg.pipeline === 'soniox' && micId ? micId : undefined, // 실시간 번역: 마이크 장치 선택
         wayfind: cfg.pipeline === 'desk' ? wayfindOn : undefined, // 데스크: 길안내 지도 기능 on/off
         // 스테레오 2채널 자동 판별(양방향 통역 + 마이크) — 모노 기기·단방향은 기존 1채널 그대로
         stereo: cfg.pipeline === 'soniox' && sxMode === 'two' && sourceMode === 'mic',
-        stereoSwap,
         onStereo: (info) => setStereoInfo(info),
         onMessage,
         onEnded: () => { // 장치 뽑힘·화면공유 중지 — 레코더는 스스로 멈추므로 UI 를 함께 정리('진행 중' 고착 방지)
@@ -796,7 +789,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   // 대화상자·메뉴·알림 — 데스크톱/폰 화면이 공유한다
   const overlays = (
     <>
-      <Dialog open={sxSettingsOpen} onClose={() => setSxSettingsOpen(false)} fullScreen={mobile} PaperProps={{ sx: mobile ? {} : { width: 400, maxWidth: 400 } }}>
+      <Dialog open={sxSettingsOpen} onClose={() => setSxSettingsOpen(false)} PaperProps={{ sx: { width: 400, maxWidth: 400 } }}>
         <DialogTitle sx={{ fontWeight: 800 }}>고급 설정</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 2.5 }}>이 설정은 이 기기에 저장됩니다.</Typography>
@@ -835,15 +828,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
               </Box>
             );
           })()}
-          {cfg.pipeline === 'soniox' && sxMode === 'two' && sourceMode === 'mic' && (
-            <InfoToggle
-              label="스테레오 마이크 좌우 바꾸기"
-              hint="2채널 무선 마이크(스테레오 모드)를 꽂으면 자동으로 송신기 1번(왼쪽)=나, 2번(오른쪽)=상대로 나눠 통역합니다. 반대로 찼다면 켜세요. 다음 시작부터 적용됩니다."
-              checked={stereoSwap}
-              disabled={false}
-              onChange={(e) => { const v = e.target.checked; setStereoSwap(v); localStorage.setItem('kac-stereo-swap', v ? '1' : '0'); }}
-            />
-          )}
           {cfg.pipeline === 'desk' && (
             /* 게스트 마이크(2채널) 근접 게이트 — 호스트 민감도 바로 아래 배치. 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */
             <SxSlider label="게스트 마이크 민감도" hint="100=모든 소리, 낮출수록 게스트 마이크 가까이의 큰 소리에만 반응(호스트 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
@@ -1009,25 +993,9 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       </Dialog>
 
       {/* 세션 헤더 '…' 메뉴 */}
-      <Menu anchorEl={hdrMenu} open={!!hdrMenu} onClose={() => setHdrMenu(null)} transformOrigin={{ vertical: 'top', horizontal: mobile ? 'right' : 'left' }}
-        anchorOrigin={{ vertical: 'bottom', horizontal: mobile ? 'right' : 'left' }}
-        slotProps={{ paper: { sx: { '& .MuiMenuItem-root': mobile ? { fontSize: 15, minHeight: 48 } : { fontSize: 13 } } } }}>
-        {/* 폰 화면엔 헤더 버튼이 없으므로 링크 공유·녹취록 저장·고급 설정을 이 메뉴로 */}
-        {mobile && [
-          <MenuItem key="share" onClick={() => { setHdrMenu(null); setQrOpen(true); }}>
-            <ListItemIcon><QrCode2Icon fontSize="small" /></ListItemIcon>
-            링크 공유
-          </MenuItem>,
-          <MenuItem key="save" disabled={messages.length === 0} onClick={() => { setHdrMenu(null); downloadTranscript(); }}>
-            <ListItemIcon><FileDownloadOutlinedIcon fontSize="small" /></ListItemIcon>
-            녹취록 저장
-          </MenuItem>,
-          <MenuItem key="adv" onClick={() => { setHdrMenu(null); setSxSettingsOpen(true); }}>
-            <ListItemIcon><TuneIcon fontSize="small" /></ListItemIcon>
-            고급 설정
-          </MenuItem>,
-          <Divider key="div" />,
-        ]}
+      <Menu anchorEl={hdrMenu} open={!!hdrMenu} onClose={() => setHdrMenu(null)} transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { '& .MuiMenuItem-root': { fontSize: 13 } } } }}>
         <MenuItem onClick={() => { setHdrMenu(null); openRename(); }}>
           <ListItemIcon><DriveFileRenameOutlineIcon fontSize="small" /></ListItemIcon>
           세션 이름 수정
@@ -1062,11 +1030,20 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       localStorage.setItem('kac-sx-tts', v ? '1' : '0');
       if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender, !ttsViewerOnly);
     };
+    // 세션 설정 시트의 동작들 — 확인 창은 MobileLive 가 띄우고 여기선 실행만(실패는 throw → 시트가 안내)
+    const mobileActions = {
+      onRename: async (v) => { await api.patch(initial.id, { title: v }); setSessTitle(v); },
+      onClear: async () => { await api.clearItems(initial.id); setMessages([]); },
+      onDelete: async () => { await api.remove(initial.id); onBack(); },
+      getQr: () => (qr ? Promise.resolve(qr) : api.qr(initial.id).then((r) => { setQr(r); return r; })),
+      onSaveTranscript: downloadTranscript,
+      onViewerOnly: (v) => { setTtsViewerOnly(v); localStorage.setItem('kac-tts-viewer-only', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(ttsOn, gender, !v); },
+      onMicSens: (v) => { setMicSens(v); setPref('micSens', v); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); },
+    };
     return (
       <>
         <MobileLive
           title={sessTitle}
-          modeLabel={pipeLabel}
           twoway={twoway}
           recording={recording}
           connecting={connecting}
@@ -1074,9 +1051,13 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           notice={notice}
           micMuted={micMuted}
           level={level}
+          micSens={micSens}
+          micNative={nativeApp || !!(stereoInfo && stereoInfo.raw)}
           ttsOn={ttsOn}
           ttsAllowed={ttsAllowed}
+          ttsViewerOnly={ttsViewerOnly}
           messages={messages}
+          canSave={messages.length > 0}
           inLang={cfg.inLang}
           sxTarget={sxTarget}
           sxA={sxA}
@@ -1084,20 +1065,19 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           recStartAt={recStartAt}
           fontScale={fontScale}
           scrollRef={scrollRef}
-          inLangs={LANGS}
-          sxLangs={SX_LANGS}
-          onBack={onBack}
-          onMenu={(el) => setHdrMenu(el)}
-          onMicSettings={() => setSxSettingsOpen(true)}
+          inCodes={LANGS.map((l) => l.code)}
+          sxCodes={SX_LANGS.map((l) => l.code)}
           stereoInfo={stereoInfo}
+          onBack={onBack}
           onStart={start}
           onStop={stop}
           onToggleMute={toggleMute}
           onToggleTts={toggleTts}
-          onInLang={(v) => patch({ inLang: v })}
+          onInLang={(v) => { patch({ inLang: v }); try { localStorage.setItem('kac-sx-in', v); } catch {} }}
           onTarget={(v) => { setSxTarget(v); try { localStorage.setItem('kac-sx-target', v); localStorage.setItem('kac-sx-target:' + initial.id, v); } catch {} }}
-          onA={(v) => { setSxA(v); localStorage.setItem('kac-sx-a', v); }}
-          onB={(v) => { setSxB(v); localStorage.setItem('kac-sx-b', v); }}
+          onA={(v) => { const b = v === sxB ? sxA : sxB; setSxA(v); setSxB(b); savePair(v, b); }}
+          onB={(v) => { const a = v === sxA ? sxB : sxA; setSxB(v); setSxA(a); savePair(a, v); }}
+          {...mobileActions}
         />
         {overlays}
       </>
@@ -1314,7 +1294,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           )}
           {cfg.pipeline === 'soniox' && sxMode === 'two' && (
             <Field label="내 언어">
-              <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); localStorage.setItem('kac-sx-a', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+              <Select size="small" value={sxA} disabled={recording} onChange={(e) => { setSxA(e.target.value); savePair(e.target.value, sxB); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
                 {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
               </Select>
             </Field>
@@ -1328,7 +1308,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           )}
           {cfg.pipeline === 'soniox' && sxMode === 'two' && (
             <Field label="상대 언어">
-              <Select size="small" value={sxB} disabled={recording} onChange={(e) => { setSxB(e.target.value); localStorage.setItem('kac-sx-b', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+              <Select size="small" value={sxB} disabled={recording} onChange={(e) => { setSxB(e.target.value); savePair(sxA, e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
                 {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
               </Select>
             </Field>

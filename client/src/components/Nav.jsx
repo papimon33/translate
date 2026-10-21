@@ -261,6 +261,7 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
 
 function ProfileEditDialog({ open, user, onClose, onSaved }) {
   const [username, setUsername] = useState('');
+  const [curPw, setCurPw] = useState('');
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [err, setErr] = useState('');
@@ -269,6 +270,7 @@ function ProfileEditDialog({ open, user, onClose, onSaved }) {
   React.useEffect(() => {
     if (open) {
       setUsername(user?.username || '');
+      setCurPw('');
       setPw('');
       setPw2('');
       setErr('');
@@ -276,6 +278,10 @@ function ProfileEditDialog({ open, user, onClose, onSaved }) {
   }, [open, user]);
 
   const save = async () => {
+    if (pw && !curPw) {
+      setErr('현재 비밀번호를 입력하세요.');
+      return;
+    }
     if (pw && pw !== pw2) {
       setErr('비밀번호가 일치하지 않습니다.');
       return;
@@ -285,6 +291,7 @@ function ProfileEditDialog({ open, user, onClose, onSaved }) {
     try {
       const body = { username };
       if (pw) {
+        body.currentPassword = curPw; // 서버가 현재 비밀번호를 확인해야 변경된다
         body.password = pw;
         body.passwordConfirm = pw2;
       }
@@ -308,8 +315,14 @@ function ProfileEditDialog({ open, user, onClose, onSaved }) {
           onChange={(e) => setUsername(e.target.value)} sx={{ mb: 2 }}
         />
         <TextField
+          fullWidth type="password" label="현재 비밀번호" value={curPw}
+          onChange={(e) => setCurPw(e.target.value)} sx={{ mb: 2 }}
+          required={!!pw} autoComplete="current-password"
+          helperText={pw && !curPw ? '비밀번호를 바꾸려면 현재 비밀번호를 입력하세요.' : ''}
+        />
+        <TextField
           fullWidth type="password" label="새 비밀번호 (변경 시에만)" value={pw}
-          onChange={(e) => setPw(e.target.value)} sx={{ mb: 2 }}
+          onChange={(e) => setPw(e.target.value)} sx={{ mb: 2 }} autoComplete="new-password"
         />
         <TextField
           fullWidth type="password" label="비밀번호 확인" value={pw2}
