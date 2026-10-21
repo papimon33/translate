@@ -2325,6 +2325,33 @@ async function sendLatestInstaller(res, plat) {
   }
 }
 
+/* 발화 언어 판정(양방향·채널 분리 공용). 예전엔 응답마다 비확정 토큰까지 다시 세서, 초기 오판(일본어 'スマートフォン…'을
+   처음엔 한국어 '스마트폰…'으로 들음)이 수십 번 반복 집계돼 확정된 정답을 이겼다 — 카드가 '한국어 발화'로 저장되고 번역 칸(ja)에
+   한국어 문장이 들어가 뷰어에 뒤집혀 보였다(2026-10-21 모노 양방향 측정에서 재현).
+   우선순위: ① 확정 번역 토큰의 source_language — 엔진이 실제로 번역한 방향이라 카드의 번역 칸과 항상 맞는다
+   ② 확정 원문 토큰 다수결 ③ 아직 확정이 없으면 이번 응답의 비확정 토큰 다수결(누적하지 않음). 동률이면 직전 판정 유지. */
+function langJudge() {
+  let votes = {}, trSrc = '', resp = {};
+  const lg = (x) => (x ? String(x).split('-')[0].toLowerCase() : '');
+  const lead = (m, prev) => { let best = prev && m[prev] ? prev : ''; for (const k of Object.keys(m)) if (!best || m[k] > (m[best] || 0)) best = k; return best; };
+  return {
+    reset() { votes = {}; trSrc = ''; resp = {}; },
+    begin() { resp = {}; }, // 응답 하나 시작 — 비확정 토큰은 응답마다 다시 오므로 그 응답 안에서만 센다
+    token(t) {
+      if (t.translation_status === 'translation') { if (t.is_final && t.source_language) trSrc = lg(t.source_language); return; }
+      const l = lg(t.language);
+      if (!l) return;
+      if (t.is_final) votes[l] = (votes[l] || 0) + 1; else resp[l] = (resp[l] || 0) + 1;
+    },
+    pick(prev) {
+      if (trSrc) return trSrc;
+      if (Object.keys(votes).length) return lead(votes, prev);
+      if (Object.keys(resp).length) return lead(resp, prev);
+      return prev;
+    },
+  };
+}
+
 /* ---- 뷰어(공개 QR) 접근 토큰 --------------------------------------------
    세션 id 로부터 AUTH_SECRET 으로 파생하는 무상태 서명. QR/링크에 &t= 로 실어 보내고,
    서버가 재계산해 대조한다. 세션마다 고정이라 인쇄 QR 이 계속 유효(데스크 운영과 호환)이고,
@@ -3362,7 +3389,7 @@ function handleHost(ws) {
     let finalTrans = '';  // Soniox 번역(타깃) 확정 누적
     let lastTrans = '';   // 마지막으로 표시한 번역(폴백용)
     let curSrc = '';      // 감지된 입력 언어(토큰 다수결 — 첫 단어 오인식 교정)
-    let langVotes = {};   // 언어별 토큰 수
+    const langVotes = langJudge(); // 발화 언어 판정(확정 번역의 source_language → 확정 원문 다수결)
     let curSpeaker = '';  // 현재 발화 화자(diarization)
     let lastCommitText = ''; // 직전 확정 텍스트(연속 중복 카드 방지)
     let lastCommitted = null; // { id, key, out, at } — 화자 변경 커밋 직후 늦게 도착한 번역 꼬리를 직전 카드에 귀속
@@ -3469,7 +3496,7 @@ function handleHost(ws) {
       utterTm = null;
       const tail = ttsPending;            // 종결부호 없이 남은 마지막 조각
       const hadFinal = !!finalTrans.trim(); // 발화 중 확정 번역이 흘러갔는지
-      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = ''; langVotes = {}; srcToks = [];
+      curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; curSpeaker = ''; ttsPending = ''; langVotes.reset(); srcToks = [];
       pending = []; // 리플레이 버퍼: 확정된 발화의 오디오는 재전송 대상에서 제외(발화 경계에서 비움)
       // 화자 구분 켰는데 엔진이 화자 정보를 한 번도 안 줬으면 1회 안내(진단)
       if (diar && !sawSpeaker && !noSpkWarned) { noSpkWarned = true; toHost({ type: 'status', message: '화자 구분: 엔진이 화자 정보를 반환하지 않음(번역/엔드포인트와 동시 사용 시 발생 가능)' }); }
@@ -3540,6 +3567,7 @@ function handleHost(ws) {
       let endHit = false;
       let nonFinal = '';      // 비확정 전사(원문) — 매 응답마다 새로 구성
       let nonFinalTrans = ''; // 비확정 번역(타깃)
+      langVotes.begin();
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
         // 화자 정보는 원문/번역 토큰 어디서 와도 캡처(진단 + 표시용)
@@ -3556,6 +3584,7 @@ function handleHost(ws) {
               upsertItem(lastCommitted.id, { [lastCommitted.key]: lastCommitted.out });
               continue;
             }
+            langVotes.token(t); curSrc = langVotes.pick(curSrc); // 엔진이 번역한 방향이 가장 확실
             finalTrans += t.text;
             ttsLang = targetKeyFor(curSrc); // 현재 타깃 언어로 합성
             ttsPending += t.text;           // 문장 단위 실시간 TTS 큐
@@ -3563,8 +3592,7 @@ function handleHost(ws) {
         } else {
           // 전사(원문) 토큰 (translation_status: none | original | undefined)
           // 입력 언어는 첫 토큰이 아니라 '다수결'로 — 한국어 발화의 첫 단어가 영어로 오인돼도 뒤 토큰들이 교정
-          const lg = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
-          if (lg) { langVotes[lg] = (langVotes[lg] || 0) + 1; if (!curSrc || langVotes[lg] > (langVotes[curSrc] || 0)) curSrc = lg; } // 동률에선 유지(방향 플립 방지)
+          langVotes.token(t); curSrc = langVotes.pick(curSrc); // 동률에선 유지(방향 플립 방지)
           // 화자 변경 시: 누적된 발화가 있으면 먼저 확정하고 새 화자로 시작
           if (diar && t.speaker != null && t.speaker !== '' && t.is_final && curSpeaker && String(t.speaker) !== String(curSpeaker) && finalText.trim()) commit();
           if (diar && t.speaker != null && t.speaker !== '') curSpeaker = t.speaker;
@@ -3711,7 +3739,7 @@ function handleHost(ws) {
     let gPending = [];
     let gCurId = null, gFinalText = '', gFinalTrans = '', gLastTrans = '', gLastCommitText = '';
     let gLastCommitAt = 0;
-    let gCurSrc = '', gLangVotes = {}; // 여객 채널 감지 언어(다수결) — 안내원(ko) 누화 판정용
+    let gCurSrc = ''; const gLangVotes = langJudge(); // 여객 채널 감지 언어 — 안내원(ko) 누화 판정용
     let gToks = []; // 여객 채널 원문 확정 토큰 [[text, confidence], ...]
     const recentCommits = [];   // 교차 중복(누화) 필터: [{ n, at, ch }]
     const chStats = { staff: 0, guest: 0, crossDrops: 0 }; // 누화율 측정용(deskLog 에 저장)
@@ -3815,12 +3843,12 @@ function handleHost(ws) {
     let curId = null, finalText = '', finalTrans = '', lastTrans = '', curSrc = '', lastCommitText = '';
     let lastCommitAt = 0; // 중복 판정은 5초 창 안에서만(의도적 반복 발화 허용)
     let autoDetect = false; // 'Other languages' 시작 — 첫 발화의 언어를 감지해 two_way 로 전환
-    let langVotes = {}; // 입력 언어 다수결(첫 단어 오인식 교정)
+    const langVotes = langJudge(); // 입력 언어 판정(첫 단어 오인식 교정)
     let srcToks = []; // 원문 확정 토큰 [[text, confidence], ...] — 저신뢰 하이라이트 + 추후 평가용
     let dropAcks = ws._dropAcks === '1'; // 고급옵션: 단독 응답어 기록 생략(라이브 토글 가능)
     let confFix = ws._confFix === '1'; // 고급옵션: 저신뢰 자동 교정(라이브 토글 가능)
     const targetKeyFor = (src) => (lockedB && lockedB !== A ? (src === A ? lockedB : A) : A);
-    const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; langVotes = {}; srcToks = []; };
+    const resetUtterance = () => { curId = null; finalText = ''; finalTrans = ''; lastTrans = ''; curSrc = ''; langVotes.reset(); srcToks = []; };
 
     // 자동 감지 완료(Other languages): 첫 발화가 한국어가 아니면 그 언어로 잠그고 채널 재체결.
     // 데스크·여객 어느 채널이 먼저 확정하든 여기로 모인다 — 표시 여부(소유권·누화 드랍)와 무관하게 언어부터 잠근다.
@@ -4061,14 +4089,15 @@ function handleHost(ws) {
       sxFails = 0; // 실제 토큰 수신 = 정상 연결 — 실패 카운터 리셋
       if (phase === 'active') armForeignTimer(); // 어떤 발화든(안내원 한국어 포함) 들리면 무음 타이머 리셋
       let endHit = false, nonFinal = '', nonFinalTrans = '';
+      langVotes.begin();
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
         if (t.translation_status === 'translation') {
+          langVotes.token(t); curSrc = langVotes.pick(curSrc);
           if (t.is_final) finalTrans += t.text; else nonFinalTrans += t.text;
         } else {
-          // 입력 언어는 토큰 다수결 — 한국어 발화의 첫 단어가 영어로 오인돼도 뒤 토큰들이 교정
-          const lang = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
-          if (lang) { langVotes[lang] = (langVotes[lang] || 0) + 1; if (!curSrc || langVotes[lang] > (langVotes[curSrc] || 0)) curSrc = lang; } // 동률에선 유지(방향 플립 방지)
+          // 입력 언어는 확정 토큰 다수결 — 한국어 발화의 첫 단어가 영어로 오인돼도 뒤 토큰들이 교정
+          langVotes.token(t); curSrc = langVotes.pick(curSrc); // 동률에선 유지(방향 플립 방지)
           if (t.is_final) {
             finalText += t.text;
             if (t.text.trim()) srcToks.push([t.text, typeof t.confidence === 'number' ? Math.round(t.confidence * 100) / 100 : null]); // 신뢰도 기록
@@ -4100,7 +4129,7 @@ function handleHost(ws) {
       // gPending(리플레이 버퍼)은 비우지 않는다 — 언어 감지 직후 closeGuest→connectGuest 재체결에서
       // 진행 중 발화의 앞부분을 새 소켓에 재전송하기 위함(확정 시 guestCommit 이 비움).
       const old = gsx; gsx = null; gsxReady = false;
-      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {}; gToks = [];
+      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes.reset(); gToks = [];
       if (old) { try { old.send(''); } catch {} try { old.close(); } catch {} }
     }
     function connectGuest() {
@@ -4141,7 +4170,7 @@ function handleHost(ws) {
       const toks = gToks; // 이 발화의 원문 토큰(신뢰도 포함)
       const tm = { ...(guestTm || {}), c: Date.now() }; // 레이턴시: s/e/c
       guestTm = null;
-      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes = {}; gToks = [];
+      gCurId = null; gFinalText = ''; gFinalTrans = ''; gLastTrans = ''; gCurSrc = ''; gLangVotes.reset(); gToks = [];
       gPending = []; // 리플레이 버퍼: 확정된 발화의 오디오는 재전송 대상에서 제외
       if (!id || !txt) { if (id) liveSend(id, {}, null, null, null, 'left'); return; } // 고스트(또는 추임새뿐인) 카드 제거
       // 자동 감지(Other languages): 손님은 여객 태블릿에 대고 말하므로 이 채널에서 감지되는 게 정상 경로
@@ -4172,12 +4201,12 @@ function handleHost(ws) {
       gsxFails = 0; // 실제 토큰 수신 = 정상 연결 — 실패 카운터 리셋
       if (phase === 'active') armForeignTimer();
       let endHit = false, nonFinal = '', nonFinalTrans = '';
+      gLangVotes.begin();
       for (const t of toks) {
         if (t.text === '<end>') { endHit = true; continue; }
-        if (t.translation_status === 'translation') { if (t.is_final) gFinalTrans += t.text; else nonFinalTrans += t.text; }
+        if (t.translation_status === 'translation') { gLangVotes.token(t); gCurSrc = gLangVotes.pick(gCurSrc); if (t.is_final) gFinalTrans += t.text; else nonFinalTrans += t.text; }
         else {
-          const lang = t.language ? String(t.language).split('-')[0].toLowerCase() : '';
-          if (lang) { gLangVotes[lang] = (gLangVotes[lang] || 0) + 1; if (!gCurSrc || gLangVotes[lang] > (gLangVotes[gCurSrc] || 0)) gCurSrc = lang; }
+          gLangVotes.token(t); gCurSrc = gLangVotes.pick(gCurSrc);
           if (t.is_final) {
             gFinalText += t.text;
             if (t.text.trim()) gToks.push([t.text, typeof t.confidence === 'number' ? Math.round(t.confidence * 100) / 100 : null]); // 신뢰도 기록
