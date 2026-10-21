@@ -271,7 +271,12 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   });
   // 번역 방향은 모드가 정한다(실시간 번역=one→출력 언어, 양방향 통역=two). 프리셋 없는 구세션만 기기 저장값.
   const sxMode = preset ? (onewayPreset ? 'one' : 'two') : (localStorage.getItem('kac-sx-mode') || 'one');
-  const [sxTarget, setSxTarget] = useState(() => initial._target || (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en')));
+  // 출력 언어: 이 세션에서 마지막으로 고른 값(기기별 기억 — 폰·PC 공통 키) → 없으면 실시간 번역은 한국어
+  const [sxTarget, setSxTarget] = useState(() => {
+    let saved = null;
+    try { saved = localStorage.getItem('kac-sx-target:' + initial.id); } catch {}
+    return initial._target || saved || (onewayPreset ? 'ko' : (localStorage.getItem('kac-sx-target') || 'en'));
+  });
   const [sxA, setSxA] = useState(() => localStorage.getItem('kac-sx-a') || 'ko');
   const [sxB, setSxB] = useState(() => localStorage.getItem('kac-sx-b') || 'en');
   // 다국어 회의: 동시 번역 언어 집합(2~4개). 기기 저장.
@@ -1316,7 +1321,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           )}
           {cfg.pipeline === 'soniox' && sxMode === 'one' && (
             <Field label="출력 언어">
-              <Select size="small" value={sxTarget} disabled={recording} onChange={(e) => { setSxTarget(e.target.value); localStorage.setItem('kac-sx-target', e.target.value); }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
+              <Select size="small" value={sxTarget} disabled={recording} onChange={(e) => { setSxTarget(e.target.value); try { localStorage.setItem('kac-sx-target', e.target.value); localStorage.setItem('kac-sx-target:' + initial.id, e.target.value); } catch {} }} sx={{ ...selSx, minWidth: 120 }} MenuProps={{ PaperProps: { sx: { maxHeight: 360 } } }}>
                 {SX_LANGS.map((l) => (<MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>))}
               </Select>
             </Field>
@@ -1490,7 +1495,9 @@ export default function TranslateView({ session: initial, onBack, mobile = false
               let dir = deskDir;
               if (twoway && m.texts) {
                 const tk = Object.keys(m.texts)[0];
-                if (tk) dir = tk === sxA ? 'b' : 'a'; // 타깃이 언어1 → 언어2가 말함(b), 타깃이 언어2 → 언어1이 말함(a)
+                // 타깃이 내 언어(언어1) → 상대(언어2)가 말함 → 액센트(파랑) / 타깃이 상대 언어 → 내 말 → 무채색.
+                // 폰 앱·뷰어와 같은 규칙(상대 말이 파랑) — 이전엔 PC만 반대로 내 말이 파랑이었다.
+                if (tk) dir = tk === sxA ? 'a' : 'b';
               }
               return <Row key={m.id} side={m.side} text={t} source={m.source} dir={dir} scale={fontScale} draft={!!m.draft} />;
             })}
