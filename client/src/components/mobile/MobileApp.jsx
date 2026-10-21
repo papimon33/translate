@@ -9,12 +9,6 @@ import InputBase from '@mui/material/InputBase';
 import CircularProgress from '@mui/material/CircularProgress';
 import GlobalStyles from '@mui/material/GlobalStyles';
 import { alpha, useTheme } from '@mui/material/styles';
-import AddIcon from '@mui/icons-material/Add';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
-import CheckIcon from '@mui/icons-material/Check';
-import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import TranslateView, { SX_LANGS } from '../TranslateView.jsx';
 import { LANGS } from '../../theme.js';
 import { api } from '../../api.js';
@@ -24,6 +18,7 @@ import { usePrefs, syncWithAccount } from './prefs.js';
 import { useT } from './i18n.js';
 import UpdateSheet from './UpdateSheet.jsx';
 import { pushNav, backNav } from './backstack.js';
+import { ArrowRightIcon, CheckIcon, ChevronRightIcon, PlusIcon, SettingsIcon, SwapIcon } from './icons.jsx';
 
 const isTwo = (preset) => ['twoway', 'mobile', 'field', 'meeting'].includes(preset);
 const SX_CODES = SX_LANGS.map((l) => l.code);
@@ -31,7 +26,7 @@ const IN_CODES = LANGS.map((l) => l.code); // 'auto'(자동 감지) 포함 — �
 
 function ModeIcon({ preset, size = 46 }) {
   const two = isTwo(preset);
-  const Icon = two ? SwapHorizIcon : ArrowForwardIcon;
+  const Icon = two ? SwapIcon : ArrowRightIcon;
   return (
     <Box sx={{ width: size, height: size, flex: 'none', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: (t) => (two ? alpha(t.palette.accent.main, t.palette.mode === 'dark' ? 0.22 : 0.1) : alpha(t.palette.text.primary, 0.06)), color: (t) => (two ? (t.palette.mode === 'dark' ? t.palette.accent.main : '#1F5BBF') : t.palette.text.primary) }}>
       <Icon sx={{ fontSize: 22 }} />
@@ -146,14 +141,14 @@ function NewSessionSheet({ open, onClose, onCreated }) {
           {mode === 'oneway' ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <LangPill t={t} caption={t('inputLang')} value={src} onClick={() => setPick('src')} />
-              <ArrowForwardIcon aria-hidden="true" sx={{ color: 'text.secondary', flex: 'none' }} />
+              <ArrowRightIcon aria-hidden="true" sx={{ color: 'text.secondary', flex: 'none' }} />
               <LangPill t={t} caption={t('outputLang')} value={target} onClick={() => setPick('target')} />
             </Box>
           ) : (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <LangPill t={t} caption={t('myLang')} value={a} onClick={() => setPick('a')} />
               <IconButton aria-label={t('swapLangs')} onClick={() => { setA(b); setB(a); }} sx={{ flex: 'none', width: 44, height: 44 }}>
-                <SwapHorizIcon />
+                <SwapIcon />
               </IconButton>
               <LangPill t={t} caption={t('otherLang')} value={b} onClick={() => setPick('b')} />
             </Box>
@@ -269,7 +264,7 @@ export default function MobileApp({ user, onUser, onLogout }) {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pl: 3, pr: 2, pt: 3, pb: 1 }}>
         <Typography component="h1" sx={{ fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em' }}>AirTalk</Typography>
         <IconButton aria-label={t('settings')} onClick={openOptions} sx={{ width: 46, height: 46 }}>
-          <SettingsOutlinedIcon />
+          <SettingsIcon />
         </IconButton>
       </Box>
 
@@ -298,7 +293,7 @@ export default function MobileApp({ user, onUser, onLogout }) {
 
       <ButtonBase onClick={() => setSheet(true)} aria-label={t('newSession')}
         sx={{ position: 'absolute', right: 22, bottom: 'calc(30px + env(safe-area-inset-bottom))', width: 62, height: 62, borderRadius: '999px', bgcolor: 'text.primary', color: 'background.paper', boxShadow: '0 6px 18px rgba(0,0,0,0.22)' }}>
-        <AddIcon sx={{ fontSize: 30 }} />
+        <PlusIcon sx={{ fontSize: 30 }} />
       </ButtonBase>
 
       {/* 앱 본체 새 버전 알림(홈에서만 — 번역 중에는 방해하지 않는다) */}

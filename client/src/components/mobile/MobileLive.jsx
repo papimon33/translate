@@ -10,25 +10,9 @@ import Switch from '@mui/material/Switch';
 import CircularProgress from '@mui/material/CircularProgress';
 import Snackbar from '@mui/material/Snackbar';
 import { alpha } from '@mui/material/styles';
-import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import MicNoneIcon from '@mui/icons-material/MicNone';
-import MicOffOutlinedIcon from '@mui/icons-material/MicOffOutlined';
-import VolumeUpOutlinedIcon from '@mui/icons-material/VolumeUpOutlined';
-import VolumeOffOutlinedIcon from '@mui/icons-material/VolumeOffOutlined';
-import TuneIcon from '@mui/icons-material/Tune';
-import HighlightOffIcon from '@mui/icons-material/HighlightOff';
-import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
-import TranslateIcon from '@mui/icons-material/Translate';
-import QrCode2Icon from '@mui/icons-material/QrCode2';
-import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
-import HeadphonesOutlinedIcon from '@mui/icons-material/HeadphonesOutlined';
-import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
-import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, SensSlider, MicSheet, MIC_ICON, micKindName, langOptions, useMicInputs, useIdleMeter } from './common.jsx';
 import { useT } from './i18n.js';
+import { BackIcon, ChevronDownIcon, ChevronRightIcon, ClearListIcon, DownloadIcon, EndIcon, HeadphonesIcon, LanguagesIcon, MicIcon, MicOffIcon, PencilIcon, PlayIcon, QrIcon, SlidersIcon, TrashIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
 
 const BLUE = '#1F5BBF';
 
@@ -205,7 +189,7 @@ export default function MobileLive(p) {
     setSheet('lang');
   };
   const stereo = p.stereoInfo && p.stereoInfo.state === 'stereo';
-  const ChipIcon = MIC_ICON[mic.kind] || MicNoneIcon;
+  const ChipIcon = MIC_ICON[mic.kind] || MicIcon;
   const copy = async () => {
     if (!qr) return;
     let ok = false;
@@ -229,7 +213,7 @@ export default function MobileLive(p) {
       transform: bars ? 'none' : 'translateY(-110%)', transition: 'transform 220ms ease',
     }}>
       <IconButton onClick={() => setSheet('end')} aria-label={t('backToList')} sx={{ width: 48, height: 48 }}>
-        <ArrowBackIosNewIcon sx={{ fontSize: 20 }} />
+        <BackIcon sx={{ fontSize: 20 }} />
       </IconButton>
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography noWrap sx={{ fontSize: 17, fontWeight: 700 }}>{p.title}</Typography>
@@ -246,7 +230,7 @@ export default function MobileLive(p) {
       <ButtonBase onClick={() => setSheet('mic')} aria-label={t('micAria', { name: micKindName(mic.kind, t) })}
         sx={{ height: 40, pl: 1.25, pr: 0.75, gap: 0.5, borderRadius: '999px', border: 1, borderColor: 'divider', bgcolor: 'background.paper', flex: 'none' }}>
         {mic.kind === 'usb' || mic.kind === 'bluetooth'
-          ? <><MicNoneIcon sx={{ fontSize: 18 }} /><ChipIcon sx={{ fontSize: 17, color: mic.kind === 'bluetooth' ? BLUE : 'text.primary' }} /></>
+          ? <><MicIcon sx={{ fontSize: 18 }} /><ChipIcon sx={{ fontSize: 17, color: mic.kind === 'bluetooth' ? BLUE : 'text.primary' }} /></>
           : <ChipIcon sx={{ fontSize: 19 }} />}
         {stereo && <Typography component="span" sx={{ fontSize: 11, fontWeight: 800, bgcolor: 'action.hover', borderRadius: '6px', px: 0.6 }}>2CH</Typography>}
         <Box aria-hidden="true" sx={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: 13, ml: 0.25 }}>
@@ -254,7 +238,7 @@ export default function MobileLive(p) {
             <Box key={th} sx={{ width: 3, height: [5, 8, 11, 13][i], borderRadius: '2px', bgcolor: liveLevel != null && liveLevel > th ? 'success.main' : 'divider' }} />
           ))}
         </Box>
-        <ExpandMoreIcon sx={{ fontSize: 17, color: 'text.secondary' }} />
+        <ChevronDownIcon sx={{ fontSize: 17, color: 'text.secondary' }} />
       </ButtonBase>
     </Box>
   );
@@ -268,10 +252,10 @@ export default function MobileLive(p) {
       transform: bars ? 'none' : 'translateY(110%)', transition: 'transform 220ms ease',
     }}>
       <DockButton label={muteOn ? t('unmute') : t('mute')} onClick={p.onToggleMute} disabled={!recording} pressed={muteOn} color={muteOn ? 'error.main' : undefined}>
-        {muteOn ? <MicOffOutlinedIcon /> : <MicNoneIcon />}
+        {muteOn ? <MicOffIcon /> : <MicIcon />}
       </DockButton>
       <DockButton label={ttsOn ? t('tts') : t('ttsOff')} onClick={p.onToggleTts} disabled={!p.ttsAllowed} pressed={ttsOn} color={ttsOn ? undefined : 'text.secondary'}>
-        {ttsOn ? <VolumeUpOutlinedIcon /> : <VolumeOffOutlinedIcon />}
+        {ttsOn ? <VolumeOnIcon /> : <VolumeOffIcon />}
       </DockButton>
       <ButtonBase onClick={recording ? p.onStop : start} disabled={starting} aria-label={recording ? t('stop') : t('start')}
         sx={{ justifySelf: 'center', width: 56, height: 56, borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: recording ? 'error.main' : 'text.primary', opacity: starting ? 0.6 : 1 }}>
@@ -279,10 +263,10 @@ export default function MobileLive(p) {
           ? <CircularProgress size={22} sx={{ color: 'background.paper' }} />
           : recording
             ? <Box sx={{ width: 18, height: 18, borderRadius: '5px', bgcolor: '#fff' }} />
-            : <PlayArrowRoundedIcon sx={{ fontSize: 33, color: 'background.paper' }} />}
+            : <PlayIcon sx={{ fontSize: 33, color: 'background.paper' }} />}
       </ButtonBase>
-      <DockButton label={t('settings')} onClick={() => setSheet('settings')}><TuneIcon /></DockButton>
-      <DockButton label={t('end')} onClick={() => setSheet('end')} color="error.main"><HighlightOffIcon /></DockButton>
+      <DockButton label={t('settings')} onClick={() => setSheet('settings')}><SlidersIcon /></DockButton>
+      <DockButton label={t('end')} onClick={() => setSheet('end')} color="error.main"><EndIcon /></DockButton>
     </Box>
   );
 
@@ -333,18 +317,18 @@ export default function MobileLive(p) {
       {/* 세션 설정 — 예전 우상단 ⋮ 메뉴 항목 */}
       <BottomSheet open={sheet === 'settings'} onClose={close} title={t('sessionSettings')}>
         <Box sx={{ px: 1.25, pb: 2.5, display: 'flex', flexDirection: 'column', gap: 0.25, overflowY: 'auto' }}>
-          <SheetItem icon={<TranslateIcon />} label={t('language')} value={langText} onClick={openLang} right={<ChevronRightIcon sx={{ color: 'text.disabled' }} />} />
-          <SheetItem icon={<QrCode2Icon />} label={t('shareLink')} onClick={() => setSheet('share')} />
-          <SheetItem icon={<FileDownloadOutlinedIcon />} label={t('saveTranscript')} disabled={!p.canSave} onClick={() => { close(); p.onSaveTranscript(); }} />
+          <SheetItem icon={<LanguagesIcon />} label={t('language')} value={langText} onClick={openLang} right={<ChevronRightIcon sx={{ color: 'text.disabled' }} />} />
+          <SheetItem icon={<QrIcon />} label={t('shareLink')} onClick={() => setSheet('share')} />
+          <SheetItem icon={<DownloadIcon />} label={t('saveTranscript')} disabled={!p.canSave} onClick={() => { close(); p.onSaveTranscript(); }} />
           {p.ttsAllowed && (
-            <SheetItem icon={<HeadphonesOutlinedIcon />} label={t('viewerOnly')} onClick={() => p.onViewerOnly(!p.ttsViewerOnly)}
+            <SheetItem icon={<HeadphonesIcon />} label={t('viewerOnly')} onClick={() => p.onViewerOnly(!p.ttsViewerOnly)}
               right={<Switch edge="end" checked={!!p.ttsViewerOnly} tabIndex={-1} inputProps={{ 'aria-label': t('viewerOnly') }} />} />
           )}
           {p.ttsAllowed && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 1.75, mt: -0.75, mb: 0.5, pl: 7.25, lineHeight: 1.45 }}>{t('viewerOnlySub')}</Typography>}
-          <SheetItem icon={<DriveFileRenameOutlineIcon />} label={t('rename')} onClick={() => setSheet('rename')} />
+          <SheetItem icon={<PencilIcon />} label={t('rename')} onClick={() => setSheet('rename')} />
           <Box sx={{ height: '1px', bgcolor: 'divider', mx: 1.75, my: 0.5 }} />
-          <SheetItem icon={<DeleteSweepOutlinedIcon />} label={t('clearHistory')} disabled={!p.canSave} onClick={() => setSheet('clear')} />
-          <SheetItem icon={<DeleteOutlineIcon />} label={t('deleteSession')} danger onClick={() => setSheet('delete')} />
+          <SheetItem icon={<ClearListIcon />} label={t('clearHistory')} disabled={!p.canSave} onClick={() => setSheet('clear')} />
+          <SheetItem icon={<TrashIcon />} label={t('deleteSession')} danger onClick={() => setSheet('delete')} />
         </Box>
       </BottomSheet>
 

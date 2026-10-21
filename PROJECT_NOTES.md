@@ -86,6 +86,9 @@
   게다가 하트비트가 30초(`HEARTBEAT_MS`)라 서버가 이탈을 알아채기 전 최대 30초 동안 태블릿은 데스크를
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
+- **폰 화면 아이콘 → Lucide(2026-10-22)**: '아이콘 비교' 시안(지금 Material Icons / Lucide / Material Symbols Rounded)에서 사용자가 Lucide 선택.
+  `lucide-react@1.52.0`(정확한 버전 고정 — 최신 1.61 은 하루 전 릴리스라 2주 넘은 버전 사용). `mobile/icons.jsx` 래퍼가 MUI 아이콘처럼
+  `sx={{ fontSize, color }}` 를 받고 선 굵기 1.75, 시작 버튼의 재생만 채움. 폰 화면(mobile/*)만 교체, PC 웹은 MUI 아이콘 그대로.
 - **폰 화면 후속 13건(2026-10-21)**: ① **뒤로가기 = 열린 시트·확인 창만 닫기** — `mobile/backstack.js`(창이 열려 있으면 history 항목 1개를
   더 쌓고, popstate 가 그걸 꺼내면 맨 위 창을 닫은 뒤 `stopImmediatePropagation` 으로 MobileApp 에 안 넘김. 화면에서 닫으면 우리가 꺼냄, 시트→시트
   전환은 0ms 지연으로 꺼냈다 쌓지 않음. 화면 이동은 `pushNav`(창 항목 자리를 덮어씀)·`backNav`(창 항목까지 한 번에 go(-n))). `BottomSheet`·

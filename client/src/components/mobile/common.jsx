@@ -8,17 +8,10 @@ import Typography from '@mui/material/Typography';
 import ButtonBase from '@mui/material/ButtonBase';
 import InputBase from '@mui/material/InputBase';
 import CircularProgress from '@mui/material/CircularProgress';
-import CheckIcon from '@mui/icons-material/Check';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import MicNoneIcon from '@mui/icons-material/MicNone';
-import BluetoothIcon from '@mui/icons-material/Bluetooth';
-import UsbIcon from '@mui/icons-material/Usb';
-import HeadsetMicOutlinedIcon from '@mui/icons-material/HeadsetMicOutlined';
-import SmartphoneOutlinedIcon from '@mui/icons-material/SmartphoneOutlined';
-import AutoModeIcon from '@mui/icons-material/AutoMode';
 import { alpha } from '@mui/material/styles';
 import { useT, endonym } from './i18n.js';
 import { openOverlay, closeOverlay } from './backstack.js';
+import { AutoIcon, BluetoothIcon, CheckIcon, ChevronRightIcon, HeadsetIcon, MicIcon, PhoneIcon, UsbIcon } from './icons.jsx';
 
 export { MOBILE_UI } from './env.js';
 
@@ -412,7 +405,7 @@ export function SensSlider({ value, onChange, level, native, label, hint }) {
 
 /* 마이크 선택 시트 — 세션 화면(아래에 입력 감도)·설정 '연결된 기기' 공용.
    1.4.0 앱은 장치 목록에서 고르고, 그 전 앱·브라우저는 지금 쓰는 장치 이름만 보여 준다. */
-export const MIC_ICON = { auto: AutoModeIcon, builtin: SmartphoneOutlinedIcon, usb: UsbIcon, wired: HeadsetMicOutlinedIcon, bluetooth: BluetoothIcon };
+export const MIC_ICON = { auto: AutoIcon, builtin: PhoneIcon, usb: UsbIcon, wired: HeadsetIcon, bluetooth: BluetoothIcon };
 const BLUE = '#1F5BBF';
 export function micKindName(k, t) {
   return ({ auto: t('micAuto'), builtin: t('micBuiltin'), usb: t('micUsb'), wired: t('micWired'), bluetooth: t('micBt') }[k] || t('micBuiltin'));
@@ -424,12 +417,12 @@ export function micCurrentName(mic, t) {
 }
 export function MicSheet({ open, onClose, mic, stereo, children }) {
   const t = useT();
-  const CurIcon = MIC_ICON[mic.kind] || MicNoneIcon;
+  const CurIcon = MIC_ICON[mic.kind] || MicIcon;
   return (
     <BottomSheet open={open} onClose={onClose} title={t('micPicker')}>
       <Box sx={{ px: 1.25, pb: 2.5, display: 'flex', flexDirection: 'column', gap: 0.25, overflowY: 'auto' }}>
         {mic.canPick ? mic.list.map((d) => {
-          const Icon = MIC_ICON[d.kind] || MicNoneIcon;
+          const Icon = MIC_ICON[d.kind] || MicIcon;
           const model = (/\(([^)]+)\)\s*$/.exec(String(d.label || '')) || [])[1];
           const sub = d.kind === 'auto' ? t('micAutoSub') : d.kind === 'builtin' ? t('micBuiltinSub') : d.kind === 'bluetooth' ? [model, t('micBtWarn')].filter(Boolean).join(' · ') : [model, (d.channels >= 2 || (d.active && stereo)) ? t('twoCh') : ''].filter(Boolean).join(' · ');
           return (

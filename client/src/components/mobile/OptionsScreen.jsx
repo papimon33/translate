@@ -10,10 +10,6 @@ import ButtonBase from '@mui/material/ButtonBase';
 import Slider from '@mui/material/Slider';
 import Snackbar from '@mui/material/Snackbar';
 import CircularProgress from '@mui/material/CircularProgress';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import LogoutIcon from '@mui/icons-material/Logout';
-import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { api } from '../../api.js';
 import { SX_LANGS } from '../TranslateView.jsx';
 import { usePrefs, setPref } from './prefs.js';
@@ -21,6 +17,7 @@ import { useT } from './i18n.js';
 import { Group, OptionRow, PickSheet, ConfirmDialog, FormSheet, SensSlider, MicSheet, langOptions, useBackClose, useIdleMeter, useMicInputs, micCurrentName } from './common.jsx';
 import UpdateSheet, { useAppVersion } from './UpdateSheet.jsx';
 import { Line, Bubble } from './MobileLive.jsx';
+import { ArrowLeftIcon, ChevronRightIcon, LogOutIcon, PlayIcon } from './icons.jsx';
 
 const SlideLeft = forwardRef(function SlideLeft(props, ref) { return <Slide direction="left" ref={ref} {...props} />; });
 const UI_NAMES = { ko: '한국어', en: 'English', ja: '日本語' };
@@ -33,7 +30,7 @@ export function Screen({ open, onBack, title, children, footer, bg }) {
     <Dialog fullScreen open={open} onClose={onBack} slots={{ transition: SlideLeft }}
       slotProps={{ paper: { sx: { borderRadius: 0, border: 0, backgroundImage: 'none', bgcolor: (th) => (bg ? (bg === 'background.default' ? th.palette.background.default : bg) : th.palette.mode === 'dark' ? th.palette.background.default : '#F4F3EF') } } }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, pt: 'calc(12px + env(safe-area-inset-top))', pb: 0.5, flex: 'none' }}>
-        <IconButton onClick={onBack} aria-label={t('back')} sx={{ width: 48, height: 48 }}><ArrowBackIcon /></IconButton>
+        <IconButton onClick={onBack} aria-label={t('back')} sx={{ width: 48, height: 48 }}><ArrowLeftIcon /></IconButton>
         <Typography component="h1" sx={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.015em' }}>{title}</Typography>
       </Box>
       <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', px: 2, pt: 0.75, pb: footer ? 2 : 'calc(28px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -116,7 +113,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
   const playBtn = (g) => (
     <IconButton onClick={() => preview(g)} aria-label={t('previewVoice', { v: voiceName(g) })}
       sx={{ width: 44, height: 44, mr: 1, flex: 'none', bgcolor: (th) => (th.palette.mode === 'dark' ? 'rgba(122,162,247,0.18)' : '#EAF1FC'), color: (th) => (th.palette.mode === 'dark' ? th.palette.accent.main : '#1F5BBF') }}>
-      {previewing === g ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : <PlayArrowRoundedIcon />}
+      {previewing === g ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : <PlayIcon />}
     </IconButton>
   );
 
@@ -167,7 +164,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
       )}
 
       <Group>
-        <OptionRow label={t('logout')} danger icon={<LogoutIcon sx={{ color: 'error.main', fontSize: 21 }} />} onClick={() => setLogoutAsk(true)} />
+        <OptionRow label={t('logout')} danger icon={<LogOutIcon sx={{ color: 'error.main', fontSize: 21 }} />} onClick={() => setLogoutAsk(true)} />
       </Group>
 
       <PickSheet open={pick === 'sys'} onClose={() => setPick(null)} title={t('sysLang')} value={prefs.sysLang}

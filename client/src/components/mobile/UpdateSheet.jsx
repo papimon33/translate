@@ -7,10 +7,10 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import ButtonBase from '@mui/material/ButtonBase';
 import LinearProgress from '@mui/material/LinearProgress';
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { BottomSheet } from './common.jsx';
 import { useT } from './i18n.js';
 import { api } from '../../api.js';
+import { ArrowRightIcon } from './icons.jsx';
 
 const SKIP_KEY = 'kac-upd-skip'; // '나중에' — 같은 버전은 하루 동안 다시 묻지 않는다
 const DAY = 24 * 60 * 60 * 1000;
@@ -86,7 +86,7 @@ export default function UpdateSheet({ manual = false, open = false, onClose }) {
       <Box sx={{ px: 3, pb: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, fontSize: 15, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
           <span>AirTalk {info.cur}</span>
-          <ArrowForwardIcon sx={{ fontSize: 18 }} />
+          <ArrowRightIcon sx={{ fontSize: 18 }} />
           <Box component="b" sx={{ color: 'text.primary' }}>{info.latest}</Box>
         </Box>
 
