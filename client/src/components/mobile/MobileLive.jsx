@@ -19,12 +19,6 @@ import VolumeOffOutlinedIcon from '@mui/icons-material/VolumeOffOutlined';
 import TuneIcon from '@mui/icons-material/Tune';
 import HighlightOffIcon from '@mui/icons-material/HighlightOff';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
-import BluetoothIcon from '@mui/icons-material/Bluetooth';
-import UsbIcon from '@mui/icons-material/Usb';
-import HeadsetMicOutlinedIcon from '@mui/icons-material/HeadsetMicOutlined';
-import SmartphoneOutlinedIcon from '@mui/icons-material/SmartphoneOutlined';
-import AutoModeIcon from '@mui/icons-material/AutoMode';
-import CheckIcon from '@mui/icons-material/Check';
 import TranslateIcon from '@mui/icons-material/Translate';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
@@ -33,7 +27,7 @@ import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutli
 import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, SensSlider, langOptions, useMicInputs } from './common.jsx';
+import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, SensSlider, MicSheet, MIC_ICON, micKindName, langOptions, useMicInputs, useIdleMeter } from './common.jsx';
 import { useT } from './i18n.js';
 
 const BLUE = '#1F5BBF';
@@ -49,7 +43,7 @@ function fmtElapsed(ms) {
 function sameText(a, b) { return String(a || '').trim() === String(b || '').trim(); }
 
 // 실시간 번역: 번역문(큰 글씨) + 원문(작은 회색). 번역 대기·진행 중은 회색.
-function Line({ text, source, draft, scale, t }) {
+export function Line({ text, source, draft, scale, t }) {
   const pending = !text && !!source;
   const main = pending ? source : text;
   return (
@@ -66,7 +60,7 @@ function Line({ text, source, draft, scale, t }) {
 }
 
 // 양방향 통역: 말풍선 — 상대(왼쪽, 파랑) / 나(오른쪽, 무채색). 위 작은 글씨 = '말한 언어 → 번역 언어'.
-function Bubble({ mine, label, text, source, draft, scale }) {
+export function Bubble({ mine, label, text, source, draft, scale }) {
   const pending = !text && !!source;
   const main = pending ? source : text;
   return (
@@ -89,7 +83,7 @@ function Bubble({ mine, label, text, source, draft, scale }) {
 function DockButton({ label, onClick, disabled, color, children, pressed }) {
   return (
     <ButtonBase onClick={onClick} disabled={disabled} aria-pressed={pressed}
-      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.75, borderRadius: '14px', py: 0.75, opacity: disabled ? 0.35 : 1, color: color || 'text.primary', '& svg': { fontSize: 28 } }}>
+      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, borderRadius: '14px', py: 0.5, opacity: disabled ? 0.35 : 1, color: color || 'text.primary', '& svg': { fontSize: 27 } }}>
       {children}
       <Typography component="span" sx={{ fontSize: 12.5, color: 'inherit', lineHeight: 1.2 }}>{label}</Typography>
     </ButtonBase>
@@ -106,8 +100,6 @@ function Hint({ text }) {
     </>
   );
 }
-
-const MIC_ICON = { auto: AutoModeIcon, builtin: SmartphoneOutlinedIcon, usb: UsbIcon, wired: HeadsetMicOutlinedIcon, bluetooth: BluetoothIcon };
 
 function SheetItem({ icon, label, value, onClick, danger, disabled, right }) {
   return (
@@ -134,6 +126,25 @@ export default function MobileLive(p) {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const hideTimer = useRef(null);
+  // 대기 중에도 마이크만 켜서(엔진·과금 없음) 입력 크기를 보여 준다 — 시작 전에 소리가 들어오는지 확인용.
+  // 시작을 누르면 먼저 이 미터를 끄고(네이티브 캡처를 번역 경로에 넘김) 번역을 연다.
+  const [starting, setStarting] = useState(false);
+  const idleLevel = useIdleMeter(!recording && !starting);
+  const liveLevel = recording ? (p.micMuted ? null : p.level) : idleLevel;
+  const start = () => {
+    if (starting) return;
+    setStarting(true);
+    setTimeout(async () => {
+      try { await p.onStart(); } finally { setStarting(false); }
+    }, 80);
+  };
+  // 하드웨어 뒤로가기(세션 화면) = 종료 확인 — MobileApp 이 화면을 붙잡고 신호만 보낸다
+  const backSeen = useRef(p.backAsk || 0);
+  useEffect(() => {
+    if (!p.backAsk || p.backAsk === backSeen.current) return;
+    backSeen.current = p.backAsk;
+    setSheet('end');
+  }, [p.backAsk]);
 
   useEffect(() => {
     if (!p.recStartAt) return undefined;
@@ -194,7 +205,6 @@ export default function MobileLive(p) {
     setSheet('lang');
   };
   const stereo = p.stereoInfo && p.stereoInfo.state === 'stereo';
-  const micKindName = (k) => ({ auto: t('micAuto'), builtin: t('micBuiltin'), usb: t('micUsb'), wired: t('micWired'), bluetooth: t('micBt') }[k] || t('micBuiltin'));
   const ChipIcon = MIC_ICON[mic.kind] || MicNoneIcon;
   const copy = async () => {
     if (!qr) return;
@@ -218,7 +228,7 @@ export default function MobileLive(p) {
       bgcolor: (th) => alpha(th.palette.background.default, 0.97), borderBottom: 1, borderColor: recording ? 'divider' : 'transparent',
       transform: bars ? 'none' : 'translateY(-110%)', transition: 'transform 220ms ease',
     }}>
-      <IconButton onClick={p.onBack} aria-label={t('backToList')} sx={{ width: 48, height: 48 }}>
+      <IconButton onClick={() => setSheet('end')} aria-label={t('backToList')} sx={{ width: 48, height: 48 }}>
         <ArrowBackIosNewIcon sx={{ fontSize: 20 }} />
       </IconButton>
       <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -233,12 +243,17 @@ export default function MobileLive(p) {
           ) : subtitle}
         </Typography>
       </Box>
-      <ButtonBase onClick={() => setSheet('mic')} aria-label={t('micAria', { name: micKindName(mic.kind) })}
+      <ButtonBase onClick={() => setSheet('mic')} aria-label={t('micAria', { name: micKindName(mic.kind, t) })}
         sx={{ height: 40, pl: 1.25, pr: 0.75, gap: 0.5, borderRadius: '999px', border: 1, borderColor: 'divider', bgcolor: 'background.paper', flex: 'none' }}>
         {mic.kind === 'usb' || mic.kind === 'bluetooth'
           ? <><MicNoneIcon sx={{ fontSize: 18 }} /><ChipIcon sx={{ fontSize: 17, color: mic.kind === 'bluetooth' ? BLUE : 'text.primary' }} /></>
           : <ChipIcon sx={{ fontSize: 19 }} />}
         {stereo && <Typography component="span" sx={{ fontSize: 11, fontWeight: 800, bgcolor: 'action.hover', borderRadius: '6px', px: 0.6 }}>2CH</Typography>}
+        <Box aria-hidden="true" sx={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: 13, ml: 0.25 }}>
+          {[8, 22, 40, 60].map((th, i) => (
+            <Box key={th} sx={{ width: 3, height: [5, 8, 11, 13][i], borderRadius: '2px', bgcolor: liveLevel != null && liveLevel > th ? 'success.main' : 'divider' }} />
+          ))}
+        </Box>
         <ExpandMoreIcon sx={{ fontSize: 17, color: 'text.secondary' }} />
       </ButtonBase>
     </Box>
@@ -249,7 +264,7 @@ export default function MobileLive(p) {
   const bottom = (
     <Box onPointerDown={poke} sx={{
       position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2, bgcolor: (th) => alpha(th.palette.background.paper, 0.98), borderTop: 1, borderColor: 'divider',
-      px: 0.75, pt: 1.5, pb: 'calc(24px + env(safe-area-inset-bottom))', display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', alignItems: 'end',
+      px: 0.75, pt: 1, pb: 'calc(14px + env(safe-area-inset-bottom))', display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', alignItems: 'center',
       transform: bars ? 'none' : 'translateY(110%)', transition: 'transform 220ms ease',
     }}>
       <DockButton label={muteOn ? t('unmute') : t('mute')} onClick={p.onToggleMute} disabled={!recording} pressed={muteOn} color={muteOn ? 'error.main' : undefined}>
@@ -258,14 +273,13 @@ export default function MobileLive(p) {
       <DockButton label={ttsOn ? t('tts') : t('ttsOff')} onClick={p.onToggleTts} disabled={!p.ttsAllowed} pressed={ttsOn} color={ttsOn ? undefined : 'text.secondary'}>
         {ttsOn ? <VolumeUpOutlinedIcon /> : <VolumeOffOutlinedIcon />}
       </DockButton>
-      <ButtonBase onClick={recording ? p.onStop : p.onStart} aria-label={recording ? t('stop') : t('start')}
-        sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.75, borderRadius: '20px' }}>
-        <Box sx={{ width: 58, height: 58, borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: recording ? 'error.main' : 'text.primary' }}>
-          {recording
-            ? <Box sx={{ width: 19, height: 19, borderRadius: '5px', bgcolor: '#fff' }} />
-            : <PlayArrowRoundedIcon sx={{ fontSize: 34, color: 'background.paper' }} />}
-        </Box>
-        <Typography component="span" sx={{ fontSize: 12.5, fontWeight: 700 }}>{recording ? t('stop') : t('start')}</Typography>
+      <ButtonBase onClick={recording ? p.onStop : start} disabled={starting} aria-label={recording ? t('stop') : t('start')}
+        sx={{ justifySelf: 'center', width: 56, height: 56, borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: recording ? 'error.main' : 'text.primary', opacity: starting ? 0.6 : 1 }}>
+        {starting
+          ? <CircularProgress size={22} sx={{ color: 'background.paper' }} />
+          : recording
+            ? <Box sx={{ width: 18, height: 18, borderRadius: '5px', bgcolor: '#fff' }} />
+            : <PlayArrowRoundedIcon sx={{ fontSize: 33, color: 'background.paper' }} />}
       </ButtonBase>
       <DockButton label={t('settings')} onClick={() => setSheet('settings')}><TuneIcon /></DockButton>
       <DockButton label={t('end')} onClick={() => setSheet('end')} color="error.main"><HighlightOffIcon /></DockButton>
@@ -336,41 +350,12 @@ export default function MobileLive(p) {
 
       <LangSheet open={sheet === 'lang'} onClose={close} title={t('language')} subtitle={twoway ? t('langSubTwo') : t('langSubOne')} tabs={tabs} startTab={1} />
 
-      {/* 마이크 선택 + 입력 감도(번역 중엔 지금 입력 크기 표시) */}
-      <BottomSheet open={sheet === 'mic'} onClose={close} title={t('micPicker')}>
-        <Box sx={{ px: 1.25, pb: 2.5, display: 'flex', flexDirection: 'column', gap: 0.25, overflowY: 'auto' }}>
-          {mic.canPick ? mic.list.map((d) => {
-            const Icon = MIC_ICON[d.kind] || MicNoneIcon;
-            const model = (/\(([^)]+)\)\s*$/.exec(String(d.label || '')) || [])[1];
-            const sub = d.kind === 'auto' ? t('micAutoSub') : d.kind === 'builtin' ? t('micBuiltinSub') : d.kind === 'bluetooth' ? [model, t('micBtWarn')].filter(Boolean).join(' · ') : [model, (d.channels >= 2 || (d.active && stereo)) ? t('twoCh') : ''].filter(Boolean).join(' · ');
-            return (
-              <ButtonBase key={d.id} role="radio" aria-checked={!!d.selected} onClick={() => mic.pick(d.id)}
-                sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minHeight: 64, px: 1.75, borderRadius: '16px', justifyContent: 'flex-start', textAlign: 'left', bgcolor: d.selected ? 'action.hover' : 'transparent' }}>
-                <Box sx={{ width: 40, height: 40, flex: 'none', borderRadius: '12px', bgcolor: d.kind === 'bluetooth' ? alpha(BLUE, 0.12) : 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center', color: d.kind === 'bluetooth' ? BLUE : 'text.primary' }}>
-                  <Icon sx={{ fontSize: 20 }} />
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{micKindName(d.kind)}</Typography>
-                  {sub && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.4 }}>{sub}</Typography>}
-                </Box>
-                {d.selected && <CheckIcon aria-label={t('selected')} sx={{ fontSize: 22 }} />}
-              </ButtonBase>
-            );
-          }) : (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minHeight: 64, px: 1.75 }}>
-              <Box sx={{ width: 40, height: 40, flex: 'none', borderRadius: '12px', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChipIcon sx={{ fontSize: 20 }} /></Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{mic.label || micKindName(mic.kind)}</Typography>
-                {window.AndroidAudio && <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{t('micNeedUpdate')}</Typography>}
-              </Box>
-            </Box>
-          )}
-          <Box sx={{ mx: 0.5, mt: 1, borderRadius: '16px', bgcolor: 'action.hover' }}>
-            <SensSlider label={t('inputSens')} value={p.micSens} native={p.micNative} level={recording && !p.micMuted ? p.level : null}
-              hint={p.micSens >= 100 ? t('inputSensAll') : t('inputSensHint')} onChange={p.onMicSens} />
-          </Box>
+      {/* 마이크 선택 + 입력 감도(대기 중에도 마이크만 켜서 지금 입력 크기 표시) */}
+      <MicSheet open={sheet === 'mic'} onClose={close} mic={mic} stereo={stereo}>
+        <Box sx={{ mx: 0.5, mt: 1, borderRadius: '16px', bgcolor: 'action.hover' }}>
+          <SensSlider label={t('inputSens')} value={p.micSens} native={p.micNative} level={liveLevel} hint={t('inputSensHint')} onChange={p.onMicSens} />
         </Box>
-      </BottomSheet>
+      </MicSheet>
 
       <BottomSheet open={sheet === 'share'} onClose={close} title={t('shareLink')} subtitle={t('shareHint')}>
         <Box sx={{ px: 3, pb: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>

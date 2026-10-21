@@ -10,7 +10,15 @@ import InputBase from '@mui/material/InputBase';
 import CircularProgress from '@mui/material/CircularProgress';
 import CheckIcon from '@mui/icons-material/Check';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import MicNoneIcon from '@mui/icons-material/MicNone';
+import BluetoothIcon from '@mui/icons-material/Bluetooth';
+import UsbIcon from '@mui/icons-material/Usb';
+import HeadsetMicOutlinedIcon from '@mui/icons-material/HeadsetMicOutlined';
+import SmartphoneOutlinedIcon from '@mui/icons-material/SmartphoneOutlined';
+import AutoModeIcon from '@mui/icons-material/AutoMode';
+import { alpha } from '@mui/material/styles';
 import { useT, endonym } from './i18n.js';
+import { openOverlay, closeOverlay } from './backstack.js';
 
 export { MOBILE_UI } from './env.js';
 
@@ -32,6 +40,77 @@ export function langOptions(codes, t) {
     const sub = code === 'auto' ? '' : t.lang(code);
     return { code, label, sub: sub && sub !== label ? sub : '' };
   });
+}
+
+// 시트·확인 창이 열려 있는 동안 뒤로가기 = 이 창 닫기(backstack.js)
+export function useBackClose(open, onClose) {
+  const ref = useRef(onClose);
+  ref.current = onClose;
+  useEffect(() => {
+    if (!open) return undefined;
+    const id = openOverlay(() => { if (ref.current) ref.current(); });
+    return () => closeOverlay(id);
+  }, [open]);
+}
+
+/* 번역(엔진) 없이 마이크만 켜서 지금 입력 크기를 본다 — 세션 화면 대기 중·설정의 입력 감도.
+   앱은 네이티브 캡처(번역과 같은 원음 경로), 브라우저(개발 확인용)는 getUserMedia. 화면이 꺼지거나 앱이 뒤로 가면 끈다.
+   반환값은 onMeter 와 같은 0~100 dB 눈금(null = 꺼짐). */
+export function useIdleMeter(active) {
+  const [level, setLevel] = useState(null);
+  const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  useEffect(() => {
+    const on = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', on);
+    return () => document.removeEventListener('visibilitychange', on);
+  }, []);
+  const run = active && visible;
+  useEffect(() => {
+    if (!run) { setLevel(null); return undefined; }
+    let dead = false, stopFn = null, last = 0;
+    const put = (rms) => {
+      const now = Date.now();
+      if (now - last < 80) return;
+      last = now;
+      setLevel(Math.max(0, Math.min(100, ((20 * Math.log10(rms + 1e-8) + 60) / 60) * 100)));
+    };
+    const a = window.AndroidAudio;
+    if (a && a.start) {
+      window.__kacNA = (b64) => {
+        const bin = atob(b64);
+        const n = bin.length >> 1;
+        if (!n) return;
+        let s = 0;
+        for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v >= 0x8000) v -= 0x10000; const f = v / 32768; s += f * f; }
+        put(Math.sqrt(s / n));
+      };
+      let ok = false;
+      try { ok = !!a.start(); } catch {}
+      if (!ok) { window.__kacNA = null; return undefined; }
+      stopFn = () => { try { a.stop(); } catch {} window.__kacNA = null; };
+    } else if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+        if (dead) { stream.getTracks().forEach((tr) => tr.stop()); return; }
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const an = ctx.createAnalyser();
+        an.fftSize = 2048;
+        ctx.createMediaStreamSource(stream).connect(an);
+        const buf = new Float32Array(an.fftSize);
+        let raf = 0;
+        const tick = () => {
+          an.getFloatTimeDomainData(buf);
+          let s = 0;
+          for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+          put(Math.sqrt(s / buf.length));
+          raf = requestAnimationFrame(tick);
+        };
+        tick();
+        stopFn = () => { cancelAnimationFrame(raf); stream.getTracks().forEach((tr) => tr.stop()); try { ctx.close(); } catch {} };
+      }).catch(() => {});
+    }
+    return () => { dead = true; if (stopFn) stopFn(); };
+  }, [run]);
+  return level;
 }
 
 /* 지금 쓰는(또는 시작하면 쓸) 마이크 — 네이티브가 2초마다 알려준다.
@@ -59,6 +138,7 @@ export function useMicInputs() {
 }
 
 export function BottomSheet({ open, onClose, title, subtitle, action, children, maxHeight = '86dvh' }) {
+  useBackClose(open, onClose);
   return (
     <Drawer
       anchor="bottom"
@@ -170,6 +250,7 @@ export function LangSheet({ open, onClose, title, subtitle, tabs, startTab = 0 }
 // 가운데 확인 창(종료·삭제·로그아웃). danger = 빨간 확인 버튼.
 export function ConfirmDialog({ open, title, desc, okLabel, danger, onOk, onClose, children, okDisabled, busy }) {
   const t = useT();
+  useBackClose(open, () => { if (!busy) onClose(); });
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} slotProps={{ paper: { sx: { borderRadius: '24px', border: 0, m: 3.5, width: '100%', maxWidth: 360, backgroundImage: 'none' } } }}>
       <Box role="alertdialog" aria-label={title} sx={{ p: '24px 20px 18px', display: 'flex', flexDirection: 'column', gap: 1.25 }}>
@@ -326,5 +407,55 @@ export function SensSlider({ value, onChange, level, native, label, hint }) {
       </Box>
       {hint && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.5 }}>{hint}</Typography>}
     </Box>
+  );
+}
+
+/* 마이크 선택 시트 — 세션 화면(아래에 입력 감도)·설정 '연결된 기기' 공용.
+   1.4.0 앱은 장치 목록에서 고르고, 그 전 앱·브라우저는 지금 쓰는 장치 이름만 보여 준다. */
+export const MIC_ICON = { auto: AutoModeIcon, builtin: SmartphoneOutlinedIcon, usb: UsbIcon, wired: HeadsetMicOutlinedIcon, bluetooth: BluetoothIcon };
+const BLUE = '#1F5BBF';
+export function micKindName(k, t) {
+  return ({ auto: t('micAuto'), builtin: t('micBuiltin'), usb: t('micUsb'), wired: t('micWired'), bluetooth: t('micBt') }[k] || t('micBuiltin'));
+}
+// 지금 쓰는 장치의 표시 이름(설정 '연결된 기기' 값) — 'USB 마이크 (BOYA Magic)' 식
+export function micCurrentName(mic, t) {
+  const model = (/\(([^)]+)\)\s*$/.exec(String(mic.label || '')) || [])[1];
+  return model ? `${micKindName(mic.kind, t)} (${model})` : micKindName(mic.kind, t);
+}
+export function MicSheet({ open, onClose, mic, stereo, children }) {
+  const t = useT();
+  const CurIcon = MIC_ICON[mic.kind] || MicNoneIcon;
+  return (
+    <BottomSheet open={open} onClose={onClose} title={t('micPicker')}>
+      <Box sx={{ px: 1.25, pb: 2.5, display: 'flex', flexDirection: 'column', gap: 0.25, overflowY: 'auto' }}>
+        {mic.canPick ? mic.list.map((d) => {
+          const Icon = MIC_ICON[d.kind] || MicNoneIcon;
+          const model = (/\(([^)]+)\)\s*$/.exec(String(d.label || '')) || [])[1];
+          const sub = d.kind === 'auto' ? t('micAutoSub') : d.kind === 'builtin' ? t('micBuiltinSub') : d.kind === 'bluetooth' ? [model, t('micBtWarn')].filter(Boolean).join(' · ') : [model, (d.channels >= 2 || (d.active && stereo)) ? t('twoCh') : ''].filter(Boolean).join(' · ');
+          return (
+            <ButtonBase key={d.id} role="radio" aria-checked={!!d.selected} onClick={() => mic.pick(d.id)}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minHeight: 64, px: 1.75, borderRadius: '16px', justifyContent: 'flex-start', textAlign: 'left', bgcolor: d.selected ? 'action.hover' : 'transparent' }}>
+              <Box sx={{ width: 40, height: 40, flex: 'none', borderRadius: '12px', bgcolor: d.kind === 'bluetooth' ? alpha(BLUE, 0.12) : 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center', color: d.kind === 'bluetooth' ? BLUE : 'text.primary' }}>
+                <Icon sx={{ fontSize: 20 }} />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{micKindName(d.kind, t)}</Typography>
+                {sub && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.4 }}>{sub}</Typography>}
+              </Box>
+              {d.selected && <CheckIcon aria-label={t('selected')} sx={{ fontSize: 22 }} />}
+            </ButtonBase>
+          );
+        }) : (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minHeight: 64, px: 1.75 }}>
+            <Box sx={{ width: 40, height: 40, flex: 'none', borderRadius: '12px', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CurIcon sx={{ fontSize: 20 }} /></Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{mic.label || micKindName(mic.kind, t)}</Typography>
+              {window.AndroidAudio && <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{t('micNeedUpdate')}</Typography>}
+            </Box>
+          </Box>
+        )}
+        {children}
+      </Box>
+    </BottomSheet>
   );
 }

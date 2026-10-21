@@ -216,7 +216,7 @@ function SxSlider({ label, hint, value, min, max, step, disabled, fmt, onChange 
 
 // mobile: 안드로이드 앱 전용 폰 화면(MobileLive). 상태·엔진 로직은 이 컴포넌트 하나를 그대로 쓰고 레이아웃만 바꾼다 —
 // 화면별로 로직을 복제하면 한쪽만 고쳐지는 사고가 난다(2026-10-18 뷰어 발화 폐지의 교훈).
-export default function TranslateView({ session: initial, onBack, mobile = false }) {
+export default function TranslateView({ session: initial, onBack, mobile = false, backAsk = 0 }) {
   const [cfg, setCfg] = useState({
     pipeline: initial.pipeline || 'soniox',
     inLang: initial.inLang || 'auto',
@@ -1078,6 +1078,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           onA={(v) => { const b = v === sxB ? sxA : sxB; setSxA(v); setSxB(b); savePair(v, b); }}
           onB={(v) => { const a = v === sxA ? sxB : sxA; setSxB(v); setSxA(a); savePair(a, v); }}
           {...mobileActions}
+          backAsk={backAsk}
         />
         {overlays}
       </>

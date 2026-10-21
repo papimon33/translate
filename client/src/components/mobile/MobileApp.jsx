@@ -23,6 +23,7 @@ import { OptionsScreen, AccountScreen } from './OptionsScreen.jsx';
 import { usePrefs, syncWithAccount } from './prefs.js';
 import { useT } from './i18n.js';
 import UpdateSheet from './UpdateSheet.jsx';
+import { pushNav, backNav } from './backstack.js';
 
 const isTwo = (preset) => ['twoway', 'mobile', 'field', 'meeting'].includes(preset);
 const SX_CODES = SX_LANGS.map((l) => l.code);
@@ -67,10 +68,10 @@ function NewSessionSheet({ open, onClose, onCreated }) {
     if (!open) return;
     setName(''); setTouched(false); setErr(''); setBusy(false);
     const nat = prefs.nativeLang || 'ko';
-    let lastB = null, lastSrc = null;
-    try { lastB = localStorage.getItem('kac-sx-b'); lastSrc = localStorage.getItem('kac-sx-in'); } catch {}
-    setTarget(nat);
-    setSrc(lastSrc && IN_CODES.includes(lastSrc) ? lastSrc : 'auto');
+    let lastB = null;
+    try { lastB = localStorage.getItem('kac-sx-b'); } catch {}
+    setTarget(nat);  // 실시간 번역: 입력은 항상 자동 감지, 출력은 모국어
+    setSrc('auto');
     setA(nat);
     setB(lastB && lastB !== nat ? lastB : nat === 'en' ? 'ko' : 'en');
     // eslint-disable-next-line
@@ -93,7 +94,6 @@ function NewSessionSheet({ open, onClose, onCreated }) {
       if (!s || !s.id) throw new Error((s && s.error) || t('netError'));
       try {
         if (mode === 'oneway') {
-          localStorage.setItem('kac-sx-in', src);
           localStorage.setItem('kac-sx-target', target);
           localStorage.setItem('kac-sx-target:' + s.id, target); // 다시 열 때 이 세션의 출력 언어 복원
         } else {
@@ -190,6 +190,10 @@ export default function MobileApp({ user, onUser, onLogout }) {
   const [session, setSession] = useState(null);
   const [sheet, setSheet] = useState(false);
   const [screen, setScreen] = useState(null); // null | 'options' | 'account'
+  const [backAsk, setBackAsk] = useState(0); // 세션 화면에서 하드웨어 뒤로가기 → 종료 확인 신호
+  const sessionRef = useRef(null);
+  const leaveOk = useRef(false);
+  sessionRef.current = session;
 
   const reload = useCallback(() => {
     api.list().then((r) => setList(Array.isArray(r) ? r : [])).catch(() => setList((l) => l || []));
@@ -202,13 +206,23 @@ export default function MobileApp({ user, onUser, onLogout }) {
     try { window.history.replaceState({ m: 'home' }, ''); } catch {}
     const onPop = (e) => {
       const m = ((e && e.state) || {}).m;
-      if (m !== 'session') { setSession((s) => { if (s) reload(); return null; }); }
+      if (m !== 'session' && sessionRef.current) {
+        // 세션 화면의 뒤로가기는 바로 나가지 않고 종료 확인('종료' 버튼과 같게) — 화면을 다시 붙잡고 신호만
+        if (!leaveOk.current) {
+          try { window.history.pushState({ m: 'session' }, ''); } catch {}
+          setBackAsk((n) => n + 1);
+          return;
+        }
+        leaveOk.current = false;
+        setSession(null);
+        reload();
+      }
       setScreen(m === 'options' || m === 'account' ? m : null);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [reload]);
-  const go = (m) => { try { window.history.pushState({ m }, ''); } catch {} };
+  const go = (m) => pushNav({ m }); // 시트가 남긴 history 항목이 있으면 그 자리를 덮어쓴다(backstack.js)
   const open = (s) => {
     go('session');
     let saved = null;
@@ -242,7 +256,7 @@ export default function MobileApp({ user, onUser, onLogout }) {
     return (
       <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {globals}
-        <TranslateView key={session.id} session={session} mobile onBack={() => window.history.back()} />
+        <TranslateView key={session.id} session={session} mobile backAsk={backAsk} onBack={() => { leaveOk.current = true; backNav(); }} />
       </Box>
     );
   }
@@ -254,7 +268,7 @@ export default function MobileApp({ user, onUser, onLogout }) {
       {globals}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pl: 3, pr: 2, pt: 3, pb: 1 }}>
         <Typography component="h1" sx={{ fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em' }}>AirTalk</Typography>
-        <IconButton aria-label={t('settings')} onClick={openOptions} sx={{ width: 46, height: 46, bgcolor: (th) => alpha(th.palette.text.primary, 0.06) }}>
+        <IconButton aria-label={t('settings')} onClick={openOptions} sx={{ width: 46, height: 46 }}>
           <SettingsOutlinedIcon />
         </IconButton>
       </Box>
@@ -292,8 +306,8 @@ export default function MobileApp({ user, onUser, onLogout }) {
 
       <NewSessionSheet open={sheet} onClose={() => setSheet(false)} onCreated={(s) => { setSheet(false); open(s); }} />
 
-      <OptionsScreen open={screen === 'options' || screen === 'account'} onBack={() => window.history.back()} user={user} onAccount={openAccount} onLogout={onLogout} />
-      <AccountScreen open={screen === 'account'} onBack={() => window.history.back()} user={user} onUser={onUser} onDeleted={onLogout} />
+      <OptionsScreen open={screen === 'options' || screen === 'account'} onBack={backNav} user={user} onAccount={openAccount} onLogout={onLogout} />
+      <AccountScreen open={screen === 'account'} onBack={backNav} user={user} onUser={onUser} onDeleted={onLogout} />
     </Box>
   );
 }

@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # node --test 의 "test/*.test.mjs" 패턴 펼치기는 21+ (20 에선 파일을 못 찾아 실패했다)
           cache: npm
       - run: npm ci
       - run: npm test
