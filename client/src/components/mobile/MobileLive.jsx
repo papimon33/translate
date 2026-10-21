@@ -64,10 +64,10 @@ export function Bubble({ mine, label, text, source, draft, scale }) {
   );
 }
 
-function DockButton({ label, onClick, disabled, color, children, pressed }) {
+function DockButton({ label, onClick, disabled, color, children, pressed, dim }) {
   return (
     <ButtonBase onClick={onClick} disabled={disabled} aria-pressed={pressed}
-      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, borderRadius: '14px', py: 0.5, opacity: disabled ? 0.35 : 1, color: color || 'text.primary', '& svg': { fontSize: 27 } }}>
+      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, borderRadius: '14px', py: 0.5, opacity: disabled || dim ? 0.35 : 1, color: color || 'text.primary', '& svg': { fontSize: 27 } }}>
       {children}
       <Typography component="span" sx={{ fontSize: 12.5, color: 'inherit', lineHeight: 1.2 }}>{label}</Typography>
     </ButtonBase>
@@ -244,7 +244,14 @@ export default function MobileLive(p) {
   );
 
   const muteOn = recording && p.micMuted;
-  const ttsOn = p.ttsOn && p.ttsAllowed;
+  // TTS 는 두 단계(2026-10-22): 세션 설정 'TTS' = 번역 음성을 만들지(켜면 링크로 접속한 뷰어에게 감),
+  // 하단 TTS 버튼 = 이 폰에서도 틀지. 만들지 않는 동안 하단 버튼은 흐리게 두고 누르면 설정 위치를 알려 준다.
+  const ttsMade = p.ttsOn && p.ttsAllowed;
+  const ttsHere = ttsMade && !p.ttsViewerOnly;
+  const toggleHere = () => {
+    if (!ttsMade) { setToast(t('ttsNeedEnable')); return; }
+    p.onViewerOnly(!p.ttsViewerOnly);
+  };
   const bottom = (
     <Box onPointerDown={poke} sx={{
       position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2, bgcolor: (th) => alpha(th.palette.background.paper, 0.98), borderTop: 1, borderColor: 'divider',
@@ -254,8 +261,8 @@ export default function MobileLive(p) {
       <DockButton label={muteOn ? t('unmute') : t('mute')} onClick={p.onToggleMute} disabled={!recording} pressed={muteOn} color={muteOn ? 'error.main' : undefined}>
         {muteOn ? <MicOffIcon /> : <MicIcon />}
       </DockButton>
-      <DockButton label={ttsOn ? t('tts') : t('ttsOff')} onClick={p.onToggleTts} disabled={!p.ttsAllowed} pressed={ttsOn} color={ttsOn ? undefined : 'text.secondary'}>
-        {ttsOn ? <VolumeOnIcon /> : <VolumeOffIcon />}
+      <DockButton label={ttsHere ? t('tts') : t('ttsOff')} onClick={toggleHere} disabled={!p.ttsAllowed} pressed={ttsHere} color={ttsHere ? undefined : 'text.secondary'} dim={!ttsMade}>
+        {ttsHere ? <VolumeOnIcon /> : <VolumeOffIcon />}
       </DockButton>
       <ButtonBase onClick={recording ? p.onStop : start} disabled={starting} aria-label={recording ? t('stop') : t('start')}
         sx={{ justifySelf: 'center', width: 56, height: 56, borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: recording ? 'error.main' : 'text.primary', opacity: starting ? 0.6 : 1 }}>
@@ -321,10 +328,10 @@ export default function MobileLive(p) {
           <SheetItem icon={<QrIcon />} label={t('shareLink')} onClick={() => setSheet('share')} />
           <SheetItem icon={<DownloadIcon />} label={t('saveTranscript')} disabled={!p.canSave} onClick={() => { close(); p.onSaveTranscript(); }} />
           {p.ttsAllowed && (
-            <SheetItem icon={<HeadphonesIcon />} label={t('viewerOnly')} onClick={() => p.onViewerOnly(!p.ttsViewerOnly)}
-              right={<Switch edge="end" checked={!!p.ttsViewerOnly} tabIndex={-1} inputProps={{ 'aria-label': t('viewerOnly') }} />} />
+            <SheetItem icon={<HeadphonesIcon />} label={t('ttsEnable')} onClick={p.onToggleTts}
+              right={<Switch edge="end" checked={!!p.ttsOn} tabIndex={-1} inputProps={{ 'aria-label': t('ttsEnable') }} />} />
           )}
-          {p.ttsAllowed && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 1.75, mt: -0.75, mb: 0.5, pl: 7.25, lineHeight: 1.45 }}>{t('viewerOnlySub')}</Typography>}
+          {p.ttsAllowed && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 1.75, mt: -0.75, mb: 0.5, pl: 7.25, lineHeight: 1.45 }}>{t('ttsEnableSub')}</Typography>}
           <SheetItem icon={<PencilIcon />} label={t('rename')} onClick={() => setSheet('rename')} />
           <Box sx={{ height: '1px', bgcolor: 'divider', mx: 1.75, my: 0.5 }} />
           <SheetItem icon={<ClearListIcon />} label={t('clearHistory')} disabled={!p.canSave} onClick={() => setSheet('clear')} />
