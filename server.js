@@ -2292,11 +2292,17 @@ app.get('/api/desktop/info', requireAuth, async (req, res) => {
     reason: d.available ? null : (d.reason || null),
   });
 });
-app.get('/download/desktop', requireAuth, async (req, res) => {
+app.get('/download/desktop', requireAuth, (req, res) => {
+  const plat = req.query.platform === 'mac' ? 'mac' : req.query.platform === 'android' ? 'android' : 'win';
+  sendLatestInstaller(res, plat);
+});
+// 휴대폰 브라우저 접속 = 로그인 없이 앱 설치 안내(폰은 앱으로만 쓴다) — APK 는 공개 GitHub 릴리스와 같은 파일이고
+// 앱 안에서도 로그인해야 쓸 수 있으므로 공개해도 된다. 안드로이드만(데스크톱 설치본은 그대로 로그인 필요).
+app.get('/download/android', (req, res) => sendLatestInstaller(res, 'android'));
+async function sendLatestInstaller(res, plat) {
   const d = await fetchLatestDesktop();
   if (!d.available) return res.status(404).send('설치파일이 아직 준비되지 않았습니다. 관리자에게 문의하세요.');
   if (d.source === 'env') return res.redirect(d.url);
-  const plat = req.query.platform === 'mac' ? 'mac' : req.query.platform === 'android' ? 'android' : 'win';
   const asset = plat === 'mac' ? d.mac : plat === 'android' ? d.android : d.win;
   const platName = { mac: 'macOS', android: 'Android', win: 'Windows' }[plat];
   if (!asset) return res.status(404).send(`${platName} 설치파일이 아직 준비되지 않았습니다.`);
@@ -2317,7 +2323,7 @@ app.get('/download/desktop', requireAuth, async (req, res) => {
   } catch (e) {
     res.status(502).send('다운로드 실패: ' + ((e && e.message) || '오류'));
   }
-});
+}
 
 /* ---- 뷰어(공개 QR) 접근 토큰 --------------------------------------------
    세션 id 로부터 AUTH_SECRET 으로 파생하는 무상태 서명. QR/링크에 &t= 로 실어 보내고,

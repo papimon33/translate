@@ -16,7 +16,8 @@ import SessionList from './components/SessionList.jsx';
 import Login from './components/Login.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import { api } from './api.js';
-import { MOBILE_UI } from './components/mobile/env.js';
+import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE } from './components/mobile/env.js';
+import AppDownload from './components/AppDownload.jsx';
 import { getPrefs, subscribePrefs, resolveTheme } from './components/mobile/prefs.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
@@ -132,6 +133,17 @@ export default function App() {
       인터넷 연결이 끊겼습니다 — 연결이 복구되면 자동으로 이어집니다.
     </Box>
   );
+
+  // 휴대폰 브라우저: 로그인 대신 앱 설치 화면(폰은 앱으로만). iPhone 은 앱이 없어 '웹으로 계속' 허용(이 탭 동안).
+  const [webOk, setWebOk] = useState(() => { try { return sessionStorage.getItem('kac-web-ok') === '1'; } catch { return false; } });
+  if (PHONE_BROWSER && !(IS_IPHONE && webOk)) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <AppDownload iphone={IS_IPHONE} onContinueWeb={() => { try { sessionStorage.setItem('kac-web-ok', '1'); } catch {} setWebOk(true); }} />
+      </ThemeProvider>
+    );
+  }
 
   if (user === undefined) {
     return (
