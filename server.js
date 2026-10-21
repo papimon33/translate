@@ -2029,22 +2029,25 @@ function broadcast(sessionId, payload) {
   }
 }
 // 번역 음성은 '음성 듣기'를 켠(구독한) 뷰어에게만 전송 → 무료 티어 대역폭 절약
-function broadcastAudio(sessionId, b64) {
+// lang: 이 음성의 언어. 뷰어가 '내 언어'를 지정해 구독하면(audioSub.lang) 그 언어 음성만 보낸다 —
+// 양방향에서 한국인 뷰어가 설명자 말의 일본어 음성까지 듣지 않게. 미지정 뷰어·언어 없는 음성은 그대로.
+function broadcastAudio(sessionId, b64, lang) {
   const room = rooms.get(sessionId);
   if (!room) return;
   let msg = null;
   for (const v of room.viewers) {
     if (v._audioWanted && v.readyState === WebSocket.OPEN) {
-      if (!msg) msg = JSON.stringify({ type: 'audio', b64 });
+      if (lang && v._audioLang && v._audioLang !== lang) continue;
+      if (!msg) msg = JSON.stringify({ type: 'audio', b64, ...(lang ? { lang } : {}) });
       v.send(msg);
     }
   }
 }
 // TTS 음성을 호스트로 — 뷰어(상대) 발화의 번역을 호스트가 듣게 함
-function sendAudioToHosts(sessionId, b64) {
+function sendAudioToHosts(sessionId, b64, lang) {
   const room = rooms.get(sessionId);
   if (!room) return;
-  const msg = JSON.stringify({ type: 'audio', b64 });
+  const msg = JSON.stringify({ type: 'audio', b64, ...(lang ? { lang } : {}) });
   for (const h of room.hosts) {
     if (h.readyState === WebSocket.OPEN) h.send(msg);
   }
@@ -2735,6 +2738,10 @@ server.on('upgrade', (req, socket, head) => {
       ws._dropAcks = searchParams.get('dropAcks');   // 단독 응답어(네/Yes) 기록 생략(고급옵션)
       ws._confFix = searchParams.get('confFix');     // 저신뢰 자동 교정(고급옵션)
       ws._wayfind = searchParams.get('wayfind');     // 데스크 길안내 지도 on/off('0'=끔)
+      // 실시간 번역 채널 분리(양방향 통역을 채널별 단방향으로): 시스템+마이크, 스테레오 마이크 2채널.
+      ws._role = searchParams.get('role');           // 'me'(내 채널) | 'them'(상대 채널) | null(단일 채널)
+      ws._drop = searchParams.get('drop');           // 이 채널에서 인식되면 버릴 언어(=반대 채널의 언어 → 스피커·핀마이크로 샌 소리)
+      ws._pair = searchParams.get('pair');           // 'a,b' — 세션 표시용 언어쌍(뷰어가 내 언어/상대 언어로 정렬)
       wss.emit('connection', ws, req);
     });
   } else {
@@ -2817,7 +2824,7 @@ function handleViewer(ws) {
     }
     try {
       const m = JSON.parse(data.toString());
-      if (m.type === 'audioSub') ws._audioWanted = !!m.on;
+      if (m.type === 'audioSub') { ws._audioWanted = !!m.on; ws._audioLang = typeof m.lang === 'string' && /^[a-z]{2,3}$/.test(m.lang) ? m.lang : null; }
       else if (m.type === 'desk-start') {
         // 데스크: 손님이 태블릿에서 언어 선택 → 호스트 파이프라인에서 soniox 양방향 통역 시작
         if (!deskCtlAllowed(ws, room)) { ws.send(JSON.stringify({ type: 'status', message: '요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.' })); return; }
@@ -2906,7 +2913,7 @@ function handleHost(ws) {
   const sessionId = ws._session;
   // 데스크 여객 마이크 공급 전용 연결(2마이크 모드) — 일반 호스트 파이프라인을 타지 않는다
   if (ws._src === 'guestmic') return runDeskGuestFeed(ws);
-  const side = ws._src === 'system' ? 'left' : 'right'; // 시스템=좌, 마이크=우
+  const side = ws._src === 'system' || ws._src === 'mic2' ? 'left' : 'right'; // 시스템·상대 마이크(스테레오 R)=좌, 내 마이크=우
   const session = getSession(sessionId);
   // 동시접속 충돌 방지: 같은 세션·같은 소스로 이미 녹음 중인 연결이 있으면 그쪽을 종료하고 새 연결이 승계.
   // (같은 계정으로 다른 기기/탭에서 시작하거나, 새로고침 후 좀비 연결이 남은 경우 — 나중 연결 우선)
@@ -3195,7 +3202,12 @@ function handleHost(ws) {
     // 오인식 고착은 confFix(저신뢰 자동 교정)가 완화한다. 상세: PROJECT_NOTES 2026-07-15.
     idleClose = () => { sxClosed = true; try { sx && sx.close(); } catch {} };
     // 번역 방향 정보 — 뷰어(모바일)가 언어 표시에 사용
-    const sxInfo = { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
+    // 채널 분리(양방향 통역을 채널별 단방향으로) — 엔진은 단방향이지만 세션은 a↔b 양방향으로 보여야
+    // 뷰어가 '내 언어/상대 언어'로 정렬하고 자기 언어 음성만 듣는다.
+    const pairLangs = String(ws._pair || '').split(',').filter((c) => okL(c));
+    const sxInfo = pairLangs.length === 2
+      ? { mode: 'two', target: sxTarget, a: pairLangs[0], b: pairLangs[1], split: true }
+      : { mode: sxMode, target: sxTarget, a: sxA, b: sxB };
     if (session) { session.sxInfo = sxInfo; saveSessions(session.id); }
     broadcast(sessionId, { type: 'meta', sxInfo });
     let curId = null;     // 진행 중 발화 카드 id
@@ -3216,6 +3228,25 @@ function handleHost(ws) {
     let confFix = ws._confFix === '1'; // 고급옵션: 저신뢰 자동 교정(라이브 토글 가능)
 
     const targetKeyFor = (src) => (sxMode === 'two' ? (src === sxA ? sxB : sxA) : sxTarget);
+    // 채널 분리: 반대 채널의 언어가 이 채널에서 인식되면 샌 소리(스피커→마이크, 옆 사람 핀마이크)로 보고 버린다.
+    // 채널마다 언어가 정해져 있어야 쓸 수 있는 결정적 필터 — 같은 언어끼리(dropLang 없음)는 아래 교차 중복이 맡는다.
+    // (버릴 언어 = 그 채널의 번역 타깃 — 내 채널은 상대 언어로 번역하므로 상대 언어 발화가 들리면 샌 소리)
+    const dropLang = okL(ws._drop) ? ws._drop : null;
+    const splitCh = ws._role === 'me' || ws._role === 'them';
+    let bleedDrops = 0;
+    // 교차 채널 중복(같은 세션의 다른 채널 연결과 공유): 8초 안에 반대 채널이 비슷한 문장을 확정했으면 샌 소리
+    const chCommits = () => { const r = getRoom(sessionId); if (!r.chCommits) r.chCommits = []; return r.chCommits; };
+    const crossChannelDup = (txt, tgt) => {
+      const arr = chCommits();
+      const now = Date.now();
+      while (arr.length && now - arr[0].at > 8000) arr.shift();
+      const n = echoNorm(txt), nt = echoNorm(tgt || '');
+      return arr.some((e) => e.src !== ws._src && (
+        (n.length >= 4 && (echoMatch(n, e.n) || (e.nt.length >= 4 && echoMatch(n, e.nt)))) ||
+        (nt.length >= 4 && (echoMatch(nt, e.n) || (e.nt.length >= 4 && echoMatch(nt, e.nt))))
+      ));
+    };
+    const noteChannelCommit = (txt, tgt) => { chCommits().push({ n: echoNorm(txt), nt: echoNorm(tgt || ''), at: Date.now(), src: ws._src }); };
     const spkLabel = (s) => (s != null && s !== '' ? String(s) : null); // 화자 번호만 전송(표시는 클라가 아이콘+번호)
 
     // ---- 실시간 TTS: 확정된 번역을 문장 단위로 잘라 즉시 합성(발화가 끝나기 전에도 흘려보냄) ----
@@ -3249,8 +3280,8 @@ function handleHost(ws) {
         recordTts(pipeline === 'desk' ? 'desk' : 'live', tx.length); // 파이프라인별 자체 사용량
         return cartesiaTTSStream(tx, voiceId, lang, (b64) => {
           if (!firstAudio) { firstAudio = true; if (forId) stampTm(forId, 'ta'); } // 첫 오디오 청크 시각
-          broadcastAudio(sessionId, b64);
-          if (ws._audioOut) sendAudioToHosts(sessionId, b64);
+          broadcastAudio(sessionId, b64, lang);
+          if (ws._audioOut) sendAudioToHosts(sessionId, b64, lang);
         });
       }).catch(() => {});
     };
@@ -3300,13 +3331,17 @@ function handleHost(ws) {
       if (dropAcks && isAckOnly(txt)) { liveSend(id, {}, null, null); return; }
       // TTS 자기음성 재입력(에코) → 확정하지 않고 화면 표시도 제거
       if (isSelfEcho(sessionId, txt)) { liveSend(id, {}, null, null); return; }
+      // 채널 분리: 반대 채널 언어(샌 소리) 또는 반대 채널이 방금 확정한 같은 문장 → 버림
+      if (dropLang && src === dropLang) { bleedDrops++; liveSend(id, {}, null, null); return; }
+      if (splitCh && crossChannelDup(txt, tgt)) { bleedDrops++; liveSend(id, {}, null, null); return; }
+      if (splitCh) noteChannelCommit(txt, tgt);
       const out = tgt || txt;
       // 직전 카드와 동일한 내용이 '5초 안에' 반복되면 중복(에코)으로 스킵 — 시간이 지난 의도적 반복 발화는 허용
       if (out && out === lastCommitText && Date.now() - lastCommitAt < 5000) return;
       lastCommitText = out;
       lastCommitAt = Date.now();
       const target = targetKeyFor(src);
-      upsertItem(id, { [target]: out }, txt, spkLabel(spk), null, undefined, toks, tm);
+      upsertItem(id, { [target]: out }, txt, spkLabel(spk), src || null, undefined, toks, tm); // lang=발화 언어 — 뷰어가 내 말/상대 말 정렬
       lastCommitted = { id, key: target, out, at: Date.now() }; // 커밋 직후 늦게 도착하는 번역 꼬리 귀속용
       lockDetected(src); // 자동 감지: 첫 확정 발화의 언어로 힌트·용어집을 좁혀 1회 재연결
       if (tgt) polishCommit(id, target, txt, tgt); // 번역 다듬기(nano) — 직역투 후교정(비동기 카드 교체)
@@ -3403,7 +3438,8 @@ function handleHost(ws) {
         // 출력 언어로 말한 발화(예: 한국어 회의를 한국어로 기록)는 엔진이 번역하지 않는다 — 원문이 곧 표시 문장.
         // 비워 두면 화면이 확정 때까지 '번역 중…'으로 흐리게 남는다(확정 commit 은 원래 원문으로 폴백).
         const sameLang = sxMode === 'one' && curSrc === sxTarget && !shownTgt;
-        liveSend(curId, { [targetKeyFor(curSrc)]: sameLang ? shownSrc : shownTgt }, shownSrc || null, spkLabel(curSpeaker));
+        if (dropLang && curSrc === dropLang) liveSend(curId, {}, null, null); // 샌 소리로 보이는 동안은 감춤(언어 판정이 바뀌면 다시 뜸)
+        else liveSend(curId, { [targetKeyFor(curSrc)]: sameLang ? shownSrc : shownTgt }, shownSrc || null, spkLabel(curSpeaker), curSrc || undefined);
       }
       // 발화 종료(<end>) 또는 과도하게 길면 확정
       if (endHit) { if (utterTm && utterTm.e == null) utterTm.e = Date.now(); commit(); }
@@ -3455,8 +3491,8 @@ function handleHost(ws) {
         } else if (m.type === 'confFix') { // 고급옵션: 저신뢰 자동 교정 라이브 토글
           confFix = !!m.on;
         } else if (m.type === 'tts') {
-          // 녹음 중 TTS 토글: 호스트 재생 여부 + 합성 on/off
-          ws._audioOut = !!m.on;
+          // 녹음 중 TTS 토글: 합성 on/off + 이 기기(호스트) 재생 여부. local=false 면 '뷰어에게만'(합성은 하되 호스트로 안 보냄)
+          ws._audioOut = !!m.on && m.local !== false;
           ttsOn = !!m.on && !!CARTESIA_API_KEY;
           if (m.gender === 'm' || m.gender === 'f') gender = m.gender;
           if (!!m.on && !CARTESIA_API_KEY) toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 재생을 사용할 수 없습니다.' });

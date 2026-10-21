@@ -317,6 +317,13 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     return Number.isFinite(v) && v >= 0.8 && v <= 1.6 ? v : 1;
   });
   const [level, setLevel] = useState(0);
+  const [level2, setLevel2] = useState(0); // 스테레오 2채널: 상대(오른쪽) 채널 입력 크기
+  // 스테레오 2채널(양방향 통역 + 마이크): 수신기가 송신기 2개를 좌우로 나눠 보내면 자동으로 채널 분리.
+  // stereoInfo = { state: 'detect'|'mono'|'stereo', them: 상대 채널 연결 여부 } (녹음 중에만)
+  const [stereoInfo, setStereoInfo] = useState(null);
+  const [stereoSwap, setStereoSwap] = useState(() => localStorage.getItem('kac-stereo-swap') === '1'); // 송신기 좌우 바꾸기
+  // TTS 를 이 기기에서는 재생하지 않고 뷰어(각자 폰·이어폰)에게만 — 설명자 기기 스피커 소리가 마이크로 다시 들어가지 않게
+  const [ttsViewerOnly, setTtsViewerOnly] = useState(() => localStorage.getItem('kac-tts-viewer-only') === '1');
   // 데스크 마이크 2대(PC): 지향성 마이크 2대를 이 PC 에 직결 — 직원/여객 장치 지정, 뷰어는 표출 전용이 됨
   const [guestLevel, setGuestLevel] = useState(0); // 여객 마이크 실측 레벨(연결 확인용)
   const [mic2On, setMic2On] = useState(() => localStorage.getItem('kac-desk-mic2') === '1');
@@ -636,7 +643,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
         inLang: cfg.inLang,
         outLang: cfg.outLang,
         pipeline: cfg.pipeline,
-        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn && ttsAllowed),
+        audioOut: (cfg.pipeline === 'translate' && audioOutOn) || (cfg.pipeline === 'soniox' && ttsOn && ttsAllowed && !ttsViewerOnly),
         tts: cfg.pipeline === 'soniox' && ttsOn && ttsAllowed, // 음성재생(TTS) — PC 소리 캡처 중엔 끔(되먹임)
         gender,
         volume,
@@ -656,6 +663,10 @@ export default function TranslateView({ session: initial, onBack, mobile = false
         rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
         micId: cfg.pipeline === 'soniox' && micId ? micId : undefined, // 실시간 번역: 마이크 장치 선택
         wayfind: cfg.pipeline === 'desk' ? wayfindOn : undefined, // 데스크: 길안내 지도 기능 on/off
+        // 스테레오 2채널 자동 판별(양방향 통역 + 마이크) — 모노 기기·단방향은 기존 1채널 그대로
+        stereo: cfg.pipeline === 'soniox' && sxMode === 'two' && sourceMode === 'mic',
+        stereoSwap,
+        onStereo: (info) => setStereoInfo(info),
         onMessage,
         onEnded: () => { // 장치 뽑힘·화면공유 중지 — 레코더는 스스로 멈추므로 UI 를 함께 정리('진행 중' 고착 방지)
           recRef.current = null;
@@ -663,7 +674,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           setRecStartAt(null);
           setConnecting(false);
           setConnState('off');
-          setLevel(0); setGuestLevel(0);
+          setLevel(0); setGuestLevel(0); setLevel2(0); setStereoInfo(null);
           setNotice('마이크 입력이 중단되었습니다(장치 분리 또는 화면 공유 중지). 다시 시작해 주세요.');
         },
         onMeter: (rms, peak, src) => {
@@ -671,6 +682,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           const v = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
           // 값이 실질적으로 변할 때만 상태 갱신 — 매 오디오 프레임(~85ms)마다 전체 메시지 목록이 리렌더되던 문제 완화
           if (src === 'guestmic') setGuestLevel((prev) => (Math.abs(prev - v) < 3 ? prev : Math.round(v)));
+          else if (src === 'mic2') setLevel2((prev) => (Math.abs(prev - v) < 3 ? prev : Math.round(v)));
           else setLevel((prev) => (Math.abs(prev - v) < 3 ? prev : Math.round(v)));
         },
       });
@@ -739,7 +751,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     setRecStartAt(null);
     setMicMuted(false);
     setConnecting(false);
-    setLevel(0);
+    setLevel(0); setLevel2(0); setStereoInfo(null);
     setPartials({ left: '', right: '' });
   };
   // 데스크: 호스트 수동 통역 시작 — 캡처가 아직 없으면(권한 대기·거부 등) 먼저 시작.
@@ -793,20 +805,40 @@ export default function TranslateView({ session: initial, onBack, mobile = false
             onChange={(v) => { setMicSens(v); localStorage.setItem('kac-mic-sens', String(v)); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); }} />
           {/* 지금 입력 크기 + 인식 기준선 — 숫자만으로는 맞추기 어려워 눈으로 보며 조절(번역 중에만) */}
           {recording && cfg.pipeline !== 'desk' && (() => {
-            const abs = micGateAbs(micSens, !!window.AndroidAudio);
+            // 앱·스테레오 원음 캡처(에코 제거 꺼짐)는 앱 곡선으로 게이트한다 — 기준선도 같은 곡선으로
+            const abs = micGateAbs(micSens, !!window.AndroidAudio || !!(stereoInfo && stereoInfo.raw));
             const th = abs > 0 ? Math.max(0, Math.min(100, ((20 * Math.log10(abs) + 60) / 60) * 100)) : 0; // onMeter 와 같은 눈금
+            const two = stereoInfo && stereoInfo.state === 'stereo';
+            const bar = (lv, label) => (
+              <Box key={label || 'one'} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {label && <Typography sx={{ fontSize: 11.5, color: 'text.secondary', width: 28, flex: 'none' }}>{label}</Typography>}
+                <Box sx={{ position: 'relative', height: 10, flex: 1, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }}>
+                  <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 5, width: `${lv}%`, bgcolor: abs === 0 || lv >= th ? 'success.main' : 'text.disabled', transition: 'width 80ms linear' }} />
+                  {abs > 0 && <Box sx={{ position: 'absolute', top: -3, bottom: -3, width: 2, borderRadius: 1, left: `calc(${th}% - 1px)`, bgcolor: 'error.main' }} />}
+                </Box>
+              </Box>
+            );
             return (
               <Box sx={{ mt: -2, mb: 3 }}>
-                <Box sx={{ position: 'relative', height: 10, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }}>
-                  <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 5, width: `${level}%`, bgcolor: abs === 0 || level >= th ? 'success.main' : 'text.disabled', transition: 'width 80ms linear' }} />
-                  {abs > 0 && <Box sx={{ position: 'absolute', top: -3, bottom: -3, width: 2, borderRadius: 1, left: `calc(${th}% - 1px)`, bgcolor: 'error.main' }} />}
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {two ? [bar(level, '나'), bar(level2, '상대')] : bar(level)}
                 </Box>
                 <Typography sx={{ fontSize: 11.5, color: 'text.secondary', mt: 0.75 }}>
                   {abs > 0 ? '지금 입력 크기 — 빨간 선을 넘는 소리만 인식합니다. 평소처럼 말할 때는 넘고, 떨어져서 말할 때는 못 넘게 맞추세요.' : '지금 입력 크기 — 100이면 모든 소리를 인식합니다.'}
+                  {two ? ' 두 채널에 같은 기준이 적용됩니다.' : ''}
                 </Typography>
               </Box>
             );
           })()}
+          {cfg.pipeline === 'soniox' && sxMode === 'two' && sourceMode === 'mic' && (
+            <InfoToggle
+              label="스테레오 마이크 좌우 바꾸기"
+              hint="2채널 무선 마이크(스테레오 모드)를 꽂으면 자동으로 송신기 1번(왼쪽)=나, 2번(오른쪽)=상대로 나눠 통역합니다. 반대로 찼다면 켜세요. 다음 시작부터 적용됩니다."
+              checked={stereoSwap}
+              disabled={false}
+              onChange={(e) => { const v = e.target.checked; setStereoSwap(v); localStorage.setItem('kac-stereo-swap', v ? '1' : '0'); }}
+            />
+          )}
           {cfg.pipeline === 'desk' && (
             /* 게스트 마이크(2채널) 근접 게이트 — 호스트 민감도 바로 아래 배치. 태블릿 마이크는 서버 경유, PC 직결(2대 모드)은 로컬에 즉시 반영 */
             <SxSlider label="게스트 마이크 민감도" hint="100=모든 소리, 낮출수록 게스트 마이크 가까이의 큰 소리에만 반응(호스트 발화 누화·안내방송 무시). 기본 50. 번역 중에도 바로 적용됩니다. 태블릿 마이크·PC 직결 마이크 모두에 적용." value={guestSens} min={0} max={100} step={1} disabled={false}
@@ -885,6 +917,13 @@ export default function TranslateView({ session: initial, onBack, mobile = false
                     </Box>
                   </Field>
                 )}
+                <InfoToggle
+                  label="뷰어에게만 보내기"
+                  hint="켜면 이 기기에서는 음성을 재생하지 않고, 링크(QR)로 접속한 뷰어의 '듣기'로만 보냅니다. 듣는 사람은 각자 폰과 이어폰으로 자기 언어 음성만 듣습니다. 설명자 기기 스피커 소리가 마이크로 다시 들어가지 않습니다. 번역 중에도 바로 적용됩니다."
+                  checked={ttsViewerOnly}
+                  disabled={false}
+                  onChange={(e) => { const v = e.target.checked; setTtsViewerOnly(v); localStorage.setItem('kac-tts-viewer-only', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(ttsOn, gender, !v); }}
+                />
               </Box>
             </>
           )}
@@ -1016,7 +1055,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       const v = !ttsOn;
       setTtsOn(v);
       localStorage.setItem('kac-sx-tts', v ? '1' : '0');
-      if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender);
+      if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender, !ttsViewerOnly);
     };
     return (
       <>
@@ -1045,6 +1084,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           onBack={onBack}
           onMenu={(el) => setHdrMenu(el)}
           onMicSettings={() => setSxSettingsOpen(true)}
+          stereoInfo={stereoInfo}
           onStart={start}
           onStop={stop}
           onToggleMute={toggleMute}
@@ -1293,7 +1333,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
               label="TTS"
               hint="번역된 문장을 음성으로 읽어줍니다. 번역 중에도 켜고 끌 수 있습니다. 음성은 고급 설정에서 고릅니다. (시스템 음성을 번역할 때는 그 음성이 다시 인식되므로 사용할 수 없습니다)"
               checked={ttsOn}
-              onChange={(e) => { const v = e.target.checked; setTtsOn(v); localStorage.setItem('kac-sx-tts', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender); }}
+              onChange={(e) => { const v = e.target.checked; setTtsOn(v); localStorage.setItem('kac-sx-tts', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(v, gender, !ttsViewerOnly); }}
             />
           )}
           {cfg.pipeline !== 'soniox' && cfg.pipeline !== 'desk' && (
@@ -1375,10 +1415,17 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           )}
           <Box sx={{ flex: 1 }} />
           {sourceMode !== 'system' && (
-            <Field label="마이크 입력">
+            <Field label={stereoInfo && stereoInfo.state === 'stereo' ? '마이크 입력 · 2채널(나/상대)' : '마이크 입력'}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, height: 37 }}>
-                <MicNoneIcon fontSize="small" sx={{ color: level > 2 ? 'success.main' : 'text.disabled' }} />
-                <LinearProgress variant="determinate" value={level} color="success" sx={{ width: 90, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
+                <MicNoneIcon fontSize="small" sx={{ color: level > 2 || level2 > 2 ? 'success.main' : 'text.disabled' }} />
+                {stereoInfo && stereoInfo.state === 'stereo' ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <LinearProgress variant="determinate" value={level} color="success" sx={{ width: 90, height: 6, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
+                    <LinearProgress variant="determinate" value={level2} color="success" sx={{ width: 90, height: 6, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
+                  </Box>
+                ) : (
+                  <LinearProgress variant="determinate" value={level} color="success" sx={{ width: 90, height: 8, borderRadius: 5, bgcolor: (t) => alpha(t.palette.text.primary, 0.08) }} />
+                )}
               </Box>
             </Field>
           )}

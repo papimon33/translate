@@ -53,7 +53,7 @@ function createDenoiser(mod) {
   };
 }
 
-async function getSources(mode, agcOff, mic2, nsOff, micId) {
+async function getSources(mode, agcOff, mic2, nsOff, micId, stereoWanted) {
   const list = [];
   if (mode === 'mic' || mode === 'both') {
     if (window.AndroidAudio) {
@@ -98,6 +98,26 @@ async function getSources(mode, agcOff, mic2, nsOff, micId) {
         if (!micId) throw e;
         mic = await navigator.mediaDevices.getUserMedia({ audio: base });
         list.micFallback = true; // 선택 장치가 뽑힘 — 기본 마이크 폴백 사실을 사용자에게 알림
+      }
+      // 양방향 통역 + 2채널 가능 기기(스테레오 무선 수신기 등): 원음 2채널로 다시 연다.
+      // 크롬은 에코 제거·잡음 억제를 켜면 스테레오를 모노로 합치므로 끈다(대신 채널별 게이트·서버 필터가 역할).
+      // 모노 모드 수신기도 2채널(같은 소리 복사)로 보고하므로 진짜 분리 여부는 소리로 판별한다(setupStereo).
+      if (stereoWanted) {
+        const tr = mic.getAudioTracks()[0];
+        let maxCh = 1;
+        try { const c = tr && tr.getCapabilities ? tr.getCapabilities() : null; maxCh = (c && c.channelCount && c.channelCount.max) || 1; } catch {}
+        const key = 'kac-stereo:' + ((tr && tr.label) || '');
+        let cached = null;
+        try { cached = localStorage.getItem(key); } catch {}
+        if (maxCh >= 2 && cached !== 'mono') {
+          const devId = tr && tr.getSettings ? tr.getSettings().deviceId : undefined;
+          try {
+            const st = await navigator.mediaDevices.getUserMedia({ audio: { ...(devId ? { deviceId: { exact: devId } } : {}), channelCount: { exact: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+            mic.getTracks().forEach((t) => t.stop());
+            mic = st;
+            list.stereo = { key, cached };
+          } catch {} // 2채널로 못 열면 기존 1채널 그대로
+        }
       }
       list.push({ src: 'mic', stream: mic });
     }
@@ -186,6 +206,9 @@ export async function startRecorder(opts) {
   calcGate(micSensVal);
   // 데스크 2마이크(PC): 직원/여객 장치 지정 — 데스크 파이프라인 + 브라우저 환경에서만
   const mic2 = pipeline === 'desk' && !window.AndroidAudio && opts.mic2 && opts.mic2.guest ? opts.mic2 : null;
+  // 스테레오 2채널(양방향 통역 + 마이크): 송신기 1번(왼쪽)=나, 2번(오른쪽)=상대로 채널을 나눠 언어 오판을 없앤다.
+  // 기기가 진짜로 분리해 보내는지는 소리로 판별하고 결과를 기기별로 기억한다(setupStereo).
+  const stereoWanted = !!opts.stereo && pipeline === 'soniox' && sxMode === 'two' && !!sxA && !!sxB && sxA !== sxB && mode === 'mic';
   // RNNoise(옵션): 마이크 캡처에만 적용(네이티브 앱 제외). 로드 실패 시 브라우저 NS 유지로 폴백
   let rnnMod = null;
   if (opts.rnnoise && !window.AndroidAudio && (mode === 'mic' || mode === 'both')) {
@@ -208,12 +231,26 @@ export async function startRecorder(opts) {
   }
   let sources;
   try {
-    sources = await getSources(mode, micRatio > 0, mic2, !!rnnMod, opts.micId); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
+    sources = await getSources(mode, micRatio > 0, mic2, !!rnnMod, opts.micId, stereoWanted && !window.AndroidAudio); // 권한 거부 시 throw. 게이트 사용 시 AGC off 시도
   } catch (e) {
     try { audioCtx.close(); } catch {} // 먼저 만든 오디오 컨텍스트 회수(권한 거부 시 누수 방지)
     throw e;
   }
   const nativeMic = sources.some((s) => s.native); // 안드로이드 앱 네이티브 마이크 사용 여부
+  // 스테레오 계획: 브라우저는 getSources 가 2채널로 연 경우, 앱은 네이티브가 스테레오 캡처를 지원하는 경우(1.3.0~)
+  let stereoPlan = null;
+  if (stereoWanted) {
+    if (nativeMic && window.AndroidAudio && window.AndroidAudio.startStereo) {
+      let label = '';
+      try { label = window.AndroidAudio.inputLabel ? String(window.AndroidAudio.inputLabel() || '') : ''; } catch {}
+      const key = 'kac-stereo:native:' + label;
+      let cached = null;
+      try { cached = localStorage.getItem(key); } catch {}
+      if (cached !== 'mono') stereoPlan = { native: true, key, cached };
+    } else if (sources.stereo) {
+      stereoPlan = { native: false, key: sources.stereo.key, cached: sources.stereo.cached };
+    }
+  }
   if (sources.guestFail) {
     try { onMessage({ type: 'status', message: '여객 마이크 장치를 열지 못했습니다 — 단일 채널(또는 태블릿 마이크)로 동작합니다.' }); } catch {}
   }
@@ -237,13 +274,14 @@ export async function startRecorder(opts) {
 
   const inRate = audioCtx.sampleRate;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const q = `session=${sessionId}&out=${encodeURIComponent(outLang)}&in=${encodeURIComponent(
-    inLang
+  // over: 채널별 덮어쓰기 { in, sxMode, sxTarget, role, drop, pair } — 양방향 통역을 채널별 단방향으로 나눌 때
+  const makeQ = (over = {}) => `session=${sessionId}&out=${encodeURIComponent(outLang)}&in=${encodeURIComponent(
+    over.in != null ? over.in : inLang
   )}&pipeline=${pipeline}&audioOut=${audioOut ? '1' : '0'}${
     pipeline === 'soniox'
-      ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}&sxMode=${encodeURIComponent(sxMode || 'one')}&sxTarget=${encodeURIComponent(sxTarget || 'en')}&sxA=${encodeURIComponent(sxA || 'ko')}&sxB=${encodeURIComponent(sxB || 'en')}${
+      ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}&sxMode=${encodeURIComponent(over.sxMode || sxMode || 'one')}&sxTarget=${encodeURIComponent(over.sxTarget || sxTarget || 'en')}&sxA=${encodeURIComponent(sxA || 'ko')}&sxB=${encodeURIComponent(sxB || 'en')}${
           tts ? `&tts=1&gender=${encodeURIComponent(gender || 'f')}` : ''
-        }${diar ? '&diar=1' : ''}`
+        }${diar ? '&diar=1' : ''}${over.role ? `&role=${over.role}` : ''}${over.drop ? `&drop=${encodeURIComponent(over.drop)}` : ''}${over.pair ? `&pair=${encodeURIComponent(over.pair)}` : ''}`
       : ''
   }${opts.dropAcks ? '&dropAcks=1' : ''}${opts.confFix ? '&confFix=1' : ''}${
     pipeline === 'desk'
@@ -252,6 +290,15 @@ export async function startRecorder(opts) {
         }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}${deskGuestSens != null ? `&deskGuestSens=${encodeURIComponent(deskGuestSens)}` : ''}${opts.wayfind === false ? '&wayfind=0' : ''}`
       : ''
   }`;
+  // 양방향 통역의 채널 분리: 채널마다 언어가 정해져 있으면 엔진이 언어를 추측할 필요가 없다(오판 제거).
+  //  · me(내 채널): 내 언어(A) → 상대 언어(B), 상대 언어가 들리면 샌 소리로 버림
+  //  · them(상대 채널): 무엇이든 → 내 언어(A). 시스템 소리(원격 회의)는 제3 언어도 섞이므로 버리지 않고,
+  //    스테레오 상대 마이크는 내 언어(옆 사람 핀마이크로 샌 내 말)를 버린다.
+  const canSplit = pipeline === 'soniox' && sxMode === 'two' && sxA && sxB && sxA !== sxB;
+  const pairQ = `${sxA},${sxB}`;
+  const meOver = { sxMode: 'one', sxTarget: sxB, in: sxA, role: 'me', drop: sxB, pair: pairQ };
+  const themOver = (stereoThem) => ({ sxMode: 'one', sxTarget: sxA, in: sxB, role: 'them', pair: pairQ, ...(stereoThem ? { drop: sxA } : {}) });
+  const q = makeQ();
 
   const pipes = [];
   const streams = [];
@@ -366,7 +413,7 @@ export async function startRecorder(opts) {
   const ctlState = { audioOut: null, tts: null, guestSens: null, deskIdle: null, dropAcks: null, confFix: null, wayfindOn: null };
   const resendState = (sock) => {
     try {
-      if (ctlState.tts != null) sock.send(JSON.stringify({ type: 'tts', on: ctlState.tts.on, ...(ctlState.tts.gender ? { gender: ctlState.tts.gender } : {}) }));
+      if (ctlState.tts != null) sock.send(JSON.stringify({ type: 'tts', on: ctlState.tts.on, local: ctlState.tts.local !== false, ...(ctlState.tts.gender ? { gender: ctlState.tts.gender } : {}) }));
       if (ctlState.audioOut != null) sock.send(JSON.stringify({ type: 'audioOut', on: ctlState.audioOut }));
       if (ctlState.guestSens != null) sock.send(JSON.stringify({ type: 'desk-guest-sens', value: ctlState.guestSens }));
       if (ctlState.deskIdle != null) sock.send(JSON.stringify({ type: 'desk-idle', value: ctlState.deskIdle }));
@@ -376,49 +423,226 @@ export async function startRecorder(opts) {
     } catch {}
   };
 
+  // 소켓 배선 — 초기 연결·자동 재연결·채널 재설정(스테레오 전환)이 공용. pipe.wsUrl 로 다시 연다.
+  function wirePipe(pipe, sock) {
+    sock.binaryType = 'arraybuffer';
+    // 열리면 변경된 제어 상태 복원 + 끊김·연결 대기 동안 보관한 오디오를 먼저 흘려보내 발화 연속성 복구
+    // (초기 소켓은 이미 OPEN 이라 안 걸리고, 재연결·나중에 연 채널에서 동작)
+    sock.onopen = () => {
+      resendState(sock);
+      if (pipe.gapBuf && pipe.gapBuf.length) {
+        for (const f of pipe.gapBuf) { try { sock.send(f); } catch {} }
+        pipe.gapBuf = [];
+      }
+    };
+    sock.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; } // 비정상 프레임 1건이 핸들러를 죽이지 않게
+      // 중지 후 결과 수신 창(1.8초) 동안엔 자막 병합만 허용 — 구 소켓이 받은 takeover 등
+      // 제어 메시지가 새로 시작한 녹음을 죽이는 레이스 차단
+      if (stopped && m.type !== 'sentence' && m.type !== 'partial') return;
+      // 이 파이프가 이미 새 소켓으로 바뀐 경우(스테레오 전환 재설정) 구 소켓은 자막만 — 새 소켓이 일으킨
+      // takeover 를 구 소켓이 받아 녹음 전체를 멈추던 일을 막는다
+      if (pipe.ws !== sock && m.type !== 'sentence' && m.type !== 'partial') return;
+      if (m.type === 'audio') {
+        // m.lang: 음성 언어 — 지금은 이 기기에서 모두 재생(대면 1대 사용). 같은 음성이 채널마다 오므로 첫 파이프만 재생
+        if (audioOutOn && pipe.isAudioPipe) playPcm24(m.b64);
+        return;
+      }
+      onMessage(m);
+    };
+    sock.onclose = () => {
+      if (stopped || pipe.ws !== sock) return;
+      // 네트워크 블립·서버 재시작 → 자동 재연결('진행 중' 표시인 채 무음이 지속되던 문제 수정)
+      try { onMessage({ type: 'status', message: '연결이 끊겨 재연결 중…' }); } catch {}
+      setTimeout(() => {
+        if (stopped || pipe.ws !== sock) return;
+        const re = new WebSocket(pipe.wsUrl);
+        pipe.ws = re;
+        wirePipe(pipe, re);
+        // 초기 연결과 동일한 타임아웃 — half-open 이면 닫아서 onclose 재시도 루프로 복귀
+        setTimeout(() => { if (!stopped && pipe.ws === re && re.readyState !== WebSocket.OPEN) { try { re.close(); } catch {} } }, 12000);
+      }, 2000);
+    };
+  }
+  // 파이프를 다른 설정(URL)으로 다시 연다 — 구 소켓은 마지막 결과를 받도록 stop 후 잠시 뒤 닫는다
+  function reopenPipe(pipe, url) {
+    const old = pipe.ws;
+    pipe.wsUrl = url;
+    const re = new WebSocket(url);
+    pipe.ws = re;
+    wirePipe(pipe, re);
+    try { if (old && old.readyState === WebSocket.OPEN) old.send(JSON.stringify({ type: 'stop' })); } catch {}
+    setTimeout(() => { try { old && old.close(); } catch {} }, 1800);
+  }
+
+  /* ---- 스테레오 2채널(양방향 통역): 왼쪽(송신기 1)=나, 오른쪽(2)=상대 ----
+     ① 기본은 지금과 같은 1채널(왼쪽 소리 → 양방향 엔진, 언어 추측). 판별은 뒤에서 조용히:
+        · 좌우가 사실상 같다(상관 0.985 초과) → 모노 모드 수신기(복사본)·백업 트랙 → 기억('mono')
+        · 오른쪽에서 왼쪽보다 확연히 큰 말소리가 나온다 → 송신기 2가 따로 들어온다 → 2채널로 전환·기억('stereo')
+        한쪽만 쓰는 장치·조용한 백업 복사본은 '오른쪽이 더 큰 말소리'를 만들지 못하므로 2채널로 오판되지 않는다.
+     ② 2채널: 내 채널을 단방향(내 언어→상대 언어, 상대 언어 버림)으로 다시 열고, 상대 채널을 오른쪽 프리롤(약 0.7초)과
+        함께 연다(혼자 쓰는 동안은 연결 1개 — 요금 1배). 오른쪽 소리는 그 전까지 엔진에 보내지 않으므로 조각 중복도 없다.
+     ③ 게이트(민감도) 슬라이더 하나를 두 채널에 똑같이, 소음 바닥만 채널별. 원음이라 앱 곡선(micAbsMinNative). */
+  function setupStereo(p0, stream) {
+    const plan = stereoPlan;
+    const swap = !!opts.stereoSwap;
+    let st = plan.cached === 'stereo' ? 'stereo' : 'detect'; // 'detect'(1채널로 동작하며 판별) | 'mono' | 'stereo'
+    let themPipe = null;
+    let monoProcessed = false; // 모노 판정 후 브라우저 에코 제거를 다시 켰는지(그러면 브라우저 곡선·AEC 규칙)
+    const report = () => { try { opts.onStereo && opts.onStereo({ state: st, them: !!themPipe, raw: !monoProcessed }); } catch {} };
+    const save = (v) => { try { localStorage.setItem(plan.key, v); } catch {} };
+    const mkGate = () => ({ floor: 0.005, openUntil: 0, prev: null, ring: [] });
+    const gMe = mkGate(), gThem = mkGate();
+    const rmsOf = (f) => { let sum = 0, peak = 0; for (let i = 0; i < f.length; i++) { const v = f[i]; sum += v * v; const a = v < 0 ? -v : v; if (a > peak) peak = a; } return [Math.sqrt(sum / (f.length || 1)), peak]; };
+    const dB = (x) => 20 * Math.log10(x + 1e-9);
+    const stat = () => ({ n: 0, sLL: 0, sRR: 0, sLR: 0, rDom: 0 });
+    let det = stat(), ver = stat();
+    const acc = (o, L, R, rl, rr) => {
+      if (Math.max(rl, rr) < 0.012) return;
+      o.n++;
+      for (let i = 0; i < L.length; i += 2) { o.sLL += L[i] * L[i]; o.sRR += R[i] * R[i]; o.sLR += L[i] * R[i]; }
+      if (rr >= 0.012 && dB(rr) - dB(rl) > 8) o.rDom++; // 오른쪽이 확연히 큰 말소리 = 송신기 2가 따로 들어옴
+    };
+    const corrOf = (o) => o.sLR / (Math.sqrt(o.sLL * o.sRR) || 1);
+    const sendTo = (pipe, buf) => {
+      const w = pipe.ws;
+      if (w && w.readyState === WebSocket.OPEN) { if (w.bufferedAmount < 262144) { try { w.send(buf); } catch {} } }
+      else { (pipe.gapBuf || (pipe.gapBuf = [])).push(buf); if (pipe.gapBuf.length > 70) pipe.gapBuf.shift(); }
+    };
+    // 새로 연 소켓이 12초 안에 안 열리면 닫아 재연결 루프로(초기 연결·재연결과 같은 보호)
+    const guard = (pipe) => { const sock = pipe.ws; setTimeout(() => { if (!stopped && pipe.ws === sock && sock.readyState !== WebSocket.OPEN) { try { sock.close(); } catch {} } }, 12000); };
+    // 채널 한 프레임: 계측 → 음소거/TTS 보호 → 게이트 → 전송. pipe 가 없으면(상대 채널 열기 전) 말소리 여부만 돌려준다.
+    const feed = (g, f, pipe, isMe, ttsGuard) => {
+      const [rms, peak] = rmsOf(f);
+      if (onMeter) onMeter(rms, peak, isMe ? 'mic' : 'mic2');
+      const pcm = floatTo16BitPCM(f);
+      const silence = () => new ArrayBuffer(f.length * 2);
+      if ((isMe && muted) || ttsGuard) { if (pipe) sendTo(pipe, silence()); return false; }
+      const absMin = monoProcessed ? micAbsMin : micAbsMinNative;
+      const openNow = Date.now() < g.openUntil;
+      let voiced;
+      if (micRatio > 0) {
+        if (rms < g.floor) g.floor += (rms - g.floor) * 0.3; else if (!openNow) g.floor += (rms - g.floor) * 0.002;
+        if (g.floor < 0.0003) g.floor = 0.0003;
+        voiced = rms >= absMin && rms >= g.floor * micRatio;
+      } else voiced = rms > 0.012; // 게이트 없음: 상대 채널 열기 판단용 말소리 감지만
+      if (voiced) { if (!openNow && g.prev && pipe) sendTo(pipe, g.prev); g.openUntil = Date.now() + 300; }
+      const open = Date.now() < g.openUntil;
+      g.ring.push(pcm); if (g.ring.length > 8) g.ring.shift(); // 열기 직전 프리롤(약 0.7초)
+      if (!pipe) return open;
+      const pass = micRatio <= 0 || open;
+      sendTo(pipe, pass ? pcm : silence());
+      g.prev = pass ? null : pcm;
+      if (peak > 0.015) notifyActivityAll();
+      return open;
+    };
+    const meUrl = () => `${proto}://${location.host}/ws/host?src=mic&${makeQ(meOver)}`;
+    const oneUrl = () => `${proto}://${location.host}/ws/host?src=mic&${q}`; // 1채널(양방향, 언어 추측)
+    const openThem = () => {
+      themPipe = { src: 'mic2', ws: null, proc: null, isAudioPipe: false, gapBuf: gThem.ring.slice(),
+        wsUrl: `${proto}://${location.host}/ws/host?src=mic2&${makeQ(themOver(true))}` };
+      gThem.ring = [];
+      const sock = new WebSocket(themPipe.wsUrl);
+      themPipe.ws = sock;
+      wirePipe(themPipe, sock);
+      guard(themPipe);
+      pipes.push(themPipe); // 중지·TTS 토글 등 전체 제어에 포함
+      report();
+    };
+    const closeThem = () => {
+      if (!themPipe) return;
+      const tp = themPipe;
+      themPipe = null;
+      const i = pipes.indexOf(tp); if (i >= 0) pipes.splice(i, 1);
+      try { if (tp.ws.readyState === WebSocket.OPEN) tp.ws.send(JSON.stringify({ type: 'stop' })); } catch {}
+      setTimeout(() => { try { tp.ws.close(); } catch {} }, 1800);
+    };
+    const toStereo = () => {
+      st = 'stereo';
+      save('stereo');
+      reopenPipe(p0, meUrl()); guard(p0); // 1채널로 열려 있던 연결을 내 채널(단방향)로
+      try { onMessage({ type: 'status', message: '스테레오 마이크 감지 — 송신기 1번=나, 2번=상대로 나눠 통역합니다.' }); } catch {}
+      report();
+    };
+    const toMono = (persist) => {
+      const wasStereo = st === 'stereo';
+      st = 'mono';
+      if (persist) save('mono');
+      if (wasStereo) { closeThem(); reopenPipe(p0, oneUrl()); guard(p0); } // 2채널로 시작했는데 모노면 1채널(양방향)로 되돌림
+      // 브라우저: 원음으로 열었던 트랙에 에코 제거·잡음 억제를 다시 켠다(1채널 대면 통역의 TTS 에코 방지)
+      const tr = stream && stream.getAudioTracks ? stream.getAudioTracks()[0] : null;
+      if (persist && tr && tr.applyConstraints) tr.applyConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: micRatio <= 0 }).then(() => { monoProcessed = true; report(); }).catch(() => {});
+      report();
+    };
+    const onFrame = (L, R) => {
+      if (stopped) return;
+      if (swap) { const t = L; L = R; R = t; }
+      const [rl] = rmsOf(L), [rr] = rmsOf(R);
+      // 이 기기 TTS 재생 중: 원음(2채널·판별 중)은 에코 제거가 없으니 무음. 크게 말하면(barge-in) 재생을 끊고 살린다 — 채널 중 큰 쪽 기준
+      const ttsGuard = audioCtx.currentTime < ttsMutedUntil && !(monoProcessed && aecActive);
+      if (ttsGuard) { if (Math.max(rl, rr) > 0.06) { if (++bargeStreak >= 2) { bargeStreak = 0; ttsBargeIn(); } } else bargeStreak = 0; }
+      if (st === 'stereo') {
+        feed(gMe, L, p0, true, ttsGuard);
+        if (themPipe) feed(gThem, R, themPipe, false, ttsGuard);
+        else if (feed(gThem, R, null, false, ttsGuard)) openThem();
+        // 2채널 중에도 계속 검증 — 사실은 같은 소리(모노 모드)면 다음부터 1채널로 시작
+        acc(ver, L, R, rl, rr);
+        if (ver.n >= 60) { if (ver.rDom === 0 && corrOf(ver) > 0.985) save('mono'); ver = stat(); }
+        return;
+      }
+      // 판별 중·모노: 왼쪽 소리로 1채널 동작(오른쪽은 엔진에 보내지 않음 — 2채널 전환 시 조각 중복 방지)
+      feed(gMe, L, p0, true, ttsGuard);
+      if (onMeter) { const [, pr] = rmsOf(R); onMeter(rr, pr, 'mic2'); }
+      if (st !== 'detect') return;
+      gThem.ring.push(floatTo16BitPCM(R)); if (gThem.ring.length > 8) gThem.ring.shift(); // 전환 시 상대 채널 프리롤
+      acc(det, L, R, rl, rr);
+      if (det.rDom >= 3) { toStereo(); openThem(); return; }
+      if (det.n >= 12 && det.rDom === 0 && corrOf(det) > 0.985) toMono(true); // 복사본·백업 트랙 → 다음부터 바로 1채널
+    };
+    report();
+    if (plan.native) {
+      const decode = (b64) => { const bin = atob(b64); const n = bin.length >> 1; const out = new Float32Array(n); for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v >= 0x8000) v -= 0x10000; out[i] = v / 32768; } return out; };
+      window.__kacNA2 = (b64) => { const x = decode(b64); const n = x.length >> 1; const L = new Float32Array(n), R = new Float32Array(n); for (let i = 0; i < n; i++) { L[i] = x[2 * i]; R[i] = x[2 * i + 1]; } onFrame(L, R); };
+      // 모노 프레임(수신기 분리 등으로 기기가 1채널이 됨): 이번 세션은 1채널로(기억은 안 바꿈 — 일시적일 수 있다)
+      window.__kacNA = (b64) => { if (st !== 'mono') toMono(false); const m = decode(b64); onFrame(m, m); };
+      let ch = 0;
+      try { ch = Number(window.AndroidAudio.startStereo()) || 0; } catch {}
+      if (!ch) throw new Error('마이크를 사용할 수 없습니다 — 앱의 마이크 권한을 허용한 뒤 다시 시도해 주세요.');
+      if (ch === 1) toMono(false);
+      nativeMicUsed = true;
+      return;
+    }
+    const node = audioCtx.createMediaStreamSource(stream);
+    const proc = audioCtx.createScriptProcessor(4096, 2, 1);
+    node.connect(proc);
+    const g = audioCtx.createGain();
+    g.gain.value = 0;
+    proc.connect(g);
+    g.connect(audioCtx.destination);
+    proc.onaudioprocess = (e) => {
+      const ib = e.inputBuffer;
+      const L = downsampleTo24k(ib.getChannelData(0), inRate);
+      const R = ib.numberOfChannels > 1 ? downsampleTo24k(ib.getChannelData(1), inRate) : L;
+      onFrame(L, R);
+    };
+    p0.proc = proc;
+    stream.getTracks().forEach((t) => (t.onended = () => {
+      const wasLive = !stopped;
+      stop();
+      if (wasLive) { try { opts.onEnded && opts.onEnded(); } catch {} }
+    }));
+  }
+
   for (const { src, stream, native } of sources) {
     if (stream) streams.push(stream);
     const isAudioPipe = pipes.length === 0; // 서버 TTS 음성은 첫 연결에서만 재생(모두 모드 이중 재생 방지)
-    const wsUrl = `${proto}://${location.host}/ws/host?src=${src}&${q}`;
-    const pipe = { src, ws: null, proc: null };
-
-    // 소켓 배선 — 초기 연결과 자동 재연결이 공용
-    const wire = (sock) => {
-      sock.binaryType = 'arraybuffer';
-      // 재연결 소켓: 열리면 변경된 제어 상태 복원(초기 소켓 ws0 은 이미 OPEN 이라 안 걸림)
-      sock.onopen = () => {
-        resendState(sock);
-        // 끊김 동안 보관한 오디오(최근 ~2초)를 먼저 흘려보내 발화 연속성 복구
-        if (pipe.gapBuf && pipe.gapBuf.length) {
-          for (const f of pipe.gapBuf) { try { sock.send(f); } catch {} }
-          pipe.gapBuf = [];
-        }
-      };
-      sock.onmessage = (ev) => {
-        let m; try { m = JSON.parse(ev.data); } catch { return; } // 비정상 프레임 1건이 핸들러를 죽이지 않게
-        // 중지 후 결과 수신 창(1.8초) 동안엔 자막 병합만 허용 — 구 소켓이 받은 takeover 등
-        // 제어 메시지가 새로 시작한 녹음을 죽이는 레이스 차단
-        if (stopped && m.type !== 'sentence' && m.type !== 'partial') return;
-        if (m.type === 'audio') {
-          if (audioOutOn && isAudioPipe) playPcm24(m.b64);
-          return;
-        }
-        onMessage(m);
-      };
-      sock.onclose = () => {
-        if (stopped || pipe.ws !== sock) return;
-        // 네트워크 블립·서버 재시작 → 자동 재연결('진행 중' 표시인 채 무음이 지속되던 문제 수정)
-        try { onMessage({ type: 'status', message: '연결이 끊겨 재연결 중…' }); } catch {}
-        setTimeout(() => {
-          if (stopped || pipe.ws !== sock) return;
-          const re = new WebSocket(wsUrl);
-          pipe.ws = re;
-          wire(re);
-          // 초기 연결과 동일한 타임아웃 — half-open 이면 닫아서 onclose 재시도 루프로 복귀
-          setTimeout(() => { if (!stopped && pipe.ws === re && re.readyState !== WebSocket.OPEN) { try { re.close(); } catch {} } }, 12000);
-        }, 2000);
-      };
-    };
+    // 채널 분리: 시스템+마이크 → 각자 단방향 / 스테레오(이미 판별된 기기) → 내 채널 단방향으로 시작
+    const stereoHere = src === 'mic' && stereoPlan && stereoPlan.cached === 'stereo';
+    const over = canSplit && mode === 'both' ? (src === 'system' ? themOver(false) : meOver)
+      : (canSplit && stereoHere ? meOver : null);
+    const wsUrl = `${proto}://${location.host}/ws/host?src=${src}&${over ? makeQ(over) : q}`;
+    const pipe = { src, ws: null, proc: null, wsUrl, isAudioPipe };
+    const wire = (sock) => wirePipe(pipe, sock);
 
     const ws0 = new WebSocket(wsUrl);
     pipe.ws = ws0;
@@ -439,6 +663,22 @@ export async function startRecorder(opts) {
       throw e;
     }
     wire(ws0);
+
+    // 스테레오 2채널 후보(양방향 통역 마이크) — 판별·채널 분리는 setupStereo 가 맡는다
+    if (src === 'mic' && stereoPlan) {
+      try { setupStereo(pipe, stream); }
+      catch (e) {
+        stopped = true;
+        cleanupAec();
+        streams.forEach((s2) => s2.getTracks().forEach((t) => t.stop()));
+        pipes.forEach((p) => { try { p.ws.close(); } catch {} });
+        try { ws0.close(); } catch {}
+        try { audioCtx.close(); } catch {}
+        throw e;
+      }
+      pipes.push(pipe);
+      continue;
+    }
 
     if (native) {
       // 네이티브 마이크(안드로이드 앱): AudioRecord(AGC 없음)가 24kHz PCM16 청크를 base64 로 전달.
@@ -639,7 +879,7 @@ export async function startRecorder(opts) {
       if (p.den) p.den.destroy(); // RNNoise 상태·wasm 힙 반납
     }
     streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-    if (nativeMicUsed) { try { window.AndroidAudio.stop(); } catch {} window.__kacNA = null; }
+    if (nativeMicUsed) { try { window.AndroidAudio.stop(); } catch {} window.__kacNA = null; window.__kacNA2 = null; }
     cleanupAec();
     if (audioCtx) audioCtx.close();
     // 마지막 발화 결과가 도착하도록 잠시 후 닫기
@@ -671,10 +911,11 @@ export async function startRecorder(opts) {
   }
 
   // 녹음 중 TTS(음성 재생) 토글 — 로컬 재생 + 서버 합성/호스트 전송 on/off
-  function setTts(on, genderSel) {
-    audioOutOn = !!on;
-    ctlState.tts = { on: !!on, gender: genderSel || (ctlState.tts && ctlState.tts.gender) || null };
-    for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'tts', on: !!on, ...(genderSel ? { gender: genderSel } : {}) })); } catch {} }
+  // local=false: '뷰어에게만' — 서버는 합성해 뷰어에게 보내고 이 기기에서는 재생하지 않는다
+  function setTts(on, genderSel, local = true) {
+    audioOutOn = !!on && local !== false;
+    ctlState.tts = { on: !!on, local: local !== false, gender: genderSel || (ctlState.tts && ctlState.tts.gender) || null };
+    for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'tts', on: !!on, local: local !== false, ...(genderSel ? { gender: genderSel } : {}) })); } catch {} }
   }
 
   // 데스크: 호스트 수동 '대기모드로' — 현재 대화 종료(뷰어를 터치화면으로)
@@ -689,7 +930,8 @@ export async function startRecorder(opts) {
     micSensVal = Number(v);
     calcGate(micSensVal);
     // 게이트 사용 중엔 AGC(자동 게인) off 시도 — 켜져 있으면 원거리음까지 증폭해 근접 판별을 흐린다. 100이면 원복.
-    if (micTrack && micTrack.applyConstraints) micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) }).catch(() => {});
+    // 스테레오 원음 트랙은 건드리지 않는다(제약을 바꾸면 크롬이 처리 경로로 되돌려 1채널로 합칠 수 있다)
+    if (micTrack && micTrack.applyConstraints && !stereoPlan) micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) }).catch(() => {});
   }
   // 데스크: 여객 마이크 민감도(0~100) — 뷰어 태블릿엔 서버 경유로, 2마이크 모드의 로컬 여객 게이트엔 즉시 반영
   function setGuestSens(v) { ctlState.guestSens = Number(v); calcGuestGate(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }

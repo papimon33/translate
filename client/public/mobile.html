@@ -90,6 +90,9 @@
   .msg.turn.staff .line { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:5px; }
   .msg.turn.self  .line { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:5px; }
   .msg.turn.staff .line.pending, .msg.turn.self .line.pending { opacity:.6; font-style:normal; }
+  /* 양방향(일반 세션): 내 언어 쪽=오른쪽, 상대 언어 쪽=왼쪽. 말풍선 아래 보조 줄(내 말=번역, 상대 말=원문) */
+  .msg.turn .src { max-width:90%; margin:4px 6px 0; }
+  .msg.turn.self .src { text-align:right; }
   /* 길안내: 채팅 인라인이 아니라 화면 '상단' 고정 플로팅 — 새 발화가 이어져도 밀려나지 않음 */
   .mapCard { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); left:12px; right:12px; z-index:60; margin:0;
     border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel);
@@ -202,6 +205,13 @@ let curLang = 'ko';
 let sessionPipeline = 'whisper';
 let sessionOutLang = 'ko';
 let sxTwo = false, sxAlang = null, sxBlang = null; // 양방향 번역(언어1↔언어2) — 방향별 색상
+// 양방향: 이 뷰어의 '내 언어'(둘 중 하나). 내 언어로 말한 쪽은 오른쪽에 원문, 상대 언어 쪽은 왼쪽에 내 언어 번역.
+// 음성 듣기도 내 언어 음성만 받는다(서버 audioSub.lang). 처음엔 폰 언어로 추정, 고르면 세션별로 기억.
+function pickMyLang(a, b){
+  try { const sv = localStorage.getItem('kac-mylang-'+sessionId); if (sv === a || sv === b) return sv; } catch {}
+  const nav = String(navigator.language || '').slice(0,2).toLowerCase();
+  return nav === b ? b : a;
+}
 let speakerNames = {}; // 화자번호 -> 지정이름
 function spkLabel(id){ return id ? (speakerNames[id] || ('Speaker '+id)) : ''; }
 
@@ -297,8 +307,12 @@ if(!(fsPct>=50 && fsPct<=200)) fsPct = 100; // 옛 px 저장값 보정
 function applyFs(){ document.documentElement.style.setProperty('--fs', Math.round(FS_BASE*fsPct/100)+'px'); $('fsVal').textContent = fsPct+'%'; localStorage.setItem('kac-mfs', fsPct); }
 let showSrc = localStorage.getItem('kac-msrc') !== '0'; // 원문 동시 보기 기본 ON
 // 원문이 표시 문장과 같으면(출력 언어로 말한 발화 — 예: 한국어→한국어 기록) 두 번 쓰지 않는다
-function srcShown(c){ return !isDesk() && showSrc && !!c.source && c.source.trim() !== String(pick(c.texts || {}) || '').trim(); }
+function srcShown(c){
+  if (twoMode()) return showSrc && !!c.sub && c.sub.trim() !== String(c.line.textContent || '').trim();
+  return !isDesk() && showSrc && !!c.source && c.source.trim() !== String(pick(c.texts || {}) || '').trim();
+}
 function applySrc(){ $('srcToggle').checked = showSrc; cards.forEach(c => { c.src.style.display = srcShown(c) ? 'block':'none'; }); }
+function twoMode(){ return sxTwo && !isDesk(); }
 
 applyTheme(localStorage.getItem('kac-theme') || 'light');
 applyFs();
@@ -309,12 +323,26 @@ function applySxInfo(info){
   // 언어쌍 문구 표시는 제거 — 표시할 언어(curLang)만 갱신
   if (!info) { rerender(); return; }
   if (info.mode === 'two') {
-    curLang = (sessionPipeline === 'desk') ? info.b : info.a; // 데스크 뷰어=b, 일반=a
-    // 일반 양방향: 발화 방향별 색상 구분(데스크 제외)
-    if (sessionPipeline !== 'desk') { sxTwo = true; sxAlang = info.a; sxBlang = info.b; }
+    if (sessionPipeline === 'desk') curLang = info.b; // 데스크 뷰어=손님 언어
+    else {
+      // 일반 양방향: 내 언어를 고를 수 있게(두 언어 중 하나) — 정렬·번역·음성이 이 기준
+      sxTwo = true; sxAlang = info.a; sxBlang = info.b;
+      curLang = (curLang === info.a || curLang === info.b) && langSel.dataset.pair === info.a+','+info.b ? curLang : pickMyLang(info.a, info.b);
+      if (langSel.dataset.pair !== info.a+','+info.b) {
+        langSel.dataset.pair = info.a+','+info.b;
+        langSel.innerHTML = '';
+        [info.a, info.b].forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent='My language: '+(LABEL[c]||c); langSel.appendChild(o); });
+      }
+      langSel.setAttribute('aria-label', 'My language');
+      langSel.value = curLang;
+      langSel.style.display = '';
+      langSel.onchange = () => { curLang = langSel.value; try { localStorage.setItem('kac-mylang-'+sessionId, curLang); } catch {} rerender(); sendAudioSub(audioOn); };
+      sendAudioSub(audioOn); // 듣는 중이었다면 내 언어 기준으로 다시 구독
+    }
   } else {
     curLang = (sessionPipeline === 'desk') ? 'ko' : info.target;
     sxTwo = false;
+    if (sessionPipeline !== 'desk' && langSel.dataset.pair) { langSel.style.display = 'none'; delete langSel.dataset.pair; }
   }
   rerender();
 }
@@ -395,13 +423,16 @@ function upsert(item){
   }
   card.texts = item.texts || (item.text ? { [curLang]: item.text } : {});
   card.source = item.source || '';
+  if (item.lang) card.lang = item.lang; // 발화 언어 — 양방향 정렬(내 언어 쪽/상대 쪽)
   // 확정 메시지는 draft 를 아예 안 보내므로 매번 덮어써야 한다(유지하면 영영 흐린 채로 남는다)
   card.draft = !!item.draft;
   if(item.speaker) card.speaker = item.speaker;
   renderSpk(card);
   renderLine(card);
-  card.src.textContent = card.source;
-  card.src.style.display = srcShown(card) ? 'block' : 'none';
+  if (!twoMode()) { // 양방향은 renderLine 이 보조 줄(번역/원문)을 직접 채운다
+    card.src.textContent = card.source;
+    card.src.style.display = srcShown(card) ? 'block' : 'none';
+  }
   if(stick) scrollDown();
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
@@ -420,6 +451,29 @@ function renderLine(c){
     c.line.textContent = r.t;
     if (c.src) c.src.style.display = 'none';
     c.el.style.display = r.t ? '' : 'none';
+    return;
+  }
+  if (twoMode()) {
+    // 발화 언어: 서버가 보낸 lang, 없으면 번역 키로 추정(번역 키=상대 언어 → 말한 언어는 그 반대)
+    const tk = c.texts ? Object.keys(c.texts)[0] : null;
+    const spoken = c.lang || (tk ? (tk === sxAlang ? sxBlang : sxAlang) : null);
+    const mine = spoken === curLang;
+    const other = curLang === sxAlang ? sxBlang : sxAlang;
+    const tr = c.texts ? (c.texts[mine ? other : curLang] || '') : '';
+    let main = mine ? (c.source || tr) : tr;
+    const pending = !main && !!c.source; // 상대 말인데 아직 내 언어 번역이 없음 → 원문을 흐리게
+    if (pending) main = c.source;
+    c.sub = mine ? tr : (pending ? '' : c.source);
+    c.el.classList.add('turn');
+    c.el.classList.toggle('self', mine);
+    c.el.classList.toggle('staff', !mine);
+    c.el.classList.remove('latest', 'dirA', 'dirB');
+    if (c.spk){ c.spk.className = 'who'; c.spk.style.display = main ? '' : 'none'; c.spk.textContent = LABEL[spoken] || (spoken ? String(spoken).toUpperCase() : ''); }
+    c.line.className = 'line' + (pending ? ' pending' : '') + (c.draft ? ' draft' : '');
+    c.line.textContent = main;
+    c.src.textContent = c.sub || '';
+    c.src.style.display = srcShown(c) ? 'block' : 'none';
+    c.el.style.display = main ? '' : 'none';
     return;
   }
   const txt = pick(c.texts);
@@ -449,7 +503,7 @@ function enableAudio(){
   if(!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); mgain = actx.createGain(); mgain.connect(actx.destination); } catch {} }
   if(actx && actx.state==='suspended') actx.resume();
 }
-function sendAudioSub(on){ try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'audioSub', on:!!on})); } catch {} }
+function sendAudioSub(on){ try { if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'audioSub', on:!!on, ...(twoMode() ? { lang: curLang } : {})})); } catch {} }
 function playPcm24(b64){
   if(!actx) return;
   try {

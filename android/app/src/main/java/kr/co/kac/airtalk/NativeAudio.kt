@@ -48,7 +48,11 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
         }
 
     /** 열려 있는 캡처 하나 — 효과는 해당 AudioRecord 세션에 묶여 있으므로 함께 해제한다 */
-    private class Capture(val record: AudioRecord, val rate: Int, val effects: List<AudioEffect>)
+    private class Capture(val record: AudioRecord, val rate: Int, val effects: List<AudioEffect>, val channels: Int)
+
+    /** 스테레오 캡처 요청(양방향 통역 2채널) — USB 수신기가 2채널을 주면 좌우를 따로 넘긴다(재개방 때도 유지) */
+    @Volatile
+    private var stereoWanted = false
 
     @Volatile
     private var running = false
@@ -86,16 +90,27 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
 
     @Synchronized
     @JavascriptInterface
-    fun start(): Boolean {
-        if (running) return true
+    fun start(): Boolean = begin(false) > 0
+
+    /**
+     * 스테레오 캡처 시작 — 반환: 2=스테레오(좌우를 window.__kacNA2 로 인터리브 전달), 1=모노(장치가 2채널을 못 줌,
+     * window.__kacNA), 0=실패. 웹은 좌우가 진짜로 다른지 소리로 다시 판별한다(모노 모드 수신기는 같은 소리를 복사해 보냄).
+     */
+    @Synchronized
+    @JavascriptInterface
+    fun startStereo(): Int = begin(true)
+
+    private fun begin(stereo: Boolean): Int {
+        if (running) return cur?.channels ?: 1
+        stereoWanted = stereo
         if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             // 다음 시도가 성공하도록 권한 요청을 올려 두고 이번엔 실패를 알린다(페이지가 폴백/안내)
             activity.runOnUiThread {
                 activity.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
             }
-            return false
+            return 0
         }
-        val c = open() ?: return false
+        val c = open() ?: return 0
         running = true
         val myGen = ++gen
         try {
@@ -106,35 +121,41 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             isDaemon = true
             start()
         }
-        return true
+        return c.channels
     }
 
-    /** AudioRecord 생성 → 입력 장치 지정 → 효과 부착 → 녹음 시작. 실패 시 null(자원 정리 완료). */
-    private fun open(): Capture? {
-        var rec: AudioRecord? = null
-        var rate = 0
+    /** source·채널 구성으로 AudioRecord 를 만든다(지원 샘플레이트를 차례로 시도). 실패 시 null */
+    private fun create(source: Int, mask: Int, wantCh: Int): Pair<AudioRecord, Int>? {
         for (r in intArrayOf(48000, 44100, 24000, 16000)) {
-            val minBuf = AudioRecord.getMinBufferSize(r, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val minBuf = AudioRecord.getMinBufferSize(r, mask, AudioFormat.ENCODING_PCM_16BIT)
             if (minBuf <= 0) continue
             try {
-                val a = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    r,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    maxOf(minBuf * 2, r / 5 * 2), // 최소 200ms 버퍼
-                )
-                if (a.state == AudioRecord.STATE_INITIALIZED) {
-                    rec = a
-                    rate = r
-                    break
-                }
+                val a = AudioRecord(source, r, mask, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf * 2, r / 5 * 2 * wantCh)) // 최소 200ms 버퍼
+                if (a.state == AudioRecord.STATE_INITIALIZED && a.channelCount == wantCh) return a to r
                 a.release()
             } catch (_: Exception) {
             }
         }
-        val record = rec ?: return null
+        return null
+    }
+
+    /** AudioRecord 생성 → 입력 장치 지정 → 효과 부착 → 녹음 시작. 실패 시 null(자원 정리 완료). */
+    private fun open(): Capture? {
         val dev = pickInput()
+        // 스테레오: USB 장치이고 2채널을 지원할 때만(내장 마이크 2개짜리 폰 스테레오는 화자 분리가 아니므로 제외)
+        val usb = dev != null && (dev.type == AudioDeviceInfo.TYPE_USB_HEADSET || dev.type == AudioDeviceInfo.TYPE_USB_DEVICE)
+        val dev2ch = usb && (dev!!.channelCounts.isEmpty() || dev.channelCounts.contains(2))
+        var made: Pair<AudioRecord, Int>? = null
+        var channels = 1
+        if (stereoWanted && dev2ch) {
+            made = create(MediaRecorder.AudioSource.VOICE_RECOGNITION, AudioFormat.CHANNEL_IN_STEREO, 2)
+                ?: create(MediaRecorder.AudioSource.MIC, AudioFormat.CHANNEL_IN_STEREO, 2)
+            if (made != null) channels = 2
+        }
+        if (made == null) made = create(MediaRecorder.AudioSource.VOICE_RECOGNITION, AudioFormat.CHANNEL_IN_MONO, 1)
+        val got = made ?: return null
+        val record = got.first
+        val rate = got.second
         if (dev != null) {
             try {
                 record.setPreferredDevice(dev)
@@ -168,7 +189,7 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             }
         } catch (_: Exception) {
         }
-        val c = Capture(record, rate, effects)
+        val c = Capture(record, rate, effects, channels)
         try {
             record.addOnRoutingChangedListener(routingListener, main)
         } catch (_: Exception) {
@@ -189,6 +210,7 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             .put("aec", aec)
             .put("ns", ns)
             .put("preferred", describe(dev))
+            .put("channels", channels)
             .toString()
         Log.i(TAG, "capture start rate=$rate aec=$aec ns=$ns gain=$inputGain preferred=${describe(dev)}")
         cur = c
@@ -199,7 +221,7 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
     private fun loop(first: Capture, myGen: Int) {
         fun alive() = running && gen == myGen
         var c = first
-        var inBuf = ShortArray(c.rate / 10) // 100ms
+        var inBuf = ShortArray(c.rate / 10 * c.channels) // 100ms(스테레오는 좌우 인터리브)
         while (alive()) {
             var off = 0
             var dead = false
@@ -231,12 +253,13 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
                     return
                 }
                 c = next
-                if (inBuf.size != c.rate / 10) inBuf = ShortArray(c.rate / 10)
+                if (inBuf.size != c.rate / 10 * c.channels) inBuf = ShortArray(c.rate / 10 * c.channels)
                 continue
             }
             if (!alive()) break
             if (off <= 0) continue
-            val out = to24k(inBuf, off, c.rate)
+            val stereo = c.channels == 2
+            val out = if (stereo) to24kStereo(inBuf, off - (off % 2), c.rate) else to24k(inBuf, off, c.rate)
             val bytes = ByteArray(out.size * 2)
             var j = 0
             for (s in out) {
@@ -246,8 +269,9 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
             }
             val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
             // base64 문자셋([A-Za-z0-9+/=])은 JS 문자열 리터럴에 그대로 안전
+            val fn = if (stereo) "__kacNA2" else "__kacNA"
             webView.post {
-                webView.evaluateJavascript("window.__kacNA&&window.__kacNA(\"$b64\")", null)
+                webView.evaluateJavascript("window.$fn&&window.$fn(\"$b64\")", null)
             }
         }
         close(c)
@@ -346,6 +370,27 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
         } else {
             "대기 — 시작하면 ${pickInput()?.let { describe(it) } ?: "내장 마이크"}"
         }
+    }
+
+    /** 스테레오(좌우 인터리브) → 24kHz 인터리브 + 소프트웨어 게인 — 채널별 선형 보간 */
+    private fun to24kStereo(buf: ShortArray, len: Int, rate: Int): ShortArray {
+        val frames = len / 2
+        if (frames <= 0) return ShortArray(0)
+        val g = inputGain
+        val outFrames = if (rate == 24000) frames else (frames.toLong() * 24000L / rate).toInt()
+        val out = ShortArray(outFrames * 2)
+        val step = rate.toDouble() / 24000.0
+        for (i in 0 until outFrames) {
+            val pos = i * step
+            val i0 = pos.toInt().coerceAtMost(frames - 1)
+            val i1 = if (i0 + 1 < frames) i0 + 1 else frames - 1
+            val frac = pos - i0
+            for (ch in 0..1) {
+                val v = (buf[i0 * 2 + ch] * (1 - frac) + buf[i1 * 2 + ch] * frac) * g
+                out[i * 2 + ch] = v.toInt().coerceIn(-32768, 32767).toShort()
+            }
+        }
+        return out
     }
 
     /** 선형 보간 리샘플 → 24kHz(서버·soniox 파이프라인 규격) + 소프트웨어 게인(클리핑 클램프) */

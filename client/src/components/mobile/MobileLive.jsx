@@ -139,7 +139,7 @@ export default function MobileLive(p) {
               <Box key={i} sx={{ width: 3, height: [6, 9, 12, 14][i], borderRadius: '2px', bgcolor: on ? 'success.main' : 'divider' }} />
             ))}
           </Box>
-          <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 500, maxWidth: 170 }}>{p.micMuted && recording ? '발화 멈춤' : mic.name.replace(/\s*\(.*\)$/, '') /* 모델명은 홈·앱 정보에서 — 칩은 한 줄에 */}</Typography>
+          <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 500, maxWidth: 170 }}>{p.micMuted && recording ? '발화 멈춤' : mic.name.replace(/\s*\(.*\)$/, '') /* 모델명은 홈·앱 정보에서 — 칩은 한 줄에 */}{p.stereoInfo && p.stereoInfo.state === 'stereo' ? ' · 2채널' : ''}</Typography>
         </ButtonBase>
       </Box>
 
