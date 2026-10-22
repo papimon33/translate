@@ -21,7 +21,6 @@ import { ArrowLeftIcon, ChevronRightIcon, LogOutIcon, PlayIcon } from './icons.j
 
 const SlideLeft = forwardRef(function SlideLeft(props, ref) { return <Slide direction="left" ref={ref} {...props} />; });
 const UI_NAMES = { ko: '한국어', en: 'English', ja: '日本語' };
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // 전체 화면 틀(뒤로 + 제목 + 스크롤 본문)
 export function Screen({ open, onBack, title, children, footer, bg }) {
@@ -187,7 +186,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
 
 export function AccountScreen({ open, onBack, user, onUser, onDeleted }) {
   const t = useT();
-  const [form, setForm] = useState(null); // 'name' | 'email' | 'pw' | 'delete'
+  const [form, setForm] = useState(null); // 'name' | 'pw' | 'delete' (이메일은 쓰는 곳이 없어 화면에서 뺐다 — 서버 필드는 유지)
   const [toast, setToast] = useState('');
   const isAdmin = user.role === 'admin'; // 관리자는 env 계정 — 사용자명·비밀번호·삭제 불가(이메일은 가능)
   const saveMe = async (body) => {
@@ -200,7 +199,6 @@ export function AccountScreen({ open, onBack, user, onUser, onDeleted }) {
       <Group title={t('accountInfo')}>
         <OptionRow label="ID" value={user.id} />
         <OptionRow label={t('username')} value={user.username || user.id} onClick={isAdmin ? undefined : () => setForm('name')} />
-        <OptionRow label={t('email')} value={user.email || t('notSet')} onClick={() => setForm('email')} />
       </Group>
       <Group>
         <OptionRow label={t('changePassword')} onClick={() => setForm('pw')} disabled={isAdmin} />
@@ -214,10 +212,6 @@ export function AccountScreen({ open, onBack, user, onUser, onDeleted }) {
         fields={[{ key: 'username', label: t('username'), autoComplete: 'nickname' }]} initial={{ username: user.username || '' }}
         validate={(v) => (String(v.username || '').trim() ? '' : t('required', { f: t('username') }))}
         onSubmit={async (v) => { await saveMe({ username: String(v.username).trim() }); setToast(t('saved')); }} />
-      <FormSheet open={form === 'email'} onClose={() => setForm(null)} title={t('email')}
-        fields={[{ key: 'email', label: t('email'), type: 'email', placeholder: t('emailPh'), autoComplete: 'email' }]} initial={{ email: user.email || '' }}
-        validate={(v) => { const e = String(v.email || '').trim(); return !e || EMAIL_RE.test(e) ? '' : t('emailInvalid'); }}
-        onSubmit={async (v) => { await saveMe({ email: String(v.email || '').trim() }); setToast(t('saved')); }} />
       <FormSheet open={form === 'pw'} onClose={() => setForm(null)} title={t('changePassword')}
         fields={[
           { key: 'cur', label: t('currentPassword'), type: 'password', autoComplete: 'current-password' },

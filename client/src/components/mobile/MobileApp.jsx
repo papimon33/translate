@@ -24,6 +24,13 @@ const isTwo = (preset) => ['twoway', 'mobile', 'field', 'meeting'].includes(pres
 const SX_CODES = SX_LANGS.map((l) => l.code);
 const IN_CODES = LANGS.map((l) => l.code); // 'auto'(자동 감지) 포함 — 실시간 번역의 입력 언어 힌트
 
+// 세션 이름 기본값 '10/22 14:30 양방향 통역' — 현장에서 매번 입력하지 않게 미리 채워 두고 고칠 수 있게(필수는 유지)
+function defaultName(mode, t) {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())} ${mode === 'twoway' ? t('modeTwoway') : t('modeOneway')}`;
+}
+
 function ModeIcon({ preset, size = 46 }) {
   const two = isTwo(preset);
   const Icon = two ? SwapIcon : ArrowRightIcon;
@@ -54,6 +61,7 @@ function NewSessionSheet({ open, onClose, onCreated }) {
   const [a, setA] = useState('ko');           // 양방향: 내 언어(모국어 기본)
   const [b, setB] = useState('en');           // 양방향: 상대 언어(지난번 값)
   const [name, setName] = useState('');
+  const [nameEdited, setNameEdited] = useState(false); // 직접 고치기 전엔 기본 이름이 모드를 따라간다
   const [touched, setTouched] = useState(false);
   const [pick, setPick] = useState(null);     // 'src' | 'target' | 'a' | 'b'
   const [busy, setBusy] = useState(false);
@@ -61,7 +69,7 @@ function NewSessionSheet({ open, onClose, onCreated }) {
   const nameRef = useRef(null);
   useEffect(() => {
     if (!open) return;
-    setName(''); setTouched(false); setErr(''); setBusy(false);
+    setName(defaultName(mode, t)); setNameEdited(false); setTouched(false); setErr(''); setBusy(false);
     const nat = prefs.nativeLang || 'ko';
     let lastB = null;
     try { lastB = localStorage.getItem('kac-sx-b'); } catch {}
@@ -103,6 +111,9 @@ function NewSessionSheet({ open, onClose, onCreated }) {
       setBusy(false);
     }
   };
+
+  // 모드를 바꾸면(이름을 직접 고치지 않았을 때만) 기본 이름도 그 모드로
+  useEffect(() => { if (open && !nameEdited) setName(defaultName(mode, t)); }, [mode]); // eslint-disable-line
 
   const modes = [
     { v: 'oneway', title: t('modeOneway'), desc: t('modeOnewayDesc') },
@@ -156,7 +167,7 @@ function NewSessionSheet({ open, onClose, onCreated }) {
 
           <Box component="label" sx={{ display: 'flex', flexDirection: 'column', px: 2, pt: 1.25, pb: 1.5, borderRadius: '18px', bgcolor: (th) => alpha(th.palette.text.primary, 0.035), border: 1, borderColor: touched && empty ? 'error.main' : 'transparent' }}>
             <Typography component="span" sx={{ fontSize: 12.5, fontWeight: 500, color: touched && empty ? 'error.main' : 'text.secondary' }}>{t('sessionName')}</Typography>
-            <InputBase inputRef={nameRef} value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setTouched(true)} placeholder={t('sessionNamePh')}
+            <InputBase inputRef={nameRef} value={name} onChange={(e) => { setName(e.target.value); setNameEdited(true); }} onBlur={() => setTouched(true)} placeholder={t('sessionNamePh')}
               inputProps={{ 'aria-label': t('sessionName'), 'aria-required': true, 'aria-invalid': touched && empty, maxLength: 80 }} sx={{ fontSize: 16, py: 0.25 }} />
           </Box>
           {touched && empty && <Typography role="alert" sx={{ fontSize: 13, color: 'error.main', mt: -1, px: 0.5 }}>{t('nameRequired')}</Typography>}

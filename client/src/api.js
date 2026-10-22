@@ -28,6 +28,7 @@ export const api = {
   remove: (id) => fetch('/api/sessions/' + id, { method: 'DELETE' }).then(json),
   clearItems: (id) => fetch('/api/sessions/' + id + '/items', { method: 'DELETE' }).then(json), // 대화 내역만 비우기(세션 유지)
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
+  viewers: (id) => fetch('/api/sessions/' + id + '/viewers').then(json), // 지금 접속한 뷰어 수(호스트 화면)
   deskStatus: () => fetch('/api/desk-status').then(json), // 전 데스크 실시간 현황(호스트·응대·뷰어)
   // 안내데스크 사전 정의(레지스트리) — 관리자 등록, 세션 생성 시 선택
   deskRegistry: () => fetch('/api/desk-registry').then(json),

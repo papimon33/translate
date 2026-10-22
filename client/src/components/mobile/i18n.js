@@ -44,9 +44,9 @@ const D = {
     language: '언어', langLocked: '번역 중에는 언어를 바꿀 수 없습니다 — 중지한 뒤 바꾸세요.',
     langSubOne: '말한 내용을 출력 언어로 보여줍니다', langSubTwo: '서로의 말을 상대 언어로 통역합니다',
     shareLink: '링크 공유', shareHint: 'QR을 스캔하면 이 세션의 번역을 각자 휴대폰으로 볼 수 있습니다.', copyLink: '주소 복사', copied: '복사됨', share: '공유', generating: '생성 중…',
-    saveTranscript: '녹취록 저장', ttsEnable: 'TTS (번역 음성)', ttsEnableSub: '켜면 번역문을 음성으로 만들어 링크로 접속한 휴대폰에 보냅니다. 이 폰에서도 들을지는 하단 TTS 버튼으로 정합니다.', ttsNeedEnable: '세션 설정에서 TTS를 켜면 사용할 수 있습니다.',
+    saveTranscript: '내보내기', viewersN: '뷰어 {n}명', ttsEnable: 'TTS (번역 음성)', ttsEnableSub: '켜면 번역문을 음성으로 만들어 링크로 접속한 휴대폰에 보냅니다. 이 폰에서도 들을지는 하단 TTS 버튼으로 정합니다.', ttsNeedEnable: '세션 설정에서 TTS를 켜면 사용할 수 있습니다.',
     rename: '세션 이름 수정', clearHistory: '대화 내역 삭제', clearConfirm: '이 세션의 대화 내역을 모두 삭제합니다. 세션은 그대로 유지되며 되돌릴 수 없습니다.',
-    cleared: '대화 내역을 삭제했습니다.', deleteSession: '세션 삭제', deleteConfirm: "'{name}' 세션을 삭제합니다. 목록에서 사라집니다.", failMsg: '실패했습니다: {msg}',
+    cleared: '대화 내역을 삭제했습니다.', deleteSession: '세션 삭제', deleteConfirm: "'{name}' 세션을 삭제합니다. 대화 기록도 함께 지워지며 되돌릴 수 없습니다.", failMsg: '실패했습니다: {msg}',
   },
   en: {
     required: 'Required: {f}',
@@ -88,9 +88,9 @@ const D = {
     language: 'Language', langLocked: 'Stop translating before changing languages.',
     langSubOne: 'Shows speech in the output language', langSubTwo: 'Interprets each side into the other language',
     shareLink: 'Share link', shareHint: 'Scan the QR code to follow this session on your own phone.', copyLink: 'Copy link', copied: 'Copied', share: 'Share', generating: 'Generating…',
-    saveTranscript: 'Save transcript', ttsEnable: 'TTS (spoken translation)', ttsEnableSub: 'Speaks translations to phones that joined via the link. Use the TTS button below to also play them on this phone.', ttsNeedEnable: 'Turn on TTS in session settings first.',
+    saveTranscript: 'Export', viewersN: '{n} viewing', ttsEnable: 'TTS (spoken translation)', ttsEnableSub: 'Speaks translations to phones that joined via the link. Use the TTS button below to also play them on this phone.', ttsNeedEnable: 'Turn on TTS in session settings first.',
     rename: 'Rename session', clearHistory: 'Clear conversation', clearConfirm: 'Deletes the whole conversation of this session. The session stays. This cannot be undone.',
-    cleared: 'Conversation cleared.', deleteSession: 'Delete session', deleteConfirm: "Delete '{name}'? It will disappear from the list.", failMsg: 'Failed: {msg}',
+    cleared: 'Conversation cleared.', deleteSession: 'Delete session', deleteConfirm: "Delete '{name}'? Its conversation is deleted too and cannot be restored.", failMsg: 'Failed: {msg}',
   },
   ja: {
     required: '入力してください：{f}',
@@ -132,9 +132,9 @@ const D = {
     language: '言語', langLocked: '翻訳中は言語を変更できません。停止してから変更してください。',
     langSubOne: '話した内容を出力言語で表示します', langSubTwo: 'お互いの言葉を相手の言語に通訳します',
     shareLink: 'リンク共有', shareHint: 'QRコードを読み取ると、このセッションの翻訳を各自のスマホで見られます。', copyLink: 'リンクをコピー', copied: 'コピーしました', share: '共有', generating: '生成中…',
-    saveTranscript: '記録を保存', ttsEnable: 'TTS（翻訳音声）', ttsEnableSub: '翻訳文を音声にして、リンクから参加したスマホに送ります。この端末でも聞くかは下のTTSボタンで切り替えます。', ttsNeedEnable: 'セッション設定でTTSをオンにすると使えます。',
+    saveTranscript: 'エクスポート', viewersN: '視聴 {n}人', ttsEnable: 'TTS（翻訳音声）', ttsEnableSub: '翻訳文を音声にして、リンクから参加したスマホに送ります。この端末でも聞くかは下のTTSボタンで切り替えます。', ttsNeedEnable: 'セッション設定でTTSをオンにすると使えます。',
     rename: 'セッション名を変更', clearHistory: '会話履歴を削除', clearConfirm: 'このセッションの会話履歴をすべて削除します。セッションは残り、元に戻せません。',
-    cleared: '会話履歴を削除しました。', deleteSession: 'セッションを削除', deleteConfirm: '「{name}」を削除します。一覧から消えます。', failMsg: '失敗しました：{msg}',
+    cleared: '会話履歴を削除しました。', deleteSession: 'セッションを削除', deleteConfirm: '「{name}」を削除します。会話履歴も削除され、元に戻せません。', failMsg: '失敗しました：{msg}',
   },
 };
 

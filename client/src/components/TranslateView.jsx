@@ -97,6 +97,7 @@ export const SX_LANGS = [
   { code: 'fi', label: '핀란드어' }, { code: 'tl', label: '필리핀어' }, { code: 'hu', label: '헝가리어' },
   { code: 'he', label: '히브리어' }, { code: 'hi', label: '힌디어' }, { code: 'cs', label: '체코어' },
 ];
+const MUTE_AUTOSTOP_MS = 5 * 60 * 1000; // 음소거 지속 시 자동 중지
 const PIPES = [
   { v: 'translate', label: '실시간 통역' },
   { v: 'soniox', label: '다국어 번역' },
@@ -378,7 +379,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     setHdrMenu(null);
     setConfirmReq({
       title: '세션 삭제',
-      message: `'${sessTitle || '제목 없음'}' 세션을 삭제합니다. 목록에서 사라지며, 대화 기록은 관리자 로그에 보존됩니다.`,
+      message: `'${sessTitle || '제목 없음'}' 세션을 삭제합니다. 대화 기록도 함께 지워지며 되돌릴 수 없습니다.`,
       confirmLabel: '세션 삭제',
       onOk: async () => {
         try { await api.remove(initial.id); onBack(); }
@@ -522,15 +523,22 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     api.patch(initial.id, next).catch(() => {});
   };
 
-  // 전문 다운로드: "* [화자] : 발언" 형식 (.txt)
+  // 내보내기(.txt): 내 언어(양방향 = 내 언어, 실시간 번역 = 출력 언어)로 말한 문장은 원문 그대로,
+  // 다른 언어 문장은 내 언어 번역 + 다음 줄에 원문. 화자 구분이 있으면 "* [화자] : 문장".
+  // (예전엔 표시 언어 칸만 찾아 양방향에서 내가 한 한국어 말이 일본어 번역으로 저장됐다)
   const downloadTranscript = () => {
+    const mine = cfg.pipeline === 'soniox' ? (sxMode === 'two' ? sxA : sxTarget) : dispLang;
     const lines = [];
     for (const m of messages) {
-      let t = m.texts ? (m.texts[dispLang] || Object.values(m.texts)[0] || '') : '';
-      t = (t || m.source || '').trim();
-      if (!t) continue;
-      if (m.speaker) lines.push(`* [${speakers[m.speaker] || ('화자 ' + m.speaker)}] : ${t}`);
-      else lines.push(`* ${t}`);
+      const src = (m.source || '').trim();
+      const tr = ((m.texts && m.texts[mine]) || '').trim();
+      let main = '', orig = '';
+      if (tr && tr !== src) { main = tr; orig = src; }
+      else main = src || tr || String(Object.values(m.texts || {})[0] || '').trim();
+      if (!main) continue;
+      const who = m.speaker ? `[${speakers[m.speaker] || ('화자 ' + m.speaker)}] : ` : '';
+      lines.push(`* ${who}${main}`);
+      if (orig) lines.push(`  (${orig})`);
     }
     const fname = `${(sessTitle || initial.title || 'transcript').replace(/[\\/:*?"<>|]/g, '_')}.txt`;
     // 안드로이드 앱: WebView 는 blob 다운로드를 처리하지 못한다 → 네이티브 '저장 위치 선택' 창으로 저장
@@ -765,6 +773,31 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     setMicMuted(next);
     if (recRef.current && recRef.current.setMuted) recRef.current.setMuted(next);
   };
+
+  // 음소거가 5분 이어지면 번역을 멈춘다 — 음소거 중에도 엔진 연결(과금)은 계속되고, '사용 중' 신호를 보내므로
+  // 1분 유휴 자동 중지도 걸리지 않는다(음소거해 두고 잊으면 몇 시간이고 과금되던 문제).
+  useEffect(() => {
+    if (!recording || !micMuted || cfg.pipeline === 'desk') return undefined;
+    const tm = setTimeout(() => {
+      stop();
+      setNotice('음소거가 5분 이어져 번역을 멈췄습니다. 다시 시작하려면 [시작]을 누르세요.');
+      setTimeout(() => setNotice(''), 10000);
+    }, MUTE_AUTOSTOP_MS);
+    return () => clearTimeout(tm);
+    // eslint-disable-next-line
+  }, [recording, micMuted]);
+
+  // 폰 화면: 지금 링크로 접속한 뷰어 수(5초마다) — 번역 시작 전에도 손님이 들어왔는지 보이게
+  const [viewerCount, setViewerCount] = useState(0);
+  useEffect(() => {
+    if (!mobile || cfg.pipeline === 'desk') return undefined;
+    let dead = false;
+    const poll = () => { if (document.visibilityState !== 'hidden') api.viewers(initial.id).then((r) => { if (!dead && r) setViewerCount(Number(r.n) || 0); }).catch(() => {}); };
+    poll();
+    const tm = setInterval(poll, 5000);
+    return () => { dead = true; clearInterval(tm); };
+    // eslint-disable-next-line
+  }, [mobile, initial.id]);
 
   const showPartial = true;
   const twoway = cfg.pipeline === 'soniox' && sxMode === 'two'; // 양방향 번역(언어1↔언어2) — 방향별 색상 구분
@@ -1079,6 +1112,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           onB={(v) => { const a = v === sxA ? sxB : sxA; setSxB(v); setSxA(a); savePair(a, v); }}
           {...mobileActions}
           backAsk={backAsk}
+          viewerCount={viewerCount}
         />
         {overlays}
       </>
@@ -1134,7 +1168,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
             </IconButton>
           </Tooltip>
         )}
-        <Tooltip title="지금까지의 번역 전문을 텍스트 파일로 저장합니다">
+        <Tooltip title="내보내기 — 지금까지의 대화를 텍스트 파일로 저장합니다">
           <span>
             <IconButton onClick={downloadTranscript} disabled={messages.length === 0} sx={{ border: 1, borderColor: 'divider' }}>
               <FileDownloadOutlinedIcon />

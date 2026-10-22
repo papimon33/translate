@@ -122,12 +122,15 @@ export default function MobileLive(p) {
       try { await p.onStart(); } finally { setStarting(false); }
     }, 80);
   };
-  // 하드웨어 뒤로가기(세션 화면) = 종료 확인 — MobileApp 이 화면을 붙잡고 신호만 보낸다
+  // 나가기(하드웨어 뒤로가기·헤더 화살표·종료 버튼): 번역 중일 때만 종료 확인, 대기 중이면 바로 목록으로.
+  // 하드웨어 뒤로가기는 MobileApp 이 화면을 붙잡고 신호(backAsk)만 보낸다.
+  const leave = () => { if (recording) setSheet('end'); else p.onBack(); };
   const backSeen = useRef(p.backAsk || 0);
   useEffect(() => {
     if (!p.backAsk || p.backAsk === backSeen.current) return;
     backSeen.current = p.backAsk;
-    setSheet('end');
+    leave();
+    // eslint-disable-next-line
   }, [p.backAsk]);
 
   useEffect(() => {
@@ -212,7 +215,7 @@ export default function MobileLive(p) {
       bgcolor: (th) => alpha(th.palette.background.default, 0.97), borderBottom: 1, borderColor: recording ? 'divider' : 'transparent',
       transform: bars ? 'none' : 'translateY(-110%)', transition: 'transform 220ms ease',
     }}>
-      <IconButton onClick={() => setSheet('end')} aria-label={t('backToList')} sx={{ width: 48, height: 48 }}>
+      <IconButton onClick={leave} aria-label={t('backToList')} sx={{ width: 48, height: 48 }}>
         <BackIcon sx={{ fontSize: 20 }} />
       </IconButton>
       <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -223,8 +226,9 @@ export default function MobileLive(p) {
               <Box component="span" sx={{ color: p.connState === 'reconn' ? 'warning.main' : 'error.main' }}>●</Box>
               {' '}{p.connState === 'reconn' ? t('reconnecting') : twoway ? t('interpreting') : t('translating')}
               {p.recStartAt ? ` · ${fmtElapsed(now - p.recStartAt)}` : ''}
+              {p.viewerCount > 0 ? ` · ${t('viewersN', { n: p.viewerCount })}` : ''}
             </>
-          ) : subtitle}
+          ) : `${subtitle}${p.viewerCount > 0 ? ` · ${t('viewersN', { n: p.viewerCount })}` : ''}`}
         </Typography>
       </Box>
       <ButtonBase onClick={() => setSheet('mic')} aria-label={t('micAria', { name: micKindName(mic.kind, t) })}
@@ -273,7 +277,7 @@ export default function MobileLive(p) {
             : <PlayIcon sx={{ fontSize: 33, color: 'background.paper' }} />}
       </ButtonBase>
       <DockButton label={t('settings')} onClick={() => setSheet('settings')}><SlidersIcon /></DockButton>
-      <DockButton label={t('end')} onClick={() => setSheet('end')} color="error.main"><EndIcon /></DockButton>
+      <DockButton label={t('end')} onClick={leave} color="error.main"><EndIcon /></DockButton>
     </Box>
   );
 

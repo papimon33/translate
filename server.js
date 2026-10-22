@@ -2118,16 +2118,30 @@ app.delete('/api/sessions/:id/items', requireAuth, (req, res) => {
   res.json({ ok: true, deleted: n });
 });
 
+// 지금 링크로 접속한 뷰어 수(폰 호스트 화면 표시용 — 번역 시작 전에도) — 호스트 화면의 패시브 뷰어는 제외
+app.get('/api/sessions/:id/viewers', requireAuth, (req, res) => {
+  const s = getSession(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const r = rooms.get(s.id);
+  res.json({ n: r ? [...r.viewers].filter((v) => !v._hostView).length : 0 });
+});
 app.delete('/api/sessions/:id', requireAuth, (req, res) => {
   const s = getSession(req.params.id);
   if (s) {
     // 안내데스크 세션 삭제(관리 행위)는 관리자만
     if (s.pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 세션은 관리자만 삭제할 수 있습니다.' });
     if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-    // 소프트 삭제: 목록·뷰어에서만 사라지고 대화 기록(items·deskLog)은 관리자 로그·통계에 보존.
-    // 기록까지 지우려면 관리자 페이지의 로그 삭제를 사용.
-    s.deletedAt = Date.now();
-    saveSessions();
+    if (s.pipeline === 'desk') {
+      // 안내데스크(관리자 전용 삭제): 소프트 삭제 — 응대 통계·로그(deskLog)는 관리자 페이지에서 따로 정리
+      s.deletedAt = Date.now();
+      saveSessions();
+    } else {
+      // 일반 세션: 대화 기록까지 완전 삭제(2026-10-22 — 삭제한 대화가 관리자 로그에 남지 않게, 회의 녹취 개인정보)
+      sessions = sessions.filter((x) => x.id !== s.id);
+      deleteSessionStore(s.id);
+      if (!col) saveSessions();
+    }
   }
   closeSessionRoom(req.params.id);
   res.json({ ok: true });

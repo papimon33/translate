@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     tags: ['desktop-v*']
+    # 안드로이드 앱 코드가 main 에 들어오면 APK 만 자동 빌드·게시(2026-10-22 — 수동 실행을 잊어 1.4.0 이 안 나왔던 일)
+    branches: [main]
+    paths: ['android/**']
 
 permissions:
   contents: write
@@ -63,6 +66,8 @@ jobs:
 
   build:
     needs: release
+    # 데스크톱 설치본은 태그·수동 실행에서만(안드로이드 코드 푸시로는 APK 만)
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
