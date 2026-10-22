@@ -538,7 +538,13 @@ function showWayfind(m){
 }
 
 /* ---- WS: 입장 후 상시 연결 유지 — 호스트가 시작해도(desk-active) 뷰어가 즉시 통역 화면으로 전환 ---- */
-let refused = false; // 서버가 접속을 거부(정원 초과·IP 상한) — 재연결 중단 + 안내 유지
+let refused = false; // 서버가 접속을 거부(정원 초과·IP 상한) — 안내 후 15초 뒤 다시 시도
+let lastRx = Date.now(); // 마지막 수신 시각 — 서버가 15초마다 hb 를 보낸다(열린 채 죽은 연결 감지용)
+function reconnectNow(){
+  const old = ws; ws = null;
+  if (old) { try { old.onclose = null; old.close(); } catch {} }
+  ensureWs();
+}
 function ensureWs(){
   if (refused) return;
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
@@ -551,6 +557,7 @@ function ensureWs(){
   // 진행 중 세션의 실제 상태는 접속 직후 서버가 보내는 meta 로 동기화한다(idle 이면 터치 화면 복귀).
   sock.onopen = () => {
     if (ws !== sock) return;
+    lastRx = Date.now();
     if (pendingStart) sendStart();
     if (gm) { try { sock.send(JSON.stringify({ type: 'desk-mic', on: true })); } catch {} }
     if (pendingKeepalive) { pendingKeepalive = false; try { sock.send(JSON.stringify({ type: 'desk-keepalive' })); } catch {} }
@@ -560,10 +567,12 @@ function ensureWs(){
   sock.onclose = () => { if (ws !== sock) return; ws = null; if (entered && !refused) setTimeout(ensureWs, 1200 + Math.random() * 1200); }; // 지터 — 동시 재연결 폭주 방지
   sock.onmessage = (ev) => {
     if (ws !== sock) return; // 고아 소켓의 늦은 메시지 무시
+    lastRx = Date.now();
     let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.type === 'hb') return; // 서버 생존 신호
     // 서버가 접속을 거부(뷰어 정원 초과·동일 IP 상한): 이유를 알리고 재연결을 멈춘다.
     // 이 분기가 없으면 거부된 태블릿이 아무 표시 없이 무한 재연결만 반복한다.
-    if (m.type === 'error') { refused = true; toast(m.message || '지금은 접속할 수 없습니다. 잠시 후 다시 시도해 주세요.'); try { sock.close(); } catch {} return; }
+    if (m.type === 'error') { refused = true; toast(m.message || '지금은 접속할 수 없습니다. 잠시 후 다시 시도해 주세요.'); try { sock.close(); } catch {} setTimeout(() => { refused = false; if (entered) ensureWs(); }, 15000); return; }
     if (m.type === 'snapshot') (m.items||[]).forEach(upsert);
     else if (m.type === 'sentence') upsert(m);
     else if (m.type === 'host') hostActive = !!m.active;
@@ -887,7 +896,13 @@ async function loadTitle(){
 }
 
 // 화면 복귀(태블릿 절전 등) 시 즉시 재접속 — 1.5초 재시도 타이머보다 빠르게 복구
-document.addEventListener('visibilitychange', () => { if (!document.hidden && entered) ensureWs(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !entered) return;
+  // 열린 채 20초 넘게 아무것도 못 받았으면(살아 있으면 15초마다 hb) 죽은 연결 — 새로 연결
+  if (ws && ws.readyState === WebSocket.OPEN && Date.now() - lastRx > 20000) reconnectNow(); else ensureWs();
+});
+// 감시: 열린 연결인데 35초 무수신이면 새로 연결(망 전환·절전 후 브라우저가 끊김을 못 받는 경우)
+setInterval(() => { if (entered && !refused && ws && ws.readyState === WebSocket.OPEN && Date.now() - lastRx > 35000) reconnectNow(); }, 5000);
 
 // iPad/iOS Safari 는 전체화면 API 가 없어 '홈 화면에 추가'(PWA)로 실행해야 전체화면 유지 가능 — 입장 화면에 안내
 (function(){

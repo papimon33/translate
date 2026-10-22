@@ -286,7 +286,18 @@ $('enterBtn').onclick = () => {
   const el = document.documentElement;
   const fn = el.requestFullscreen || el.webkitRequestFullscreen;
   if (fn) { try { fn.call(el); } catch {} }
+  keepScreenOn();
 };
+// 보는 동안 화면이 꺼지지 않게(Screen Wake Lock — 안드로이드 크롬·iOS 16.4+). 화면이 꺼지면 탭이 쉬거나 망이 끊겨
+// 자막이 멈춘 채로 남던 원인 중 하나. 탭을 떠나면 브라우저가 자동 해제하므로 돌아올 때 다시 요청한다(visibilitychange).
+let wakeLock = null;
+async function keepScreenOn(){
+  try {
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible' || wakeLock) return;
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch {}
+}
 
 /* 데스크 길안내: 시설 라벨/문구 현지화(손님 언어, en 폴백) + 인라인 지도 */
 const isDesk = () => sessionPipeline === 'desk';
@@ -672,7 +683,15 @@ function playPcm24(b64){
 
 /* ---- WS ---- */
 let ws;
-let refused = false; // 서버가 접속을 거부(정원 초과·IP 상한) — 재연결 중단 + 안내 유지
+let refused = false; // 서버가 접속을 거부(정원 초과·IP 상한) — 안내를 띄우고 15초 뒤 다시 시도
+let refusedTimer = null;
+let lastRx = Date.now(); // 마지막으로 무엇이든 받은 시각 — 서버가 15초마다 hb 를 보낸다
+// 끊긴 줄 모르는 '열린 채 죽은' 연결을 버리고 새로 연결(망 전환·절전 복귀 후 브라우저가 close 를 못 받는 경우)
+function reconnectNow(){
+  const old = ws; ws = null;
+  if (old) { try { old.onclose = null; old.close(); } catch {} }
+  connect();
+}
 function connect(){
   // 이미 연결(중)이면 무시 — onclose 재시도와 visibilitychange 가 경합해 소켓이 병렬 누적되던 문제(TTS 이중 재생) 수정
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
@@ -680,14 +699,21 @@ function connect(){
   ws = new WebSocket(`${proto}://${location.host}/ws/viewer?session=${sessionId}${tq}`);
   const cur = ws;
   ws.onopen = () => {
+    lastRx = Date.now();
     if(audioOn) sendAudioSub(true); // 재접속 시 구독 복원
   };
   ws.onclose = () => { if (ws === cur) { ws = null; if (!refused) setTimeout(connect, 1200 + Math.random() * 1200); } }; // 지터 — 서버 재시작 시 전체 뷰어 동시 재연결 폭주 방지
   ws.onmessage = (ev) => {
+    if (ws === cur) lastRx = Date.now();
     let m; try { m = JSON.parse(ev.data); } catch { return; } // 비 JSON 프레임 방어
-    // 서버가 접속을 거부(뷰어 정원 초과·동일 IP 상한): 이유를 보여주고 재연결을 멈춘다.
-    // 이 분기가 없으면 거부된 폰이 아무 표시 없이 무한 재연결만 반복한다.
-    if(m.type==='error'){ refused = true; setPartial({room_full:T('roomFull'),ip_limit:T('ipLimit')}[m.code] || m.message || T('cantConn')); try { cur.close(); } catch {} return; }
+    if(m.type==='hb') return; // 서버 생존 신호
+    // 서버가 접속을 거부(뷰어 정원 초과·동일 IP 상한): 이유를 보여주고 15초 뒤 다시 시도한다.
+    // (예전엔 영구 중단이라, 재접속 순간 옛 연결이 아직 세어져 거부되면 새로고침 전까지 화면이 멈춰 있었다)
+    if(m.type==='error'){
+      refused = true; setPartial({room_full:T('roomFull'),ip_limit:T('ipLimit')}[m.code] || m.message || T('cantConn')); try { cur.close(); } catch {}
+      clearTimeout(refusedTimer); refusedTimer = setTimeout(() => { refused = false; setPartial(''); connect(); }, 15000);
+      return;
+    }
     if(m.type==='snapshot'){ m.items.forEach(it => upsert(it)); }
     else if(m.type==='partial'){ setPartial(m.text); }
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
@@ -735,7 +761,12 @@ $('qrCopy').onclick = async () => {
 
 // 화면 복귀(휴대폰 절전·앱 전환) 시 즉시 재접속 시도 — 재시도 타이머보다 빠르게 복구
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && (!ws || ws.readyState === 3)) { try { connect(); } catch {} }
+  // 돌아왔을 때 연결이 닫혔거나, 열려 있어도 20초 넘게 아무것도 못 받았으면(살아 있으면 15초마다 hb) 새로 연결
+  if (!document.hidden && !refused) {
+    if (!ws || ws.readyState === 3) { try { connect(); } catch {} }
+    else if (ws.readyState === 1 && Date.now() - lastRx > 20000) { try { reconnectNow(); } catch {} }
+  }
+  if (!document.hidden) keepScreenOn();
   // TTS: 잠금/앱 전환으로 AudioContext 가 suspended/interrupted 되면 복귀 시 재개하고
   // 재생 커서를 리셋 — 잠금 시간만큼 밀린 옛 음성이 연달아 재생되던 문제 방지
   if (!document.hidden && audioOn && actx) {
@@ -755,6 +786,10 @@ applySrc();
 loadSession();
 loadQr();
 connect();
+// 감시: 열린 연결인데 35초 동안 아무것도 못 받으면(생존 신호 2번 놓침) 죽은 연결로 보고 새로 연결
+setInterval(() => {
+  if (!refused && ws && ws.readyState === 1 && Date.now() - lastRx > 35000) { try { reconnectNow(); } catch {} }
+}, 5000);
 </script>
 <script>
 /* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음). 문구는 UI 언어(applyUi 가 갱신) */

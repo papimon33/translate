@@ -2168,7 +2168,7 @@ function closeSessionRoom(sid) {
 // 발화 락을 잠식하는 DoS 를 막는다. 세션당 상한은 강의 청중(수백 명)을 수용할 만큼 넉넉히,
 // IP당 상한은 한 단말의 남용을 좁게 막는다(정상 손님은 세션당 1~2개면 충분).
 const VIEWERS_PER_SESSION = 300;
-const VIEWERS_PER_IP = 8;
+const VIEWERS_PER_IP = 100; // 견학 일행이 공용 와이파이(같은 공인 IP)로 들어와도 막히지 않게(8 → 100, 2026-10-22). QR 토큰·세션당 상한이 DoS 를 막는다
 const rooms = new Map(); // sessionId -> { viewers:Set<ws>, hosts:Set<ws> }
 const deskCtrl = new Map(); // sessionId -> { start(lang), end() } — 데스크: 뷰어(손님)의 통역 시작/종료를 호스트 파이프라인에 전달
 function getRoom(sessionId) {
@@ -2961,6 +2961,16 @@ const hbTimer = setInterval(() => {
   }
 }, HEARTBEAT_MS);
 hbTimer.unref();
+// 뷰어 생존 신호(앱 메시지) — 브라우저는 위 프로토콜 ping 을 JS 에 보여 주지 않아, 망 전환·절전 복귀 후 '열린 채 죽은' 연결을
+// 뷰어가 스스로 알아챌 수 없다(호스트는 번역 중인데 뷰어 화면만 멈춤). 15초마다 보내고 뷰어는 35초 무수신이면 새로 연결한다.
+const VIEWER_HB_MS = Number(process.env.VIEWER_HB_MS) || 15000; // 테스트에서만 짧게
+const VIEWER_HB_MSG = JSON.stringify({ type: 'hb' });
+const viewerHbTimer = setInterval(() => {
+  for (const r of rooms.values()) {
+    for (const v of r.viewers) { if (!v._hostView && v.readyState === WebSocket.OPEN) { try { v.send(VIEWER_HB_MSG); } catch {} } }
+  }
+}, VIEWER_HB_MS);
+viewerHbTimer.unref();
 
 // 빈 room 정리: 마지막 연결이 떠나면 세션별 부속 상태도 회수(메모리 누수 방지)
 function maybeGcRoom(sessionId) {
