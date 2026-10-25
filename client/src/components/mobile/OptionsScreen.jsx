@@ -89,7 +89,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
   const [logoutAsk, setLogoutAsk] = useState(false);
   const [previewing, setPreviewing] = useState(null);
   const [toast, setToast] = useState('');
-  const level = useIdleMeter(open && meterOn);
+  const { l: level } = useIdleMeter(open && meterOn);
   useEffect(() => { if (!open) setMeterOn(false); }, [open]);
 
   const native = !!window.AndroidAudio;

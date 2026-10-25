@@ -2198,6 +2198,15 @@ function broadcastAudio(sessionId, b64, lang) {
     }
   }
 }
+// 이 언어 음성을 들을 뷰어가 있는가('듣기' 켠 뷰어 — 내 언어를 정한 뷰어는 그 언어만)
+function hasAudioListener(sessionId, lang) {
+  const room = rooms.get(sessionId);
+  if (!room) return false;
+  for (const v of room.viewers) {
+    if (v._audioWanted && v.readyState === WebSocket.OPEN && !(lang && v._audioLang && v._audioLang !== lang)) return true;
+  }
+  return false;
+}
 // TTS 음성을 호스트로 — 뷰어(상대) 발화의 번역을 호스트가 듣게 함
 function sendAudioToHosts(sessionId, b64, lang) {
   const room = rooms.get(sessionId);
@@ -2593,7 +2602,13 @@ function cartesiaTTSWs(text, voiceId, language, onAudio) {
     let carry = Buffer.alloc(0);
     let settled = false;
     const finish = (fn, arg) => { if (settled) return; settled = true; clearTimeout(to); cartesiaCtx.delete(ctxId); fn(arg); };
-    const to = setTimeout(() => finish(reject, new Error('cartesia ws request timeout')), 30000);
+    // 응답 없는 요청 = 겉으로만 열린 죽은 연결로 보고 버린다 — 다음 문장은 새 연결(예전엔 30초 기다린 뒤에도 그 연결을
+    // 계속 써서 문장마다 30초씩 밀렸고, 풀리는 순간 쌓인 문장이 몰아서 재생됐다). 버리면 같은 연결의 다른 요청은 HTTP 로 폴백.
+    const to = setTimeout(() => {
+      if (cartesiaSock === ws) cartesiaSock = null;
+      try { ws.terminate(); } catch {}
+      finish(reject, new Error('cartesia ws request timeout'));
+    }, 10000);
     cartesiaCtx.set(ctxId, {
       chunk: (buf) => {
         carry = Buffer.concat([carry, buf]);
@@ -3469,11 +3484,16 @@ function handleHost(ws) {
       if (!ttsOn || !tx) return;
       if (!/[\p{L}\p{N}]/u.test(tx)) return; // 문장부호만 있으면 스킵(Cartesia 400 방지)
       const lang = ttsLang;                  // 호출 시점 타깃 언어 고정
+      // 듣는 사람(이 호스트 재생 또는 '듣기' 켠 뷰어)이 없으면 만들지 않는다 — 예전엔 아무도 안 들어도 줄을 세워 합성해
+      // 줄이 밀리면 나중에 '듣기'를 켠 사람에게 이전 문장이 몰아서 나갔고, Cartesia 요금도 헛되이 나갔다(2026-10-25)
+      const listening = () => !!ws._audioOut || hasAudioListener(sessionId, lang);
+      if (!listening()) return;
       const voiceId = cartesiaVoiceId(lang, gender);
       noteTts(sessionId, tx); // 자기음성(에코) 필터에 등록 — 재입력 시 인식 결과를 버림
       // 뷰어(음성 듣기 구독자) + 호스트(TTS 켠 경우)에게 재생. 재입력은 AEC + 에코 필터로 차단.
       let firstAudio = false;
       ttsChain = ttsChain.then(() => {
+        if (!listening()) return undefined; // 줄에서 차례가 왔을 때 듣던 사람이 모두 껐으면 건너뜀
         if (forId) stampTm(forId, 'tq'); // 합성 요청 시각 — 직렬 큐 대기 후, 실제 요청 직전(ta−tq=순수 합성 지연)
         recordTts(pipeline === 'desk' ? 'desk' : 'live', tx.length); // 파이프라인별 자체 사용량
         return cartesiaTTSStream(tx, voiceId, lang, (b64) => {

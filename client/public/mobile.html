@@ -467,7 +467,7 @@ function applySxInfo(info){
       langKnown = true;
       buildSeg([info.a, info.b], (c) => {
         curLang = c; try { localStorage.setItem('kac-mylang-'+sessionId, curLang); } catch {}
-        syncSeg(); rerender(); sendAudioSub(audioOn);
+        syncSeg(); rerender(); clearAudioQueue(); sendAudioSub(audioOn);
       });
       sendAudioSub(audioOn); // 듣는 중이었다면 내 언어 기준으로 다시 구독
     }
@@ -663,6 +663,13 @@ let audioOn = false;
 let actx = null;
 let outCursor = 0;
 let mgain = null; // 마스터 게인(TTS 재생 경로)
+let srcNodes = []; // 이 폰에 재생 예약된 음성 조각 — '듣기'를 끄거나 화면으로 돌아오거나 내 언어를 바꾸면 비운다
+// 대기열 비우기: 화면이 꺼진 동안 쌓인 음성이 돌아오자마자 한꺼번에(새 음성과 겹쳐) 나오던 것, '듣기'를 꺼도 남은 음성이 계속 나오던 것
+function clearAudioQueue(){
+  for (const n of srcNodes) { try { n.stop(); } catch {} }
+  srcNodes = [];
+  outCursor = 0;
+}
 function enableAudio(){
   // 모바일 자동재생 정책: 사용자 탭(제스처) 안에서 컨텍스트 생성/재개해야 소리가 남
   if(!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); mgain = actx.createGain(); mgain.connect(actx.destination); } catch {} }
@@ -678,6 +685,8 @@ function playPcm24(b64){
     const node = actx.createBufferSource(); node.buffer=buf; node.connect(mgain || actx.destination);
     const now = actx.currentTime; if(outCursor<now) outCursor=now+0.08;
     node.start(outCursor); outCursor += buf.duration;
+    srcNodes.push(node);
+    node.onended = () => { const i = srcNodes.indexOf(node); if (i >= 0) srcNodes.splice(i, 1); };
   } catch {}
 }
 
@@ -745,7 +754,7 @@ $('fsDown').onclick = () => stepFs(-FS_STEP);
 $('fsUp').onclick = () => stepFs(FS_STEP);
 $('audioBtn').onclick = () => {
   audioOn = !audioOn; $('audioBtn').classList.toggle('on', audioOn); $('audioBtn').setAttribute('aria-pressed', audioOn ? 'true' : 'false');
-  if(audioOn) enableAudio(); sendAudioSub(audioOn);
+  if(audioOn) enableAudio(); else clearAudioQueue(); sendAudioSub(audioOn);
 };
 $('qrBtn').onclick = openQr;
 $('qrClose').onclick = closeQr;
@@ -770,8 +779,8 @@ document.addEventListener('visibilitychange', () => {
   // TTS: 잠금/앱 전환으로 AudioContext 가 suspended/interrupted 되면 복귀 시 재개하고
   // 재생 커서를 리셋 — 잠금 시간만큼 밀린 옛 음성이 연달아 재생되던 문제 방지
   if (!document.hidden && audioOn && actx) {
+    clearAudioQueue(); // 꺼진 동안 쌓인 음성은 버리고 지금부터 다시 — 새 음성은 현재 시각 기준으로 스케줄
     try { if (actx.state !== 'running') actx.resume(); } catch {}
-    outCursor = 0; // 다음 청크부터 현재 시각 기준으로 다시 스케줄
   }
 });
 // 브라우저 오류 보고(관리자 시스템 상태) — 60초 스로틀

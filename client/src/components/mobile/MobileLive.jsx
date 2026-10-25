@@ -10,7 +10,7 @@ import Switch from '@mui/material/Switch';
 import CircularProgress from '@mui/material/CircularProgress';
 import Snackbar from '@mui/material/Snackbar';
 import { alpha } from '@mui/material/styles';
-import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, SensSlider, MicSheet, MIC_ICON, micKindName, langOptions, useMicInputs, useIdleMeter } from './common.jsx';
+import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, SensSlider, MicSheet, ChannelMeters, MIC_ICON, micKindName, langOptions, useMicInputs, useIdleMeter } from './common.jsx';
 import { useT } from './i18n.js';
 import { BackIcon, ChevronDownIcon, ChevronRightIcon, ClearListIcon, DownloadIcon, EndIcon, HeadphonesIcon, LanguagesIcon, MicIcon, MicOffIcon, PencilIcon, PlayIcon, QrIcon, SlidersIcon, TrashIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
 
@@ -113,8 +113,11 @@ export default function MobileLive(p) {
   // 대기 중에도 마이크만 켜서(엔진·과금 없음) 입력 크기를 보여 준다 — 시작 전에 소리가 들어오는지 확인용.
   // 시작을 누르면 먼저 이 미터를 끄고(네이티브 캡처를 번역 경로에 넘김) 번역을 연다.
   const [starting, setStarting] = useState(false);
-  const idleLevel = useIdleMeter(!recording && !starting);
-  const liveLevel = recording ? (p.micMuted ? null : p.level) : idleLevel;
+  // 양방향 통역이면 대기 중에도 2채널로 열어 송신기 1·2(좌·우)를 따로 보여 준다(번역도 같은 방식으로 연다)
+  const idle = useIdleMeter(!recording && !starting, twoway);
+  const liveLevel = recording ? (p.micMuted ? null : p.level) : idle.l;
+  const liveLevel2 = recording ? (p.micMuted || !p.stereoInfo ? null : p.level2) : idle.r;
+  const chanState = recording ? (p.stereoInfo && p.stereoInfo.state) : null; // 번역 중 자동 판별 결과(대기 중엔 막대만)
   const start = () => {
     if (starting) return;
     setStarting(true);
@@ -347,6 +350,7 @@ export default function MobileLive(p) {
 
       {/* 마이크 선택 + 입력 감도(대기 중에도 마이크만 켜서 지금 입력 크기 표시) */}
       <MicSheet open={sheet === 'mic'} onClose={close} mic={mic} stereo={stereo}>
+        {twoway && liveLevel2 != null && <ChannelMeters l={liveLevel} r={liveLevel2} state={chanState} />}
         <Box sx={{ mx: 0.5, mt: 1, borderRadius: '16px', bgcolor: 'action.hover' }}>
           <SensSlider label={t('inputSens')} value={p.micSens} native={p.micNative} level={liveLevel} hint={t('inputSensHint')} onChange={p.onMicSens} />
         </Box>

@@ -1084,6 +1084,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           notice={notice}
           micMuted={micMuted}
           level={level}
+          level2={level2}
           micSens={micSens}
           micNative={nativeApp || !!(stereoInfo && stereoInfo.raw)}
           ttsOn={ttsOn}
