@@ -306,9 +306,10 @@ function MobileHome({ user, onUser, onLogout }) {
   return (
     <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.default', position: 'relative' }}>
       {globals}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pl: 3, pr: 2, pt: 3, pb: 1 }}>
+      {/* 위 띠: 세션 화면 위 띠와 같은 높이·여백(위 10px + 44px 줄) — 로고가 세션 제목과 같은 높이에 온다 */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, pl: 2.5, pr: 1.5, pt: 'calc(10px + env(safe-area-inset-top))', pb: 0.5 }}>
         <Typography component="h1" sx={{ lineHeight: 1 }}><Wordmark size={26} /></Typography>
-        <IconButton aria-label={t('settings')} onClick={openOptions} sx={{ width: 46, height: 46 }}>
+        <IconButton aria-label={t('settings')} onClick={openOptions} sx={{ width: 44, height: 44, '& svg': { fontSize: 22 } }}>
           <SettingsIcon />
         </IconButton>
       </Box>
