@@ -44,13 +44,13 @@ export function Line({ text, source, draft, scale, t }) {
   );
 }
 
-// 양방향 통역: 말풍선 — 상대(왼쪽, 파랑) / 나(오른쪽, 무채색). 위 작은 글씨 = '말한 언어 → 번역 언어'.
+// 양방향 통역: 말풍선 — 상대(왼쪽, 파랑) / 나(오른쪽, 무채색). 위 작은 글씨 = '말한 언어 → 번역 언어'(label 이 없으면 생략 — 같은 방향 연속).
 export function Bubble({ mine, label, text, source, draft, scale }) {
   const pending = !text && !!source;
   const main = pending ? source : text;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, alignItems: mine ? 'flex-end' : 'flex-start' }}>
-      <Typography sx={{ fontSize: 12, fontWeight: 700, px: 0.75, color: mine ? 'text.secondary' : (th) => (th.palette.mode === 'dark' ? th.palette.accent.main : BLUE) }}>{label}</Typography>
+      {label && <Typography sx={{ fontSize: 12, fontWeight: 700, px: 0.75, color: mine ? 'text.secondary' : (th) => (th.palette.mode === 'dark' ? th.palette.accent.main : BLUE) }}>{label}</Typography>}
       <Box sx={{
         maxWidth: '86%', px: 2, py: 1.5, display: 'flex', flexDirection: 'column', gap: 0.5,
         borderRadius: mine ? '20px 6px 20px 20px' : '6px 20px 20px 20px',
@@ -336,7 +336,7 @@ export default function MobileLive(p) {
             </Typography>
           </Box>
         ) : <Box sx={{ flex: 1 }} />}
-        {messages.map((m) => {
+        {(() => { let prevLabel = null; return messages.map((m) => {
           const keys = m.texts ? Object.keys(m.texts) : [];
           const tk = keys[0];
           const text = tk ? m.texts[tk] : '';
@@ -346,8 +346,11 @@ export default function MobileLive(p) {
           const from = m.lang || (mine ? p.sxA : p.sxB);
           const to = tk || (mine ? p.sxB : p.sxA);
           const label = `${t.lang(from)} → ${t.lang(to)}`;
-          return <Bubble key={m.id} mine={mine} label={label} text={text} source={m.source} draft={!!m.draft} scale={scale} />;
-        })}
+          // 같은 방향이 연달아 나오면 첫 말풍선에만 방향 표시
+          const showLabel = label !== prevLabel;
+          prevLabel = label;
+          return <Bubble key={m.id} mine={mine} label={showLabel ? label : null} text={text} source={m.source} draft={!!m.draft} scale={scale} />;
+        }); })()}
       </Box>
 
       {top}

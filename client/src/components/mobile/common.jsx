@@ -473,7 +473,7 @@ export function MicSheet({ open, onClose, mic, stereo, children }) {
           const on = !!d.selected || (!!d.active && !devs.some((x) => x.selected));
           const Icon = MIC_ICON[d.kind] || MicIcon;
           const model = (/\(([^)]+)\)\s*$/.exec(String(d.label || '')) || [])[1];
-          const sub = d.kind === 'builtin' ? t('micBuiltinSub') : d.kind === 'bluetooth' ? [model, t('micBtWarn')].filter(Boolean).join(' · ') : [model, (d.channels >= 2 || (d.active && stereo)) ? t('twoCh') : ''].filter(Boolean).join(' · ');
+          const sub = d.kind === 'builtin' ? t('micBuiltinSub') : d.kind === 'bluetooth' ? (model || '') : [model, (d.channels >= 2 || (d.active && stereo)) ? t('twoCh') : ''].filter(Boolean).join(' · ');
           return (
             <ButtonBase key={d.id} role="radio" aria-checked={on} onClick={() => mic.pick(d.id)}
               sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minHeight: 64, px: 1.75, borderRadius: '16px', justifyContent: 'flex-start', textAlign: 'left', bgcolor: on ? 'action.hover' : 'transparent' }}>

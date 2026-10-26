@@ -563,7 +563,7 @@ class NativeAudio(private val activity: Activity, private val webView: WebView) 
         btFailKey = k
         Log.w(TAG, "bluetooth link failed: ${describe(d)}")
         main.post {
-            Toast.makeText(activity, "블루투스 마이크를 연결하지 못해 다른 마이크로 듣습니다", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, "블루투스 마이크에 연결하지 못해 다른 마이크를 사용합니다.", Toast.LENGTH_LONG).show()
         }
     }
 

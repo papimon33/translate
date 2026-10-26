@@ -41,7 +41,7 @@ export default function Login({ onSuccess }) {
         setErr(e.message || '시도가 너무 많습니다. 잠시 후 다시 시도하세요.');
       } else {
         setNeed2fa(false);
-        setErr(e.message || '로그인 실패');
+        setErr(e.message || '로그인하지 못했습니다. 다시 시도하세요.');
         setPw('');
       }
     } finally {

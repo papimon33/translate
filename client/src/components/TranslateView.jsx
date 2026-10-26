@@ -369,7 +369,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     setHdrMenu(null);
     setConfirmReq({
       title: '대화 내역 삭제',
-      message: '이 세션의 지금까지 번역·대화 내역을 모두 삭제합니다. 세션은 그대로 유지됩니다. 되돌릴 수 없습니다.',
+      message: '대화 내역이 모두 삭제되며 되돌릴 수 없습니다. 세션은 유지됩니다.',
       confirmLabel: '내역 삭제',
       onOk: async () => {
         try { await api.clearItems(initial.id); setMessages([]); setSnack({ ok: true, msg: '대화 내역을 삭제했습니다.' }); }
@@ -381,7 +381,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     setHdrMenu(null);
     setConfirmReq({
       title: '세션 삭제',
-      message: `'${sessTitle || '제목 없음'}' 세션을 삭제합니다. 대화 기록도 함께 지워지며 되돌릴 수 없습니다.`,
+      message: `'${sessTitle || '제목 없음'}' 세션과 대화 기록이 모두 삭제되며 되돌릴 수 없습니다.`,
       confirmLabel: '세션 삭제',
       onOk: async () => {
         try { await api.remove(initial.id); onBack(); }
@@ -430,7 +430,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       setDispLang(s.outLang || 'ko');
     }).catch(() => {
       // 삭제된 세션을 히스토리 뒤로가기 등으로 연 경우 — unhandled rejection 대신 안내
-      setNotice('세션 정보를 불러오지 못했습니다. 삭제되었거나 네트워크 오류일 수 있습니다.');
+      setNotice('세션 정보를 불러오지 못했습니다. 네트워크 연결을 확인한 뒤 다시 열어 주세요.');
     });
     api.qr(initial.id).then(setQr).catch(() => {});
     return () => {
@@ -526,7 +526,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     if (!connecting) return;
     const t = setTimeout(() => {
       setConnecting(false);
-      setNotice('연결/인식이 지연되고 있어요. 시스템 오디오를 쓰는 경우 실제로 소리가 재생 중인지, 입력 소스가 맞는지 확인해 주세요.');
+      setNotice('연결이 지연되고 있습니다. 입력 소스가 맞는지, 소리가 실제로 나오고 있는지 확인하세요.');
       setTimeout(() => setNotice(''), 9000);
     }, 12000);
     return () => clearTimeout(t);
@@ -579,13 +579,13 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     }
     if (m.type === 'idle-stop') {
       stop();
-      setNotice('1분간 입력이 없어 자동으로 중지했습니다. 다시 시작하려면 시작 버튼을 누르세요.');
+      setNotice('1분간 입력이 없어 번역이 중지되었습니다. 시작 버튼을 눌러 다시 시작하세요.');
       setTimeout(() => setNotice(''), 6000);
       return;
     }
     if (m.type === 'takeover') { // 같은 세션을 다른 기기/탭에서 시작 → 이 연결은 종료됨
       stop();
-      setNotice('다른 기기 또는 탭에서 이 세션의 번역을 시작해 이 연결을 종료했습니다.');
+      setNotice('다른 기기에서 이 세션의 번역을 시작해 여기서는 중지되었습니다.');
       setTimeout(() => setNotice(''), 8000);
       return;
     }
@@ -651,7 +651,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   const start = async () => {
     if (recording || recRef.current || startingRef.current) return; // 연타 중복 방지
     if (preset && !PRESET_LABEL[preset]) { // 지원 종료 모드(구 multi 등)는 열람 전용 — 실수로 다른 모드로 녹음되는 것 방지
-      setNotice('지원이 종료된 모드의 세션입니다 — 열람만 가능합니다. 새 세션을 만들어 주세요.');
+      setNotice('지원이 종료된 세션입니다. 내용 보기만 가능하니 새 세션을 만들어 사용하세요.');
       return;
     }
     startingRef.current = true;
@@ -696,7 +696,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           setConnecting(false);
           setConnState('off');
           setLevel(0); setGuestLevel(0); setLevel2(0); setStereoInfo(null);
-          setNotice('마이크 입력이 중단되었습니다(장치 분리 또는 화면 공유 중지). 다시 시작해 주세요.');
+          setNotice('마이크 입력이 중단되었습니다. 장치 연결을 확인한 뒤 다시 시작하세요.');
         },
         onMeter: (rms, peak, src) => {
           const db = 20 * Math.log10(rms + 1e-8);
@@ -722,7 +722,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       setConnecting(cfg.pipeline !== 'desk'); // 엔진 연결~첫 결과까지 표시 (데스크는 대기 모드라 제외)
     } catch (e) {
       // 블로킹 alert 대신 인앱 안내 배너로 통일
-      if (cfg.pipeline === 'desk') { setNotice('마이크를 사용할 수 없습니다. 권한을 허용한 뒤 통역 시작을 눌러 주세요. (' + (e.message || e) + ')'); }
+      if (cfg.pipeline === 'desk') { setNotice('마이크를 사용할 수 없습니다. 마이크 권한을 허용한 뒤 통역 시작을 누르세요.'); }
       else { setNotice(String(e.message || e)); setTimeout(() => setNotice(''), 8000); }
     } finally {
       startingRef.current = false;
@@ -795,7 +795,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     if (!recording || !micMuted || cfg.pipeline === 'desk') return undefined;
     const tm = setTimeout(() => {
       stop();
-      setNotice('음소거가 5분 이어져 번역을 멈췄습니다. 다시 시작하려면 [시작]을 누르세요.');
+      setNotice('5분간 음소거되어 번역이 중지되었습니다. 시작 버튼을 눌러 다시 시작하세요.');
       setTimeout(() => setNotice(''), 10000);
     }, MUTE_AUTOSTOP_MS);
     return () => clearTimeout(tm);

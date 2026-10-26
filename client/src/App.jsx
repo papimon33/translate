@@ -130,7 +130,7 @@ export default function App() {
   }, []);
   const offlineBanner = offline && (
     <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2000, bgcolor: '#e8912d', color: '#fff', textAlign: 'center', py: 0.6, fontSize: 13, fontWeight: 700 }}>
-      인터넷 연결이 끊겼습니다 — 연결이 복구되면 자동으로 이어집니다.
+      인터넷 연결이 끊겼습니다. 연결되면 자동으로 이어집니다.
     </Box>
   );
 

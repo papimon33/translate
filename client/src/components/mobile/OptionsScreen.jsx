@@ -215,7 +215,6 @@ export function AccountScreen({ open, onBack, user, onUser, onDeleted }) {
       <Group>
         <OptionRow label={t('deleteAccount')} danger onClick={() => setForm('delete')} disabled={isAdmin} />
       </Group>
-      {isAdmin && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 0.75, lineHeight: 1.5 }}>{t('adminManaged')}</Typography>}
 
       <FormSheet open={form === 'name'} onClose={() => setForm(null)} title={t('username')}
         fields={[{ key: 'username', label: t('username'), autoComplete: 'nickname' }]} initial={{ username: user.username || '' }}

@@ -306,10 +306,10 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK || uri == null || text == null) return
         try {
             contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
-            Toast.makeText(this, "녹취록을 저장했습니다", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "파일로 내보냈습니다", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Log.w(TAG, "save failed", e)
-            Toast.makeText(this, "저장하지 못했습니다", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "내보내지 못했습니다. 다시 시도하세요.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -366,7 +366,7 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             Log.w(TAG, "update download failed", e)
             notifyUpdate(-1)
-            main.post { Toast.makeText(this, "업데이트를 내려받지 못했습니다", Toast.LENGTH_SHORT).show() }
+            main.post { Toast.makeText(this, "업데이트를 다운로드하지 못했습니다. 네트워크를 확인하세요.", Toast.LENGTH_SHORT).show() }
         } finally {
             updating = false
         }
@@ -411,7 +411,7 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             Log.w(TAG, "installer launch failed", e)
             notifyUpdate(-1)
-            Toast.makeText(this, "설치 화면을 열지 못했습니다", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "설치 화면을 열지 못했습니다. 다시 시도하세요.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -501,7 +501,7 @@ class MainActivity : Activity() {
         main.removeCallbacks(splashTimeout)
         setOverlayMode(splash = false)
         ovTitle.text = "서버에 다시 연결하는 중"
-        ovBody.text = "네트워크가 돌아오면 자동으로 다시 연결합니다.\n확정된 대화는 서버에 저장돼 있어 사라지지 않습니다."
+        ovBody.text = "네트워크가 연결되면 자동으로 다시 연결합니다.\n지금까지의 대화는 저장되어 있습니다."
         ovButtons.visibility = View.VISIBLE
         overlay.visibility = View.VISIBLE
         retryCount++
@@ -685,7 +685,6 @@ class MainActivity : Activity() {
         }
         val b = AlertDialog.Builder(this)
             .setTitle("서버 주소")
-            .setMessage("평소에는 바꿀 필요가 없습니다(기본: 운영 서버). 시험 서버에 붙일 때만 바꾸고, 비우고 저장하면 기본 주소로 돌아갑니다.")
             .setView(wrap)
             .setPositiveButton("저장") { _, _ ->
                 var u = input.text.toString().trim()
@@ -729,7 +728,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("마이크 입력 게인")
-            .setMessage("이 앱은 자동 증폭(AGC) 없이 원음 그대로 인식합니다. 소리가 너무 작거나 크면 여기서 보정하세요. 기본 ×1.0")
+            .setMessage("소리가 너무 작거나 크게 인식되면 조절하세요. 기본값 ×1.0")
             .setView(wrap)
             .setPositiveButton("적용") { _, _ ->
                 val g = (seek.progress + 1) / 10f
@@ -752,8 +751,7 @@ class MainActivity : Activity() {
                 "서버: ${serverUrl()}\n" +
                     "마이크 입력: ${nativeAudio.inputStatus()}\n" +
                     "마이크 게인: ×${prefs.getFloat("gain", 1.0f)}\n" +
-                    "오디오: ${nativeAudio.info()}\n\n" +
-                    "네이티브 마이크(AGC 차단)로 캡처합니다. 문제 시 PC 크롬 chrome://inspect 로 원격 점검할 수 있습니다."
+                    "오디오: ${nativeAudio.info()}"
             )
             .setPositiveButton("확인", null)
             .show()

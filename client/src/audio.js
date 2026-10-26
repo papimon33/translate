@@ -140,7 +140,7 @@ async function getSources(mode, agcOff, mic2, nsOff, micId, stereoWanted) {
     if (sys.getAudioTracks().length === 0) {
       sys.getTracks().forEach((t) => t.stop());
       list.forEach(({ stream }) => stream && stream.getTracks().forEach((t) => t.stop()));
-      throw new Error('시스템 오디오가 선택되지 않았습니다. "전체 화면" 선택 후 "시스템 오디오 공유"를 켜주세요.');
+      throw new Error('시스템 오디오가 선택되지 않았습니다. "전체 화면" 선택 후 "시스템 오디오 공유"를 켜세요.');
     }
     sys.getVideoTracks().forEach((t) => t.stop());
     list.push({ src: 'system', stream: sys });
@@ -611,7 +611,7 @@ export async function startRecorder(opts) {
       window.__kacNA = (b64) => { if (st !== 'mono') toMono(false); const m = decode(b64); onFrame(m, m); };
       let ch = 0;
       try { ch = Number(window.AndroidAudio.startStereo()) || 0; } catch {}
-      if (!ch) throw new Error('마이크를 사용할 수 없습니다 — 앱의 마이크 권한을 허용한 뒤 다시 시도해 주세요.');
+      if (!ch) throw new Error('마이크를 사용할 수 없습니다. 마이크 권한을 허용한 뒤 다시 시도하세요.');
       if (ch === 1) toMono(false);
       nativeMicUsed = true;
       return;
@@ -743,7 +743,7 @@ export async function startRecorder(opts) {
         pipes.forEach((p) => { try { p.ws.close(); } catch {} });
         try { ws0.close(); } catch {}
         try { audioCtx.close(); } catch {}
-        throw new Error('마이크를 사용할 수 없습니다 — 앱의 마이크 권한을 허용한 뒤 다시 시도해 주세요.');
+        throw new Error('마이크를 사용할 수 없습니다. 마이크 권한을 허용한 뒤 다시 시도하세요.');
       }
       nativeMicUsed = true;
       pipes.push(pipe);

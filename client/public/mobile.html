@@ -236,9 +236,9 @@ const UI = {
   share:    { ko:'공유', ja:'共有', en:'Share' },
   close:    { ko:'닫기', ja:'閉じる', en:'Close' },
   roomFull: { ko:'지금은 보는 사람이 너무 많아요. 잠시 후 다시 시도해 주세요.', ja:'現在、視聴者が多すぎます。しばらくしてから再度お試しください。', en:'Too many viewers right now — please try again later.' },
-  ipLimit:  { ko:'이 기기에서 연결이 너무 많아요.', ja:'この端末からの接続が多すぎます。', en:'Too many connections from this device.' },
+  ipLimit:  { ko:'이 기기에서 연결이 너무 많아요. 다른 탭을 닫고 다시 시도해 주세요.', ja:'この端末からの接続が多すぎます。ほかのタブを閉じてもう一度お試しください。', en:'Too many connections from this device. Close other tabs and try again.' },
   cantConn: { ko:'지금은 연결할 수 없어요. 잠시 후 다시 시도해 주세요.', ja:'現在接続できません。しばらくしてから再度お試しください。', en:'Cannot connect right now — please try again later.' },
-  offline:  { ko:'인터넷 연결이 끊겼어요 — 다시 연결되면 자동으로 이어집니다.', ja:'インターネットに接続されていません — 再接続すると自動で再開します。', en:'No internet connection — will resume automatically once back online.' },
+  offline:  { ko:'인터넷 연결이 끊겼어요. 다시 연결되면 자동으로 이어져요.', ja:'インターネットに接続されていません。再接続すると自動で再開します。', en:'No internet connection. It will resume automatically once you’re back online.' },
 };
 function uiLang(){
   const c = String(curLang || '').slice(0,2).toLowerCase();
@@ -554,7 +554,7 @@ function upsert(item){
   const hasPayload = !!(item.source || item.text || (item.texts && Object.values(item.texts).some(Boolean)));
   if(!hasPayload){
     const c0 = cards.get(item.id);
-    if(c0){ try { c0.el.remove(); } catch {} cards.delete(item.id); order = order.filter(x=>x!==item.id); if(latestId===item.id) latestId=null; }
+    if(c0){ try { c0.el.remove(); } catch {} cards.delete(item.id); order = order.filter(x=>x!==item.id); if(latestId===item.id) latestId=null; applyWhoRuns(); }
     return;
   }
   if(empty) empty.style.display='none';
@@ -586,6 +586,7 @@ function upsert(item){
   if(item.speaker) card.speaker = item.speaker;
   renderSpk(card);
   renderLine(card); // 보조 줄(원문/번역)까지 renderLine 이 채운다
+  applyWhoRuns();
   if(stick) scrollDown();
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
@@ -659,8 +660,20 @@ function renderLine(c){
     else if (tk === sxAlang) c.el.classList.add('dirB'); // 타깃=언어1 → 언어2 발화
   }
 }
+// 양방향: 같은 방향('일본어 → 한국어')이 연달아 나오면 첫 말풍선에만 방향 라벨(폰 앱과 같은 규칙)
+function applyWhoRuns(){
+  if (!twoMode()) return;
+  let prev = null;
+  for (const id of order) {
+    const c = cards.get(id);
+    if (!c || !c.spk || c.el.style.display === 'none') continue;
+    const lbl = c.spk.textContent;
+    c.spk.style.display = lbl && lbl !== prev ? '' : 'none';
+    prev = lbl;
+  }
+}
 // 언어를 바꾸면 화면 문구·방향 라벨 언어와 '원문=표시 문장' 여부도 바뀐다
-function rerender(){ applyUi(); cards.forEach(renderLine); applySrc(); }
+function rerender(){ applyUi(); cards.forEach(renderLine); applySrc(); applyWhoRuns(); }
 // 데스크: 대화 종료 시 화면 초기화(다음 손님)
 function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); removeMap(); if(empty) empty.style.display=''; }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
@@ -821,7 +834,7 @@ setInterval(() => {
 /* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음). 문구는 UI 언어(applyUi 가 갱신) */
 (function(){
   var b = document.createElement('div'); b.id = 'netBanner'; b.setAttribute('role', 'status');
-  b.textContent = (typeof T === 'function') ? T('offline') : 'No internet connection — will resume automatically once back online.';
+  b.textContent = (typeof T === 'function') ? T('offline') : 'No internet connection. It will resume automatically once you’re back online.';
   document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(b); if(!navigator.onLine) b.classList.add('show'); });
   window.addEventListener('offline', function(){ b.classList.add('show'); });
   window.addEventListener('online', function(){ b.classList.remove('show'); });
