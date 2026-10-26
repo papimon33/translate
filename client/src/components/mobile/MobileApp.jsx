@@ -18,6 +18,7 @@ import { usePrefs, syncWithAccount } from './prefs.js';
 import { useT } from './i18n.js';
 import UpdateSheet from './UpdateSheet.jsx';
 import { pushNav, backNav } from './backstack.js';
+import { appReady } from './env.js';
 import { ArrowRightIcon, CheckIcon, ChevronRightIcon, PlusIcon, SettingsIcon, SwapIcon } from './icons.jsx';
 import { BRAND } from '../../brand.js';
 import Wordmark from '../Wordmark.jsx';
@@ -237,6 +238,7 @@ function MobileHome({ user, onUser, onLogout }) {
     api.list().then((r) => setList(Array.isArray(r) ? r : [])).catch(() => setList((l) => l || []));
   }, []);
   useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { if (list !== null) appReady(); }, [list]); // 앱: 목록까지 그려졌으면 시작 화면 닫기(목록 로딩 표시가 비치지 않게)
   useEffect(() => { syncWithAccount(user); /* 다른 기기에서 바꾼 설정 반영(1회) */ }, []); // eslint-disable-line
 
   // 뒤로가기(안드로이드 하드웨어 버튼 포함) = 화면 하나씩 뒤로. 네이티브는 웹 히스토리가 있으면 goBack 한다.

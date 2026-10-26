@@ -155,7 +155,10 @@ class MainActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 if (loadFailed) return // 실패한 로드의 오류 페이지 — 연결 끊김 화면 유지
                 retryCount = 0
-                hideOverlay()
+                // 시작 화면은 웹이 첫 화면을 다 그린 뒤 AndroidApp.ready() 로 닫는다(페이지 다운로드 끝 ≠ 화면 준비).
+                // 웹 오류 등으로 신호가 안 오면 SPLASH_MAX_MS 뒤 닫는다(로고에 갇히지 않게).
+                main.removeCallbacks(splashTimeout)
+                main.postDelayed(splashTimeout, SPLASH_MAX_MS)
                 if (clearHistoryOnLoad) {
                     clearHistoryOnLoad = false
                     webView.clearHistory() // 서버 주소를 바꾼 뒤 뒤로가기로 옛 서버가 열리지 않게
@@ -219,6 +222,12 @@ class MainActivity : Activity() {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         } catch (_: Exception) {
             ""
+        }
+
+        /** 웹이 첫 화면(로그인·홈)을 다 그렸다 — 시작 화면(또는 재연결 화면)을 닫는다 */
+        @JavascriptInterface
+        fun ready() {
+            runOnUiThread { if (!loadFailed) hideOverlay() }
         }
 
         @JavascriptInterface
@@ -463,7 +472,7 @@ class MainActivity : Activity() {
             addView(pillButton("지금 다시 시도", filled = true) { retryNow() }, lp(MATCH, dp(56f)))
             addView(pillButton("서버 주소 확인", filled = false) { askUrl() }, lp(MATCH, dp(48f), dp(8f)))
         }
-        box.addView(ovLogo, lp(dp(176f), WRAP))
+        box.addView(ovLogo, lp(dp(160f), WRAP))
         box.addView(ovProgress, lp(dp(36f), dp(36f)))
         box.addView(ovTitle, lp(MATCH, WRAP, dp(20f)))
         box.addView(ovBody, lp(MATCH, WRAP, dp(10f)))
@@ -489,6 +498,7 @@ class MainActivity : Activity() {
     }
 
     private fun showOffline() {
+        main.removeCallbacks(splashTimeout)
         setOverlayMode(splash = false)
         ovTitle.text = "서버에 다시 연결하는 중"
         ovBody.text = "네트워크가 돌아오면 자동으로 다시 연결합니다.\n확정된 대화는 서버에 저장돼 있어 사라지지 않습니다."
@@ -501,8 +511,11 @@ class MainActivity : Activity() {
         main.post(retryTick)
     }
 
+    private val splashTimeout = Runnable { hideOverlay() }
+
     private fun hideOverlay() {
         main.removeCallbacks(retryTick)
+        main.removeCallbacks(splashTimeout)
         overlay.visibility = View.GONE
     }
 
@@ -778,6 +791,7 @@ class MainActivity : Activity() {
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         private val RETRY_SEC = intArrayOf(2, 4, 8, 15)
+        private const val SPLASH_MAX_MS = 6000L // 웹 '준비 완료'를 기다리는 최대 시간(페이지 다운로드 끝난 뒤부터)
         private val BG = Color.parseColor("#FFFFFF") // 폰 화면 바탕(순백, 2026-10-26)
         private val BG_DARK = Color.parseColor("#1F1E1D")
         private val INK = Color.parseColor("#1F1E1D")

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
@@ -7,6 +7,7 @@ import Wordmark from './Wordmark.jsx';
 import Alert from '@mui/material/Alert';
 import { api } from '../api.js';
 import { BRAND, BRAND_DARK } from '../brand.js';
+import { appReady } from './mobile/env.js';
 
 // 아이디·비밀번호는 폰 키보드가 첫 글자를 대문자로 바꾸거나 자동 수정하지 않게
 const PLAIN_INPUT = { autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false };
@@ -18,6 +19,7 @@ export default function Login({ onSuccess }) {
   const [busy, setBusy] = useState(false);
   const [need2fa, setNeed2fa] = useState(false); // 관리자 2FA 활성 시 인증 코드 입력
   const [otp, setOtp] = useState('');
+  useEffect(() => { appReady(); }, []); // 앱: 로그인 화면이 그려졌으면 시작 화면 닫기
 
   const submit = async (e) => {
     e.preventDefault();

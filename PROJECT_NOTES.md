@@ -88,8 +88,10 @@
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
 - **글자 로고 'airtalk.'(2026-10-26, 시안 B)**: Nunito 900 소문자 + 보라 마침표 — `client/src/components/Wordmark.jsx`(폰 홈 제목 26px, 폰 로딩 화면 `WordmarkSplash`).
   글꼴은 index.html 에서 Google Fonts `Nunito:wght@900&text=airtlk.`(로고 글자만 받는 작은 파일). 안드로이드 시작 화면(MainActivity 오버레이)은 흰 바탕 가운데
-  같은 모양 그림 `res/drawable-nodpi/splash_wordmark.png`(브라우저 캔버스로 Nunito 렌더) 하나만 — 진행 표시·'연결하는 중' 문구 없음, 연결 실패 화면은 그대로.
-  앱 바탕색 BG #FAFAF8 → #FFFFFF. 앱 1.4.1(versionCode 7).
+  같은 모양 그림 `res/drawable-nodpi/splash_wordmark.png`(브라우저 캔버스로 Nunito 렌더, 폭 160dp) 하나만 — 진행 표시·'연결하는 중' 문구 없음, 연결 실패 화면은 그대로.
+  시작 화면은 페이지 다운로드 끝(onPageFinished)이 아니라 웹이 첫 화면을 다 그린 뒤 `AndroidApp.ready()` 로 닫는다(env.js `appReady` — 로그인 화면 마운트,
+  홈은 목록 로드 후). 신호가 없으면 다운로드 끝 6초 뒤(`SPLASH_MAX_MS`) 닫힘. 그래서 웹에는 따로 시작 화면이 없다(폰 로딩 상태는 빈 흰 화면).
+  앱 바탕색 BG #FAFAF8 → #FFFFFF. 앱 1.4.2(versionCode 8).
   로그인·앱 다운로드 화면(`Wordmark` 40px)과 QR 뷰어 입장 화면(`mobile.html` `.lbrand`, 같은 Nunito 링크)도 아이콘+'AirTalk' 대신 이 로고.
 - **시트 쓸어내려 닫기(2026-10-26)**: `common.jsx` `BottomSheet` 를 `SwipeableDrawer`(쓸어 열기 끔·`keepMounted:false`)로 — 새 세션·언어·마이크·TTS 음성·이름 수정·링크 공유 등
   아래에서 올라오는 시트 전부 아래로 쓸어내리면 닫힘(목록이 스크롤돼 있으면 먼저 목록이 올라감, 짧게 끌면 제자리). 닫히면 `useBackClose` 가 히스토리도 정리.

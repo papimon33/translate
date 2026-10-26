@@ -11,8 +11,8 @@ android {
         applicationId 'kr.co.kac.airtalk'
         minSdk 26
         targetSdk 34
-        versionCode 7
-        versionName '1.4.1'
+        versionCode 8
+        versionName '1.4.2'
     }
 
     // 사이드로드(태블릿·폰 직접 설치) 서명 — 같은 키로 서명해야 덮어쓰기 업데이트가 된다.

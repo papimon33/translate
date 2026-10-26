@@ -11,6 +11,14 @@ export const PHONE_BROWSER = typeof window !== 'undefined' && !window.AndroidAud
   && (/Android.+Mobile/i.test(UA) || IS_IPHONE)
   && !/[?&]mobileui=1(&|$)/.test(window.location.search);
 
+// 안드로이드 앱: 웹 첫 화면(로그인·홈)을 다 그렸으면 앱 시작 화면을 닫게 알린다(페이지당 1번). 그리기가 끝난 다음 프레임에 보낸다.
+let readySent = false;
+export function appReady() {
+  if (readySent || typeof window === 'undefined' || !window.AndroidApp) return;
+  readySent = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => { try { window.AndroidApp.ready(); } catch {} }));
+}
+
 export const MOBILE_UI = typeof window !== 'undefined' && (
   !!window.AndroidAudio
   || PHONE_BROWSER
