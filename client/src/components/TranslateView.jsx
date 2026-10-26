@@ -492,13 +492,25 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     return () => { dead = true; try { navigator.mediaDevices.removeEventListener('devicechange', refresh); } catch {} };
   }, [cfg.pipeline, mic2On]);
 
-  // 안드로이드 앱: 번역 중에만 화면 꺼짐 방지(폰 배터리). 화면이 꺼지면 WebView 가 느려져 자막·전송이 밀린다.
+  // 번역 중에만 화면 꺼짐 방지(폰 배터리). 화면이 꺼지면 WebView 가 느려져 자막·전송이 밀린다.
+  // 안드로이드 앱은 네이티브, 폰 브라우저(iPhone 웹 등)는 Screen Wake Lock — 탭을 떠나면 풀리므로 돌아올 때 다시 요청.
   useEffect(() => {
     const app = window.AndroidApp;
-    if (!app || !app.setKeepScreenOn) return undefined;
-    try { app.setKeepScreenOn(!!recording); } catch {}
-    return () => { try { app.setKeepScreenOn(false); } catch {} };
-  }, [recording]);
+    if (app && app.setKeepScreenOn) {
+      try { app.setKeepScreenOn(!!recording); } catch {}
+      return () => { try { app.setKeepScreenOn(false); } catch {} };
+    }
+    if (!mobile || !recording || !('wakeLock' in navigator)) return undefined;
+    let lock = null;
+    let dead = false;
+    const req = async () => {
+      if (dead || lock || document.visibilityState !== 'visible') return;
+      try { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); } catch {}
+    };
+    req();
+    document.addEventListener('visibilitychange', req);
+    return () => { dead = true; document.removeEventListener('visibilitychange', req); try { lock && lock.release(); } catch {} };
+  }, [recording, mobile]);
 
 
   // 녹음 중 실수로 페이지를 닫거나 새로고침하면 번역이 중단됨 — 이탈 전 확인

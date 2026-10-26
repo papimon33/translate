@@ -9,75 +9,50 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
 <style>
-  /* 라이트 테마 전용(다크 모드·테마 토글 삭제). --k = 글자 크기 배율(헤더 A−/A+) */
-  :root { --bg:#FFFFFF; --panel:#F7F6F2; --line:rgba(31,30,29,.12); --txt:#1F1E1D; --muted:#6B6A63; --accent:#1F5BBF; --accent2:#22c55e;
-    --k:1; --fs:20px; --seg:#EFEEE9;
-    --bubStaff:#EEF1FD; --bubStaffFg:#2B3A9E; --bubSelf:#F1F1F3; --bubSelfFg:#1F1E1D; }
+  /* 라이트 테마 전용. 폰 앱(호스트) 화면과 같은 모양(2026-10-26 디스코드 스타일): 흰 바탕 · 떠 있는 회색 조작판 · 보라 강조.
+     --k = 글자 크기 배율(조작판 가−/가+) */
+  :root { --bg:#FFFFFF; --panel:#F1F1F4; --line:rgba(31,30,29,.12); --txt:#1F1E1D; --muted:#6B6A63; --brand:#5B4FE8; --brandSoft:#EEEDFC;
+    --accent:var(--brand); --blue:#1F5BBF; --k:1; --fs:22px;
+    --bubOther:rgba(46,111,216,.10); --bubMine:rgba(31,30,29,.06); }
   * { box-sizing:border-box; }
   html { color-scheme:light; }
-  body { margin:0; font-family:'Noto Sans KR',system-ui,'Segoe UI',sans-serif; background:var(--bg); color:var(--txt); -webkit-text-size-adjust:100%; }
+  body { margin:0; font-family:'Pretendard','Noto Sans KR',system-ui,'Segoe UI',sans-serif; background:var(--bg); color:var(--txt); -webkit-text-size-adjust:100%; }
   button { font-family:inherit; -webkit-tap-highlight-color:transparent; }
-  header { position:sticky; top:0; z-index:6; background:var(--bg); padding:10px 16px 12px; border-bottom:1px solid rgba(31,30,29,.08); }
-  /* 헤더 한 줄: 라이브 점 + 세션명(말줄임) | A− A+ 듣기 QR */
-  .htop { display:flex; align-items:center; gap:8px; min-height:40px; }
-  .stitle { flex:1; min-width:0; font-size:16px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .iconbtn { flex:none; width:40px; height:40px; padding:0; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s, border-color .15s, color .15s; }
-  .iconbtn svg { width:20px; height:20px; }
-  .iconbtn:active { transform:scale(.96); }
-  .iconbtn:disabled { opacity:.38; cursor:default; transform:none; }
-  .iconbtn:focus-visible, .seg button:focus-visible, .sheet button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  .iconbtn .aa { font-size:16px; font-weight:800; line-height:1; letter-spacing:-.02em; }
-  .iconbtn .aa small { font-size:13px; font-weight:800; margin-left:1px; }
-  /* 듣기: 켜짐=파란 채움+흰 스피커(파동) / 꺼짐=회색 스피커(X) */
-  #audioBtn { color:var(--muted); }
-  #audioBtn .icoOn { display:none; }
-  #audioBtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-  #audioBtn.on .icoOn { display:block; }
-  #audioBtn.on .icoOff { display:none; }
-  /* 내 언어 세그먼트(양방향: 두 언어 — 라벨 없이 각 언어를 그 언어로 표기) */
-  .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; height:48px; padding:4px; margin-top:10px; border-radius:14px; background:var(--seg); }
+  button:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+  /* 위: 라이브 점 + 세션 이름(표시만), 양방향이면 아래에 내 언어 세그먼트 */
+  header { position:sticky; top:0; z-index:6; background:rgba(255,255,255,.96); padding:calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; }
+  .htop { display:flex; align-items:center; gap:9px; min-height:44px; padding-left:4px; }
+  .stitle { flex:1; min-width:0; font-size:18px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:4px; height:48px; padding:4px; margin-top:8px; border-radius:999px; background:var(--panel); }
   .seg[hidden] { display:none; }
-  .seg button { min-width:0; padding:0 8px; border:0; border-radius:10px; background:transparent; color:var(--muted); font-size:15px; font-weight:600; cursor:pointer;
+  .seg button { min-width:0; padding:0 10px; border:0; border-radius:999px; background:transparent; color:var(--muted); font-size:15px; font-weight:700; cursor:pointer;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:background .15s, color .15s, box-shadow .15s; }
-  .seg button[aria-checked="true"] { background:#fff; color:var(--txt); font-weight:800; box-shadow:0 1px 2px rgba(31,30,29,.10), 0 1px 4px rgba(31,30,29,.06); }
+  .seg button[aria-checked="true"] { background:#fff; color:var(--txt); font-weight:800; box-shadow:0 1px 3px rgba(0,0,0,.12); }
 
-  #feed { display:flex; flex-direction:column; gap:10px; padding:16px 16px 4px; }
-  .msg { max-width:92%; }
-  .msg .spk { display:inline-flex; align-items:center; gap:3px; font-size:calc(var(--fs) - 8px); font-weight:800; color:#fff; background:var(--accent); border-radius:10px; padding:1px 8px; margin-bottom:3px; }
-  .msg .spk svg { width:13px; height:13px; }
-  .msg .line { font-size:var(--fs); line-height:1.5; color:var(--txt); overflow-wrap:anywhere; }
-  .msg .line.pending { color:var(--muted); font-style:italic; }
-  .msg.latest .line { color:var(--accent); font-weight:700; }
-  .msg.latest .line.pending { color:var(--muted); font-weight:400; }
-  /* 양방향: 언어1 발화=액센트 / 언어2 발화=무채색 (최신 강조보다 우선) */
-  .msg.dirA .line:not(.pending) { color:var(--accent); }
-  .msg.dirB .line:not(.pending) { color:var(--txt); }
-  /* 진행 중(미확정) 발화·번역 — 확정되면 draft 가 빠지며 본래 색으로 또렷해진다.
-     latest/dirA/dirB·말풍선 규칙보다 뒤에 두고 셀렉터를 같은(이상) 특이도로 맞춰 확실히 이긴다. */
-  .msg .line.draft, .msg.latest .line.draft, .msg.dirA .line.draft, .msg.dirB .line.draft { color:var(--muted); font-weight:400; }
-  /* 원문(작은 줄) — 항상 표시(토글 삭제). 표시 문장과 같으면 srcShown 이 숨긴다 */
-  .msg .src { font-size:calc(var(--fs) - 5px); color:var(--muted); line-height:1.45; margin-top:3px; overflow-wrap:anywhere; }
-  #partial { padding:4px 16px calc(28px + env(safe-area-inset-bottom, 0px)); }
-  #partial .line { font-size:var(--fs); color:var(--muted); font-style:italic; line-height:1.4; }
-  .empty { color:var(--muted); text-align:center; padding:72px 20px; font-size:15px; }
-
-  /* 말풍선(양방향·데스크): 상대 쪽=왼쪽(파랑) / 내 쪽=오른쪽(무채색). 위에 방향 라벨, 아래 원문·상대 언어 줄 */
-  .msg.turn { max-width:100%; display:flex; flex-direction:column; margin-top:4px; }
+  /* 대화 — 실시간 번역: 번역문(큰 글씨) + 원문(작은 회색) / 양방향: 말풍선(상대 왼쪽 파랑 · 나 오른쪽 회색) */
+  #feed { display:flex; flex-direction:column; gap:20px; padding:16px 22px 4px; }
+  .msg { max-width:100%; }
+  .msg .spk { display:none; }
+  .msg .line { font-size:var(--fs); font-weight:500; line-height:1.45; color:var(--txt); overflow-wrap:anywhere; }
+  .msg .line.pending, .msg .line.draft { color:var(--muted); }
+  .msg .src { font-size:calc(14.5px * var(--k)); color:var(--muted); line-height:1.5; margin-top:5px; overflow-wrap:anywhere; }
+  .msg .line[lang|="ko"], .msg .src[lang|="ko"] { word-break:keep-all; }
+  .msg.turn { display:flex; flex-direction:column; gap:6px; }
   .msg.turn.staff { align-items:flex-start; }
   .msg.turn.self  { align-items:flex-end; }
-  .msg.turn .who { font-size:calc(12px * var(--k)); font-weight:700; line-height:1.3; margin:0 6px 5px; }
-  .msg.turn.staff .who { color:#1F5BBF; }
-  .msg.turn.self  .who { color:#6B6A63; }
-  .msg.turn .line { max-width:88%; padding:11px 15px; font-size:calc(19px * var(--k)); font-weight:700; line-height:1.45; overflow-wrap:anywhere; }
-  .msg.turn.staff .line { background:var(--bubStaff); color:var(--bubStaffFg); border-radius:6px 18px 18px 18px; }
-  .msg.turn.self  .line { background:var(--bubSelf);  color:var(--bubSelfFg);  border-radius:18px 6px 18px 18px; }
-  .msg.turn.staff .line.pending, .msg.turn.self .line.pending { opacity:.6; font-style:normal; }
-  .msg.turn.staff .line.draft, .msg.turn.self .line.draft { color:var(--muted); font-weight:400; }
-  .msg.turn .src { max-width:88%; margin:6px 8px 0; font-size:calc(14px * var(--k)); color:#6B6A63; line-height:1.45; }
-  .msg.turn.self .src { text-align:right; }
-  /* 한국어 줄만 어절 단위 줄바꿈(일·중에 keep-all 을 걸면 구두점 앞에서 끊기는 등 줄바꿈이 깨진다) — lang 은 renderLine 이 단다 */
-  .msg.turn .line[lang|="ko"], .msg.turn .src[lang|="ko"] { word-break:keep-all; }
+  .msg.turn .who { font-size:12px; font-weight:700; line-height:1.3; padding:0 6px; }
+  .msg.turn.staff .who { color:var(--blue); }
+  .msg.turn.self  .who { color:var(--muted); }
+  .msg.turn .bub { max-width:86%; padding:12px 16px; display:flex; flex-direction:column; gap:4px; }
+  .msg.turn.staff .bub { background:var(--bubOther); border-radius:6px 20px 20px 20px; }
+  .msg.turn.self  .bub { background:var(--bubMine); border-radius:20px 6px 20px 20px; }
+  .msg.turn .line { font-size:calc(19px * var(--k)); }
+  .msg.turn .src { font-size:calc(13.5px * var(--k)); margin-top:0; }
+  #partial { padding:4px 22px calc(120px + env(safe-area-inset-bottom, 0px)); }
+  #partial .line { font-size:var(--fs); color:var(--muted); line-height:1.45; }
+  .empty { color:var(--muted); text-align:center; padding:30vh 24px 0; font-size:15px; line-height:1.6; word-break:keep-all; }
   /* 길안내: 채팅 인라인이 아니라 화면 '상단' 고정 플로팅 — 새 발화가 이어져도 밀려나지 않음 */
   .mapCard { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); left:12px; right:12px; z-index:60; margin:0;
     border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel);
@@ -89,30 +64,46 @@
   .mapCard .mHead .chip { background:var(--bg); border:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:700; padding:3px 9px; border-radius:14px; white-space:nowrap; }
   .mapCard .mHolder { height:300px; overflow:hidden; }
 
-  /* QR 공유 시트(설정 시트 대체) — 다른 사람이 스캔해 같은 번역에 들어오게 */
-  .backdrop { position:fixed; inset:0; z-index:20; background:rgba(31,30,29,.42); opacity:0; pointer-events:none; transition:opacity .2s; }
+  /* 아래: 떠 있는 회색 조작판 — 글자 없는 아이콘 버튼(가− · 가+ · TTS 듣기 · QR). 듣기 켜짐 = 보라 둥근 사각형 */
+  #dock { position:fixed; left:12px; right:12px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:8; max-width:560px; margin:0 auto;
+    display:grid; grid-auto-flow:column; grid-auto-columns:1fr; align-items:center; justify-items:center;
+    padding:10px 8px; border-radius:24px; background:var(--panel); box-shadow:0 6px 24px rgba(0,0,0,.10); }
+  .dbtn { width:56px; height:56px; padding:0; border:0; border-radius:16px; background:transparent; color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s, color .15s, opacity .15s; }
+  .dbtn svg { width:31px; height:31px; }
+  .dbtn:active { background:rgba(31,30,29,.06); }
+  .dbtn:disabled { opacity:.35; cursor:default; background:transparent; }
+  #audioBtn { color:var(--muted); }
+  #audioBtn.on { background:var(--brand); color:#fff; }
+  #audioBtn.on .slash { display:none; }
+
+  /* QR 공유 시트 — 앱의 바텀 시트와 같은 모양 */
+  .backdrop { position:fixed; inset:0; z-index:20; background:rgba(0,0,0,.5); opacity:0; pointer-events:none; transition:opacity .2s; }
   .backdrop.show { opacity:1; pointer-events:auto; }
-  .sheet { position:fixed; left:0; right:0; bottom:0; z-index:21; max-width:480px; margin:0 auto; background:#fff; border-radius:22px 22px 0 0;
-    padding:10px 20px calc(22px + env(safe-area-inset-bottom, 0px)); text-align:center; box-shadow:0 -8px 30px rgba(31,30,29,.12);
+  .sheet { position:fixed; left:0; right:0; bottom:0; z-index:21; max-width:560px; margin:0 auto; background:#fff; border-radius:28px 28px 0 0;
+    padding:10px 24px calc(24px + env(safe-area-inset-bottom, 0px)); box-shadow:0 -8px 30px rgba(31,30,29,.12);
     transform:translateY(105%); visibility:hidden; transition:transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s linear .24s; }
   .sheet.show { transform:translateY(0); visibility:visible; transition:transform .24s cubic-bezier(.2,.8,.2,1), visibility 0s; }
-  .sheet .grab { width:36px; height:4px; border-radius:2px; background:rgba(31,30,29,.16); margin:0 auto 16px; }
-  .sheet h3 { margin:0; padding:0 44px; font-size:18px; font-weight:800; }
-  .sheet .hint { margin:6px 0 16px; font-size:14px; color:var(--muted); line-height:1.5; word-break:keep-all; }
-  .qrx { position:absolute; top:12px; right:12px; width:36px; height:36px; padding:0; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .sheet .grab { width:40px; height:4px; border-radius:999px; background:rgba(31,30,29,.12); margin:0 auto 14px; }
+  .sheet h3 { margin:0; padding-right:44px; font-size:21px; font-weight:800; letter-spacing:-.015em; }
+  .sheet .hint { margin:4px 0 16px; font-size:13.5px; color:var(--muted); line-height:1.5; word-break:keep-all; }
+  .qrx { position:absolute; top:16px; right:16px; width:40px; height:40px; padding:0; border:0; border-radius:12px; background:var(--panel); color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .qrx svg { width:18px; height:18px; }
-  .qrframe { width:232px; height:232px; margin:0 auto; padding:10px; border:1px solid var(--line); border-radius:16px; background:#fff; display:flex; align-items:center; justify-content:center; }
+  .qrframe { width:220px; height:220px; margin:0 auto; padding:8px; border-radius:16px; background:#fff; display:flex; align-items:center; justify-content:center; }
   .qrframe img { width:100%; height:100%; display:block; }
   .qrframe img[hidden], .qrframe .qmsg[hidden] { display:none; }
-  .qrframe .qmsg { padding:0 12px; font-size:13px; color:var(--muted); line-height:1.5; }
-  .qlink { display:flex; align-items:center; gap:8px; margin-top:16px; }
-  .qlink input { flex:1; min-width:0; height:46px; padding:0 12px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--txt); font-family:inherit; font-size:13px; }
-  .qlink .copy { flex:none; height:46px; padding:0 16px; border:0; border-radius:12px; background:var(--accent); color:#fff; font-size:15px; font-weight:800; cursor:pointer; white-space:nowrap; }
-  .qlink .copy.done { background:#2B3A9E; }
+  .qrframe .qmsg { padding:0 12px; font-size:13px; color:var(--muted); line-height:1.5; text-align:center; }
+  #qrLink { display:block; width:100%; margin-top:10px; padding:0; border:0; background:transparent; color:var(--muted); font-family:inherit; font-size:12.5px; text-align:center; text-overflow:ellipsis; }
+  #qrLink:focus { outline:none; }
+  .qbtns { display:flex; gap:8px; margin-top:14px; }
+  .qbtns button { flex:1; height:50px; border:0; border-radius:14px; font-size:15px; font-weight:700; cursor:pointer; }
+  .qbtns .copy { background:rgba(31,30,29,.06); color:var(--txt); }
+  .qbtns .copy.done { color:#007a5a; }
+  .qbtns .share { background:var(--brand); color:#fff; }
+  .qbtns .share[hidden] { display:none; }
 
-  /* 짧은 알림(글자 크기 %) */
-  #toast { position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom, 0px)); z-index:50; transform:translate(-50%, 8px); opacity:0; pointer-events:none;
-    background:#1F1E1D; color:#fff; font-size:14px; font-weight:700; padding:9px 14px; border-radius:12px; transition:opacity .18s, transform .18s; white-space:nowrap; }
+  /* 짧은 알림(글자 크기 %) — 조작판 바로 위 */
+  #toast { position:fixed; left:50%; bottom:calc(104px + env(safe-area-inset-bottom, 0px)); z-index:50; transform:translate(-50%, 8px); opacity:0; pointer-events:none;
+    background:#323232; color:#fff; font-size:14px; font-weight:600; padding:10px 16px; border-radius:10px; transition:opacity .18s, transform .18s; white-space:nowrap; }
   #toast.show { opacity:1; transform:translate(-50%, 0); }
 
   /* 라이브 상태 표시등(초록=진행 중 / 회색=대기) */
@@ -122,22 +113,23 @@
   #landing { position:fixed; inset:0; z-index:40; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px; }
   #landing.hide { display:none; }
   #landing .lcard { width:100%; max-width:340px; text-align:center; }
-  #landing .lbrand { display:inline-flex; align-items:center; gap:8px; color:var(--accent); font-weight:800; font-size:15px; margin-bottom:22px; }
+  #landing .lbrand { display:flex; flex-direction:column; align-items:center; gap:10px; font-weight:800; font-size:15px; margin-bottom:22px; }
+  #landing .lbrand img { width:56px; height:56px; border-radius:14px; }
   #landing .ltitle { font-size:24px; font-weight:800; line-height:1.3; word-break:keep-all; }
   #landing .lmeta { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; color:var(--muted); font-size:14px; font-weight:600; }
   #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:#C9C7BF; }
   #landing .lmeta .d.on { background:#22c55e; }
-  #enterBtn { margin-top:30px; width:100%; padding:15px; border:none; border-radius:14px; background:var(--accent); color:#fff; font-family:inherit; font-size:17px; font-weight:800; cursor:pointer; }
+  #enterBtn { margin-top:30px; width:100%; height:54px; border:none; border-radius:14px; background:var(--brand); color:#fff; font-family:inherit; font-size:16px; font-weight:700; cursor:pointer; }
   /* 오프라인 안내 배너 — 연결이 끊긴 줄 모르고 대기하는 문제 방지 */
   #netBanner { display:none; position:fixed; top:0; left:0; right:0; z-index:80; background:#e8912d; color:#fff;
-    text-align:center; padding:7px 10px calc(7px + env(safe-area-inset-top, 0px)); font-size:13px; font-weight:700; }
+    text-align:center; padding:calc(7px + env(safe-area-inset-top, 0px)) 10px 7px; font-size:13px; font-weight:700; }
   #netBanner.show { display:block; }
 </style>
 </head>
 <body>
 <div id="landing">
   <div class="lcard">
-    <div class="lbrand"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 19V9M10 19V5M15 19v-7M20 19v-4"/></svg><span id="lBrandName">AirTalk</span></div>
+    <div class="lbrand"><img src="/favicon.svg" alt="" /><span id="lBrandName">AirTalk</span></div>
     <div class="ltitle" id="lTitle">Session</div>
     <div class="lmeta"><span class="d" id="lLiveDot"></span><span id="lLive">Waiting</span></div>
     <button id="enterBtn">Enter</button>
@@ -147,21 +139,28 @@
   <div class="htop">
     <span id="liveDot" role="img" aria-label="Waiting"></span>
     <div class="stitle" id="title">Session</div>
-    <button class="iconbtn" id="fsDown" aria-label="Smaller text"><span class="aa" aria-hidden="true">A<small>−</small></span></button>
-    <button class="iconbtn" id="fsUp" aria-label="Larger text"><span class="aa" aria-hidden="true">A<small>+</small></span></button>
-    <button class="iconbtn" id="audioBtn" aria-label="Listen" aria-pressed="false" style="display:none">
-      <svg class="icoOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>
-      <svg class="icoOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-    </button>
-    <button class="iconbtn" id="qrBtn" aria-label="Share via QR code" aria-haspopup="dialog">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM21 14v.01M17 21h.01M21 17v4h-4"/></svg>
-    </button>
   </div>
   <div class="seg" id="langSeg" role="radiogroup" aria-label="My language" hidden></div>
 </header>
 
 <div id="feed"><div class="empty" id="empty">Waiting for translation…</div></div>
 <div id="partial"></div>
+
+<!-- 아래 조작판(아이콘은 폰 앱과 같은 Lucide 선 아이콘) -->
+<nav id="dock">
+  <button class="dbtn" id="fsDown" aria-label="Smaller text">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13h6"/><path d="m2 16 4.5-9 4.5 9"/><path d="M18 7v9"/><path d="m14 12 4 4 4-4"/></svg>
+  </button>
+  <button class="dbtn" id="fsUp" aria-label="Larger text">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13h6"/><path d="m2 16 4.5-9 4.5 9"/><path d="M18 16V7"/><path d="m14 11 4-4 4 4"/></svg>
+  </button>
+  <button class="dbtn" id="audioBtn" aria-label="Listen" aria-pressed="false" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.8 7.5h5.6M4.6 7.5v9"/><path d="M8.6 7.5h5.6M11.4 7.5v9"/><path d="M21.6 9c-.5-1-1.5-1.6-2.7-1.6-1.5 0-2.6.8-2.6 2 0 2.8 5.6 1.6 5.6 4.6 0 1.3-1.2 2.2-2.9 2.2-1.2 0-2.3-.6-2.9-1.5"/><path class="slash" d="M3 21L21 3"/></svg>
+  </button>
+  <button class="dbtn" id="qrBtn" aria-label="Share via QR code" aria-haspopup="dialog">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
+  </button>
+</nav>
 
 <!-- QR 공유 시트 -->
 <div class="backdrop" id="qrBackdrop"></div>
@@ -171,9 +170,10 @@
   <h3 id="qrTitle">Scan to join</h3>
   <p class="hint" id="qrHint"></p>
   <div class="qrframe"><img id="qrImg" alt="QR" hidden /><span class="qmsg" id="qrMsg"></span></div>
-  <div class="qlink">
-    <input id="qrLink" type="text" readonly />
+  <input id="qrLink" type="text" readonly />
+  <div class="qbtns">
     <button class="copy" id="qrCopy">Copy link</button>
+    <button class="share" id="qrShare" hidden>Share</button>
   </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -231,6 +231,7 @@ const UI = {
   link:     { ko:'참여 링크', ja:'参加リンク', en:'Join link' },
   copy:     { ko:'링크 복사', ja:'リンクをコピー', en:'Copy link' },
   copied:   { ko:'복사됨', ja:'コピー済み', en:'Copied' },
+  share:    { ko:'공유', ja:'共有', en:'Share' },
   close:    { ko:'닫기', ja:'閉じる', en:'Close' },
   roomFull: { ko:'지금은 보는 사람이 너무 많아요. 잠시 후 다시 시도해 주세요.', ja:'現在、視聴者が多すぎます。しばらくしてから再度お試しください。', en:'Too many viewers right now — please try again later.' },
   ipLimit:  { ko:'이 기기에서 연결이 너무 많아요.', ja:'この端末からの接続が多すぎます。', en:'Too many connections from this device.' },
@@ -371,8 +372,8 @@ function deskTextOf(c){
   return { t:'', staff:false };
 }
 
-/* ---- 글자 크기(헤더 A− / A+) — 저장 키 kac-mfs 그대로, 80~160% 10% 단위 ---- */
-const FS_BASE = 20; // 100% 기준 px(단방향 본문). 말풍선은 --k 배율로 19px/14px 기준
+/* ---- 글자 크기(조작판 가− / 가+) — 저장 키 kac-mfs 그대로, 80~160% 10% 단위 ---- */
+const FS_BASE = 22; // 100% 기준 px(단방향 본문 — 폰 앱과 같은 크기). 말풍선은 --k 배율로 19px/13.5px 기준
 const FS_MIN = 80, FS_MAX = 160, FS_STEP = 10;
 let fsPct = parseInt(localStorage.getItem('kac-mfs')||'100',10);
 if(!(fsPct>=50 && fsPct<=200)) fsPct = 100; // 옛 px 저장값 보정
@@ -448,6 +449,7 @@ function applyUi(){
   $('qrClose').setAttribute('aria-label', T('close'));
   $('qrLink').setAttribute('aria-label', T('link'));
   if (!$('qrCopy').classList.contains('done')) $('qrCopy').textContent = T('copy');
+  $('qrShare').textContent = T('share');
   renderQr();
   setHostActive(hostActive);
   const nb = $('netBanner'); if (nb) nb.textContent = T('offline');
@@ -559,8 +561,9 @@ function upsert(item){
   if(!card){
     const el=document.createElement('div'); el.className='msg';
     const spk=document.createElement('div'); spk.className='spk'; el.appendChild(spk);
-    const line=document.createElement('div'); line.className='line'; line.dir='auto'; el.appendChild(line);
-    const src=document.createElement('div'); src.className='src'; src.dir='auto'; el.appendChild(src);
+    const bub=document.createElement('div'); bub.className='bub'; el.appendChild(bub); // 양방향=말풍선(원문도 안에), 단방향=그냥 묶음
+    const line=document.createElement('div'); line.className='line'; line.dir='auto'; bub.appendChild(line);
+    const src=document.createElement('div'); src.className='src'; src.dir='auto'; bub.appendChild(src);
     feed.appendChild(el);
     card={el, line, src, spk}; cards.set(item.id, card); order.push(item.id);
     // 최신 강조 이동
@@ -641,8 +644,10 @@ function renderLine(c){
   c.line.classList.toggle('pending', !txt && !!c.source);
   c.line.classList.toggle('draft', !!c.draft); // 진행 중 → 회색, 확정되면 제 색으로
   c.line.textContent = txt || c.source || '';
+  if (txt) c.line.lang = curLang; else c.line.removeAttribute('lang');
   // 원문은 번역 아래 작은 줄로 항상(표시 문장과 같으면 생략)
   c.src.textContent = c.source || '';
+  if (c.lang) c.src.lang = c.lang; // 원문 언어(서버가 보낸 발화 언어) — 한국어면 어절 단위 줄바꿈
   c.src.style.display = srcShown(c) ? 'block' : 'none';
   // 양방향: 저장된 타깃 언어 키로 발화 방향 판별(언어1 발화→texts[언어2], 언어2 발화→texts[언어1])
   c.el.classList.remove('dirA', 'dirB');
@@ -743,7 +748,7 @@ function setHostActive(active){
   const ll = $('lLive'); if(ll) ll.textContent = lbl;
 }
 
-/* ---- 헤더 버튼(설정 시트 삭제 — 글자 크기·QR 은 여기로, 원문은 항상 표시, 다크 모드 없음) ---- */
+/* ---- 조작판 버튼(글자 크기·듣기·QR — 원문은 항상 표시, 다크 모드 없음) ---- */
 function stepFs(d){
   const s = atBottom();
   fsPct = Math.min(FS_MAX, Math.max(FS_MIN, fsPct + d)); applyFs();
@@ -760,6 +765,8 @@ $('qrBtn').onclick = openQr;
 $('qrClose').onclick = closeQr;
 $('qrBackdrop').onclick = closeQr;
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('qrSheet').classList.contains('show')) closeQr(); });
+$('qrShare').hidden = !navigator.share;
+$('qrShare').onclick = () => { navigator.share({ title: titleEl.textContent || 'AirTalk', url: $('qrLink').value }).catch(() => {}); };
 $('qrCopy').onclick = async () => {
   const link = $('qrLink').value;
   try { await navigator.clipboard.writeText(link); } catch { const i=$('qrLink'); i.select(); try { document.execCommand('copy'); } catch {} }

@@ -414,8 +414,12 @@ export default function MobileLive(p) {
               <Typography sx={{ fontSize: 12.5, color: 'text.secondary', wordBreak: 'break-all', textAlign: 'center' }}>{qr.url}</Typography>
               <Box sx={{ display: 'flex', gap: 1, width: '100%' }}>
                 <ButtonBase onClick={copy} sx={{ flex: 1, height: 50, borderRadius: '14px', bgcolor: 'action.hover', fontSize: 15, fontWeight: 700, color: copied ? 'success.main' : 'text.primary' }}>{copied ? t('copied') : t('copyLink')}</ButtonBase>
-                {window.AndroidApp && window.AndroidApp.shareText && (
-                  <ButtonBase onClick={() => { try { window.AndroidApp.shareText(qr.url); } catch {} }} sx={{ flex: 1, height: 50, borderRadius: '14px', bgcolor: BRAND, color: '#fff', fontSize: 15, fontWeight: 700 }}>{t('share')}</ButtonBase>
+                {/* 앱은 네이티브 공유, 폰 브라우저(iPhone 웹)는 Web Share */}
+                {((window.AndroidApp && window.AndroidApp.shareText) || navigator.share) && (
+                  <ButtonBase onClick={() => {
+                    if (window.AndroidApp && window.AndroidApp.shareText) { try { window.AndroidApp.shareText(qr.url); } catch {} return; }
+                    navigator.share({ title: p.title || 'AirTalk', url: qr.url }).catch(() => {});
+                  }} sx={{ flex: 1, height: 50, borderRadius: '14px', bgcolor: BRAND, color: '#fff', fontSize: 15, fontWeight: 700 }}>{t('share')}</ButtonBase>
                 )}
               </Box>
             </>
