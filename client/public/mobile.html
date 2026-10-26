@@ -765,6 +765,14 @@ $('qrBtn').onclick = openQr;
 $('qrClose').onclick = closeQr;
 $('qrBackdrop').onclick = closeQr;
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('qrSheet').classList.contains('show')) closeQr(); });
+// QR 시트: 아래로 쓸어내리면 닫힘(폰 앱의 시트와 같게) — 80px 넘게 내리면 닫고, 덜 내리면 제자리로
+(function(){
+  const sh = $('qrSheet'); let y0 = null, dy = 0;
+  sh.addEventListener('touchstart', (e) => { if (!sh.classList.contains('show') || e.touches.length !== 1) return; y0 = e.touches[0].clientY; dy = 0; sh.style.transition = 'none'; }, { passive:true });
+  sh.addEventListener('touchmove', (e) => { if (y0 == null) return; dy = Math.max(0, e.touches[0].clientY - y0); sh.style.transform = dy ? 'translateY(' + dy + 'px)' : ''; }, { passive:true });
+  const end = () => { if (y0 == null) return; y0 = null; sh.style.transition = ''; sh.style.transform = ''; if (dy > 80) closeQr(); };
+  sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
+})();
 $('qrShare').hidden = !navigator.share;
 $('qrShare').onclick = () => { navigator.share({ title: titleEl.textContent || 'AirTalk', url: $('qrLink').value }).catch(() => {}); };
 $('qrCopy').onclick = async () => {

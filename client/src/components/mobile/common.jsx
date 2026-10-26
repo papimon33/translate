@@ -2,7 +2,7 @@
    웹 티(PC식 드롭다운·작은 버튼)를 없애는 게 목적이라 선택은 전부 아래에서 올라오는 시트로 한다. */
 import React, { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
-import Drawer from '@mui/material/Drawer';
+import SwipeableDrawer from '@mui/material/SwipeableDrawer';
 import Dialog from '@mui/material/Dialog';
 import Typography from '@mui/material/Typography';
 import ButtonBase from '@mui/material/ButtonBase';
@@ -168,13 +168,22 @@ export function useMicInputs() {
   return { list: st.list, label: st.label, kind, canPick: !!st.list, pick };
 }
 
+// 아래에서 올라오는 시트 — 아래로 쓸어내리면 닫힌다(SwipeableDrawer). 목록이 스크롤된 상태면 먼저 목록이 올라가고, 맨 위에서 더 내리면 닫힘.
+// 쓸어 열기는 쓰지 않으므로 닫혀 있을 땐 내용을 내린다(keepMounted 끔 — 켜 두면 입력 시트의 autoFocus 가 열 때 동작하지 않는다).
+const IOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+const noop = () => {};
 export function BottomSheet({ open, onClose, title, subtitle, action, children, maxHeight = '86dvh' }) {
   useBackClose(open, onClose);
   return (
-    <Drawer
+    <SwipeableDrawer
       anchor="bottom"
       open={open}
       onClose={onClose}
+      onOpen={noop}
+      disableSwipeToOpen
+      disableDiscovery
+      disableBackdropTransition={!IOS}
+      ModalProps={{ keepMounted: false }}
       sx={{ zIndex: (th) => th.zIndex.modal + 1 }} /* 설정·계정(전체 화면 Dialog) 위에서도 열리게 — Drawer 기본 z-index 는 Dialog 보다 낮다 */
       slotProps={{ paper: { sx: { borderTopLeftRadius: '28px', borderTopRightRadius: '28px', maxHeight, bgcolor: 'background.paper', backgroundImage: 'none', pb: 'env(safe-area-inset-bottom)' } } }}
     >
@@ -191,7 +200,7 @@ export function BottomSheet({ open, onClose, title, subtitle, action, children, 
         )}
         {children}
       </Box>
-    </Drawer>
+    </SwipeableDrawer>
   );
 }
 

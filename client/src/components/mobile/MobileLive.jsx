@@ -361,7 +361,7 @@ export default function MobileLive(p) {
       )}
 
       {/* 큰 설정 — 조작판을 위로 민 화면(디스코드). 맨 위에 같은 조작 버튼, 아래에 입력·출력·세션 */}
-      <SwipeableDrawer anchor="bottom" open={panel} onOpen={() => setPanel(true)} onClose={() => setPanel(false)} disableSwipeToOpen
+      <SwipeableDrawer anchor="bottom" open={panel} onOpen={() => setPanel(true)} onClose={() => setPanel(false)} disableSwipeToOpen disableDiscovery ModalProps={{ keepMounted: false }}
         slotProps={{ paper: { sx: { height: 'calc(100dvh - 64px)', borderTopLeftRadius: '28px', borderTopRightRadius: '28px', bgcolor: PANEL_BG, backgroundImage: 'none' } } }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
           <Box sx={{ alignSelf: 'center', width: 40, height: 4, borderRadius: '999px', bgcolor: 'divider', mt: 1.25, mb: 1.5, flex: 'none' }} />

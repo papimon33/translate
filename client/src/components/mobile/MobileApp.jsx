@@ -304,7 +304,7 @@ function MobileHome({ user, onUser, onLogout }) {
     <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.default', position: 'relative' }}>
       {globals}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pl: 3, pr: 2, pt: 3, pb: 1 }}>
-        <Typography component="h1" sx={{ fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em' }}>AirTalk</Typography>
+        <Typography component="h1" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em' }}>AirTalk</Typography>
         <IconButton aria-label={t('settings')} onClick={openOptions} sx={{ width: 46, height: 46 }}>
           <SettingsIcon />
         </IconButton>
