@@ -5,6 +5,8 @@ import { usePrefs } from './prefs.js';
 
 const D = {
   ko: {
+    micCheckTitle: '마이크 확인', micCheckDesc: '각 마이크에 차례로 말해 보세요. 말하는 쪽이 강조됩니다.', micHost: '호스트', micGuest: '상대방', mic1: '마이크 1', mic2: '마이크 2', micChecked: '확인됨', micSpeak: '말해 보세요', 
+    micCheckDescOne: '마이크에 대고 말해 보세요.', micOne: '마이크', startOneMic: '마이크 1개로 시작',
     openSettings: '설정 열기', speakerAria: '이 기기에서 번역 음성 재생', muteNeedRec: '번역을 시작한 뒤 음소거할 수 있습니다.',
     mutedMsg: '음소거했습니다.', unmutedMsg: '음소거를 해제했습니다.',
     ttsOnMsg: '참가자의 번역 음성 재생을 켰습니다.', ttsOffMsg: '참가자의 번역 음성 재생을 껐습니다.',
@@ -24,7 +26,7 @@ const D = {
     sessionName: '세션 이름', sessionNamePh: '예: 외국인 방문객 안내', nameRequired: '세션 이름을 입력하세요.',
     create: '만들기', createFail: '세션을 만들지 못했습니다: {msg}',
     accountSettings: '계정 설정', secLanguage: '언어', sysLang: '시스템 언어', nativeLang: '모국어',
-    secVoice: '음성', inputSens: '입력 감도', inputSensHint: '말할 때 표시 막대가 초록색 구간에 오도록 조절하세요.', connectedDevice: '연결된 기기', tx1: '송신기 1 (왼쪽)', tx2: '송신기 2 (오른쪽)', stereoOk: '스테레오 입력: 두 송신기의 소리를 각각 인식합니다.', stereoMono: '모노 입력: 두 송신기의 소리를 구분할 수 없습니다. 수신기를 스테레오 모드로 변경하세요.', stereoTry: '각 송신기에 차례로 말해 보세요. 막대가 각각 움직이면 정상입니다.', version: '버전', latestVersion: '최신 버전', updateTo: '업데이트 ({v})',
+    secVoice: '음성', inputSens: '입력 감도', inputSensHint: '말할 때 표시 막대가 초록색 구간에 오도록 조절하세요.', connectedDevice: '연결된 기기', tx1: '마이크 1', tx2: '마이크 2', stereoOk: '2채널 입력: 두 마이크의 소리를 각각 인식합니다.', stereoMono: '두 마이크의 소리가 같아 마이크 1개로 인식합니다. 수신기를 스테레오 모드로 바꾸면 나눠서 인식합니다.', stereoTry: '각 마이크에 차례로 말해 보세요. 막대가 각각 움직이면 정상입니다.', version: '버전', latestVersion: '최신 버전', updateTo: '업데이트 ({v})',
     ttsVoice: 'TTS 음성', ttsVoiceDesc: '번역문을 읽어 줄 목소리를 고르세요.', female: '여성', male: '남성',
     previewVoice: '{v} 음성 미리 듣기', previewFail: '미리 듣기를 재생하지 못했습니다.',
     secDisplay: '화면', theme: '테마', themeLight: '라이트', themeDark: '다크', themeSystem: '시스템', textSize: '텍스트 크기', sampleGlyph: '가',
@@ -56,6 +58,8 @@ const D = {
     cleared: '대화 내역을 삭제했습니다.', deleteSession: '세션 삭제', deleteConfirm: "'{name}' 세션과 대화 기록이 모두 삭제되며 되돌릴 수 없습니다.", failMsg: '실패했습니다: {msg}',
   },
   en: {
+    micCheckTitle: 'Check microphones', micCheckDesc: 'Speak into each microphone in turn. The active one is highlighted.', micHost: 'Host', micGuest: 'Guest', mic1: 'Mic 1', mic2: 'Mic 2', micChecked: 'Checked', micSpeak: 'Say something', 
+    micCheckDescOne: 'Say something into the microphone.', micOne: 'Microphone', startOneMic: 'Start with one mic',
     openSettings: 'Open settings', speakerAria: 'Play spoken translation on this device', muteNeedRec: 'Start translating to use mute.',
     mutedMsg: 'Muted.', unmutedMsg: 'Unmuted.',
     ttsOnMsg: 'Spoken translation for participants is on.', ttsOffMsg: 'Spoken translation for participants is off.',
@@ -75,7 +79,7 @@ const D = {
     sessionName: 'Session name', sessionNamePh: 'e.g. Visitor tour', nameRequired: 'Enter a session name.',
     create: 'Create', createFail: 'Could not create the session: {msg}',
     accountSettings: 'Account settings', secLanguage: 'Language', sysLang: 'App language', nativeLang: 'Native language',
-    secVoice: 'Voice', inputSens: 'Input sensitivity', inputSensHint: 'Adjust so the level bar stays in the green range while you speak.', connectedDevice: 'Connected device', tx1: 'Transmitter 1 (L)', tx2: 'Transmitter 2 (R)', stereoOk: 'Stereo input: each transmitter is recognized separately.', stereoMono: "Mono input: the two transmitters can't be told apart. Switch the receiver to stereo mode.", stereoTry: "Speak into each transmitter in turn. If the bars move separately, it's working.", version: 'Version', latestVersion: 'Up to date', updateTo: 'Update ({v})',
+    secVoice: 'Voice', inputSens: 'Input sensitivity', inputSensHint: 'Adjust so the level bar stays in the green range while you speak.', connectedDevice: 'Connected device', tx1: 'Mic 1', tx2: 'Mic 2', stereoOk: '2-channel input: each microphone is recognized separately.', stereoMono: 'Both channels carry the same sound, so it is treated as one microphone. Switch the receiver to stereo mode to separate them.', stereoTry: "Speak into each microphone in turn. If the bars move separately, it's working.", version: 'Version', latestVersion: 'Up to date', updateTo: 'Update ({v})',
     ttsVoice: 'TTS voice', ttsVoiceDesc: 'Choose the voice that reads translations aloud.', female: 'Female', male: 'Male',
     previewVoice: 'Preview {v} voice', previewFail: "Couldn't play the preview.",
     secDisplay: 'Display', theme: 'Theme', themeLight: 'Light', themeDark: 'Dark', themeSystem: 'System', textSize: 'Text size', sampleGlyph: 'A',
@@ -107,6 +111,8 @@ const D = {
     cleared: 'Conversation cleared.', deleteSession: 'Delete session', deleteConfirm: "'{name}' and its conversation will be deleted and can't be restored.", failMsg: 'Failed: {msg}',
   },
   ja: {
+    micCheckTitle: 'マイク確認', micCheckDesc: '各マイクに順番に話してください。話している側が強調されます。', micHost: 'ホスト', micGuest: '相手', mic1: 'マイク 1', mic2: 'マイク 2', micChecked: '確認済み', micSpeak: '話してください', 
+    micCheckDescOne: 'マイクに向かって話してください。', micOne: 'マイク', startOneMic: 'マイク1本で開始',
     openSettings: '設定を開く', speakerAria: 'この端末で翻訳音声を再生', muteNeedRec: '翻訳を開始するとミュートできます。',
     mutedMsg: 'ミュートしました。', unmutedMsg: 'ミュートを解除しました。',
     ttsOnMsg: '参加者の翻訳音声をオンにしました。', ttsOffMsg: '参加者の翻訳音声をオフにしました。',
@@ -126,7 +132,7 @@ const D = {
     sessionName: 'セッション名', sessionNamePh: '例：海外ゲスト案内', nameRequired: 'セッション名を入力してください。',
     create: '作成', createFail: 'セッションを作成できませんでした：{msg}',
     accountSettings: 'アカウント設定', secLanguage: '言語', sysLang: '表示言語', nativeLang: '母語',
-    secVoice: '音声', inputSens: '入力感度', inputSensHint: '話すときにレベルバーが緑の範囲に入るよう調整してください。', connectedDevice: '接続中のデバイス', tx1: '送信機 1（左）', tx2: '送信機 2（右）', stereoOk: 'ステレオ入力：2台の送信機の音声をそれぞれ認識します。', stereoMono: 'モノラル入力：2台の送信機の音声を区別できません。受信機をステレオモードに変更してください。', stereoTry: '各送信機に順番に話してみてください。バーがそれぞれ動けば正常です。', version: 'バージョン', latestVersion: '最新バージョン', updateTo: 'アップデート（{v}）',
+    secVoice: '音声', inputSens: '入力感度', inputSensHint: '話すときにレベルバーが緑の範囲に入るよう調整してください。', connectedDevice: '接続中のデバイス', tx1: 'マイク 1', tx2: 'マイク 2', stereoOk: '2チャンネル入力：2本のマイクの音声をそれぞれ認識します。', stereoMono: '2本のマイクの音声が同じため、マイク1本として認識します。受信機をステレオモードにすると分けて認識します。', stereoTry: '各マイクに順番に話してみてください。バーがそれぞれ動けば正常です。', version: 'バージョン', latestVersion: '最新バージョン', updateTo: 'アップデート（{v}）',
     ttsVoice: '読み上げ音声', ttsVoiceDesc: '翻訳文を読み上げる声を選んでください。', female: '女性', male: '男性',
     previewVoice: '{v}の声を試聴', previewFail: '試聴を再生できませんでした。',
     secDisplay: '画面', theme: 'テーマ', themeLight: 'ライト', themeDark: 'ダーク', themeSystem: 'システム', textSize: '文字サイズ', sampleGlyph: 'あ',

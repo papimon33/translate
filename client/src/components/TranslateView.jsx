@@ -266,6 +266,12 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     // (2026-10-08 KAC-센트레아 회의 — 게이트가 없는 PC 소리 채널은 멀쩡하고 마이크 채널만 끊김). 슬라이더를 만진 기기는 저장값 유지.
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100;
   });
+  // 송신기 2(오른쪽) 감도 — 2채널로 나눠 들을 때만 쓴다. 따로 정한 적 없으면 위 감도와 같은 값
+  const [micSens2, setMicSens2] = useState(() => {
+    const s = localStorage.getItem('kac-mic-sens2');
+    const v = s == null ? NaN : Number(s);
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
+  });
   // 자동 감도(폰 설정): 켜면 민감도 슬라이더 대신 주변 소음 기준으로 판정(audio.js AUTO_GATE_RATIO)
   const [micAuto, setMicAuto] = useState(() => localStorage.getItem('kac-mic-auto') === '1');
   const [guestSens, setGuestSens] = useState(() => {
@@ -648,7 +654,8 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   };
   onMessageRef.current = onMessage; // 패시브 뷰어 연결이 항상 최신 핸들러를 쓰도록
 
-  const start = async () => {
+  // startOpts.stereoKnown: 폰 화면 시작 전 마이크 확인에서 송신기 2가 따로 들어오는 걸 확인 → 처음부터 2채널(PC 버튼은 이벤트가 넘어와도 무시)
+  const start = async (startOpts) => {
     if (recording || recRef.current || startingRef.current) return; // 연타 중복 방지
     if (preset && !PRESET_LABEL[preset]) { // 지원 종료 모드(구 multi 등)는 열람 전용 — 실수로 다른 모드로 녹음되는 것 방지
       setNotice('지원이 종료된 세션입니다. 내용 보기만 가능하니 새 세션을 만들어 사용하세요.');
@@ -670,6 +677,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
         volume,
         micSens, // 마이크 음성인식 민감도(0~100): 일정 볼륨 이상만 전송하는 클라이언트 볼륨 게이트
         micAuto: mobile ? micAuto : false, // 자동 감도(폰 화면에만 설정 있음)
+        micSens2: micSens2 == null ? micSens : micSens2, // 송신기 2(오른쪽) 감도(스테레오일 때만)
         deskGuestSens: cfg.pipeline === 'desk' ? guestSens : undefined, // 여객 태블릿 마이크 민감도(서버 경유 뷰어 근접 게이트)
         sxSens: mobile ? 0 : sxSens, // 폰 화면엔 고급 설정이 없다 — 발화 끊김·실험 기능은 기본값 고정
         sxMaxDelay: mobile ? 2000 : sxMaxDelay,
@@ -687,6 +695,8 @@ export default function TranslateView({ session: initial, onBack, mobile = false
         wayfind: cfg.pipeline === 'desk' ? wayfindOn : undefined, // 데스크: 길안내 지도 기능 on/off
         // 스테레오 2채널 자동 판별(양방향 통역 + 마이크) — 모노 기기·단방향은 기존 1채널 그대로
         stereo: cfg.pipeline === 'soniox' && sxMode === 'two' && sourceMode === 'mic',
+        stereoKnown: !!(startOpts && startOpts.stereoKnown === true),
+        stereoForget: !!(startOpts && startOpts.stereoForget === true),
         onStereo: (info) => setStereoInfo(info),
         onMessage,
         onEnded: () => { // 장치 뽑힘·화면공유 중지 — 레코더는 스스로 멈추므로 UI 를 함께 정리('진행 중' 고착 방지)
@@ -1087,6 +1097,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       onSaveTranscript: downloadTranscript,
       onViewerOnly: (v) => { setTtsViewerOnly(v); localStorage.setItem('kac-tts-viewer-only', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(ttsOn, gender, !v); },
       onMicSens: (v) => { setMicSens(v); setPref('micSens', v); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); },
+      onMicSens2: (v) => { setMicSens2(v); setPref('micSens2', v); if (recRef.current && recRef.current.setMicSens2) recRef.current.setMicSens2(v); },
       onMicAuto: (v) => { setMicAuto(v); setPref('micAuto', v); if (recRef.current && recRef.current.setMicAuto) recRef.current.setMicAuto(v); },
       // TTS 음성(여성/남성) — 번역 중에도 바로(다음 문장부터) 반영, 앱 설정과 같은 값
       onGender: (g) => { setGender(g); setPref('ttsGender', g); if (recRef.current && recRef.current.setTts) recRef.current.setTts(ttsOn, g, !ttsViewerOnly); },
@@ -1104,6 +1115,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           level={level}
           level2={level2}
           micSens={micSens}
+          micSens2={micSens2 == null ? micSens : micSens2}
           micAuto={micAuto}
           gender={gender}
           micNative={nativeApp || !!(stereoInfo && stereoInfo.raw)}

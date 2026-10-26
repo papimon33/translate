@@ -201,15 +201,24 @@ export async function startRecorder(opts) {
   // 바닥(noiseFloor)은 조용할 때 빠르게 따라가므로 장소가 바뀌어도 기준이 저절로 맞춰진다. 절대 하한은 최소값.
   let micAutoVal = !!opts.micAuto;
   let micRatio = 0, micAbsMin = 0, micAbsMinNative = 0;
-  const calcGate = (v) => {
-    if (micAutoVal) { micRatio = AUTO_GATE_RATIO; micAbsMin = 0.004; micAbsMinNative = 0.004; return; }
-    if (!(typeof v === 'number' && v < 100)) { micRatio = 0; micAbsMin = 0; micAbsMinNative = 0; return; }
+  // 감도 → [바닥 대비 배수, 절대 하한(브라우저), 절대 하한(앱 원음)]
+  const gateOf = (v) => {
+    if (micAutoVal) return [AUTO_GATE_RATIO, 0.004, 0.004];
+    if (!(typeof v === 'number' && v < 100)) return [0, 0, 0];
     const k = (100 - v) / 100;         // 0(민감)~1(엄격)
-    micRatio = 1 + k * 7;              // 바닥의 1~8배 이상이어야 열림
-    micAbsMin = micGateAbs(v, false);  // 절대 하한 0.004~0.034(완전 무음·미세잡음 차단)
-    micAbsMinNative = micGateAbs(v, true); // 안드로이드 앱(원음): 0.004~0.2
+    return [
+      1 + k * 7,                       // 바닥의 1~8배 이상이어야 열림
+      micGateAbs(v, false),            // 절대 하한 0.004~0.034(완전 무음·미세잡음 차단)
+      micGateAbs(v, true),             // 안드로이드 앱(원음): 0.004~0.2
+    ];
   };
+  const calcGate = (v) => { [micRatio, micAbsMin, micAbsMinNative] = gateOf(v); };
   calcGate(micSensVal);
+  // 송신기 2(오른쪽) 감도 — 2채널 스테레오로 나눠 들을 때만 쓴다(그 외엔 위 감도 하나). 따로 정한 적 없으면 위와 같은 값.
+  let micSens2Val = typeof opts.micSens2 === 'number' ? opts.micSens2 : micSensVal;
+  let micRatio2 = 0, micAbsMin2 = 0, micAbsMinNative2 = 0;
+  const calcGate2 = (v) => { [micRatio2, micAbsMin2, micAbsMinNative2] = gateOf(v); };
+  calcGate2(micSens2Val);
   // 데스크 2마이크(PC): 직원/여객 장치 지정 — 데스크 파이프라인 + 브라우저 환경에서만
   const mic2 = pipeline === 'desk' && !window.AndroidAudio && opts.mic2 && opts.mic2.guest ? opts.mic2 : null;
   // 스테레오 2채널(양방향 통역 + 마이크): 송신기 1번(왼쪽)=나, 2번(오른쪽)=상대로 채널을 나눠 언어 오판을 없앤다.
@@ -252,9 +261,13 @@ export async function startRecorder(opts) {
       const key = 'kac-stereo:native:' + label;
       let cached = null;
       try { cached = localStorage.getItem(key); } catch {}
+      // stereoKnown: 시작 전 마이크 확인(또는 대기 중 판별)에서 송신기 2가 따로 들어오는 걸 확인함 → 판별 없이 바로 2채널
+      if (opts.stereoKnown) { cached = 'stereo'; try { localStorage.setItem(key, 'stereo'); } catch {} }
+      // stereoForget: 시작 전 확인에서 좌우가 같은 소리(모노 모드)로 보임 → 예전 '스테레오' 기억을 버리고 판별부터
+      else if (opts.stereoForget) { cached = null; try { localStorage.removeItem(key); } catch {} }
       if (cached !== 'mono') stereoPlan = { native: true, key, cached };
     } else if (sources.stereo) {
-      stereoPlan = { native: false, key: sources.stereo.key, cached: sources.stereo.cached };
+      stereoPlan = { native: false, key: sources.stereo.key, cached: opts.stereoKnown ? 'stereo' : opts.stereoForget ? null : sources.stereo.cached };
     }
   }
   if (sources.guestFail) {
@@ -487,7 +500,9 @@ export async function startRecorder(opts) {
         · 오른쪽에서 왼쪽보다 확연히 큰 말소리가 나온다 → 송신기 2가 따로 들어온다 → 2채널로 전환·기억('stereo')
         한쪽만 쓰는 장치·조용한 백업 복사본은 '오른쪽이 더 큰 말소리'를 만들지 못하므로 2채널로 오판되지 않는다.
      ② 2채널: 내 채널을 단방향(내 언어→상대 언어, 상대 언어 버림)으로 다시 열고, 상대 채널을 오른쪽 프리롤(약 0.7초)과
-        함께 연다(혼자 쓰는 동안은 연결 1개 — 요금 1배). 오른쪽 소리는 그 전까지 엔진에 보내지 않으므로 조각 중복도 없다.
+        함께 연다. 오른쪽 소리는 그 전까지 엔진에 보내지 않으므로 조각 중복도 없다.
+        이미 스테레오로 알고 시작하면(지난번 기억 또는 시작 전 마이크 확인 = opts.stereoKnown) 상대 채널도 처음부터 연다 —
+        송신기 2의 첫 문장이 연결 대기로 늦지 않게(대신 처음부터 연결 2개·요금 2배).
      ③ 게이트(민감도) 슬라이더 하나를 두 채널에 똑같이, 소음 바닥만 채널별. 원음이라 앱 곡선(micAbsMinNative). */
   function setupStereo(p0, stream) {
     const plan = stereoPlan;
@@ -523,19 +538,21 @@ export async function startRecorder(opts) {
       const pcm = floatTo16BitPCM(f);
       const silence = () => new ArrayBuffer(f.length * 2);
       if ((isMe && muted) || ttsGuard) { if (pipe) sendTo(pipe, silence()); return false; }
-      const absMin = monoProcessed ? micAbsMin : micAbsMinNative;
+      // 채널별 감도: 송신기 1(나)=micSens, 송신기 2(상대)=micSens2
+      const ratio = isMe ? micRatio : micRatio2;
+      const absMin = monoProcessed ? (isMe ? micAbsMin : micAbsMin2) : (isMe ? micAbsMinNative : micAbsMinNative2);
       const openNow = Date.now() < g.openUntil;
       let voiced;
-      if (micRatio > 0) {
+      if (ratio > 0) {
         if (rms < g.floor) g.floor += (rms - g.floor) * 0.3; else if (!openNow) g.floor += (rms - g.floor) * 0.002;
         if (g.floor < 0.0003) g.floor = 0.0003;
-        voiced = rms >= absMin && rms >= g.floor * micRatio;
+        voiced = rms >= absMin && rms >= g.floor * ratio;
       } else voiced = rms > 0.012; // 게이트 없음: 상대 채널 열기 판단용 말소리 감지만
       if (voiced) { if (!openNow && g.prev && pipe) sendTo(pipe, g.prev); g.openUntil = Date.now() + 300; }
       const open = Date.now() < g.openUntil;
       g.ring.push(pcm); if (g.ring.length > 8) g.ring.shift(); // 열기 직전 프리롤(약 0.7초)
       if (!pipe) return open;
-      const pass = micRatio <= 0 || open;
+      const pass = ratio <= 0 || open;
       sendTo(pipe, pass ? pcm : silence());
       g.prev = pass ? null : pcm;
       if (peak > 0.015) notifyActivityAll();
@@ -603,6 +620,7 @@ export async function startRecorder(opts) {
       if (det.rDom >= 3) { toStereo(); openThem(); return; }
       if (det.n >= 12 && det.rDom === 0 && corrOf(det) > 0.985) toMono(true); // 복사본·백업 트랙 → 다음부터 바로 1채널
     };
+    if (st === 'stereo') openThem(); // 스테레오로 알고 시작 — 상대 채널도 바로
     report();
     if (plan.native) {
       const decode = (b64) => { const bin = atob(b64); const n = bin.length >> 1; const out = new Float32Array(n); for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v >= 0x8000) v -= 0x10000; out[i] = v / 32768; } return out; };
@@ -937,10 +955,16 @@ export async function startRecorder(opts) {
     // 스테레오 원음 트랙은 건드리지 않는다(제약을 바꾸면 크롬이 처리 경로로 되돌려 1채널로 합칠 수 있다)
     if (micTrack && micTrack.applyConstraints && !stereoPlan) micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) }).catch(() => {});
   }
-  // 자동 감도 켜기/끄기(녹음 중에도) — 켜면 슬라이더 값은 무시하고 주변 소음 기준으로
+  // 송신기 2(오른쪽) 감도 실시간 변경 — 스테레오로 나눠 들을 때만 효과
+  function setMicSens2(v) {
+    micSens2Val = Number(v);
+    calcGate2(micSens2Val);
+  }
+  // 자동 감도 켜기/끄기(녹음 중에도) — 켜면 슬라이더 값은 무시하고 주변 소음 기준으로(두 채널 모두)
   function setMicAuto(on) {
     micAutoVal = !!on;
     calcGate(micSensVal);
+    calcGate2(micSens2Val);
     if (micTrack && micTrack.applyConstraints && !stereoPlan) micTrack.applyConstraints({ autoGainControl: !(micRatio > 0) }).catch(() => {});
   }
   // 데스크: 여객 마이크 민감도(0~100) — 뷰어 태블릿엔 서버 경유로, 2마이크 모드의 로컬 여객 게이트엔 즉시 반영
@@ -954,5 +978,5 @@ export async function startRecorder(opts) {
   // 데스크: 길안내 지도 기능 on/off — 녹음 중 실시간 토글(끄면 서버가 감지·GPT 분류 생략)
   function setWayfindOn(on) { ctlState.wayfindOn = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-on', on: !!on })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setMicAuto, setGuestSens, setDeskIdle, setDropAcks, setConfFix, setWayfindOn };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setMicSens2, setMicAuto, setGuestSens, setDeskIdle, setDropAcks, setConfFix, setWayfindOn };
 }

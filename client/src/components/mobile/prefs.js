@@ -12,7 +12,7 @@ const SYNCED = {
   ttsGender: 'kac-sx-gender',
 };
 // 기기 전용 — 입력 감도는 마이크·폰마다 맞는 값이 달라 계정에 올리지 않는다
-const LOCAL = { micSens: 'kac-mic-sens', micAuto: 'kac-mic-auto' }; // micAuto: 자동 감도(주변 소음 기준)
+const LOCAL = { micSens: 'kac-mic-sens', micSens2: 'kac-mic-sens2', micAuto: 'kac-mic-auto' }; // micSens2: 송신기 2(오른쪽) 감도, micAuto: 자동 감도(주변 소음 기준)
 
 const UI_LANGS = ['ko', 'en', 'ja'];
 const VALID = {
@@ -22,10 +22,11 @@ const VALID = {
   fontScale: (v) => typeof v === 'number' && v >= 0.8 && v <= 1.6,
   ttsGender: (v) => v === 'f' || v === 'm',
   micSens: (v) => typeof v === 'number' && v >= 0 && v <= 100,
+  micSens2: (v) => typeof v === 'number' && v >= 0 && v <= 100,
   micAuto: (v) => typeof v === 'boolean',
 };
 const BOOL = { micAuto: true };
-const NUMERIC = { fontScale: true, micSens: true };
+const NUMERIC = { fontScale: true, micSens: true, micSens2: true };
 
 function deviceLang() {
   const l = String((typeof navigator !== 'undefined' && navigator.language) || '').toLowerCase();
@@ -36,7 +37,7 @@ function deviceLang() {
 function defaults() {
   let oldTheme = null; // 옵션 이전엔 계정 메뉴의 밝은/어두운 화면 토글(kac-theme)이었다
   try { oldTheme = localStorage.getItem('kac-theme'); } catch {}
-  return { sysLang: deviceLang(), nativeLang: 'ko', theme: oldTheme === 'dark' ? 'dark' : 'light', fontScale: 1, ttsGender: 'f', micSens: 100, micAuto: false };
+  return { sysLang: deviceLang(), nativeLang: 'ko', theme: oldTheme === 'dark' ? 'dark' : 'light', fontScale: 1, ttsGender: 'f', micSens: 100, micSens2: 100, micAuto: false };
 }
 
 function readAll() {

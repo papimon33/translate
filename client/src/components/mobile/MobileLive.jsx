@@ -12,10 +12,11 @@ import Switch from '@mui/material/Switch';
 import SwipeableDrawer from '@mui/material/SwipeableDrawer';
 import CircularProgress from '@mui/material/CircularProgress';
 import Snackbar from '@mui/material/Snackbar';
+import Dialog from '@mui/material/Dialog';
 import { alpha } from '@mui/material/styles';
-import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, PickSheet, SensSlider, MicSheet, ChannelMeters, Group, OptionRow, langOptions, useMicInputs, useIdleMeter, useBackClose, micCurrentName } from './common.jsx';
+import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, PickSheet, SensSlider, MicSheet, stereoMsg, Group, OptionRow, langOptions, useMicInputs, useIdleMeter, useBackClose, micCurrentName } from './common.jsx';
 import { useT } from './i18n.js';
-import { MicIcon, MicOffIcon, PlayIcon, QrIcon, LogOutIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
+import { CheckIcon, MicIcon, MicOffIcon, PlayIcon, QrIcon, LogOutIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
 import { BRAND, BRAND_SOFT } from '../../brand.js';
 import { api } from '../../api.js';
 
@@ -28,16 +29,18 @@ const SOFT_BG = (th) => (th.palette.mode === 'dark' ? alpha(BRAND, 0.28) : BRAND
 function sameText(a, b) { return String(a || '').trim() === String(b || '').trim(); }
 
 // 실시간 번역: 번역문(큰 글씨) + 원문(작은 회색). 번역 대기·진행 중은 회색.
-export function Line({ text, source, draft, scale, t }) {
+// lang·srcLang: 번역문·원문 언어 — 글꼴(일본어 Pretendard JP, 중국어 Noto Sans SC, index.html)·줄바꿈에 쓴다
+export function Line({ text, source, draft, scale, t, lang, srcLang }) {
   const pending = !text && !!source;
   const main = pending ? source : text;
+  const mainLang = pending ? srcLang : lang;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6 }}>
-      <Typography sx={{ fontSize: Math.round(22 * scale), fontWeight: 500, lineHeight: 1.45, wordBreak: 'keep-all', overflowWrap: 'anywhere', color: pending || draft ? 'text.secondary' : 'text.primary' }}>
+      <Typography lang={mainLang || undefined} sx={{ fontSize: Math.round(22 * scale), fontWeight: 500, lineHeight: 1.45, wordBreak: 'keep-all', overflowWrap: 'anywhere', color: pending || draft ? 'text.secondary' : 'text.primary' }}>
         {main}
       </Typography>
       {!pending && source && !sameText(source, text) && (
-        <Typography sx={{ fontSize: Math.round(14.5 * scale), lineHeight: 1.5, color: 'text.secondary', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{source}</Typography>
+        <Typography lang={srcLang || undefined} sx={{ fontSize: Math.round(14.5 * scale), lineHeight: 1.5, color: 'text.secondary', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{source}</Typography>
       )}
       {pending && <Typography sx={{ fontSize: 12.5, color: 'text.disabled' }}>{t('pending')}</Typography>}
     </Box>
@@ -45,9 +48,10 @@ export function Line({ text, source, draft, scale, t }) {
 }
 
 // 양방향 통역: 말풍선 — 상대(왼쪽, 파랑) / 나(오른쪽, 무채색). 위 작은 글씨 = '말한 언어 → 번역 언어'(label 이 없으면 생략 — 같은 방향 연속).
-export function Bubble({ mine, label, text, source, draft, scale }) {
+export function Bubble({ mine, label, text, source, draft, scale, lang, srcLang }) {
   const pending = !text && !!source;
   const main = pending ? source : text;
+  const mainLang = pending ? srcLang : lang;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, alignItems: mine ? 'flex-end' : 'flex-start' }}>
       {label && <Typography sx={{ fontSize: 12, fontWeight: 700, px: 0.75, color: mine ? 'text.secondary' : (th) => (th.palette.mode === 'dark' ? th.palette.accent.main : BLUE) }}>{label}</Typography>}
@@ -56,9 +60,9 @@ export function Bubble({ mine, label, text, source, draft, scale }) {
         borderRadius: mine ? '20px 6px 20px 20px' : '6px 20px 20px 20px',
         bgcolor: (th) => (mine ? alpha(th.palette.text.primary, 0.06) : alpha(th.palette.accent.main, th.palette.mode === 'dark' ? 0.22 : 0.1)),
       }}>
-        <Typography sx={{ fontSize: Math.round(19 * scale), fontWeight: 500, lineHeight: 1.45, wordBreak: 'keep-all', overflowWrap: 'anywhere', color: pending || draft ? 'text.secondary' : 'text.primary' }}>{main}</Typography>
+        <Typography lang={mainLang || undefined} sx={{ fontSize: Math.round(19 * scale), fontWeight: 500, lineHeight: 1.45, wordBreak: 'keep-all', overflowWrap: 'anywhere', color: pending || draft ? 'text.secondary' : 'text.primary' }}>{main}</Typography>
         {!pending && source && !sameText(source, text) && (
-          <Typography sx={{ fontSize: Math.round(13.5 * scale), lineHeight: 1.5, color: 'text.secondary', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{source}</Typography>
+          <Typography lang={srcLang || undefined} sx={{ fontSize: Math.round(13.5 * scale), lineHeight: 1.5, color: 'text.secondary', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>{source}</Typography>
         )}
       </Box>
     </Box>
@@ -96,6 +100,59 @@ function TopBtn({ label, onClick, active, dim, children }) {
   );
 }
 
+const VOICE_LV = 36; // 말소리로 볼 입력 크기(미터 눈금, 약 -38dB)
+const DIFF_LV = 13;  // 좌우가 '확연히 다르다'(약 8dB)
+
+// 시작 전 마이크 확인(양방향 첫 시작) — 마이크 2개면 호스트(마이크 1) | 상대방(마이크 2), 1개(모노 포함)면 '마이크' 하나.
+// 말하는 쪽 강조, 각각 확인되면 체크. 건너뛰기 없음(마이크 1만 확인되면 '마이크 1개로 시작'은 가능 — 상대가 아직 없을 때).
+function MicCheckDialog({ open, one, l, r, checked, onStart, onStartOne, onClose, t }) {
+  useBackClose(open, onClose);
+  const lv = one ? (r == null ? l : Math.max(l || 0, r || 0)) : null;
+  const voiced = Math.max(l || 0, r || 0) >= VOICE_LV;
+  const active = one ? (voiced ? 'one' : null)
+    : !voiced ? null : (l || 0) - (r || 0) >= DIFF_LV ? 'l' : (r || 0) - (l || 0) >= DIFF_LV ? 'r' : null;
+  const ready = one ? checked.one : checked.l && checked.r;
+  const card = (side, title, sub, v) => {
+    const on = active === side;
+    const ok = checked[side];
+    return (
+      <Box key={side} sx={{ flex: 1, minWidth: 0, p: '16px 12px', borderRadius: '18px', border: 2, borderColor: on ? BRAND : 'transparent', bgcolor: on ? SOFT_BG : 'action.hover', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.75, transition: 'background-color 120ms, border-color 120ms' }}>
+        <Box sx={{ width: 40, height: 40, borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: ok ? 'success.main' : on ? BRAND : 'background.paper', color: ok || on ? '#fff' : 'text.secondary' }}>
+          {ok ? <CheckIcon sx={{ fontSize: 22, strokeWidth: 2.4 }} /> : <MicIcon sx={{ fontSize: 20 }} />}
+        </Box>
+        <Typography sx={{ fontSize: 16, fontWeight: 800 }}>{title}</Typography>
+        {sub && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: -0.5 }}>{sub}</Typography>}
+        <Box sx={{ width: '100%', height: 6, borderRadius: '999px', bgcolor: (th) => alpha(th.palette.text.primary, 0.08), overflow: 'hidden', mt: 0.5 }}>
+          <Box sx={{ height: '100%', width: `${Math.max(0, Math.min(100, v || 0))}%`, bgcolor: on ? BRAND : 'success.main', transition: 'width 80ms linear' }} />
+        </Box>
+        <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: ok ? 'success.main' : 'text.disabled' }}>{ok ? t('micChecked') : t('micSpeak')}</Typography>
+      </Box>
+    );
+  };
+  const btn = { height: 50, borderRadius: '14px', fontSize: 15, fontWeight: 700 };
+  return (
+    <Dialog open={open} onClose={onClose} slotProps={{ paper: { sx: { borderRadius: '24px', border: 0, m: 2.5, width: '100%', maxWidth: 380, backgroundImage: 'none' } } }}>
+      <Box role="dialog" aria-label={t('micCheckTitle')} sx={{ p: '24px 18px 18px', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Box sx={{ textAlign: 'center' }}>
+          <Typography component="h2" sx={{ fontSize: 19, fontWeight: 800 }}>{t('micCheckTitle')}</Typography>
+          <Typography sx={{ fontSize: 13.5, color: 'text.secondary', mt: 0.5, wordBreak: 'keep-all' }}>{one ? t('micCheckDescOne') : t('micCheckDesc')}</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1.25 }}>
+          {one ? card('one', t('micOne'), null, lv) : [card('l', t('micHost'), t('mic1'), l), card('r', t('micGuest'), t('mic2'), r)]}
+        </Box>
+        {one ? (
+          <ButtonBase onClick={onStart} disabled={!ready} sx={{ ...btn, mt: 0.5, bgcolor: BRAND, color: '#fff', opacity: ready ? 1 : 0.4 }}>{t('start')}</ButtonBase>
+        ) : (
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1.25, mt: 0.5 }}>
+            <ButtonBase onClick={onStartOne} disabled={!checked.l} sx={{ ...btn, bgcolor: 'action.hover', opacity: checked.l ? 1 : 0.4 }}>{t('startOneMic')}</ButtonBase>
+            <ButtonBase onClick={onStart} disabled={!ready} sx={{ ...btn, bgcolor: BRAND, color: '#fff', opacity: ready ? 1 : 0.4 }}>{t('start')}</ButtonBase>
+          </Box>
+        )}
+      </Box>
+    </Dialog>
+  );
+}
+
 // 보라 스위치(켜짐 = 브랜드 색)
 const brandSwitch = { '& .MuiSwitch-switchBase.Mui-checked': { color: '#fff' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: BRAND, opacity: 1 } };
 
@@ -124,14 +181,57 @@ export default function MobileLive(p) {
   const idle = useIdleMeter(!recording && !starting, twoway);
   const liveLevel = recording ? (p.micMuted ? null : p.level) : idle.l;
   const liveLevel2 = recording ? (p.micMuted || !p.stereoInfo ? null : p.level2) : idle.r;
-  const chanState = recording ? (p.stereoInfo && p.stereoInfo.state) : null; // 번역 중 자동 판별 결과(대기 중엔 막대만)
-  const start = () => {
-    if (starting) return;
+  // 2채널로 열렸는지(대기 중 미터 / 번역 중 판별) — 상태 안내 문장을 보일지
+  const twoCh = twoway && (recording ? !!p.stereoInfo : idle.r != null);
+  // 채널 상태: 번역 중엔 audio.js 판별, 대기 중엔 미터의 좌우 상관 판별(말하기 전에도 'mono'/'stereo')
+  const chanState = recording ? (p.stereoInfo && p.stereoInfo.state) : (twoCh ? idle.layout : null);
+  // 마이크 2개로 나눠 듣는 중인지 — 감도 슬라이더 2개 여부(음소거해도 바뀌지 않게 레벨 대신 상태로 판단)
+  const dual = twoCh && chanState !== 'mono';
+  // 2채널 판별(대기 중 미터로): 말소리(VOICE_LV 이상)에서 한쪽이 DIFF_LV(약 8dB) 넘게 크면 그쪽 송신기가 따로 들어오는 것.
+  // 오른쪽이 확연히 큰 말소리가 3번 이상이면 스테레오로 알고 시작한다(연결 2개를 처음부터 — 송신기 2 첫 문장 지연 없음).
+  // 왼쪽만 큰 건 증거로 치지 않는다 — 한쪽 채널만 쓰는 장치도 그렇게 보이므로(audio.js 판별과 같은 기준).
+  const stereoEvid = useRef(0);
+  const [checkOpen, setCheckOpen] = useState(false);   // 시작 전 마이크 확인 창(2채널일 때)
+  const [checked, setChecked] = useState({ one: false, l: false, r: false });
+  const [monoSeen, setMonoSeen] = useState(false);     // 확인 중 좌우가 계속 같은 소리 → 마이크 1개로(경고 대신 그대로 진행)
+  const chk = useRef({ one: 0, l: 0, r: 0, same: 0 });
+  const tested = useRef(false);                        // 이 세션 화면에서 마이크 확인을 마쳤는지 — 다시 시작할 땐 생략
+  const micOne = idle.r == null || idle.layout === 'mono' || monoSeen; // 확인 창을 마이크 1개로
+  useEffect(() => {
+    if (recording || idle.l == null) return;
+    const l = idle.l, r = idle.r;
+    if ((r == null ? l : Math.max(l, r)) < VOICE_LV) return;
+    if (r != null && r - l >= DIFF_LV) stereoEvid.current++;
+    if (!checkOpen) return;
+    const c = chk.current;
+    if (++c.one === 3) setChecked((o) => ({ ...o, one: true }));
+    if (r == null) return;
+    const d = l - r;
+    if (d >= DIFF_LV && ++c.l === 3) setChecked((o) => ({ ...o, l: true }));
+    if (-d >= DIFF_LV && ++c.r === 3) setChecked((o) => ({ ...o, r: true }));
+    if (Math.abs(d) < 3 && ++c.same === 10 && c.l < 3 && c.r < 3) setMonoSeen(true);
+    // eslint-disable-next-line
+  }, [idle.l, idle.r]);
+  const begin = (stereoKnown, stereoForget = false) => {
+    setCheckOpen(false);
     setStarting(true);
     setTimeout(async () => {
-      try { await p.onStart(); } finally { setStarting(false); }
+      try { await p.onStart({ stereoKnown, stereoForget }); } finally { setStarting(false); }
     }, 80);
   };
+  const start = () => {
+    if (starting) return;
+    // 양방향 통역 첫 시작: 마이크가 1개라도 반드시 확인(같은 세션 화면에서 다시 시작할 땐 생략)
+    if (twoway && !tested.current) {
+      chk.current = { one: 0, l: 0, r: 0, same: 0 };
+      setChecked({ one: false, l: false, r: false });
+      setMonoSeen(false);
+      setCheckOpen(true);
+      return;
+    }
+    begin(stereoEvid.current >= 3, idle.layout === 'mono');
+  };
+  const passCheck = (stereoKnown, stereoForget) => { tested.current = true; begin(stereoKnown, stereoForget); };
   // 나가기(하드웨어 뒤로가기·종료 버튼): 번역 중일 때만 종료 확인, 대기 중이면 바로 목록으로.
   // 하드웨어 뒤로가기는 MobileApp 이 화면을 붙잡고 신호(backAsk)만 보낸다.
   const leave = () => { if (recording) setSheet('end'); else p.onBack(); };
@@ -340,7 +440,7 @@ export default function MobileLive(p) {
           const keys = m.texts ? Object.keys(m.texts) : [];
           const tk = keys[0];
           const text = tk ? m.texts[tk] : '';
-          if (!twoway) return <Line key={m.id} text={text} source={m.source} draft={!!m.draft} scale={scale} t={t} />;
+          if (!twoway) return <Line key={m.id} text={text} source={m.source} draft={!!m.draft} scale={scale} t={t} lang={tk} srcLang={m.lang} />;
           // 타깃이 내 언어(A)면 상대(B)가 말한 것 — 데스크톱 dir 판정과 동일
           const mine = tk ? tk !== p.sxA : true;
           const from = m.lang || (mine ? p.sxA : p.sxB);
@@ -349,7 +449,7 @@ export default function MobileLive(p) {
           // 같은 방향이 연달아 나오면 첫 말풍선에만 방향 표시
           const showLabel = label !== prevLabel;
           prevLabel = label;
-          return <Bubble key={m.id} mine={mine} label={showLabel ? label : null} text={text} source={m.source} draft={!!m.draft} scale={scale} />;
+          return <Bubble key={m.id} mine={mine} label={showLabel ? label : null} text={text} source={m.source} draft={!!m.draft} scale={scale} lang={to} srcLang={from} />;
         }); })()}
       </Box>
 
@@ -374,11 +474,13 @@ export default function MobileLive(p) {
               <OptionRow label={t('inputDevice')} value={micCurrentName(mic, t)} onClick={() => setSheet('device')} />
               <OptionRow toggle label={t('autoSens')} onClick={() => p.onMicAuto(!p.micAuto)}
                 value={<Switch edge="end" checked={!!p.micAuto} tabIndex={-1} inputProps={{ 'aria-label': t('autoSens') }} sx={brandSwitch} />} />
-              {p.micAuto
-                ? <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5 }}>{t('autoSensHint')}</Typography>
-                : <SensSlider label={t('inputSens')} value={p.micSens} native={p.micNative} level={liveLevel} hint={t('inputSensHint')} onChange={p.onMicSens} />}
+              {p.micAuto && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5 }}>{t('autoSensHint')}</Typography>}
+              {/* 마이크 2개로 나눠 들을 때: 마이크 1·2 감도를 따로 — 막대(진한 선)도 마이크별 입력 크기 */}
+              {!p.micAuto && dual && <SensSlider label={t('tx1')} value={p.micSens} native={p.micNative} level={liveLevel} onChange={p.onMicSens} />}
+              {!p.micAuto && dual && <SensSlider label={t('tx2')} value={p.micSens2} native={p.micNative} level={liveLevel2} hint={t('inputSensHint')} onChange={p.onMicSens2} />}
+              {!p.micAuto && !dual && <SensSlider label={t('inputSens')} value={p.micSens} native={p.micNative} level={liveLevel} hint={t('inputSensHint')} onChange={p.onMicSens} />}
+              {twoCh && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5, wordBreak: 'keep-all' }}>{stereoMsg(chanState, t)}</Typography>}
             </Group>
-            {twoway && liveLevel2 != null && <ChannelMeters l={liveLevel} r={liveLevel2} state={chanState} />}
             <Group title={t('secOutput')}>
               <OptionRow label={t('ttsVoice')} value={voiceName(p.gender)} onClick={() => setSheet('voice')} />
             </Group>
@@ -392,6 +494,11 @@ export default function MobileLive(p) {
           </Box>
         </Box>
       </SwipeableDrawer>
+
+      <MicCheckDialog open={checkOpen} one={micOne} l={idle.l} r={idle.r} checked={checked} t={t}
+        onStart={() => (micOne ? passCheck(false, idle.r != null) : passCheck(true, false))}
+        onStartOne={() => passCheck(false, true)}
+        onClose={() => setCheckOpen(false)} />
 
       <LangSheet open={sheet === 'lang'} onClose={close} title={t('language')} subtitle={twoway ? t('langSubTwo') : t('langSubOne')} tabs={tabs} startTab={1} />
 

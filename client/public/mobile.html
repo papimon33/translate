@@ -11,6 +11,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@900&text=airtlk.&display=block" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.css" />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
 <style>
   /* 라이트 테마 전용. 폰 앱(호스트) 화면과 같은 모양(2026-10-26 디스코드 스타일): 흰 바탕 · 떠 있는 회색 조작판 · 보라 강조.
      --k = 글자 크기 배율(조작판 가−/가+) */
@@ -40,6 +42,9 @@
   .msg .line.pending, .msg .line.draft { color:var(--muted); }
   .msg .src { font-size:calc(14.5px * var(--k)); color:var(--muted); line-height:1.5; margin-top:5px; overflow-wrap:anywhere; }
   .msg .line[lang|="ko"], .msg .src[lang|="ko"] { word-break:keep-all; }
+  /* 언어별 글꼴: 한·영 Pretendard(기본), 일본어 Pretendard JP, 중국어 Noto Sans SC — 문장·언어 버튼·화면 언어(html lang)에 달린 lang 기준 */
+  [lang|="ja"], [lang|="ja"] * { font-family: 'Pretendard JP Variable', 'Pretendard', 'Noto Sans KR', system-ui, sans-serif !important; }
+    [lang|="zh"], [lang|="zh"] * { font-family: 'Noto Sans SC', 'Pretendard', system-ui, sans-serif !important; }
   .msg.turn { display:flex; flex-direction:column; gap:6px; }
   .msg.turn.staff { align-items:flex-start; }
   .msg.turn.self  { align-items:flex-end; }

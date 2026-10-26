@@ -64,10 +64,10 @@ function TextSizeScreen({ open, onBack }) {
       )}>
       <Box sx={{ flex: 1 }} />
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.75, px: 0.5 }}>
-        <Bubble mine={false} label={`${t.lang('ja')} → ${t.lang('ko')}`} text="이 공장은 몇 년에 지어졌나요?" source="この工場は何年に建てられましたか。" scale={scale} />
-        <Bubble mine label={`${t.lang('ko')} → ${t.lang('ja')}`} text="1995年に建てられ、2018年に増築しました。" source="1995년에 지어졌고, 2018년에 증축했습니다." scale={scale} />
+        <Bubble mine={false} label={`${t.lang('ja')} → ${t.lang('ko')}`} text="이 공장은 몇 년에 지어졌나요?" source="この工場は何年に建てられましたか。" scale={scale} lang="ko" srcLang="ja" />
+        <Bubble mine label={`${t.lang('ko')} → ${t.lang('ja')}`} text="1995年に建てられ、2018年に増築しました。" source="1995년에 지어졌고, 2018년에 증축했습니다." scale={scale} lang="ja" srcLang="ko" />
         <Box sx={{ pt: 1.5 }}>
-          <Line text="다음은 3층 출국장으로 이동하겠습니다." source="Next, we will move to the departure hall on the third floor." scale={scale} t={t} />
+          <Line text="다음은 3층 출국장으로 이동하겠습니다." source="Next, we will move to the departure hall on the third floor." scale={scale} t={t} lang="ko" srcLang="en" />
         </Box>
       </Box>
     </Screen>

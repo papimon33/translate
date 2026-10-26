@@ -10,7 +10,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@100;300;400;500;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@900&text=airtlk.&display=block" rel="stylesheet" />
-  <style> html,body,#root { height:100%; margin:0; } </style>
+  <!-- 언어별 글꼴(2026-10-26): 한·영 Pretendard, 일본어 Pretendard JP, 중국어 Noto Sans SC — 글자 조각(unicode-range)만 쓸 때 받는다 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    html,body,#root { height:100%; margin:0; }
+    /* lang 이 달린 요소(폰 화면의 번역·원문 줄, 일본어 화면 언어)는 그 언어 글꼴 — MUI 글꼴 지정보다 우선 */
+    [lang|="ja"], [lang|="ja"] * { font-family: 'Pretendard JP Variable', 'Pretendard', 'Noto Sans KR', system-ui, sans-serif !important; }
+    [lang|="zh"], [lang|="zh"] * { font-family: 'Noto Sans SC', 'Pretendard', system-ui, sans-serif !important; }
+  </style>
 </head>
 <body>
   <div id="root"></div>

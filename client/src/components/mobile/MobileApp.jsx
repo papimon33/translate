@@ -218,6 +218,9 @@ function NewSessionSheet({ open, onClose, onCreated }) {
 // 폰 화면은 바탕을 순백으로(2026-10-26 디스코드 스타일) — 대화·목록은 흰색, 조작판·설정 묶음은 옅은 회색. PC 웹은 #FAFAF8 그대로.
 export default function MobileApp(props) {
   const outer = useTheme();
+  // 화면 언어를 문서 언어로 — 일본어 화면이면 index.html 의 [lang|="ja"] 규칙으로 일본어 글꼴(Pretendard JP)
+  const { sysLang } = usePrefs();
+  useEffect(() => { try { document.documentElement.lang = sysLang || 'ko'; } catch {} }, [sysLang]);
   const theme = useMemo(() => (outer.palette.mode === 'dark' ? outer : createTheme(outer, { palette: { background: { default: '#FFFFFF' } } })), [outer]);
   return <ThemeProvider theme={theme}><MobileHome {...props} /></ThemeProvider>;
 }

@@ -49,11 +49,13 @@ export function useBackClose(open, onClose) {
 
 /* 번역(엔진) 없이 마이크만 켜서 지금 입력 크기를 본다 — 세션 화면 대기 중·설정의 입력 감도.
    앱은 네이티브 캡처(번역과 같은 원음 경로), 브라우저(개발 확인용)는 getUserMedia. 화면이 꺼지거나 앱이 뒤로 가면 끈다.
-   stereo=true(양방향 통역)면 2채널로 열어 좌·우(송신기 1·2)를 따로 잰다 — 2채널을 못 여는 마이크면 r 은 null.
-   반환 { l, r } — onMeter 와 같은 0~100 dB 눈금(null = 꺼짐). */
+   stereo=true(양방향 통역)면 2채널로 열어 마이크 1·2(채널 1·2)를 따로 잰다 — 2채널을 못 여는 마이크면 r 은 null.
+   반환 { l, r, layout } — l·r 은 onMeter 와 같은 0~100 dB 눈금(null = 꺼짐).
+   layout(2채널일 때): 'mono' = 두 채널이 같은 신호(수신기 모노 모드의 복사본 — 조용할 때 잔잡음까지 똑같다),
+   'stereo' = 두 채널이 따로 들어옴(잡음이 서로 다름), null = 아직 모름(신호가 완전한 0 등). 말하기 전에도 판별된다. */
 const toDb = (rms) => Math.max(0, Math.min(100, ((20 * Math.log10(rms + 1e-8) + 60) / 60) * 100));
 export function useIdleMeter(active, stereo = false) {
-  const [lv, setLv] = useState({ l: null, r: null });
+  const [lv, setLv] = useState({ l: null, r: null, layout: null });
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
   useEffect(() => {
     const on = () => setVisible(document.visibilityState !== 'hidden');
@@ -62,13 +64,15 @@ export function useIdleMeter(active, stereo = false) {
   }, []);
   const run = active && visible;
   useEffect(() => {
-    if (!run) { setLv({ l: null, r: null }); return undefined; }
+    if (!run) { setLv({ l: null, r: null, layout: null }); return undefined; }
     let dead = false, stopFn = null, last = 0;
+    let layout = null;
+    const votes = []; // 최근 8프레임 좌우 상관 판정('m'|'s')
     const put = (l, r) => {
       const now = Date.now();
       if (now - last < 80) return;
       last = now;
-      setLv({ l: toDb(l), r: r == null ? null : toDb(r) });
+      setLv({ l: toDb(l), r: r == null ? null : toDb(r), layout: r == null ? null : layout });
     };
     const pcm = (b64) => {
       const bin = atob(b64);
@@ -90,9 +94,19 @@ export function useIdleMeter(active, stereo = false) {
         const x = pcm(b64);
         const n = x.length >> 1;
         if (!n) return;
-        let sl = 0, sr = 0;
-        for (let i = 0; i < n; i++) { sl += x[2 * i] * x[2 * i]; sr += x[2 * i + 1] * x[2 * i + 1]; }
-        put(Math.sqrt(sl / n), Math.sqrt(sr / n));
+        let sl = 0, sr = 0, slr = 0;
+        for (let i = 0; i < n; i++) { const L = x[2 * i], R = x[2 * i + 1]; sl += L * L; sr += R * R; slr += L * R; }
+        const rl = Math.sqrt(sl / n), rr = Math.sqrt(sr / n);
+        // 두 채널 모두 신호(잔잡음 포함)가 있을 때만 판정: 상관 0.98 초과 = 같은 신호(모노 복사본), 0.9 미만 = 따로 들어옴
+        if (rl > 1e-4 && rr > 1e-4) {
+          const corr = slr / Math.sqrt(sl * sr);
+          votes.push(corr > 0.98 ? 'm' : corr < 0.9 ? 's' : '');
+          if (votes.length > 8) votes.shift();
+          const m = votes.filter((v) => v === 'm').length, s = votes.filter((v) => v === 's').length;
+          if (m >= 6) layout = 'mono';
+          else if (s >= 6) layout = 'stereo';
+        }
+        put(rl, rr);
       };
       let ok = false;
       try { ok = stereo && a.startStereo ? Number(a.startStereo()) > 0 : !!a.start(); } catch {}
@@ -123,25 +137,9 @@ export function useIdleMeter(active, stereo = false) {
   return lv;
 }
 
-// 송신기 1·2(좌·우) 입력 막대 — 마이크 선택 시트. 막대가 따로 움직이면 수신기가 스테레오로 나눠 보내는 것.
-export function ChannelMeters({ l, r, state }) {
-  const t = useT();
-  const msg = state === 'stereo' ? t('stereoOk') : state === 'mono' ? t('stereoMono') : t('stereoTry');
-  const bar = (label, v) => (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-      <Typography sx={{ fontSize: 13, fontWeight: 700, width: 112, flex: 'none' }}>{label}</Typography>
-      <Box sx={{ flex: 1, height: 8, borderRadius: '999px', bgcolor: (th) => alpha(th.palette.text.primary, 0.08), overflow: 'hidden' }}>
-        <Box sx={{ height: '100%', width: `${Math.max(0, Math.min(100, v || 0))}%`, bgcolor: 'success.main', transition: 'width 80ms linear' }} />
-      </Box>
-    </Box>
-  );
-  return (
-    <Box sx={{ mx: 0.5, mt: 1, p: '14px 18px', borderRadius: '16px', bgcolor: 'action.hover', display: 'flex', flexDirection: 'column', gap: 1 }}>
-      {bar(t('tx1'), l)}
-      {bar(t('tx2'), r)}
-      <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.5, mt: 0.25, wordBreak: 'keep-all' }}>{msg}</Typography>
-    </Box>
-  );
+// 송신기 1·2(좌·우) 2채널 상태 안내 — 번역 중 자동 판별(stereo/mono), 대기 중엔 확인 방법
+export function stereoMsg(state, t) {
+  return state === 'stereo' ? t('stereoOk') : state === 'mono' ? t('stereoMono') : t('stereoTry');
 }
 
 /* 지금 쓰는(또는 시작하면 쓸) 마이크 — 네이티브가 2초마다 알려준다.
