@@ -37,6 +37,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.SeekBar
@@ -63,6 +64,8 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var nativeAudio: NativeAudio
     private lateinit var overlay: LinearLayout
+    private lateinit var ovLogo: ImageView
+    private lateinit var ovProgress: ProgressBar
     private lateinit var ovTitle: TextView
     private lateinit var ovBody: TextView
     private lateinit var ovStatus: TextView
@@ -430,7 +433,14 @@ class MainActivity : Activity() {
             setBackgroundColor(BG)
             isClickable = true // 아래 WebView 로 터치가 새지 않게
         }
-        val progress = ProgressBar(this).apply { isIndeterminate = true }
+        // 시작 화면 = 흰 바탕 가운데 글자 로고 'airtalk.'만(웹 홈 제목과 같은 Nunito 그림). 연결 실패 화면은 아래 진행 표시·문구·버튼.
+        ovLogo = ImageView(this).apply {
+            setImageResource(R.drawable.splash_wordmark)
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "AirTalk"
+        }
+        ovProgress = ProgressBar(this).apply { isIndeterminate = true }
         ovTitle = TextView(this).apply {
             textSize = 22f
             setTypeface(typeface, Typeface.BOLD)
@@ -453,7 +463,8 @@ class MainActivity : Activity() {
             addView(pillButton("지금 다시 시도", filled = true) { retryNow() }, lp(MATCH, dp(56f)))
             addView(pillButton("서버 주소 확인", filled = false) { askUrl() }, lp(MATCH, dp(48f), dp(8f)))
         }
-        box.addView(progress, lp(dp(36f), dp(36f)))
+        box.addView(ovLogo, lp(dp(176f), WRAP))
+        box.addView(ovProgress, lp(dp(36f), dp(36f)))
         box.addView(ovTitle, lp(MATCH, WRAP, dp(20f)))
         box.addView(ovBody, lp(MATCH, WRAP, dp(10f)))
         box.addView(ovStatus, lp(MATCH, WRAP, dp(14f)))
@@ -462,14 +473,23 @@ class MainActivity : Activity() {
     }
 
     private fun showSplash() {
-        ovTitle.text = "AirTalk"
-        ovBody.text = ""
-        ovStatus.text = "연결하는 중…"
+        setOverlayMode(splash = true)
         ovButtons.visibility = View.GONE
         overlay.visibility = View.VISIBLE
     }
 
+    // 시작 화면(로고만) ↔ 연결 실패 화면(진행 표시·문구·버튼)
+    private fun setOverlayMode(splash: Boolean) {
+        ovLogo.visibility = if (splash) View.VISIBLE else View.GONE
+        val rest = if (splash) View.GONE else View.VISIBLE
+        ovProgress.visibility = rest
+        ovTitle.visibility = rest
+        ovBody.visibility = rest
+        ovStatus.visibility = rest
+    }
+
     private fun showOffline() {
+        setOverlayMode(splash = false)
         ovTitle.text = "서버에 다시 연결하는 중"
         ovBody.text = "네트워크가 돌아오면 자동으로 다시 연결합니다.\n확정된 대화는 서버에 저장돼 있어 사라지지 않습니다."
         ovButtons.visibility = View.VISIBLE
@@ -758,7 +778,7 @@ class MainActivity : Activity() {
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         private val RETRY_SEC = intArrayOf(2, 4, 8, 15)
-        private val BG = Color.parseColor("#FAFAF8")
+        private val BG = Color.parseColor("#FFFFFF") // 폰 화면 바탕(순백, 2026-10-26)
         private val BG_DARK = Color.parseColor("#1F1E1D")
         private val INK = Color.parseColor("#1F1E1D")
         private val MUTED = Color.parseColor("#6B6A63")

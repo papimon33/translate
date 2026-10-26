@@ -20,6 +20,7 @@ import UpdateSheet from './UpdateSheet.jsx';
 import { pushNav, backNav } from './backstack.js';
 import { ArrowRightIcon, CheckIcon, ChevronRightIcon, PlusIcon, SettingsIcon, SwapIcon } from './icons.jsx';
 import { BRAND } from '../../brand.js';
+import Wordmark from '../Wordmark.jsx';
 
 const isTwo = (preset) => ['twoway', 'mobile', 'field', 'meeting'].includes(preset);
 const SX_CODES = SX_LANGS.map((l) => l.code);
@@ -304,7 +305,7 @@ function MobileHome({ user, onUser, onLogout }) {
     <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.default', position: 'relative' }}>
       {globals}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pl: 3, pr: 2, pt: 3, pb: 1 }}>
-        <Typography component="h1" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em' }}>AirTalk</Typography>
+        <Typography component="h1" sx={{ lineHeight: 1 }}><Wordmark size={26} /></Typography>
         <IconButton aria-label={t('settings')} onClick={openOptions} sx={{ width: 46, height: 46 }}>
           <SettingsIcon />
         </IconButton>

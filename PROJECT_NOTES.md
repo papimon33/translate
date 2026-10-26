@@ -86,6 +86,10 @@
   게다가 하트비트가 30초(`HEARTBEAT_MS`)라 서버가 이탈을 알아채기 전 최대 30초 동안 태블릿은 데스크를
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
+- **글자 로고 'airtalk.'(2026-10-26, 시안 B)**: Nunito 900 소문자 + 보라 마침표 — `client/src/components/Wordmark.jsx`(폰 홈 제목 26px, 폰 로딩 화면 `WordmarkSplash`).
+  글꼴은 index.html 에서 Google Fonts `Nunito:wght@900&text=airtlk.`(로고 글자만 받는 작은 파일). 안드로이드 시작 화면(MainActivity 오버레이)은 흰 바탕 가운데
+  같은 모양 그림 `res/drawable-nodpi/splash_wordmark.png`(브라우저 캔버스로 Nunito 렌더) 하나만 — 진행 표시·'연결하는 중' 문구 없음, 연결 실패 화면은 그대로.
+  앱 바탕색 BG #FAFAF8 → #FFFFFF. 앱 1.4.1(versionCode 7).
 - **시트 쓸어내려 닫기(2026-10-26)**: `common.jsx` `BottomSheet` 를 `SwipeableDrawer`(쓸어 열기 끔·`keepMounted:false`)로 — 새 세션·언어·마이크·TTS 음성·이름 수정·링크 공유 등
   아래에서 올라오는 시트 전부 아래로 쓸어내리면 닫힘(목록이 스크롤돼 있으면 먼저 목록이 올라감, 짧게 끌면 제자리). 닫히면 `useBackClose` 가 히스토리도 정리.
   keepMounted 를 켜 두면(SwipeableDrawer 기본) 닫힌 시트 내용이 늘 떠 있어 입력 시트 autoFocus 가 열 때 안 먹으므로 끔. 큰 설정 패널도 같게.

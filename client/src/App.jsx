@@ -18,6 +18,7 @@ import CommandPalette from './components/CommandPalette.jsx';
 import { api } from './api.js';
 import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE } from './components/mobile/env.js';
 import AppDownload from './components/AppDownload.jsx';
+import { WordmarkSplash } from './components/Wordmark.jsx';
 import { getPrefs, subscribePrefs, resolveTheme } from './components/mobile/prefs.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
@@ -149,9 +150,11 @@ export default function App() {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Box sx={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <CircularProgress />
-        </Box>
+        {MOBILE_UI ? <WordmarkSplash /> /* 폰: 입장 화면 = 흰 바탕 가운데 로고만 */ : (
+          <Box sx={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CircularProgress />
+          </Box>
+        )}
       </ThemeProvider>
     );
   }
@@ -170,7 +173,7 @@ export default function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         {offlineBanner}
-        <Suspense fallback={<Box sx={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CircularProgress /></Box>}>
+        <Suspense fallback={<WordmarkSplash />}>
           <MobileApp user={user} onUser={setUser} onLogout={logout} />
         </Suspense>
       </ThemeProvider>
