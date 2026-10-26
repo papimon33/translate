@@ -15,14 +15,13 @@ import Snackbar from '@mui/material/Snackbar';
 import { alpha } from '@mui/material/styles';
 import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, PickSheet, SensSlider, MicSheet, ChannelMeters, Group, OptionRow, langOptions, useMicInputs, useIdleMeter, useBackClose, micCurrentName } from './common.jsx';
 import { useT } from './i18n.js';
-import { MicIcon, MicOffIcon, PlayIcon, QrIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon, XIcon } from './icons.jsx';
+import { MicIcon, MicOffIcon, PlayIcon, QrIcon, LogOutIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
 import { BRAND, BRAND_SOFT } from '../../brand.js';
 import { api } from '../../api.js';
 
 const BLUE = '#1F5BBF';
-// 조작판 회색(디스코드의 떠 있는 바) — 대화 배경(흰색)과 구분. 버튼은 배경 없이 아이콘만(시작=보라·종료=빨강 사각형만 예외).
+// 조작판 회색(디스코드의 떠 있는 바) — 대화 배경(흰색)과 구분. 버튼은 배경 없이 아이콘만(시작=보라 사각형만 예외).
 const PANEL_BG = (th) => (th.palette.mode === 'dark' ? '#2B2D31' : '#F1F1F4');
-const CHIP_BG = (th) => (th.palette.mode === 'dark' ? '#2B2D31' : '#F1F1F4');
 const SOFT_BG = (th) => (th.palette.mode === 'dark' ? alpha(BRAND, 0.28) : BRAND_SOFT); // 켜짐 표시(옅은 보라)
 
 // 원문이 표시 문장과 같으면(같은 언어 기록) 작은 줄을 생략 — 데스크톱 Row 와 같은 규칙
@@ -77,20 +76,21 @@ function Hint({ text }) {
   );
 }
 
-// 조작판 버튼 — 글자·배경 없이 아이콘만(디스코드). bg 를 주면 그 색의 둥근 사각형(시작=보라, 종료=빨강).
+// 조작판 버튼 — 글자·배경 없이 아이콘만(디스코드). bg 를 주면 그 색의 둥근 사각형(시작=보라). 종료는 빨간 나가기 아이콘.
 function Ctrl({ label, onClick, bg, color, dim, disabled, pressed, children }) {
   return (
     <ButtonBase onClick={onClick} disabled={disabled} aria-label={label} aria-pressed={pressed}
-      sx={{ justifySelf: 'center', width: 56, height: 56, borderRadius: '16px', bgcolor: bg || 'transparent', color: color || 'text.primary', opacity: disabled || dim ? 0.4 : 1, '& svg': { fontSize: 31 } }}>
+      sx={{ justifySelf: 'center', width: 48, height: 48, borderRadius: '14px', bgcolor: bg || 'transparent', color: color || 'text.primary', opacity: disabled || dim ? 0.4 : 1, '& svg': { fontSize: 24 } }}>
       {children}
     </ButtonBase>
   );
 }
 
+// 우상단 버튼 — 배경 없이 아이콘만, 켜짐(active)일 때만 옅은 보라 배경
 function TopBtn({ label, onClick, active, dim, children }) {
   return (
     <IconButton onClick={onClick} aria-label={label} aria-pressed={active}
-      sx={{ width: 44, height: 44, borderRadius: '14px', bgcolor: active ? SOFT_BG : CHIP_BG, color: active ? BRAND : 'text.primary', opacity: dim ? 0.45 : 1, '&:hover': { bgcolor: active ? SOFT_BG : CHIP_BG }, '& svg': { fontSize: 21 } }}>
+      sx={{ width: 40, height: 40, borderRadius: '12px', bgcolor: active ? SOFT_BG : 'transparent', color: active ? BRAND : 'text.primary', opacity: dim ? 0.45 : 1, '&:hover': { bgcolor: active ? SOFT_BG : 'transparent' }, '& svg': { fontSize: 22 } }}>
       {children}
     </IconButton>
   );
@@ -269,20 +269,20 @@ export default function MobileLive(p) {
       </Ctrl>
       <Ctrl label={recording ? t('stop') : t('start')} onClick={recording ? p.onStop : start} disabled={starting} bg={BRAND} color="#fff">
         {starting
-          ? <CircularProgress size={22} sx={{ color: '#fff' }} />
+          ? <CircularProgress size={18} sx={{ color: '#fff' }} />
           : recording
-            ? <Box sx={{ width: 20, height: 20, borderRadius: '5px', bgcolor: '#fff' }} />
+            ? <Box sx={{ width: 15, height: 15, borderRadius: '4px', bgcolor: '#fff' }} />
             : <PlayIcon />}
       </Ctrl>
       <Ctrl label={t('language')} onClick={openLang} dim={recording}><TranslateIcon /></Ctrl>
-      <Ctrl label={t('end')} onClick={leave} bg="error.main" color="#fff"><XIcon strokeWidth={2.9} /></Ctrl>
+      <Ctrl label={t('end')} onClick={leave} color="error.main"><LogOutIcon strokeWidth={1.9} /></Ctrl>
     </Box>
   );
 
   const top = (
     <Box onPointerDown={poke} sx={{
       position: 'absolute', left: 0, right: 0, top: 0, zIndex: 2, display: 'flex', alignItems: 'center', gap: 1, px: 2, pt: 'calc(10px + env(safe-area-inset-top))', pb: 1,
-      bgcolor: (th) => alpha(th.palette.background.default, 0.96),
+      bgcolor: 'background.default',
       transform: bars ? 'none' : 'translateY(-110%)', transition: 'transform 220ms ease',
     }}>
       {/* 세션 이름은 표시만(누르는 곳 아님) — 큰 설정은 조작판을 위로 밀어 연다 */}
@@ -304,10 +304,10 @@ export default function MobileLive(p) {
     <Box onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}
       sx={{
         position: 'absolute', left: 12, right: 12, bottom: 'calc(12px + env(safe-area-inset-bottom))', zIndex: 2,
-        borderRadius: '24px', bgcolor: PANEL_BG, boxShadow: '0 6px 24px rgba(0,0,0,0.10)', px: 1, pb: 1.25, touchAction: 'none',
+        borderRadius: '24px', bgcolor: PANEL_BG, boxShadow: '0 6px 24px rgba(0,0,0,0.10)', px: 1, pb: 1, touchAction: 'none',
         transform: bars ? 'none' : 'translateY(140%)', transition: 'transform 220ms ease',
       }}>
-      <ButtonBase onClick={() => setPanel(true)} aria-label={t('openSettings')} sx={{ width: '100%', height: 18, display: 'flex', justifyContent: 'center', borderRadius: '12px' }}>
+      <ButtonBase onClick={() => setPanel(true)} aria-label={t('openSettings')} sx={{ width: '100%', height: 16, display: 'flex', justifyContent: 'center', borderRadius: '12px' }}>
         <Box sx={{ width: 40, height: 4, borderRadius: '999px', bgcolor: 'divider' }} />
       </ButtonBase>
       {controls}
@@ -328,7 +328,7 @@ export default function MobileLive(p) {
         onScroll={(e) => { const el = e.currentTarget; atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}
         sx={{ position: 'absolute', inset: 0, overflowY: 'auto', overscrollBehavior: 'contain', px: twoway ? 2 : 3, display: 'flex', flexDirection: 'column', gap: twoway ? 1.75 : 2.75,
           pt: bars ? 'calc(76px + env(safe-area-inset-top))' : 'calc(20px + env(safe-area-inset-top))',
-          pb: bars ? 'calc(124px + env(safe-area-inset-bottom))' : 'calc(40px + env(safe-area-inset-bottom))' }}>
+          pb: bars ? 'calc(108px + env(safe-area-inset-bottom))' : 'calc(40px + env(safe-area-inset-bottom))' }}>
         {messages.length === 0 ? (
           <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Typography sx={{ textAlign: 'center', color: 'text.secondary', fontSize: 15, lineHeight: 1.6, maxWidth: 300, wordBreak: 'keep-all' }}>
@@ -343,7 +343,9 @@ export default function MobileLive(p) {
           if (!twoway) return <Line key={m.id} text={text} source={m.source} draft={!!m.draft} scale={scale} t={t} />;
           // 타깃이 내 언어(A)면 상대(B)가 말한 것 — 데스크톱 dir 판정과 동일
           const mine = tk ? tk !== p.sxA : true;
-          const label = mine ? `${t.lang(p.sxA)} → ${t.lang(p.sxB)}` : `${t.lang(p.sxB)} → ${t.lang(p.sxA)}`;
+          const from = m.lang || (mine ? p.sxA : p.sxB);
+          const to = tk || (mine ? p.sxB : p.sxA);
+          const label = `${t.lang(from)} → ${t.lang(to)}`;
           return <Bubble key={m.id} mine={mine} label={label} text={text} source={m.source} draft={!!m.draft} scale={scale} />;
         })}
       </Box>
@@ -442,7 +444,7 @@ export default function MobileLive(p) {
       {/* 토글 안내는 조작판 바로 위에(디스코드처럼 아래쪽) */}
       {/* 바깥 탭(clickaway)으론 닫지 않는다 — 토글 버튼을 다시 누르면 새 안내가 그 탭에 바로 닫혀 버렸다 */}
       <Snackbar key={toastMsg.n} open={!!toast} autoHideDuration={2600} onClose={(e, reason) => { if (reason !== 'clickaway') setToast(''); }} message={toast} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        sx={{ bottom: 'calc(112px + env(safe-area-inset-bottom)) !important' }} />
+        sx={{ bottom: 'calc(96px + env(safe-area-inset-bottom)) !important' }} />
     </Box>
   );
 }
