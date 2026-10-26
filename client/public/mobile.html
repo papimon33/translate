@@ -26,7 +26,8 @@
   button:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
   /* 위: 라이브 점 + 세션 이름(표시만), 양방향이면 아래에 내 언어 세그먼트 */
   header { position:sticky; top:0; z-index:6; background:rgba(255,255,255,.96); padding:calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; }
-  .htop { display:flex; align-items:center; gap:9px; min-height:44px; padding-left:4px; }
+  .htop { display:flex; align-items:center; gap:4px; min-height:44px; padding-left:4px; }
+  .htop #liveDot { margin-right:5px; }
   .stitle { flex:1; min-width:0; font-size:18px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:4px; height:48px; padding:4px; margin-top:8px; border-radius:999px; background:var(--panel); }
   .seg[hidden] { display:none; }
@@ -56,7 +57,7 @@
   .msg.turn.self  .bub { background:var(--bubMine); border-radius:20px 6px 20px 20px; }
   .msg.turn .line { font-size:calc(19px * var(--k)); }
   .msg.turn .src { font-size:calc(13.5px * var(--k)); margin-top:0; }
-  #partial { padding:4px 22px calc(104px + env(safe-area-inset-bottom, 0px)); }
+  #partial { padding:4px 22px calc(28px + env(safe-area-inset-bottom, 0px)); }
   #partial .line { font-size:var(--fs); color:var(--muted); line-height:1.45; }
   .empty { color:var(--muted); text-align:center; padding:30vh 24px 0; font-size:15px; line-height:1.6; word-break:keep-all; }
   /* 길안내: 채팅 인라인이 아니라 화면 '상단' 고정 플로팅 — 새 발화가 이어져도 밀려나지 않음 */
@@ -70,16 +71,13 @@
   .mapCard .mHead .chip { background:var(--bg); border:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:700; padding:3px 9px; border-radius:14px; white-space:nowrap; }
   .mapCard .mHolder { height:300px; overflow:hidden; }
 
-  /* 아래: 떠 있는 회색 조작판 — 글자 없는 아이콘 버튼(가− · 가+ · TTS 듣기 · QR). 듣기 켜짐 = 보라 둥근 사각형 */
-  #dock { position:fixed; left:12px; right:12px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:8; max-width:560px; margin:0 auto;
-    display:grid; grid-auto-flow:column; grid-auto-columns:1fr; align-items:center; justify-items:center;
-    padding:10px 8px; border-radius:24px; background:var(--panel); box-shadow:0 6px 24px rgba(0,0,0,.10); }
-  .dbtn { width:48px; height:48px; padding:0; border:0; border-radius:14px; background:transparent; color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s, color .15s, opacity .15s; }
-  .dbtn svg { width:24px; height:24px; }
-  .dbtn:active { background:rgba(31,30,29,.06); }
-  .dbtn:disabled { opacity:.35; cursor:default; background:transparent; }
+  /* 우상단 아이콘 버튼(가− · 가+ · 듣기(헤드폰) · QR) — 폰 앱 우상단과 같은 모양: 배경 없이 아이콘만, 듣기 켜짐일 때만 옅은 보라 배경(꺼짐 = 사선) */
+  .hbtn { flex:none; width:40px; height:40px; padding:0; border:0; border-radius:12px; background:transparent; color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s, color .15s, opacity .15s; }
+  .hbtn svg { width:22px; height:22px; }
+  .hbtn:active { background:rgba(31,30,29,.06); }
+  .hbtn:disabled { opacity:.35; cursor:default; background:transparent; }
   #audioBtn { color:var(--muted); }
-  #audioBtn.on { background:var(--brand); color:#fff; }
+  #audioBtn.on { background:var(--brandSoft); color:var(--brand); }
   #audioBtn.on .slash { display:none; }
 
   /* QR 공유 시트 — 앱의 바텀 시트와 같은 모양 */
@@ -108,7 +106,7 @@
   .qbtns .share[hidden] { display:none; }
 
   /* 짧은 알림(글자 크기 %) — 조작판 바로 위 */
-  #toast { position:fixed; left:50%; bottom:calc(92px + env(safe-area-inset-bottom, 0px)); z-index:50; transform:translate(-50%, 8px); opacity:0; pointer-events:none;
+  #toast { position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom, 0px)); z-index:50; transform:translate(-50%, 8px); opacity:0; pointer-events:none;
     background:#323232; color:#fff; font-size:14px; font-weight:600; padding:10px 16px; border-radius:10px; transition:opacity .18s, transform .18s; white-space:nowrap; }
   #toast.show { opacity:1; transform:translate(-50%, 0); }
 
@@ -146,6 +144,19 @@
   <div class="htop">
     <span id="liveDot" role="img" aria-label="Waiting"></span>
     <div class="stitle" id="title">Session</div>
+    <!-- 아이콘은 폰 앱과 같은 Lucide 선 아이콘 -->
+    <button class="hbtn" id="fsDown" aria-label="Smaller text">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13h6"/><path d="m2 16 4.5-9 4.5 9"/><path d="M18 7v9"/><path d="m14 12 4 4 4-4"/></svg>
+    </button>
+    <button class="hbtn" id="fsUp" aria-label="Larger text">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13h6"/><path d="m2 16 4.5-9 4.5 9"/><path d="M18 16V7"/><path d="m14 11 4-4 4 4"/></svg>
+    </button>
+    <button class="hbtn" id="audioBtn" aria-label="Listen" aria-pressed="false" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/><path class="slash" d="M3 3l18 18"/></svg>
+    </button>
+    <button class="hbtn" id="qrBtn" aria-label="Share via QR code" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
+    </button>
   </div>
   <div class="seg" id="langSeg" role="radiogroup" aria-label="My language" hidden></div>
 </header>
@@ -153,21 +164,6 @@
 <div id="feed"><div class="empty" id="empty">Waiting for translation…</div></div>
 <div id="partial"></div>
 
-<!-- 아래 조작판(아이콘은 폰 앱과 같은 Lucide 선 아이콘) -->
-<nav id="dock">
-  <button class="dbtn" id="fsDown" aria-label="Smaller text">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13h6"/><path d="m2 16 4.5-9 4.5 9"/><path d="M18 7v9"/><path d="m14 12 4 4 4-4"/></svg>
-  </button>
-  <button class="dbtn" id="fsUp" aria-label="Larger text">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 13h6"/><path d="m2 16 4.5-9 4.5 9"/><path d="M18 16V7"/><path d="m14 11 4-4 4 4"/></svg>
-  </button>
-  <button class="dbtn" id="audioBtn" aria-label="Listen" aria-pressed="false" style="display:none">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.8 7.5h5.6M4.6 7.5v9"/><path d="M8.6 7.5h5.6M11.4 7.5v9"/><path d="M21.6 9c-.5-1-1.5-1.6-2.7-1.6-1.5 0-2.6.8-2.6 2 0 2.8 5.6 1.6 5.6 4.6 0 1.3-1.2 2.2-2.9 2.2-1.2 0-2.3-.6-2.9-1.5"/><path class="slash" d="M3 21L21 3"/></svg>
-  </button>
-  <button class="dbtn" id="qrBtn" aria-label="Share via QR code" aria-haspopup="dialog">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
-  </button>
-</nav>
 
 <!-- QR 공유 시트 -->
 <div class="backdrop" id="qrBackdrop"></div>
