@@ -266,6 +266,8 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     // (2026-10-08 KAC-센트레아 회의 — 게이트가 없는 PC 소리 채널은 멀쩡하고 마이크 채널만 끊김). 슬라이더를 만진 기기는 저장값 유지.
     return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100;
   });
+  // 자동 감도(폰 설정): 켜면 민감도 슬라이더 대신 주변 소음 기준으로 판정(audio.js AUTO_GATE_RATIO)
+  const [micAuto, setMicAuto] = useState(() => localStorage.getItem('kac-mic-auto') === '1');
   const [guestSens, setGuestSens] = useState(() => {
     const s = localStorage.getItem('kac-desk-guest-sens');
     const v = s == null ? NaN : Number(s);
@@ -655,6 +657,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
         gender,
         volume,
         micSens, // 마이크 음성인식 민감도(0~100): 일정 볼륨 이상만 전송하는 클라이언트 볼륨 게이트
+        micAuto: mobile ? micAuto : false, // 자동 감도(폰 화면에만 설정 있음)
         deskGuestSens: cfg.pipeline === 'desk' ? guestSens : undefined, // 여객 태블릿 마이크 민감도(서버 경유 뷰어 근접 게이트)
         sxSens: mobile ? 0 : sxSens, // 폰 화면엔 고급 설정이 없다 — 발화 끊김·실험 기능은 기본값 고정
         sxMaxDelay: mobile ? 2000 : sxMaxDelay,
@@ -1072,6 +1075,9 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       onSaveTranscript: downloadTranscript,
       onViewerOnly: (v) => { setTtsViewerOnly(v); localStorage.setItem('kac-tts-viewer-only', v ? '1' : '0'); if (recRef.current && recRef.current.setTts) recRef.current.setTts(ttsOn, gender, !v); },
       onMicSens: (v) => { setMicSens(v); setPref('micSens', v); if (recRef.current && recRef.current.setMicSens) recRef.current.setMicSens(v); },
+      onMicAuto: (v) => { setMicAuto(v); setPref('micAuto', v); if (recRef.current && recRef.current.setMicAuto) recRef.current.setMicAuto(v); },
+      // TTS 음성(여성/남성) — 번역 중에도 바로(다음 문장부터) 반영, 앱 설정과 같은 값
+      onGender: (g) => { setGender(g); setPref('ttsGender', g); if (recRef.current && recRef.current.setTts) recRef.current.setTts(ttsOn, g, !ttsViewerOnly); },
     };
     return (
       <>
@@ -1086,6 +1092,8 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           level={level}
           level2={level2}
           micSens={micSens}
+          micAuto={micAuto}
+          gender={gender}
           micNative={nativeApp || !!(stereoInfo && stereoInfo.raw)}
           ttsOn={ttsOn}
           ttsAllowed={ttsAllowed}

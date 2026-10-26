@@ -5,10 +5,8 @@ import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
 import { api } from '../api.js';
+import { BRAND, BRAND_DARK } from '../brand.js';
 
-// 로고(favicon.svg 그라데이션 시작색)와 같은 보라 — 로그인·앱 설치 버튼
-export const BRAND = '#5B4FE8';
-export const BRAND_DARK = '#4A3FD4';
 // 아이디·비밀번호는 폰 키보드가 첫 글자를 대문자로 바꾸거나 자동 수정하지 않게
 const PLAIN_INPUT = { autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false };
 

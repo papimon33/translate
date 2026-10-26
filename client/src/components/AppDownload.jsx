@@ -4,7 +4,7 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { BRAND, BRAND_DARK } from './Login.jsx';
+import { BRAND, BRAND_DARK } from '../brand.js';
 
 export default function AppDownload({ iphone, onContinueWeb }) {
   return (

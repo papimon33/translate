@@ -12,7 +12,7 @@ const SYNCED = {
   ttsGender: 'kac-sx-gender',
 };
 // 기기 전용 — 입력 감도는 마이크·폰마다 맞는 값이 달라 계정에 올리지 않는다
-const LOCAL = { micSens: 'kac-mic-sens' };
+const LOCAL = { micSens: 'kac-mic-sens', micAuto: 'kac-mic-auto' }; // micAuto: 자동 감도(주변 소음 기준)
 
 const UI_LANGS = ['ko', 'en', 'ja'];
 const VALID = {
@@ -22,7 +22,9 @@ const VALID = {
   fontScale: (v) => typeof v === 'number' && v >= 0.8 && v <= 1.6,
   ttsGender: (v) => v === 'f' || v === 'm',
   micSens: (v) => typeof v === 'number' && v >= 0 && v <= 100,
+  micAuto: (v) => typeof v === 'boolean',
 };
+const BOOL = { micAuto: true };
 const NUMERIC = { fontScale: true, micSens: true };
 
 function deviceLang() {
@@ -34,7 +36,7 @@ function deviceLang() {
 function defaults() {
   let oldTheme = null; // 옵션 이전엔 계정 메뉴의 밝은/어두운 화면 토글(kac-theme)이었다
   try { oldTheme = localStorage.getItem('kac-theme'); } catch {}
-  return { sysLang: deviceLang(), nativeLang: 'ko', theme: oldTheme === 'dark' ? 'dark' : 'light', fontScale: 1, ttsGender: 'f', micSens: 100 };
+  return { sysLang: deviceLang(), nativeLang: 'ko', theme: oldTheme === 'dark' ? 'dark' : 'light', fontScale: 1, ttsGender: 'f', micSens: 100, micAuto: false };
 }
 
 function readAll() {
@@ -44,7 +46,7 @@ function readAll() {
     let raw = null;
     try { raw = localStorage.getItem(key); } catch {}
     if (raw == null) continue;
-    const v = NUMERIC[k] ? Number(raw) : raw;
+    const v = NUMERIC[k] ? Number(raw) : BOOL[k] ? raw === '1' : raw;
     if (VALID[k](v)) out[k] = v;
   }
   return out;
@@ -74,7 +76,7 @@ function queueSync(k, v) {
 export function setPref(k, v) {
   if (!VALID[k] || !VALID[k](v)) return;
   const key = SYNCED[k] || LOCAL[k];
-  try { localStorage.setItem(key, String(v)); } catch {}
+  try { localStorage.setItem(key, BOOL[k] ? (v ? '1' : '0') : String(v)); } catch {}
   cache = { ...cache, [k]: v };
   notify();
   if (SYNCED[k]) queueSync(k, v);

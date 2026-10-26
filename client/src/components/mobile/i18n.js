@@ -5,6 +5,13 @@ import { usePrefs } from './prefs.js';
 
 const D = {
   ko: {
+    openSettings: '설정 열기', speakerAria: '이 폰에서 번역 음성 재생', muteNeedRec: '번역을 시작한 뒤 음소거할 수 있습니다.',
+    mutedMsg: '음소거되었습니다.', unmutedMsg: '음소거가 해제되었습니다.',
+    ttsOnMsg: 'TTS가 켜졌습니다. 참가자들의 번역 TTS 기능이 활성화됩니다.', ttsOffMsg: 'TTS가 꺼졌습니다. 참가자들의 번역 TTS 기능이 비활성화됩니다.',
+    speakerOnMsg: '이 폰에서도 번역 음성을 재생합니다.', speakerOffMsg: '이 폰에서는 번역 음성을 재생하지 않습니다.', speakerNeedTts: 'TTS를 켜면 이 폰에서도 들을 수 있습니다.',
+    secInput: '입력', secOutput: '출력', secSession: '세션', inputDevice: '입력 장치',
+    autoSens: '자동으로 감도 조절', autoSensHint: '주변 소음에 맞춰 감도를 자동으로 조절합니다.',
+    viewers: '뷰어', viewersCount: '{n}명',
     required: '입력해 주세요: {f}',
     done: '완료', cancel: '취소', save: '저장', close: '닫기', back: '뒤로', selected: '선택됨', delete: '삭제',
     autoDetect: '자동 감지', untitled: '제목 없음', netError: '네트워크 오류',
@@ -49,6 +56,13 @@ const D = {
     cleared: '대화 내역을 삭제했습니다.', deleteSession: '세션 삭제', deleteConfirm: "'{name}' 세션을 삭제합니다. 대화 기록도 함께 지워지며 되돌릴 수 없습니다.", failMsg: '실패했습니다: {msg}',
   },
   en: {
+    openSettings: 'Open settings', speakerAria: 'Play spoken translation on this phone', muteNeedRec: 'Start translating to use mute.',
+    mutedMsg: 'Muted.', unmutedMsg: 'Unmuted.',
+    ttsOnMsg: 'TTS is on. Participants can now hear spoken translations.', ttsOffMsg: 'TTS is off. Spoken translation is turned off for participants.',
+    speakerOnMsg: 'Spoken translation also plays on this phone.', speakerOffMsg: 'Spoken translation no longer plays on this phone.', speakerNeedTts: 'Turn on TTS to hear it on this phone too.',
+    secInput: 'Input', secOutput: 'Output', secSession: 'Session', inputDevice: 'Input device',
+    autoSens: 'Adjust sensitivity automatically', autoSensHint: 'Sensitivity follows the background noise automatically.',
+    viewers: 'Viewers', viewersCount: '{n}',
     required: 'Required: {f}',
     done: 'Done', cancel: 'Cancel', save: 'Save', close: 'Close', back: 'Back', selected: 'Selected', delete: 'Delete',
     autoDetect: 'Auto detect', untitled: 'Untitled', netError: 'Network error',
@@ -93,6 +107,13 @@ const D = {
     cleared: 'Conversation cleared.', deleteSession: 'Delete session', deleteConfirm: "Delete '{name}'? Its conversation is deleted too and cannot be restored.", failMsg: 'Failed: {msg}',
   },
   ja: {
+    openSettings: '設定を開く', speakerAria: 'この端末で翻訳音声を再生', muteNeedRec: '翻訳を開始するとミュートできます。',
+    mutedMsg: 'ミュートしました。', unmutedMsg: 'ミュートを解除しました。',
+    ttsOnMsg: 'TTSをオンにしました。参加者の翻訳読み上げが有効になります。', ttsOffMsg: 'TTSをオフにしました。参加者の翻訳読み上げが無効になります。',
+    speakerOnMsg: 'この端末でも翻訳音声を再生します。', speakerOffMsg: 'この端末では翻訳音声を再生しません。', speakerNeedTts: 'TTSをオンにするとこの端末でも聞けます。',
+    secInput: '入力', secOutput: '出力', secSession: 'セッション', inputDevice: '入力デバイス',
+    autoSens: '感度を自動調整', autoSensHint: '周囲の騒音に合わせて感度を自動で調整します。',
+    viewers: '視聴者', viewersCount: '{n}人',
     required: '入力してください：{f}',
     done: '完了', cancel: 'キャンセル', save: '保存', close: '閉じる', back: '戻る', selected: '選択中', delete: '削除',
     autoDetect: '自動検出', untitled: '無題', netError: 'ネットワークエラー',

@@ -1975,12 +1975,17 @@ app.get('/api/sessions', requireAuth, (req, res) => {
     }
     return null; // 제목만 매칭
   };
+  // 폰 세션 목록의 '한국어 ⇄ 중국어' 표기용 — 마지막으로 번역한 방향(sxInfo)과 입력 언어
+  const langsOf = (s) => ({
+    inLang: s.inLang || null,
+    sxInfo: s.sxInfo ? { mode: s.sxInfo.mode, target: s.sxInfo.target, a: s.sxInfo.a, b: s.sxInfo.b } : null,
+  });
   const list = sessions
     .filter((s) => !s.deletedAt)
     // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 전 직원이 공용으로 운영 → 모두에게 노출.
     .filter((s) => (s.pipeline === 'desk' ? true : s.owner === req.user.id))
     .filter((s) => (q ? matches(s) : true))
-    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, deskName: s.deskName || null, snippet: snippetOf(s) }))
+    .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, deskName: s.deskName || null, snippet: snippetOf(s), ...langsOf(s) }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
   res.json(list);
 });

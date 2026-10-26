@@ -1,6 +1,6 @@
 /* 안드로이드 앱 폰 화면 — 홈(세션 목록) · 새 세션 시트 · 설정/계정(전체 화면) · 세션 화면 전환.
    메뉴바·안내데스크·관리자 화면은 폰에 필요 없어 두지 않는다(데스크·관리는 PC 웹에서). */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -8,17 +8,18 @@ import ButtonBase from '@mui/material/ButtonBase';
 import InputBase from '@mui/material/InputBase';
 import CircularProgress from '@mui/material/CircularProgress';
 import GlobalStyles from '@mui/material/GlobalStyles';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha, createTheme, useTheme, ThemeProvider } from '@mui/material/styles';
 import TranslateView, { SX_LANGS } from '../TranslateView.jsx';
 import { LANGS } from '../../theme.js';
 import { api } from '../../api.js';
-import { BottomSheet, LangSheet, langOptions, rel } from './common.jsx';
+import { BottomSheet, LangSheet, langOptions } from './common.jsx';
 import { OptionsScreen, AccountScreen } from './OptionsScreen.jsx';
 import { usePrefs, syncWithAccount } from './prefs.js';
 import { useT } from './i18n.js';
 import UpdateSheet from './UpdateSheet.jsx';
 import { pushNav, backNav } from './backstack.js';
 import { ArrowRightIcon, CheckIcon, ChevronRightIcon, PlusIcon, SettingsIcon, SwapIcon } from './icons.jsx';
+import { BRAND } from '../../brand.js';
 
 const isTwo = (preset) => ['twoway', 'mobile', 'field', 'meeting'].includes(preset);
 const SX_CODES = SX_LANGS.map((l) => l.code);
@@ -29,6 +30,29 @@ function defaultName(mode, t) {
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
   return `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())} ${mode === 'twoway' ? t('modeTwoway') : t('modeOneway')}`;
+}
+
+// 목록 부제 '10/24 · 한국어 ⇄ 중국어' — 오늘이면 시각, 아니면 월/일
+function shortDate(ts, t) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(t.locale, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+// 세션의 언어: 이 폰에서 마지막으로 쓴 값(localStorage) → 서버에 저장된 값 순
+function sessionLangs(s, t) {
+  let pair = null, target = null;
+  try { pair = localStorage.getItem('kac-sx-pair:' + s.id); target = localStorage.getItem('kac-sx-target:' + s.id); } catch {}
+  const sx = s.sxInfo || {};
+  if (isTwo(s.preset)) {
+    const [a, b] = pair ? pair.split('|') : [sx.a, sx.b];
+    return a && b ? `${t.lang(a)} ⇄ ${t.lang(b)}` : t('modeTwoway');
+  }
+  const out = target || sx.target;
+  const src = s.inLang && s.inLang !== 'auto' ? s.inLang : null;
+  if (!out) return t('modeOneway');
+  return src ? `${t.lang(src)} → ${t.lang(out)}` : `→ ${t.lang(out)}`;
 }
 
 function ModeIcon({ preset, size = 46 }) {
@@ -135,14 +159,14 @@ function NewSessionSheet({ open, onClose, onCreated }) {
               const on = mode === m.v;
               return (
                 <ButtonBase key={m.v} role="radio" aria-checked={on} onClick={() => setMode(m.v)}
-                  sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.75, p: 2, textAlign: 'left', borderRadius: '18px', border: on ? 2 : 1, borderColor: on ? 'text.primary' : 'divider', bgcolor: 'background.paper', justifyContent: 'flex-start' }}>
+                  sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.75, p: 2, textAlign: 'left', borderRadius: '18px', border: on ? 2 : 1, borderColor: on ? BRAND : 'divider', bgcolor: 'background.paper', justifyContent: 'flex-start' }}>
                   <ModeIcon preset={m.v} size={44} />
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography sx={{ fontSize: 17, fontWeight: 700 }}>{m.title}</Typography>
                     <Typography sx={{ fontSize: 13.5, color: 'text.secondary', lineHeight: 1.5, mt: 0.4, wordBreak: 'keep-all' }}>{m.desc}</Typography>
                   </Box>
-                  <Box sx={{ width: 24, height: 24, flex: 'none', borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: on ? 'text.primary' : 'transparent', border: on ? 0 : 2, borderColor: 'divider' }}>
-                    {on && <CheckIcon sx={{ fontSize: 15, color: 'background.paper' }} />}
+                  <Box sx={{ width: 24, height: 24, flex: 'none', borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: on ? BRAND : 'transparent', border: on ? 0 : 2, borderColor: 'divider' }}>
+                    {on && <CheckIcon sx={{ fontSize: 15, color: '#fff', strokeWidth: 2.5 }} />}
                   </Box>
                 </ButtonBase>
               );
@@ -174,8 +198,8 @@ function NewSessionSheet({ open, onClose, onCreated }) {
           {err && <Typography role="alert" sx={{ fontSize: 13.5, color: 'error.main' }}>{err}</Typography>}
 
           <ButtonBase onClick={create} disabled={busy} aria-disabled={empty}
-            sx={{ height: 56, borderRadius: '16px', bgcolor: 'text.primary', color: 'background.paper', gap: 1.25, fontSize: 16, fontWeight: 700, opacity: busy || empty ? 0.45 : 1 }}>
-            {busy ? <CircularProgress size={20} sx={{ color: 'background.paper' }} /> : t('create')}
+            sx={{ height: 56, borderRadius: '16px', bgcolor: BRAND, color: '#fff', gap: 1.25, fontSize: 16, fontWeight: 700, opacity: busy || empty ? 0.45 : 1 }}>
+            {busy ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : t('create')}
           </ButtonBase>
         </Box>
       </BottomSheet>
@@ -189,7 +213,14 @@ function NewSessionSheet({ open, onClose, onCreated }) {
   );
 }
 
-export default function MobileApp({ user, onUser, onLogout }) {
+// 폰 화면은 바탕을 순백으로(2026-10-26 디스코드 스타일) — 대화·목록은 흰색, 조작판·설정 묶음은 옅은 회색. PC 웹은 #FAFAF8 그대로.
+export default function MobileApp(props) {
+  const outer = useTheme();
+  const theme = useMemo(() => (outer.palette.mode === 'dark' ? outer : createTheme(outer, { palette: { background: { default: '#FFFFFF' } } })), [outer]);
+  return <ThemeProvider theme={theme}><MobileHome {...props} /></ThemeProvider>;
+}
+
+function MobileHome({ user, onUser, onLogout }) {
   const t = useT();
   const theme = useTheme();
   const [list, setList] = useState(null);
@@ -294,7 +325,7 @@ export default function MobileApp({ user, onUser, onLogout }) {
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography noWrap sx={{ fontSize: 16, fontWeight: 700 }}>{s.title || t('untitled')}</Typography>
               <Typography noWrap sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
-                {[isTwo(s.preset) ? t('modeTwoway') : t('modeOneway'), rel(s.updatedAt, t)].filter(Boolean).join(' · ')}
+                {[shortDate(s.updatedAt || s.createdAt, t), sessionLangs(s, t)].filter(Boolean).join(' · ')}
               </Typography>
             </Box>
             <ChevronRightIcon sx={{ color: 'text.disabled' }} />
@@ -303,8 +334,8 @@ export default function MobileApp({ user, onUser, onLogout }) {
       </Box>
 
       <ButtonBase onClick={() => setSheet(true)} aria-label={t('newSession')}
-        sx={{ position: 'absolute', right: 22, bottom: 'calc(30px + env(safe-area-inset-bottom))', width: 62, height: 62, borderRadius: '999px', bgcolor: 'text.primary', color: 'background.paper', boxShadow: '0 6px 18px rgba(0,0,0,0.22)' }}>
-        <PlusIcon sx={{ fontSize: 30 }} />
+        sx={{ position: 'absolute', right: 22, bottom: 'calc(30px + env(safe-area-inset-bottom))', width: 60, height: 60, borderRadius: '18px', bgcolor: BRAND, color: '#fff', boxShadow: '0 6px 18px rgba(91,79,232,0.35)' }}>
+        <PlusIcon strokeWidth={2.4} sx={{ fontSize: 28 }} />
       </ButtonBase>
 
       {/* 앱 본체 새 버전 알림(홈에서만 — 번역 중에는 방해하지 않는다) */}

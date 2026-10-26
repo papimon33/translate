@@ -184,6 +184,8 @@ export function micGateAbs(sens, native) {
   return native ? 0.004 * Math.pow(50, k) : 0.004 + k * 0.03;
 }
 
+const AUTO_GATE_RATIO = 2.5; // 자동 감도: 소음 바닥의 2.5배(약 +8dB) 이상만 말소리로
+
 export async function startRecorder(opts) {
   const { sessionId, mode, inLang, outLang, pipeline, onMessage, onMeter, audioOut, volume, micSens, sxSens, sxMaxDelay, sxLatency, sxMode, sxTarget, sxA, sxB, tts, gender, diar, deskLangs, deskIdle, deskGuestSens } = opts;
   // 마이크 음성인식 민감도(0~100): 100=가장 민감(게이트 없음), 낮출수록 조용한 소리를 무시.
@@ -195,8 +197,12 @@ export async function startRecorder(opts) {
   //    대신 '주변 소음 바닥(noiseFloor) 대비 몇 배 큰가'로 판정 → 기기 게인과 무관하게 근접/원거리 구분.
   //    슬라이더(민감도)는 '바닥 대비 배수(ratio)'와 '절대 하한(absMin)'을 조절. 100=게이트 없음.
   let micSensVal = typeof micSens === 'number' ? micSens : 100;
+  // 자동 감도(폰 설정 '자동으로 감도 조절'): 슬라이더 대신 '주변 소음 바닥보다 확실히(약 8dB) 큰 소리'만 인식.
+  // 바닥(noiseFloor)은 조용할 때 빠르게 따라가므로 장소가 바뀌어도 기준이 저절로 맞춰진다. 절대 하한은 최소값.
+  let micAutoVal = !!opts.micAuto;
   let micRatio = 0, micAbsMin = 0, micAbsMinNative = 0;
   const calcGate = (v) => {
+    if (micAutoVal) { micRatio = AUTO_GATE_RATIO; micAbsMin = 0.004; micAbsMinNative = 0.004; return; }
     if (!(typeof v === 'number' && v < 100)) { micRatio = 0; micAbsMin = 0; micAbsMinNative = 0; return; }
     const k = (100 - v) / 100;         // 0(민감)~1(엄격)
     micRatio = 1 + k * 7;              // 바닥의 1~8배 이상이어야 열림
@@ -931,6 +937,12 @@ export async function startRecorder(opts) {
     // 스테레오 원음 트랙은 건드리지 않는다(제약을 바꾸면 크롬이 처리 경로로 되돌려 1채널로 합칠 수 있다)
     if (micTrack && micTrack.applyConstraints && !stereoPlan) micTrack.applyConstraints({ autoGainControl: !(micSensVal < 100) }).catch(() => {});
   }
+  // 자동 감도 켜기/끄기(녹음 중에도) — 켜면 슬라이더 값은 무시하고 주변 소음 기준으로
+  function setMicAuto(on) {
+    micAutoVal = !!on;
+    calcGate(micSensVal);
+    if (micTrack && micTrack.applyConstraints && !stereoPlan) micTrack.applyConstraints({ autoGainControl: !(micRatio > 0) }).catch(() => {});
+  }
   // 데스크: 여객 마이크 민감도(0~100) — 뷰어 태블릿엔 서버 경유로, 2마이크 모드의 로컬 여객 게이트엔 즉시 반영
   function setGuestSens(v) { ctlState.guestSens = Number(v); calcGuestGate(v); for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-guest-sens', value: Number(v) })); } catch {} } }
   // 데스크: 무음 자동 종료 시간(ms) 실시간 변경 — 상시 캡처 중에도 설정 가능
@@ -942,5 +954,5 @@ export async function startRecorder(opts) {
   // 데스크: 길안내 지도 기능 on/off — 녹음 중 실시간 토글(끄면 서버가 감지·GPT 분류 생략)
   function setWayfindOn(on) { ctlState.wayfindOn = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-on', on: !!on })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setGuestSens, setDeskIdle, setDropAcks, setConfFix, setWayfindOn };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setMicAuto, setGuestSens, setDeskIdle, setDropAcks, setConfFix, setWayfindOn };
 }

@@ -11,7 +11,8 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { alpha } from '@mui/material/styles';
 import { useT, endonym } from './i18n.js';
 import { openOverlay, closeOverlay } from './backstack.js';
-import { AutoIcon, BluetoothIcon, CheckIcon, ChevronRightIcon, HeadsetIcon, MicIcon, PhoneIcon, UsbIcon } from './icons.jsx';
+import { BRAND } from '../../brand.js';
+import { BluetoothIcon, CheckIcon, ChevronRightIcon, HeadsetIcon, MicIcon, PhoneIcon, UsbIcon } from './icons.jsx';
 
 export { MOBILE_UI } from './env.js';
 
@@ -290,7 +291,7 @@ export function ConfirmDialog({ open, title, desc, okLabel, danger, onOk, onClos
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1.25, mt: 1 }}>
           <ButtonBase onClick={onClose} disabled={busy} sx={{ height: 50, borderRadius: '14px', bgcolor: 'action.hover', fontSize: 15, fontWeight: 700 }}>{t('cancel')}</ButtonBase>
           <ButtonBase onClick={onOk} disabled={okDisabled || busy}
-            sx={{ height: 50, borderRadius: '14px', bgcolor: danger ? 'error.main' : 'text.primary', color: danger ? '#fff' : 'background.paper', fontSize: 15, fontWeight: 700, opacity: okDisabled ? 0.45 : 1 }}>
+            sx={{ height: 50, borderRadius: '14px', bgcolor: danger ? 'error.main' : BRAND, color: '#fff', fontSize: 15, fontWeight: 700, opacity: okDisabled ? 0.45 : 1 }}>
             {busy ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : okLabel}
           </ButtonBase>
         </Box>
@@ -341,7 +342,7 @@ export function FormSheet({ open, onClose, title, subtitle, fields, initial, okL
         </Box>
         {err && <Typography role="alert" sx={{ fontSize: 13.5, color: 'error.main', px: 0.5 }}>{err}</Typography>}
         <ButtonBase type="submit" disabled={busy}
-          sx={{ height: 54, borderRadius: '16px', bgcolor: danger ? 'error.main' : 'text.primary', color: danger ? '#fff' : 'background.paper', fontSize: 16, fontWeight: 700, opacity: busy ? 0.7 : 1 }}>
+          sx={{ height: 54, borderRadius: '16px', bgcolor: danger ? 'error.main' : BRAND, color: '#fff', fontSize: 16, fontWeight: 700, opacity: busy ? 0.7 : 1 }}>
           {busy ? <CircularProgress size={20} sx={{ color: 'inherit' }} /> : okLabel || t('save')}
         </ButtonBase>
       </Box>
@@ -349,14 +350,14 @@ export function FormSheet({ open, onClose, title, subtitle, fields, initial, okL
   );
 }
 
-// 설정 목록의 한 줄(값 + ›). onClick 없으면 읽기 전용.
-export function OptionRow({ label, value, onClick, danger, icon, disabled }) {
+// 설정 목록의 한 줄(값 + ›). onClick 없으면 읽기 전용. toggle = 값 자리에 스위치(› 없음).
+export function OptionRow({ label, value, onClick, danger, icon, disabled, toggle }) {
   const body = (
     <>
       {icon}
       <Typography sx={{ flex: 1, fontSize: 16, fontWeight: 700, color: danger ? 'error.main' : 'text.primary', textAlign: 'left' }}>{label}</Typography>
       {value != null && <Typography noWrap sx={{ fontSize: 14.5, color: 'text.secondary', maxWidth: '55%' }}>{value}</Typography>}
-      {onClick && !danger && <ChevronRightIcon sx={{ color: 'text.disabled', fontSize: 22 }} />}
+      {onClick && !danger && !toggle && <ChevronRightIcon sx={{ color: 'text.disabled', fontSize: 22 }} />}
     </>
   );
   const sx = { width: '100%', display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 54, pl: 2.25, pr: onClick ? 1.5 : 2.25, opacity: disabled ? 0.45 : 1 };
@@ -440,12 +441,13 @@ export function SensSlider({ value, onChange, level, native, label, hint }) {
   );
 }
 
-/* 마이크 선택 시트 — 세션 화면(아래에 입력 감도)·설정 '연결된 기기' 공용.
-   1.4.0 앱은 장치 목록에서 고르고, 그 전 앱·브라우저는 지금 쓰는 장치 이름만 보여 준다. */
-export const MIC_ICON = { auto: AutoIcon, builtin: PhoneIcon, usb: UsbIcon, wired: HeadsetIcon, bluetooth: BluetoothIcon };
+/* 마이크 선택 시트 — 세션 화면 큰 설정 '입력 장치'·설정 '연결된 기기' 공용.
+   1.4.0 앱은 장치 목록에서 고르고, 그 전 앱·브라우저는 지금 쓰는 장치 이름만 보여 준다.
+   '자동' 항목은 숨긴다(2026-10-26) — 아무것도 고르지 않았거나 고른 장치가 빠져 있으면(네이티브가 자동으로 동작) 지금 쓰는 장치에 체크. */
+export const MIC_ICON = { builtin: PhoneIcon, usb: UsbIcon, wired: HeadsetIcon, bluetooth: BluetoothIcon };
 const BLUE = '#1F5BBF';
 export function micKindName(k, t) {
-  return ({ auto: t('micAuto'), builtin: t('micBuiltin'), usb: t('micUsb'), wired: t('micWired'), bluetooth: t('micBt') }[k] || t('micBuiltin'));
+  return ({ builtin: t('micBuiltin'), usb: t('micUsb'), wired: t('micWired'), bluetooth: t('micBt') }[k] || t('micBuiltin'));
 }
 // 지금 쓰는 장치의 표시 이름(설정 '연결된 기기' 값) — 'USB 마이크 (BOYA Magic)' 식
 export function micCurrentName(mic, t) {
@@ -458,13 +460,14 @@ export function MicSheet({ open, onClose, mic, stereo, children }) {
   return (
     <BottomSheet open={open} onClose={onClose} title={t('micPicker')}>
       <Box sx={{ px: 1.25, pb: 2.5, display: 'flex', flexDirection: 'column', gap: 0.25, overflowY: 'auto' }}>
-        {mic.canPick ? mic.list.map((d) => {
+        {mic.canPick ? mic.list.filter((d) => d.kind !== 'auto').map((d, _i, devs) => {
+          const on = !!d.selected || (!!d.active && !devs.some((x) => x.selected));
           const Icon = MIC_ICON[d.kind] || MicIcon;
           const model = (/\(([^)]+)\)\s*$/.exec(String(d.label || '')) || [])[1];
-          const sub = d.kind === 'auto' ? t('micAutoSub') : d.kind === 'builtin' ? t('micBuiltinSub') : d.kind === 'bluetooth' ? [model, t('micBtWarn')].filter(Boolean).join(' · ') : [model, (d.channels >= 2 || (d.active && stereo)) ? t('twoCh') : ''].filter(Boolean).join(' · ');
+          const sub = d.kind === 'builtin' ? t('micBuiltinSub') : d.kind === 'bluetooth' ? [model, t('micBtWarn')].filter(Boolean).join(' · ') : [model, (d.channels >= 2 || (d.active && stereo)) ? t('twoCh') : ''].filter(Boolean).join(' · ');
           return (
-            <ButtonBase key={d.id} role="radio" aria-checked={!!d.selected} onClick={() => mic.pick(d.id)}
-              sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minHeight: 64, px: 1.75, borderRadius: '16px', justifyContent: 'flex-start', textAlign: 'left', bgcolor: d.selected ? 'action.hover' : 'transparent' }}>
+            <ButtonBase key={d.id} role="radio" aria-checked={on} onClick={() => mic.pick(d.id)}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minHeight: 64, px: 1.75, borderRadius: '16px', justifyContent: 'flex-start', textAlign: 'left', bgcolor: on ? 'action.hover' : 'transparent' }}>
               <Box sx={{ width: 40, height: 40, flex: 'none', borderRadius: '12px', bgcolor: d.kind === 'bluetooth' ? alpha(BLUE, 0.12) : 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center', color: d.kind === 'bluetooth' ? BLUE : 'text.primary' }}>
                 <Icon sx={{ fontSize: 20 }} />
               </Box>
@@ -472,7 +475,7 @@ export function MicSheet({ open, onClose, mic, stereo, children }) {
                 <Typography sx={{ fontSize: 16, fontWeight: 700 }}>{micKindName(d.kind, t)}</Typography>
                 {sub && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.4 }}>{sub}</Typography>}
               </Box>
-              {d.selected && <CheckIcon aria-label={t('selected')} sx={{ fontSize: 22 }} />}
+              {on && <CheckIcon aria-label={t('selected')} sx={{ fontSize: 22 }} />}
             </ButtonBase>
           );
         }) : (

@@ -11,6 +11,7 @@ import { BottomSheet } from './common.jsx';
 import { useT } from './i18n.js';
 import { api } from '../../api.js';
 import { ArrowRightIcon } from './icons.jsx';
+import { BRAND } from '../../brand.js';
 
 const SKIP_KEY = 'kac-upd-skip'; // '나중에' — 같은 버전은 하루 동안 다시 묻지 않는다
 const DAY = 24 * 60 * 60 * 1000;
@@ -100,7 +101,7 @@ export default function UpdateSheet({ manual = false, open = false, onClose }) {
         {pct === -1 && <Typography sx={{ fontSize: 13.5, color: 'error.main' }}>{t('downloadFail')}</Typography>}
 
         <ButtonBase onClick={go} disabled={busy}
-          sx={{ height: 56, borderRadius: '16px', bgcolor: 'text.primary', color: 'background.paper', fontSize: 16, fontWeight: 700, opacity: busy ? 0.6 : 1 }}>
+          sx={{ height: 56, borderRadius: '16px', bgcolor: BRAND, color: '#fff', fontSize: 16, fontWeight: 700, opacity: busy ? 0.6 : 1 }}>
           {pct === -1 ? t('retry') : pct === 101 ? t('reopenInstall') : info.sizeMb ? t('updateSize', { mb: info.sizeMb }) : t('update')}
         </ButtonBase>
         {!busy && (

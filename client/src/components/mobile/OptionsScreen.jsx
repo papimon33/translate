@@ -8,6 +8,7 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import ButtonBase from '@mui/material/ButtonBase';
 import Slider from '@mui/material/Slider';
+import Switch from '@mui/material/Switch';
 import Snackbar from '@mui/material/Snackbar';
 import CircularProgress from '@mui/material/CircularProgress';
 import { api } from '../../api.js';
@@ -18,6 +19,7 @@ import { Group, OptionRow, PickSheet, ConfirmDialog, FormSheet, SensSlider, MicS
 import UpdateSheet, { useAppVersion } from './UpdateSheet.jsx';
 import { Line, Bubble } from './MobileLive.jsx';
 import { ArrowLeftIcon, ChevronRightIcon, LogOutIcon, PlayIcon } from './icons.jsx';
+import { BRAND, BRAND_SOFT } from '../../brand.js';
 
 const SlideLeft = forwardRef(function SlideLeft(props, ref) { return <Slide direction="left" ref={ref} {...props} />; });
 const UI_NAMES = { ko: '한국어', en: 'English', ja: '日本語' };
@@ -75,7 +77,7 @@ function TextSizeScreen({ open, onBack }) {
 function Avatar({ user, size = 48 }) {
   const ch = String(user.username || user.id || '?').trim().charAt(0).toUpperCase();
   return (
-    <Box aria-hidden="true" sx={{ width: size, height: size, flex: 'none', borderRadius: '999px', bgcolor: 'text.primary', color: 'background.paper', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.4, fontWeight: 800 }}>{ch}</Box>
+    <Box aria-hidden="true" sx={{ width: size, height: size, flex: 'none', borderRadius: '999px', bgcolor: BRAND, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.4, fontWeight: 800 }}>{ch}</Box>
   );
 }
 
@@ -111,7 +113,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
   };
   const playBtn = (g) => (
     <IconButton onClick={() => preview(g)} aria-label={t('previewVoice', { v: voiceName(g) })}
-      sx={{ width: 44, height: 44, mr: 1, flex: 'none', bgcolor: (th) => (th.palette.mode === 'dark' ? 'rgba(122,162,247,0.18)' : '#EAF1FC'), color: (th) => (th.palette.mode === 'dark' ? th.palette.accent.main : '#1F5BBF') }}>
+      sx={{ width: 44, height: 44, mr: 1, flex: 'none', bgcolor: (th) => (th.palette.mode === 'dark' ? 'rgba(91,79,232,0.28)' : BRAND_SOFT), color: BRAND, '&:hover': { bgcolor: (th) => (th.palette.mode === 'dark' ? 'rgba(91,79,232,0.28)' : BRAND_SOFT) } }}>
       {previewing === g ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : <PlayIcon />}
     </IconButton>
   );
@@ -134,11 +136,18 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
 
       <Group title={t('secVoice')}>
         <OptionRow label={t('connectedDevice')} value={micCurrentName(mic, t)} onClick={() => setPick('mic')} />
-        <Box onPointerDown={() => setMeterOn(true)}>
-          <SensSlider label={t('inputSens')} value={prefs.micSens} native={native} level={level}
-            hint={t('inputSensHint')}
-            onChange={(v) => setPref('micSens', v)} />
-        </Box>
+        <OptionRow toggle label={t('autoSens')} onClick={() => setPref('micAuto', !prefs.micAuto)}
+          value={<Switch edge="end" checked={prefs.micAuto} tabIndex={-1} inputProps={{ 'aria-label': t('autoSens') }}
+            sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#fff' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: BRAND, opacity: 1 } }} />} />
+        {prefs.micAuto ? (
+          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5 }}>{t('autoSensHint')}</Typography>
+        ) : (
+          <Box onPointerDown={() => setMeterOn(true)}>
+            <SensSlider label={t('inputSens')} value={prefs.micSens} native={native} level={level}
+              hint={t('inputSensHint')}
+              onChange={(v) => setPref('micSens', v)} />
+          </Box>
+        )}
         <OptionRow label={t('ttsVoice')} value={voiceName(prefs.ttsGender)} onClick={() => setPick('voice')} />
       </Group>
 
@@ -152,7 +161,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 54, pl: 2.25, pr: 1.25 }}>
             <Typography sx={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{t('version')} <Box component="span" sx={{ fontWeight: 500, color: 'text.secondary', ml: 0.75, fontVariantNumeric: 'tabular-nums' }}>{ver.cur}</Box></Typography>
             {ver.hasNew ? (
-              <ButtonBase onClick={() => setPick('update')} sx={{ height: 36, px: 1.5, borderRadius: '10px', fontSize: 14.5, fontWeight: 700, color: (th) => (th.palette.mode === 'dark' ? th.palette.accent.main : '#1F5BBF') }}>
+              <ButtonBase onClick={() => setPick('update')} sx={{ height: 36, px: 1.5, borderRadius: '10px', fontSize: 14.5, fontWeight: 700, color: BRAND }}>
                 {t('updateTo', { v: ver.latest })}
               </ButtonBase>
             ) : (
