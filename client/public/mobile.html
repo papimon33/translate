@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@900&text=airtlk.&display=block" rel="stylesheet" />
 <style>
   /* 라이트 테마 전용. 폰 앱(호스트) 화면과 같은 모양(2026-10-26 디스코드 스타일): 흰 바탕 · 떠 있는 회색 조작판 · 보라 강조.
      --k = 글자 크기 배율(조작판 가−/가+) */
@@ -113,8 +114,9 @@
   #landing { position:fixed; inset:0; z-index:40; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px; }
   #landing.hide { display:none; }
   #landing .lcard { width:100%; max-width:340px; text-align:center; }
-  #landing .lbrand { display:flex; flex-direction:column; align-items:center; gap:10px; font-weight:800; font-size:15px; margin-bottom:22px; }
-  #landing .lbrand img { width:56px; height:56px; border-radius:14px; }
+  /* 글자 로고 'airtalk.' — 폰 앱과 같은 Nunito 900 + 보라 마침표 */
+  #landing .lbrand { font-family:'Nunito','Pretendard',system-ui,sans-serif; font-weight:900; font-size:40px; letter-spacing:-.02em; line-height:1; color:var(--txt); margin-bottom:28px; }
+  #landing .lbrand .p { color:var(--brand); }
   #landing .ltitle { font-size:24px; font-weight:800; line-height:1.3; word-break:keep-all; }
   #landing .lmeta { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; color:var(--muted); font-size:14px; font-weight:600; }
   #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:#C9C7BF; }
@@ -129,7 +131,7 @@
 <body>
 <div id="landing">
   <div class="lcard">
-    <div class="lbrand"><img src="/favicon.svg" alt="" /><span id="lBrandName">AirTalk</span></div>
+    <div class="lbrand" id="lBrandName" aria-label="AirTalk">airtalk<span class="p">.</span></div>
     <div class="ltitle" id="lTitle">Session</div>
     <div class="lmeta"><span class="d" id="lLiveDot"></span><span id="lLive">Waiting</span></div>
     <button id="enterBtn">Enter</button>
@@ -280,7 +282,7 @@ function langName(code){
 
 /* 브랜드(플레이스홀더 — 운영 시 교체) */
 const BRAND = { name: 'AirTalk' };
-$('lBrandName').textContent = BRAND.name;
+// 랜딩 로고는 글자 로고 'airtalk.'(마크업에 고정)
 // 입장 랜딩 → 전체화면 진입(브라우저는 사용자 제스처에서만 전체화면 허용)
 $('enterBtn').onclick = () => {
   $('landing').classList.add('hide');

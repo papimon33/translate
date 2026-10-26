@@ -90,6 +90,7 @@
   글꼴은 index.html 에서 Google Fonts `Nunito:wght@900&text=airtlk.`(로고 글자만 받는 작은 파일). 안드로이드 시작 화면(MainActivity 오버레이)은 흰 바탕 가운데
   같은 모양 그림 `res/drawable-nodpi/splash_wordmark.png`(브라우저 캔버스로 Nunito 렌더) 하나만 — 진행 표시·'연결하는 중' 문구 없음, 연결 실패 화면은 그대로.
   앱 바탕색 BG #FAFAF8 → #FFFFFF. 앱 1.4.1(versionCode 7).
+  로그인·앱 다운로드 화면(`Wordmark` 40px)과 QR 뷰어 입장 화면(`mobile.html` `.lbrand`, 같은 Nunito 링크)도 아이콘+'AirTalk' 대신 이 로고.
 - **시트 쓸어내려 닫기(2026-10-26)**: `common.jsx` `BottomSheet` 를 `SwipeableDrawer`(쓸어 열기 끔·`keepMounted:false`)로 — 새 세션·언어·마이크·TTS 음성·이름 수정·링크 공유 등
   아래에서 올라오는 시트 전부 아래로 쓸어내리면 닫힘(목록이 스크롤돼 있으면 먼저 목록이 올라감, 짧게 끌면 제자리). 닫히면 `useBackClose` 가 히스토리도 정리.
   keepMounted 를 켜 두면(SwipeableDrawer 기본) 닫힌 시트 내용이 늘 떠 있어 입력 시트 autoFocus 가 열 때 안 먹으므로 끔. 큰 설정 패널도 같게.

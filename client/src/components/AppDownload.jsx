@@ -5,12 +5,12 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import { BRAND, BRAND_DARK } from '../brand.js';
+import Wordmark from './Wordmark.jsx';
 
 export default function AppDownload({ iphone, onContinueWeb }) {
   return (
     <Box sx={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', px: 3, gap: 1.25, bgcolor: (t) => (t.palette.mode === 'dark' ? t.palette.background.default : '#fff') }}>
-      <Box component="img" src="/favicon.svg" alt="" sx={{ width: 64, height: 64, borderRadius: 2, mb: 1 }} />
-      <Typography component="h1" sx={{ fontWeight: 800, fontSize: 26, letterSpacing: '-0.02em' }}>AirTalk</Typography>
+      <Typography component="h1" sx={{ lineHeight: 1, mb: 1 }}><Wordmark size={40} /></Typography>
       <Typography sx={{ fontSize: 15, color: 'text.secondary', textAlign: 'center', wordBreak: 'keep-all', mb: 2 }}>
         {iphone ? 'iPhone 앱은 준비 중입니다.' : '휴대폰에서는 AirTalk 앱으로 사용합니다.'}
       </Typography>

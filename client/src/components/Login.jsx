@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
+import Wordmark from './Wordmark.jsx';
 import Alert from '@mui/material/Alert';
 import { api } from '../api.js';
 import { BRAND, BRAND_DARK } from '../brand.js';
@@ -50,10 +51,7 @@ export default function Login({ onSuccess }) {
     <Box sx={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', px: 3, bgcolor: (t) => (t.palette.mode === 'dark' ? t.palette.background.default : '#fff') }}>
       <Box component="form" onSubmit={submit} sx={{ width: '100%', maxWidth: 360 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3.5 }}>
-          <Box component="img" src="/favicon.svg" alt="KAC" sx={{ width: 56, height: 56, borderRadius: 1.5, mb: 1.5 }} />
-          <Typography sx={{ fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em' }}>
-            AirTalk
-          </Typography>
+          <Typography component="h1" sx={{ lineHeight: 1 }}><Wordmark size={40} /></Typography>
         </Box>
         {err && (
           <Alert severity="error" sx={{ mb: 2 }}>
