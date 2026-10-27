@@ -1,0 +1,61 @@
+// 폰 화면(안드로이드 앱 흉내) — 목록 → 세션 → 시작 → 엔진 문장이 화면과 뷰어에 → 공유 시트 참여 코드
+import { test, expect } from '@playwright/test';
+import { login, createSession, qrOf, androidAudioStub, engine } from './helpers.mjs';
+
+test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+test('실시간 번역 한 바퀴', async ({ page, browser }) => {
+  await page.addInitScript(androidAudioStub);
+  await login(page.request);
+  const s = await createSession(page.request, { title: 'E2E 폰', preset: 'oneway', inLang: 'ko' });
+  const qr = await qrOf(page.request, s.id);
+
+  await page.goto('/');
+  await page.getByText('E2E 폰').click();
+  await expect(page.getByRole('button', { name: '시작' })).toBeVisible();
+
+  const before = (await engine.conns()).total;
+  await page.getByRole('button', { name: '시작' }).click();
+  // 처음 시작이면 마이크 확인을 거친다
+  const check = page.getByRole('dialog', { name: '마이크 확인' });
+  if (await check.isVisible({ timeout: 1500 }).catch(() => false)) await check.getByRole('button', { name: /시작/ }).first().click();
+  await expect(page.getByRole('button', { name: '중지' })).toBeVisible();
+  await expect.poll(async () => (await engine.conns()).total, { timeout: 10000 }).toBeGreaterThan(before);
+
+  // 뷰어도 하나 연다
+  const viewer = await browser.newPage({ locale: 'ko-KR' });
+  await viewer.goto('/j/' + qr.code);
+  await viewer.click('#enterBtn');
+
+  const { config } = await engine.conns();
+  const target = config?.translation?.target_language;
+  await engine.say([
+    { text: '안녕하세요 반갑습니다.', is_final: true, language: 'ko', translation_status: 'original', confidence: 0.95 },
+    ...(target && target !== 'ko' ? [{ text: 'Hello, nice to meet you.', is_final: true, language: target, translation_status: 'translation' }] : []),
+  ]);
+  await engine.end();
+  await expect(page.getByText('안녕하세요 반갑습니다.').first()).toBeVisible({ timeout: 10000 });
+  await expect(viewer.locator('#feed')).toContainText(/안녕하세요 반갑습니다|Hello, nice to meet you/, { timeout: 10000 });
+
+  await page.getByRole('button', { name: '중지' }).click();
+  await expect(page.getByRole('button', { name: '시작' })).toBeVisible();
+
+  // 공유 시트 — 참여 코드
+  await page.getByRole('button', { name: '링크 공유' }).click();
+  await expect(page.getByText(qr.code)).toBeVisible();
+  await viewer.close();
+});
+
+test('목록 길게 누르기 — 이름 바꾸기', async ({ page }) => {
+  await page.addInitScript(androidAudioStub);
+  await login(page.request);
+  await createSession(page.request, { title: 'E2E 길게', preset: 'twoway' });
+  await page.goto('/');
+  const row = page.getByText('E2E 길게');
+  await row.dispatchEvent('contextmenu');
+  await page.getByText('이름 바꾸기').click();
+  const input = page.getByRole('textbox', { name: '세션 이름' });
+  await input.fill('E2E 바뀐 이름');
+  await input.press('Enter');
+  await expect(page.getByText('E2E 바뀐 이름')).toBeVisible();
+});

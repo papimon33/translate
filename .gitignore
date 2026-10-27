@@ -22,3 +22,7 @@ android/app/build/
 *.p12
 *.jks
 *.keystore
+
+# 화면 테스트(Playwright) 결과
+test-results/
+playwright-report/
