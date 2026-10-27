@@ -6,65 +6,20 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
-import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from './server/desk/wayfind_dict.js';
-import { b32encode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from './server/util/security_util.js';
+import { CATEGORIES, detectCategory, isLocationAnswer, parseAnswerFloor } from './server/desk/wayfind_dict.js';
+import { b32encode, totpVerify, echoNorm, echoMatch } from './server/util/security_util.js';
 import { kstDay, CONFFIX, confFixReal, confFixTrigger, confFixMark, isAckOnly, stripFillers, sanitizeTranslation, deskCtlAllowed } from './server/util/pipeline_util.js';
-
-// 엔진 접속 URL — 테스트에서 로컬 fake 엔진으로 오버라이드(실 엔진 호출은 항상 과금되므로)
-const SONIOX_WS_URL = process.env.SONIOX_WS_URL || 'wss://stt-rt.soniox.com/transcribe-websocket';
-const CARTESIA_TTS_WS_BASE = process.env.CARTESIA_TTS_WS_URL || 'wss://api.cartesia.ai/tts/websocket';
-import { fileURLToPath } from 'url';
 import path from 'path';
 import { Readable } from 'node:stream';
+import { SONIOX_WS_URL, CARTESIA_TTS_WS_BASE, PORT, OPENAI_API_KEY, TRANSLATE_MODEL, REFINE_MODEL, TARGET_LANG, ITEMS_CAP, PRESET_SRC, normalizeMode, SX_MAX_FAILS, sxRetryDelay, DESKLOG_CAP, SONIOX_API_KEY, SONIOX_LANGS, CARTESIA_API_KEY, CARTESIA_VERSION, CARTESIA_MODEL, DESKTOP_REPO, GITHUB_TOKEN, DESKTOP_DOWNLOAD_URL, LANG_NAMES, ALL_LANGS, STATIC_DIR, DATA_DIR, PRICE_WHISPER_PER_MIN, PRICE_TRANSLATE_PER_MIN, ADMIN_ID, ADMIN_PASSWORD, AUTH_SECRET, AUTH_COOKIE, CARTESIA_ADMIN_API_KEY, OPENAI_ADMIN_API_KEY } from './server/config.js';
+import { metrics, logErr } from './server/metrics.js';
+import { dataKey, writeDataFile, readDataFile, sessions, users, usageDaily, usageHourly, vendorUsage, termsConfig, deskRegistry, profiles, col, profilesCol, setSessions, setTermsConfig, setDeskRegistry, loadStore, recordTts, persistVendorUsage, persistDeskRegistry, dirtySessions, sessionsFlushInflight, saveSessions, flushSessions, deleteSessionStore, saveUsers, flushUsers, deleteUserStore, saveProfiles, deleteProfileStore, costOfDay, recordUsage, flushUsage, persistTermsConfig, addUsage } from './server/store/index.js';
+import { TERM_LANGS, TERM_CATEGORIES, DEFAULT_SERVED_LANGS, sanitizeCatScope, normalizeTermsConfig, initTermsConfig } from './server/store/terms.js';
+import { getSession, getSessionAny, newId, migrateSessions, capDeskLog, ensureJoinCode, sessionByJoinCode } from './server/store/sessions.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const PORT = Number(process.env.PORT || 3000);
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-// 모델은 코드 고정(환경변수로 안 받음). 바꾸려면 여기서 직접 수정.
-const TRANSLATE_MODEL = 'gpt-realtime-translate';
-const REFINE_MODEL = 'gpt-5-nano';
-const TARGET_LANG = process.env.TARGET_LANG || 'ko';
-// 세션당 저장 문장(items) 상한 — 장시간 세션이 무한히 커져 메모리·문서를 압박하는 것을 막는다.
-// 초과 시 가장 오래된 문장부터 버린다(화면 히스토리만 잘림, 데스크 응대 기록 deskLog·통계는
-// 별도 저장이라 영향 없음). 5,000 ≈ 5~8시간 연속 강의 분량(2시간 강의는 보통 1~1.8천).
-const ITEMS_CAP = 5000;
-// 실시간 번역 모드(2026-10, 메뉴 3종 → 2종 개편).
-// 모드(preset) = 번역 방향, 소스(src) = 소리를 어디서 듣나. 유효한 조합만 존재한다.
-//   oneway(실시간 번역): src ∈ mic | system      — 단방향 고정
-//   twoway(양방향 통역): src ∈ mic | both        — 양방향 고정('PC 소리만'은 단방향으로 충분해 선택지에 없다)
-// 구 프리셋은 같은 상황으로 이전: live→oneway/mic, online→oneway/system, mobile·field·meeting→twoway/mic.
-// 서버의 번역 동작은 원래 preset 이 아니라 WS 쿼리(sxMode·src)를 따른다 — 이 값은 클라 UI 상태의 저장용이다.
-const PRESET_SRC = { oneway: ['mic', 'system'], twoway: ['mic', 'both'] };
-const LEGACY_PRESET = { live: ['oneway', 'mic'], online: ['oneway', 'system'], mobile: ['twoway', 'mic'], field: ['twoway', 'mic'], meeting: ['twoway', 'mic'] };
-function normalizeMode(preset, src, defaultSrc) {
-  const legacy = LEGACY_PRESET[preset];
-  const p = legacy ? legacy[0] : preset;
-  const allowed = PRESET_SRC[p];
-  if (!allowed) return null; // 프리셋 없는 구세션·데스크 등은 대상 아님
-  const fb = legacy ? legacy[1] : defaultSrc;
-  return { preset: p, src: allowed.includes(src) ? src : (allowed.includes(fb) ? fb : 'mic') };
-}
-// STT 엔진 재연결 연속 실패 상한 — 초과하면 재시도를 멈춘다. 재연결 1회마다 용어집 context 가
-// input_text_tokens 로 다시 청구되므로(데스크 기준 약 $0.008/회) 상한이 없으면 장애 시 과금이 폭주한다.
-// 토큰이 실제로 수신되면 0 으로 리셋되므로 정상 세션의 간헐적 끊김은 누적되지 않는다.
-const SX_MAX_FAILS = 8;
-// 재연결 지수 백오프: 800ms → 15s. 기준 간격만 env 로 낮출 수 있게 둔다(테스트가 수십 초를 기다리지 않도록).
-const SX_RETRY_BASE_MS = Number(process.env.SX_RETRY_BASE_MS) || 800;
-const sxRetryDelay = (n) => Math.min(SX_RETRY_BASE_MS * 2 ** (n - 1), 15000);
-// 데스크 세션 1개가 보존하는 응대(deskLog) 건수 상한 — 초과 시 가장 오래된 응대가 조용히 사라진다.
-// 시범운영 기간의 응대 전문은 보고서의 원천 데이터라 유실되면 복구 수단이 없어 넉넉히 잡는다.
-// 응대 1건 ≈ 2~4KB(toks 제외 후)이므로 1,000건이라도 세션 문서는 수 MB 수준 — Mongo 16MB 한도 안.
-const DESKLOG_CAP = 1000;
-const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
 // Soniox 실시간 STT 연결 — 키는 연결 요청의 Authorization 헤더로 보낸다.
 // start(config) 메시지의 api_key 는 2027-01-15 에 중단되므로 config 에는 키를 넣지 않는다.
 const openSonioxWs = () => new WebSocket(SONIOX_WS_URL, { headers: { Authorization: `Bearer ${SONIOX_API_KEY}` } });
-// Soniox stt-rt-v5 지원 언어(60) — 번역은 지원 언어 임의 쌍. 선택 UI/검증에 사용.
-const SONIOX_LANGS = ['af','sq','ar','az','eu','be','bn','bs','bg','ca','zh','hr','cs','da','nl','en','et','fi','fr','gl','de','el','gu','he','hi','hu','id','it','ja','kn','kk','ko','lv','lt','mk','ms','ml','mr','no','fa','pl','pt','pa','ro','ru','sr','sk','sl','es','sw','sv','tl','ta','te','th','tr','uk','ur','vi','cy'];
-const CARTESIA_API_KEY = process.env.CARTESIA_API_KEY || ''; // Cartesia Sonic 실시간 TTS(선택)
-const CARTESIA_VERSION = '2025-04-16';
-const CARTESIA_MODEL = 'sonic-3.5';
 // 출력 언어 × 성별 고정 보이스 매핑 (Cartesia voice id)
 const _RONALD = '5ee9feff-1265-424a-9d7f-8e4d431a12c7';
 const CARTESIA_VOICES = {
@@ -79,25 +34,6 @@ function cartesiaVoiceId(lang, gender) {
 }
 // 미리듣기용 짧은 테스트 문장(언어별)
 const TTS_TEST_PHRASE = { ko: '안녕하세요, 음성 테스트입니다.', en: 'Hello, this is a voice test.', ja: 'こんにちは、音声テストです。', zh: '你好，这是语音测试。' };
-
-// 데스크톱 앱(Electron) 배포 — GitHub Release 에 올린 설치본을 프로필 메뉴에서 내려받게 한다.
-//  · 비공개 repo 라도 서버가 GITHUB_TOKEN 으로 에셋을 받아 스트리밍 → 사용자는 GitHub 인증 불필요.
-//  · 공개 repo 로 바꾸면 토큰 없이 browser_download_url 로 리다이렉트.
-//  · DESKTOP_DOWNLOAD_URL 을 주면 GitHub 을 거치지 않고 그 주소로 바로 보냄(사내 서버·S3 등).
-const DESKTOP_REPO = process.env.DESKTOP_REPO || 'papimon33/translate';
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
-const DESKTOP_DOWNLOAD_URL = process.env.DESKTOP_DOWNLOAD_URL || '';
-
-const LANG_NAMES = {
-  ko: '한국어', en: '영어', ja: '일본어', zh: '중국어', es: '스페인어',
-  fr: '프랑스어', de: '독일어', vi: '베트남어', th: '태국어', id: '인도네시아어',
-};
-const ALL_LANGS = ['ko', 'en', 'ja', 'zh']; // whisper 는 항상 한·영·일·중 전부 번역
-
-if (!OPENAI_API_KEY) {
-  console.error('\n[오류] OPENAI_API_KEY 가 설정되지 않았습니다. .env 파일을 만들어 주세요. (.env.example 참고)\n');
-  process.exit(1);
-}
 
 const app = express();
 app.disable('x-powered-by');
@@ -143,7 +79,6 @@ const bigJson = express.json({ limit: '16mb' });
 const smallJson = express.json({ limit: '256kb' });
 app.use((req, res, next) => (req.path === '/api/terms-config' ? bigJson : smallJson)(req, res, next));
 // 빌드된 React 앱(dist) 서빙
-const STATIC_DIR = path.join(__dirname, 'dist');
 if (!fs.existsSync(STATIC_DIR)) {
   console.warn('\n[경고] dist 폴더가 없습니다. 먼저 `npm run build` 를 실행하세요. (npm start 는 자동 빌드)\n');
 }
@@ -171,562 +106,9 @@ app.get('/desk.webmanifest', (req, res) => {
 
 const server = http.createServer(app);
 
-/* ================================================================== */
-/*  세션 영속화 (data/sessions.json)                                   */
-/*  세션: { id, title, createdAt, updatedAt, outLang, items:[          */
-/*          { id, side:'left'|'right', text } ] }                      */
-/* ================================================================== */
-const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data'); // 테스트는 임시 디렉터리로 격리
-
-/* ---- 저장 데이터 암호화(파일 모드): DATA_KEY 설정 시 AES-256-GCM ----
-   DATA_KEY(임의의 긴 문자열)를 scrypt 로 32바이트 키로 파생해 data/*.json 을 암호화 저장.
-   기존 평문 파일은 그대로 읽히고, 다음 저장부터 암호문으로 바뀐다(점진 마이그레이션).
-   Mongo 사용 시에는 Atlas 저장소 암호화(기본 제공)를 사용 — SECURITY_GUIDE.md 참고. */
-const DATA_KEY_RAW = process.env.DATA_KEY || '';
-const dataKey = DATA_KEY_RAW ? deriveDataKey(DATA_KEY_RAW) : null;
-function writeDataFile(file, jsonStr) {
-  // 원자적 쓰기(임시파일 → rename): 저장 도중 프로세스가 죽어도 기존 파일이 온전히 남는다.
-  // (직접 덮어쓰면 반쯤 쓰인 파일이 다음 부팅에서 파싱 실패 → 세션/사용자 전체가 조용히 초기화됨)
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, dataKey ? encryptData(dataKey, jsonStr) : jsonStr);
-  fs.renameSync(tmp, file);
-}
-function readDataFile(file) {
-  return decryptData(dataKey, fs.readFileSync(file, 'utf8')); // 평문(기존 데이터)은 그대로 — 다음 저장 시 암호화됨
-}
-
-const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
-const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
-const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
-const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
-const DESK_REG_FILE = path.join(DATA_DIR, 'desk_registry.json'); // 안내데스크 사전 정의(이름·층·방향) — 관리자 등록, 세션 생성 시 선택
-const PROFILES_FILE = path.join(DATA_DIR, 'profiles.json'); // 사용자별 프로필(이메일·환경설정) — 관리자(가상 사용자)도 포함
-const MONGODB_URI = process.env.MONGODB_URI;                       // 있으면 Mongo, 없으면 로컬 파일
-const MONGODB_DB = process.env.MONGODB_DB || 'kac_translator';     // DB 이름(앱이 자동 생성). 코드 기본값.
-
-let sessions = [];  // 메모리 캐시(항상 진실의 원천)
-let users = [];     // 생성된 사용자 { id, username, salt, hash, role, createdAt, usageMs }
-let usageDaily = {}; // { 'YYYY-MM-DD': { whisperMs, translateMs } } — 파이프라인별 사용시간 일별 집계
-let usageHourly = {}; // { 'YYYY-MM-DDTHH': { whisperMs, translateMs } } — 시간대별 집계(UTC)
-// 벤더 실사용량 일별 누적 — 벤더 API 는 조회 보관기간(예: Soniox 91일)이 있어 그 뒤엔 못 꺼내므로
-// 여기 계속 쌓아 무기한 보관한다. { soniox:{date:{audioMs,costUsd,requests}}, cartesia:{date:{credits}}, openai:{date:{costUsd}} }
-let vendorUsage = { soniox: {}, cartesia: {}, openai: {}, cartesiaSelf: {} }; // cartesiaSelf: 파이프라인별 자체 집계(벤더 API 는 태그 미지원)
-// 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
-let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [], updatedAt: 0 };
-let deskRegistry = { desks: [] }; // 안내데스크 정의 [{ id, name, floor, side }] — 세션과 분리된 마스터
-// 사용자 프로필: userId -> { id, email, prefs, updatedAt }. users 와 분리한 이유 — 관리자는 env 기반 가상 사용자라
-// users 에 없지만 이메일·환경설정(폰 앱 계정 화면)은 저장돼야 한다. Map 인 이유: id 가 '__proto__' 여도 안전.
-let profiles = new Map();
-let col = null;     // Mongo sessions 컬렉션. null 이면 파일 모드.
-let usersCol = null;
-let usageCol = null;
-let usageHourlyCol = null;
-let termsConfigCol = null;
-let vendorUsageCol = null;
-let deskRegistryCol = null;
-let profilesCol = null;
-
-async function loadStore() {
-  if (MONGODB_URI) {
-    const { MongoClient } = await import('mongodb');
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const client = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
-        await client.connect();
-        const db = client.db(MONGODB_DB);
-        col = db.collection('sessions');
-        usersCol = db.collection('users');
-        usageCol = db.collection('usageDaily');
-        usageHourlyCol = db.collection('usageHourly');
-        termsConfigCol = db.collection('termsConfig');
-        vendorUsageCol = db.collection('vendorUsage');
-        try { await db.collection('glossary').drop(); console.log('[store] 구 glossary 컬렉션 삭제'); } catch {} // 용어집 폐기
-        await col.createIndex({ id: 1 }, { unique: true });
-        await usersCol.createIndex({ id: 1 }, { unique: true });
-        await usageCol.createIndex({ date: 1 }, { unique: true });
-        await usageHourlyCol.createIndex({ hour: 1 }, { unique: true });
-        profilesCol = db.collection('profiles');
-        await profilesCol.createIndex({ id: 1 }, { unique: true });
-        sessions = await col.find({}, { projection: { _id: 0 } }).toArray();
-        users = await usersCol.find({}, { projection: { _id: 0 } }).toArray();
-        const rows = await usageCol.find({}, { projection: { _id: 0 } }).toArray();
-        usageDaily = {};
-        rows.forEach((r) => (usageDaily[r.date] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
-        const hrows = await usageHourlyCol.find({}, { projection: { _id: 0 } }).toArray();
-        usageHourly = {};
-        hrows.forEach((r) => (usageHourly[r.hour] = { whisperMs: r.whisperMs || 0, translateMs: r.translateMs || 0 }));
-        const tc = await termsConfigCol.findOne({ _id: 'singleton' });
-        if (tc) { const { _id, ...rest } = tc; termsConfig = { ...rest, updatedAt: tc.updatedAt || 0 }; } // 전체 보존(entries/servedLangs/categoryScope), 구형은 부팅 마이그레이션
-        const vu = await vendorUsageCol.findOne({ _id: 'singleton' });
-        if (vu) vendorUsage = { soniox: vu.soniox || {}, cartesia: vu.cartesia || {}, openai: vu.openai || {}, cartesiaSelf: vu.cartesiaSelf || {} };
-        deskRegistryCol = db.collection('deskRegistry');
-        const dr = await deskRegistryCol.findOne({ _id: 'singleton' });
-        if (dr && Array.isArray(dr.desks)) deskRegistry = { desks: dr.desks };
-        profiles = new Map((await profilesCol.find({}, { projection: { _id: 0 } }).toArray()).filter((p) => p && p.id).map((p) => [p.id, p]));
-        console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
-        return;
-      } catch (e) {
-        console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = vendorUsageCol = deskRegistryCol = profilesCol = null;
-        if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
-      }
-    }
-    // MONGODB_URI 가 설정됐는데도 연결 실패 → 운영에선 파일 모드로 조용히 폴백하면
-    // 데이터가 분리/유실되므로 기동을 중단한다(설정 점검 유도).
-    if (process.env.NODE_ENV === 'production') {
-      console.error('[store] MONGODB_URI 설정됨에도 연결 실패 — 데이터 유실 방지를 위해 종료합니다. (Atlas Network Access/URI 확인)');
-      process.exit(1);
-    }
-    console.error('[store] (개발 모드) 로컬 파일 모드로 폴백');
-  }
-  // 파일별 개별 로드 — 한 파일이 손상돼도(부분 쓰기·DATA_KEY 불일치 등) 나머지 저장소는 정상 로드한다.
-  // 이전에는 단일 try/catch 라 sessions.json 손상 시 이후 파일 전부가 빈 상태로 기동했고,
-  // 첫 저장이 멀쩡하던 파일들을 빈 데이터로 덮어썼다. 손상 파일은 .corrupt-<ts> 로 백업해 복구 여지를 남긴다.
-  try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { console.error('[store] data 디렉터리 생성 실패', e); }
-  const loadFile = (file, apply) => {
-    if (!fs.existsSync(file)) return;
-    try {
-      apply(JSON.parse(readDataFile(file)));
-    } catch (e) {
-      const bak = `${file}.corrupt-${Date.now()}`;
-      try { fs.copyFileSync(file, bak); } catch {}
-      console.error(`[store] ${path.basename(file)} 로드 실패 — 원본을 ${path.basename(bak)} 로 백업 후 빈 상태로 계속`, e.message || e);
-    }
-  };
-  loadFile(DATA_FILE, (v) => { if (Array.isArray(v)) sessions = v; });
-  loadFile(USERS_FILE, (v) => { if (Array.isArray(v)) users = v; });
-  loadFile(USAGE_FILE, (v) => { if (v && typeof v === 'object') usageDaily = v; });
-  loadFile(USAGE_HOURLY_FILE, (v) => { if (v && typeof v === 'object') usageHourly = v; });
-  loadFile(TERMS_FILE, (v) => { if (v && typeof v === 'object') termsConfig = { ...v, updatedAt: v.updatedAt || 0 }; }); // 전체 보존, 구형은 부팅 마이그레이션
-  loadFile(VENDOR_USAGE_FILE, (v) => { if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {}, cartesiaSelf: v.cartesiaSelf || {} }; });
-  loadFile(DESK_REG_FILE, (v) => { if (v && Array.isArray(v.desks)) deskRegistry = { desks: v.desks }; });
-  loadFile(PROFILES_FILE, (v) => { if (Array.isArray(v)) profiles = new Map(v.filter((p) => p && p.id).map((p) => [p.id, p])); });
-}
-// Cartesia 파이프라인별 자체 집계 — 합성 요청 시 문자수·건수 누적(desk=안내데스크, live=실시간 번역)
-let ttsUsageTimer = null;
-function recordTts(pipe, chars) {
-  try {
-    const day = kstDay(Date.now());
-    const d = vendorUsage.cartesiaSelf[day] || (vendorUsage.cartesiaSelf[day] = {});
-    const b = d[pipe] || (d[pipe] = { chars: 0, req: 0 });
-    b.chars += chars; b.req += 1;
-    if (!ttsUsageTimer) ttsUsageTimer = setTimeout(() => { ttsUsageTimer = null; persistVendorUsage().catch(() => {}); }, 5000);
-  } catch {}
-}
-async function persistVendorUsage() {
-  if (vendorUsageCol) { await vendorUsageCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...vendorUsage }, { upsert: true }); }
-  else { writeDataFile(VENDOR_USAGE_FILE, JSON.stringify(vendorUsage, null, 2)); }
-}
-async function persistDeskRegistry() {
-  if (deskRegistryCol) { await deskRegistryCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...deskRegistry }, { upsert: true }); }
-  else { writeDataFile(DESK_REG_FILE, JSON.stringify(deskRegistry, null, 2)); }
-}
-
-let saveTimer = null;
-const dirtySessions = new Set(); // Mongo 모드: 변경 세션만 upsert — 발화 확정마다 전체 재기록하던 쓰기 증폭 방지
-let sessionsFlushInflight = null; // 진행 중 flush 추적 — 삭제가 완료를 기다려 '삭제 후 upsert 부활' 레이스 차단
-function saveSessions(id) {
-  if (id) dirtySessions.add(id);
-  else for (const s of sessions) dirtySessions.add(s.id); // 인자 없으면 전체(드문 관리자·마이그레이션 경로)
-  if (saveTimer) return;
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    sessionsFlushInflight = flushSessions()
-      // 저장이 죽어도 화면은 정상으로 보인다 — 관리자 > 시스템·보안(/api/admin/health)에 노출해
-      // 응대 기록이 사라지고 있다는 사실을 운영 중에 알 수 있게 한다.
-      .then(() => { metrics.saveFail = null; })
-      .catch((e) => {
-        console.error('[sessions] 저장 실패', e);
-        const msg = String((e && e.message) || e).slice(0, 300);
-        metrics.saveFail = { at: Date.now(), msg, count: ((metrics.saveFail || {}).count || 0) + 1 };
-      })
-      .finally(() => { sessionsFlushInflight = null; });
-  }, 400);
-}
-async function flushSessions() {
-  const ids = new Set(dirtySessions);
-  dirtySessions.clear();
-  if (col) {
-    const ops = sessions.filter((s) => ids.has(s.id)).map((s) => ({
-      replaceOne: { filter: { id: s.id }, replacement: s, upsert: true },
-    }));
-    if (!ops.length) return;
-    await col.bulkWrite(ops, { ordered: false });
-  } else {
-    // 파일 모드는 단일 JSON 이라 전체 기록이 불가피 — 대신 동기 쓰기가 오디오 스트리밍을 막지 않게 비동기로
-    const tmp = DATA_FILE + '.tmp';
-    const body = JSON.stringify(sessions, null, 2);
-    await fs.promises.writeFile(tmp, dataKey ? encryptData(dataKey, body) : body);
-    await fs.promises.rename(tmp, DATA_FILE);
-  }
-}
-// 삭제는 flush(=upsert)로 반영되지 않으므로 별도 처리(Mongo 모드 한정).
-async function deleteSessionStore(id) {
-  dirtySessions.delete(id);
-  if (col) {
-    try {
-      if (sessionsFlushInflight) await sessionsFlushInflight; // 디바운스 flush 의 upsert 가 삭제를 되돌리지 않게 완료 대기
-      await col.deleteOne({ id });
-    } catch (e) {
-      console.error('[sessions] 삭제 실패', e);
-    }
-  } else {
-    saveSessions(); // 파일 모드: 메모리에서 이미 splice 됨 → 전체 재기록
-  }
-}
-
-let userSaveTimer = null;
-function saveUsers() {
-  if (userSaveTimer) return;
-  userSaveTimer = setTimeout(() => {
-    userSaveTimer = null;
-    flushUsers().catch((e) => console.error('[users] 저장 실패', e));
-  }, 400);
-}
-async function flushUsers() {
-  if (usersCol) {
-    if (!users.length) return;
-    const ops = users.map((u) => ({
-      replaceOne: { filter: { id: u.id }, replacement: u, upsert: true },
-    }));
-    await usersCol.bulkWrite(ops, { ordered: false });
-  } else {
-    writeDataFile(USERS_FILE, JSON.stringify(users, null, 2));
-  }
-}
-async function deleteUserStore(id) {
-  if (usersCol) {
-    try {
-      await usersCol.deleteOne({ id });
-    } catch (e) {
-      console.error('[users] 삭제 실패', e);
-    }
-  } else {
-    saveUsers();
-  }
-}
-
-/* ---- 사용자 프로필(이메일·환경설정) 저장 — users 와 같은 디바운스, Mongo 는 변경 문서만 upsert ---- */
-let profileSaveTimer = null;
-const dirtyProfiles = new Set();
-let profilesFlushInflight = null; // 삭제가 진행 중 upsert 완료를 기다려 '삭제 후 부활' 레이스 차단(세션 저장과 동일)
-function saveProfiles(id) {
-  if (id) dirtyProfiles.add(id);
-  if (profileSaveTimer) return;
-  profileSaveTimer = setTimeout(() => {
-    profileSaveTimer = null;
-    profilesFlushInflight = flushProfiles()
-      .catch((e) => console.error('[profiles] 저장 실패', e))
-      .finally(() => { profilesFlushInflight = null; });
-  }, 400);
-}
-async function flushProfiles() {
-  const ids = new Set(dirtyProfiles);
-  dirtyProfiles.clear();
-  if (profilesCol) {
-    const ops = [...ids].filter((id) => profiles.has(id)).map((id) => ({
-      replaceOne: { filter: { id }, replacement: profiles.get(id), upsert: true },
-    }));
-    if (ops.length) await profilesCol.bulkWrite(ops, { ordered: false });
-  } else {
-    writeDataFile(PROFILES_FILE, JSON.stringify([...profiles.values()], null, 2));
-  }
-}
-async function deleteProfileStore(id) {
-  dirtyProfiles.delete(id);
-  if (profilesCol) {
-    try {
-      if (profilesFlushInflight) await profilesFlushInflight;
-      await profilesCol.deleteOne({ id });
-    } catch (e) {
-      console.error('[profiles] 삭제 실패', e);
-    }
-  } else {
-    saveProfiles(); // 파일 모드: 메모리에서 이미 지움 → 전체 재기록
-  }
-}
-
-/* ---- 사용량(일별) 집계 + 비용 ----
-   비용은 파이프라인별 '오디오 분당 요금' × 호스트 WS 연결 시간으로 계산. */
-const PRICE_WHISPER_PER_MIN = Number(process.env.PRICE_WHISPER_PER_MIN || 0.017);
-const PRICE_TRANSLATE_PER_MIN = Number(process.env.PRICE_TRANSLATE_PER_MIN || 0.034);
-function costOfDay(d) {
-  return ((d.whisperMs || 0) / 60000) * PRICE_WHISPER_PER_MIN + ((d.translateMs || 0) / 60000) * PRICE_TRANSLATE_PER_MIN;
-}
-function dateKey() {
-  return new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
-}
-function hourKey() {
-  return new Date().toISOString().slice(0, 13); // UTC YYYY-MM-DDTHH
-}
-function recordUsage(pipeline, ms) {
-  if (!ms || ms < 0) return;
-  const k = dateKey();
-  const d = usageDaily[k] || (usageDaily[k] = { whisperMs: 0, translateMs: 0 });
-  const hk = hourKey();
-  const h = usageHourly[hk] || (usageHourly[hk] = { whisperMs: 0, translateMs: 0 });
-  // 요금 버킷 분류: 실시간 통역 계열(translate·soniox·desk)은 translate 단가, 다국어 전사 계열은 whisper 단가
-  if (pipeline === 'translate' || pipeline === 'soniox' || pipeline === 'desk') { d.translateMs += ms; h.translateMs += ms; }
-  else { d.whisperMs += ms; h.whisperMs += ms; }
-  saveUsage();
-}
-let usageSaveTimer = null;
-function saveUsage() {
-  if (usageSaveTimer) return;
-  usageSaveTimer = setTimeout(() => {
-    usageSaveTimer = null;
-    flushUsage().catch((e) => console.error('[usage] 저장 실패', e));
-  }, 1000);
-}
-async function flushUsage() {
-  if (usageCol) {
-    const ops = Object.entries(usageDaily).map(([date, v]) => ({
-      replaceOne: { filter: { date }, replacement: { date, whisperMs: v.whisperMs || 0, translateMs: v.translateMs || 0 }, upsert: true },
-    }));
-    if (ops.length) await usageCol.bulkWrite(ops, { ordered: false });
-    if (usageHourlyCol) {
-      const hops = Object.entries(usageHourly).map(([hour, v]) => ({
-        replaceOne: { filter: { hour }, replacement: { hour, whisperMs: v.whisperMs || 0, translateMs: v.translateMs || 0 }, upsert: true },
-      }));
-      if (hops.length) await usageHourlyCol.bulkWrite(hops, { ordered: false });
-    }
-  } else {
-    writeDataFile(USAGE_FILE, JSON.stringify(usageDaily, null, 2));
-    writeDataFile(USAGE_HOURLY_FILE, JSON.stringify(usageHourly, null, 2));
-  }
-}
-
-/* ---- 고유명사/번역설정 스키마 ----
-   terms: { airline: string[], aviation: string[], etc: string[] } — 카테고리별 인식(STT) 힌트.
-   translationTerms: [{ ko, en?, ja?, zh?, es?, fr?, pt?, ar? }] — 한 행 = 한 용어의 다국어 표기.
-     세션 연결 시 활성 언어쌍의 표기만 골라 Soniox context 로 조립(비면 en → ko 폴백).
-   구형(terms 배열 / {source,target} 쌍)은 로드·저장 시 자동 마이그레이션. */
-const TERM_LANGS = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'pt', 'ar'];
-const TERM_CATEGORIES = ['airline', 'aviation', 'facility', 'etc']; // 항공사·항공용어·시설·기타
-const DEFAULT_SERVED_LANGS = ['ko', 'en', 'ja', 'zh'];         // 필수 입력 대상(운영 언어) — 관리자가 변경
-// 카테고리별 적용 대상: 데스크(손님 응대)엔 항공용어 불필요(예산 낭비) → 기본 제외
-const DEFAULT_CATEGORY_SCOPE = {
-  airline:  { desk: true,  session: true },
-  aviation: { desk: false, session: true },
-  facility: { desk: true,  session: true },
-  etc:      { desk: true,  session: true },
-};
-
-// ── 통합 용어 모델(v3) ──
-// termsConfig = { version:3, servedLangs, categoryScope, entries:[], updatedAt }
-// entry = { id, category, scope:['*']|['zh',...], names:{ko(필수),en,ja,...}, mode }
-//   mode 'pair'      : 활성 언어쌍 양방향 번역 + 인식
-//   mode 'inputOnly' : 외국어 표기 → 한국어 단방향 번역 + 인식 (약칭·오인식 교정)
-//   mode 'recognize' : 언어무관 인식 힌트만(번역쌍 없음) — 약어·고유명사(예: ICAO)
-// scope: '*' 아니면 그 언어 세션에만 주입되고, 그 언어만 필수.
-
-// 기본 시드(KAC 항공 도메인) — 저장된 설정이 없을 때만 1회 주입
-const DEFAULT_TERMS_AVIATION = ['ICAO','IATA','FAA','KAC','IIAC','FIDS','CIQ','BHS','NOTAM','PBB','VDGS','FOD','A-CDM','MRO','ILS','AWOS','SCADA','AODB','EIRP','FIS','ASDE','BMS','AVSM'];
-// 취항 항공사 다국어 표기 — es/fr/pt/ar 는 통상 영문 명칭을 쓰므로 비워 두면 en 으로 폴백된다.
-// alt = 현지에서 통용되는 축약/구어 표기(언어별 배열). 인식(terms) 힌트로 쓰이고,
-//        "축약형 → 한국어 정식명" 단방향 번역으로도 강제된다(예: 国航 → 중국국제항공).
-// (파라타/섬에어 등 신생 항공사의 외국어 표기 일부는 미확정 — 원어민 검수 권장)
-const DEFAULT_AIRLINES = [
-  { ko: '대한항공', en: 'Korean Air', ja: '大韓航空', zh: '大韩航空' },
-  { ko: '아시아나항공', en: 'Asiana Airlines', ja: 'アシアナ航空', zh: '韩亚航空' },
-  { ko: '제주항공', en: 'Jeju Air', ja: 'チェジュ航空', zh: '济州航空' },
-  { ko: '진에어', en: 'Jin Air', ja: 'ジンエアー', zh: '真航空' },
-  { ko: '티웨이항공', en: "T'way Air", ja: 'ティーウェイ航空', zh: '德威航空' },
-  { ko: '에어부산', en: 'Air Busan', ja: 'エアプサン', zh: '釜山航空' },
-  { ko: '이스타항공', en: 'Eastar Jet', ja: 'イースター航空', zh: '易斯达航空' },
-  { ko: '에어서울', en: 'Air Seoul', ja: 'エアソウル', zh: '首尔航空' },
-  { ko: '에어로케이', en: 'Aero K', ja: 'エアロK' },
-  { ko: '파라타항공', en: 'Parata Air', ja: 'パラタ航空', zh: '帕拉塔航空' }, // ja/zh 는 잠정 음역 — 검수 필요
-  { ko: '섬에어' },
-  { ko: '일본항공', en: 'Japan Airlines', ja: '日本航空', zh: '日本航空', alt: { ja: ['日航', 'JAL'] } },
-  { ko: '전일본공수', en: 'All Nippon Airways', ja: '全日本空輸', zh: '全日空', alt: { ja: ['全日空', 'ANA'] } },
-  { ko: '피치항공', en: 'Peach Aviation', ja: 'ピーチ・アビエーション', zh: '乐桃航空', alt: { ja: ['ピーチ'] } },
-  { ko: '중국국제항공', en: 'Air China', ja: '中国国際航空', zh: '中国国际航空', alt: { zh: ['国航'] } },
-  { ko: '중국남방항공', en: 'China Southern Airlines', ja: '中国南方航空', zh: '中国南方航空', alt: { zh: ['南航'] } },
-  { ko: '중국동방항공', en: 'China Eastern Airlines', ja: '中国東方航空', zh: '中国东方航空', alt: { zh: ['东航'] } },
-  { ko: '상하이항공', en: 'Shanghai Airlines', ja: '上海航空', zh: '上海航空', alt: { zh: ['上航'] } },
-  { ko: '길상항공', en: 'Juneyao Air', ja: '吉祥航空', zh: '吉祥航空', alt: { zh: ['吉祥'] } },
-  { ko: '춘추항공', en: 'Spring Airlines', ja: '春秋航空', zh: '春秋航空', alt: { zh: ['春秋'] } },
-  { ko: '사천항공', en: 'Sichuan Airlines', ja: '四川航空', zh: '四川航空', alt: { zh: ['川航'] } },
-  { ko: '하문항공', en: 'XiamenAir', ja: '厦門航空', zh: '厦门航空', alt: { zh: ['厦航'] } },
-  { ko: '중화항공', en: 'China Airlines', ja: 'チャイナエアライン', zh: '中华航空' },
-  { ko: '에바항공', en: 'EVA Air', ja: 'エバー航空', zh: '长荣航空' },
-  { ko: '타이거에어 타이완', en: 'Tigerair Taiwan', ja: 'タイガーエア台湾', zh: '台湾虎航' },
-  { ko: '캐세이퍼시픽항공', en: 'Cathay Pacific', ja: 'キャセイパシフィック航空', zh: '国泰航空' },
-  { ko: '홍콩익스프레스', en: 'HK Express', ja: '香港エクスプレス', zh: '香港快运航空' },
-  { ko: '마카오항공', en: 'Air Macau', ja: 'マカオ航空', zh: '澳门航空' },
-  { ko: '베트남항공', en: 'Vietnam Airlines', ja: 'ベトナム航空', zh: '越南航空' },
-  { ko: '비엣젯항공', en: 'VietJet Air', ja: 'ベトジェットエア', zh: '越捷航空' },
-  { ko: '필리핀항공', en: 'Philippine Airlines', ja: 'フィリピン航空', zh: '菲律宾航空' },
-  { ko: '세부퍼시픽', en: 'Cebu Pacific', ja: 'セブパシフィック航空', zh: '宿务太平洋航空' },
-  { ko: '타이에어아시아엑스', en: 'Thai AirAsia X', ja: 'タイ・エアアジアX' },
-  { ko: '몽골항공', en: 'MIAT Mongolian Airlines', ja: 'MIATモンゴル航空', zh: '蒙古航空' },
-  { ko: '미아트 몽골항공', en: 'MIAT Mongolian Airlines', ja: 'MIATモンゴル航空', zh: '蒙古航空' },
-  { ko: '싱가포르항공', en: 'Singapore Airlines', ja: 'シンガポール航空', zh: '新加坡航空' },
-];
-const DEFAULT_TRANSLATION_TERMS = [
-  { ko: '주기장', en: 'apron' }, { ko: '램프', en: 'ramp' }, { ko: '슬롯', en: 'slot' },
-  { ko: '터미널', en: 'terminal' }, { ko: '탑승구', en: 'gate' }, { ko: '항공기 유도', en: 'marshalling' },
-  { ko: '토잉', en: 'towing' }, { ko: '토잉카', en: 'towing car' }, { ko: '푸시백', en: 'pushback' },
-  { ko: '허브 공항', en: 'hub' }, { ko: '커브사이드', en: 'curbside' }, { ko: '랜드사이드', en: 'landside' },
-  { ko: '에어사이드', en: 'airside' }, { ko: '수하물 수취대', en: 'baggage claim' }, { ko: '방빙유지시간', en: 'holdover time' },
-  { ko: '제빙 작업', en: 'de-icing' }, { ko: '지상 활주', en: 'taxing' }, { ko: '유도로', en: 'taxiway' },
-  { ko: '활주로', en: 'runway' }, { ko: '주기장 번호', en: 'stand' }, { ko: '보안검색', en: 'screening' },
-  { ko: '촉수검색', en: 'pat-down' }, { ko: '회항', en: 'diversion' }, { ko: '체크인', en: 'check-in' },
-  { ko: '탑승동', en: 'concourse' }, { ko: '턴어라운드', en: 'turnaround' }, { ko: '지상조업 시간', en: 'turnaround time' },
-  { ko: '세관', en: 'customs' }, { ko: '출입국심사', en: 'immigration' }, { ko: '검역', en: 'quarantine' },
-];
-
-let _eidc = 0;
-function entryId() { return 'e' + Date.now().toString(36) + (_eidc++).toString(36) + Math.random().toString(36).slice(2, 5); }
-const cleanTerm = (v, n = 80) => String(v == null ? '' : v).trim().slice(0, n);
-
-// 시드 → entries[]
-function seedEntries() {
-  const out = [];
-  const namesOf = (o) => { const n = {}; for (const lg of TERM_LANGS) if (o[lg]) n[lg] = cleanTerm(o[lg]); return n; };
-  for (const a of DEFAULT_AIRLINES) {
-    out.push({ id: entryId(), category: 'airline', scope: ['*'], names: namesOf(a), mode: 'pair' });
-    if (a.alt) for (const lg of Object.keys(a.alt)) for (const v of a.alt[lg])
-      out.push({ id: entryId(), category: 'airline', scope: [lg], names: { ko: a.ko, [lg]: cleanTerm(v, 40) }, mode: 'inputOnly' });
-  }
-  for (const s of DEFAULT_TERMS_AVIATION) out.push({ id: entryId(), category: 'aviation', scope: ['*'], names: { ko: cleanTerm(s) }, mode: 'recognize' });
-  for (const r of DEFAULT_TRANSLATION_TERMS) out.push({ id: entryId(), category: 'aviation', scope: ['*'], names: namesOf(r), mode: 'pair' });
-  return out;
-}
-
-function sanitizeServed(v) {
-  const arr = Array.isArray(v) ? v.filter((x) => TERM_LANGS.includes(x)) : [];
-  const set = [...new Set(['ko', ...(arr.length ? arr : DEFAULT_SERVED_LANGS)])];
-  return set.filter((x) => TERM_LANGS.includes(x));
-}
-function sanitizeCatScope(v) {
-  const out = {};
-  for (const c of TERM_CATEGORIES) {
-    const d = (v && v[c]) || DEFAULT_CATEGORY_SCOPE[c];
-    out[c] = { desk: d.desk !== false, session: d.session !== false };
-  }
-  return out;
-}
-function normEntry(e) {
-  if (!e || typeof e !== 'object') return null;
-  const category = TERM_CATEGORIES.includes(e.category) ? e.category : 'etc';
-  const mode = ['pair', 'inputOnly', 'recognize'].includes(e.mode) ? e.mode : 'pair';
-  let scope = Array.isArray(e.scope) ? [...new Set(e.scope.map((x) => String(x)).filter((x) => x === '*' || TERM_LANGS.includes(x)))] : [];
-  if (!scope.length) scope = ['*'];
-  const names = {};
-  const src = e.names && typeof e.names === 'object' ? e.names : e; // names 없이 평면으로 와도 수용
-  for (const lg of TERM_LANGS) { const v = cleanTerm(src[lg]); if (v) names[lg] = v; }
-  if (!names.ko) return null; // ko 필수(키·타깃)
-  return { id: (e.id && String(e.id).slice(0, 40)) || entryId(), category, scope, names, mode };
-}
-
-// 구형(terms{}, translationTerms[] with alt) → entries[]
-function migrateToEntries(b) {
-  const entries = [];
-  const airlineKo = new Set(DEFAULT_AIRLINES.map((a) => a.ko));
-  const avTermKo = new Set(DEFAULT_TRANSLATION_TERMS.map((r) => r.ko).concat(DEFAULT_TERMS_AVIATION));
-  const pairKo = new Set();
-  // 구형 {source,target} 또는 다국어 행
-  for (const r of Array.isArray(b.translationTerms) ? b.translationTerms : []) {
-    if (!r || typeof r !== 'object') continue;
-    const names = {};
-    if (r.source != null || r.target != null) { if (cleanTerm(r.target)) names.ko = cleanTerm(r.target); if (cleanTerm(r.source)) names.en = cleanTerm(r.source); }
-    else for (const lg of TERM_LANGS) { const v = cleanTerm(r[lg]); if (v) names[lg] = v; }
-    if (!names.ko) continue;
-    pairKo.add(names.ko);
-    const category = airlineKo.has(names.ko) ? 'airline' : (avTermKo.has(names.ko) ? 'aviation' : 'etc');
-    entries.push({ id: entryId(), category, scope: ['*'], names, mode: 'pair' });
-    if (r.alt && typeof r.alt === 'object') for (const lg of TERM_LANGS) for (const v of (Array.isArray(r.alt[lg]) ? r.alt[lg] : [])) {
-      const av = cleanTerm(v, 40); if (av) entries.push({ id: entryId(), category, scope: [lg], names: { ko: names.ko, [lg]: av }, mode: 'inputOnly' });
-    }
-  }
-  // 구형 terms(고유명사 문자열) → recognize (번역쌍이 이미 있는 ko 는 제외)
-  const t = b.terms;
-  const pushRec = (cat, s) => { const v = cleanTerm(s); if (v && !pairKo.has(v)) entries.push({ id: entryId(), category: cat, scope: ['*'], names: { ko: v }, mode: 'recognize' }); };
-  if (Array.isArray(t)) for (const s of t) pushRec(DEFAULT_TERMS_AVIATION.includes(cleanTerm(s)) ? 'aviation' : 'etc', s);
-  else if (t && typeof t === 'object') {
-    for (const s of (Array.isArray(t.aviation) ? t.aviation : [])) pushRec('aviation', s);
-    for (const s of (Array.isArray(t.etc) ? t.etc : [])) pushRec('etc', s);
-    for (const s of (Array.isArray(t.facility) ? t.facility : [])) pushRec('facility', s);
-    // t.airline 은 항공사 ko 이름의 중복이라 번역쌍이 커버 → 무시
-  }
-  return entries;
-}
-
-// 로드·PUT·업로드 공용 정규화 → 항상 v3 shape 반환
-function normalizeTermsConfig(b) {
-  b = b || {};
-  let entries;
-  if (Array.isArray(b.entries)) { entries = []; for (const e of b.entries) { const n = normEntry(e); if (n) entries.push(n); if (entries.length >= 4000) break; } }
-  else entries = migrateToEntries(b);
-  return { version: 3, servedLangs: sanitizeServed(b.servedLangs), categoryScope: sanitizeCatScope(b.categoryScope), entries };
-}
-
 await loadStore();
-if (!termsConfig.updatedAt) {
-  termsConfig = { version: 3, servedLangs: DEFAULT_SERVED_LANGS.slice(), categoryScope: sanitizeCatScope(), entries: seedEntries(), updatedAt: Date.now() };
-  try { await persistTermsConfig(); console.log('[terms] 기본 용어 시드 저장 (v3)'); } catch (e) { console.error('[terms] 시드 저장 실패', e); }
-} else if (!Array.isArray(termsConfig.entries)) {
-  // 구형(terms/translationTerms) → v3 entries 자동 마이그레이션(1회). 시드에만 있고 없는 항목은 병합.
-  const mig = normalizeTermsConfig(termsConfig);
-  const haveKey = new Set(mig.entries.map((e) => e.category + '|' + e.mode + '|' + (e.names.ko || '') + '|' + (e.scope || []).join(',')));
-  for (const se of seedEntries()) { const k = se.category + '|' + se.mode + '|' + (se.names.ko || '') + '|' + (se.scope || []).join(','); if (!haveKey.has(k)) mig.entries.push(se); }
-  termsConfig = { ...mig, updatedAt: Date.now() };
-  try { await persistTermsConfig(); console.log(`[terms] 구형 → v3 통합모델 마이그레이션 (${termsConfig.entries.length} entries)`); } catch (e) { console.error('[terms] 마이그레이션 저장 실패', e); }
-}
+await initTermsConfig(); // 용어 시드·마이그레이션·기본 번역 병합(store/terms.js)
 
-/* ---- 용어 기본 번역 병합(부팅 시 1회, 멱등) ----
-   저장소(Mongo/파일) 어디에 있든, 아래 표의 한국어 용어에서 en/ja/zh 가 비어 있으면 채운다.
-   (파일만 고치면 Mongo 환경에 반영되지 않던 문제 — 코드 레벨 병합으로 로컬·배포 모두 보장) */
-const TERM_FILL = {
-  '주기장': { ja: '駐機場', zh: '停机坪' }, '램프': { ja: 'ランプ', zh: '机坪' }, '슬롯': { ja: 'スロット', zh: '时刻' },
-  '터미널': { ja: 'ターミナル', zh: '航站楼' }, '탑승구': { ja: '搭乗口', zh: '登机口' }, '항공기 유도': { ja: 'マーシャリング', zh: '飞机引导' },
-  '토잉': { ja: 'トーイング', zh: '拖曳' }, '토잉카': { ja: 'トーイングカー', zh: '拖车' }, '푸시백': { ja: 'プッシュバック', zh: '推出' },
-  '허브 공항': { ja: 'ハブ空港', zh: '枢纽机场' }, '커브사이드': { ja: 'カーブサイド', zh: '路边区' }, '랜드사이드': { ja: 'ランドサイド', zh: '陆侧' },
-  '에어사이드': { ja: 'エアサイド', zh: '空侧' }, '수하물 수취대': { ja: '手荷物受取台', zh: '行李转盘' },
-  '방빙유지시간': { ja: '防氷持続時間', zh: '防冰保持时间' }, '제빙 작업': { ja: '除氷作業', zh: '除冰作业' },
-  '지상 활주': { ja: '地上走行', zh: '滑行' }, '유도로': { ja: '誘導路', zh: '滑行道' }, '활주로': { ja: '滑走路', zh: '跑道' },
-  '주기장 번호': { ja: 'スポット番号', zh: '机位号' }, '보안검색': { ja: '保安検査', zh: '安检' }, '촉수검색': { ja: '接触検査', zh: '人身检查' },
-  '회항': { ja: 'ダイバート', zh: '备降' }, '체크인': { ja: 'チェックイン', zh: '值机' }, '탑승동': { ja: 'コンコース', zh: '登机廊' },
-  '턴어라운드': { ja: 'ターンアラウンド', zh: '过站' }, '지상조업 시간': { ja: 'ターンアラウンドタイム', zh: '过站时间' },
-  '세관': { ja: '税関', zh: '海关' }, '출입국심사': { ja: '出入国審査', zh: '边检' }, '검역': { ja: '検疫', zh: '检疫' },
-  '에어로케이': { zh: 'Aero K' }, '타이에어아시아엑스': { zh: '泰国亚洲航空长途' },
-  '섬에어': { en: 'Sum Air', ja: 'サムエア', zh: 'Sum Air' }, // 기존에 ko 만 있던 항목도 채움(추가 목록만으론 스킵됨)
-};
-const TERM_FILL_ADD = [ // 없으면 추가되는 항목
-  { category: 'airline', scope: ['*'], names: { ko: '섬에어', en: 'Sum Air', ja: 'サムエア', zh: 'Sum Air' }, mode: 'pair' },
-];
-{
-  let filled = 0, added = 0;
-  for (const e of termsConfig.entries || []) {
-    if (e.mode !== 'pair' || !e.names) continue;
-    const f = TERM_FILL[e.names.ko];
-    if (!f) continue;
-    for (const [lg, v] of Object.entries(f)) if (!e.names[lg]) { e.names[lg] = v; filled++; }
-  }
-  for (const add of TERM_FILL_ADD) {
-    if (!(termsConfig.entries || []).some((e) => e.mode === 'pair' && e.names && e.names.ko === add.names.ko)) {
-      termsConfig.entries.push({ id: 'fill' + Math.random().toString(36).slice(2, 8), ...add });
-      added++;
-    }
-  }
-  if (filled || added) {
-    termsConfig.updatedAt = Date.now();
-    try { await persistTermsConfig(); console.log(`[terms] 기본 번역 병합 — ${filled}칸 채움, ${added}항목 추가`); } catch (e) { console.error('[terms] 병합 저장 실패', e); }
-  }
-}
-
-/* ---- 고유명사/번역 설정 저장 + Soniox context 구성 ---- */
-async function persistTermsConfig() {
-  if (termsConfigCol) {
-    await termsConfigCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...termsConfig }, { upsert: true });
-  } else {
-    writeDataFile(TERMS_FILE, JSON.stringify(termsConfig, null, 2));
-  }
-}
 // 데스크 모드 전용 general context — Soniox 에 "이 자리가 어떤 상황인지" 배경을 줘서
 // 저빈도·동음이의 단어(예 喫煙室=きつえんしつ) 인식률을 끌어올린다. context.general = [{key,value}].
 // 흡연실처럼 STT 가 자꾸 헷갈리는 단어는 value 에 일본어 표기를 괄호로 병기.
@@ -816,51 +198,13 @@ function buildSonioxContext(langs, opts = {}) {
   return Object.keys(ctx).length ? ctx : null;
 }
 
-function getSession(id) {
-  // 소프트 삭제된 세션은 일반 경로(목록·뷰어·WS·수정)에서 존재하지 않는 것으로 취급
-  return sessions.find((s) => s.id === id && !s.deletedAt);
-}
-// 삭제된 세션 포함 조회 — 관리자 로그·통계 전용(세션을 지워도 대화 기록은 보존·열람)
-function getSessionAny(id) {
-  return sessions.find((s) => s.id === id);
-}
-function newId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
-
-// 소유자 없는 (구) 세션 정리 — 멀티유저 전환 시 1회.
-{
-  const legacy = sessions.filter((s) => !s.owner);
-  if (legacy.length) {
-    sessions = sessions.filter((s) => s.owner);
-    legacy.forEach((s) => deleteSessionStore(s.id));
-    if (!col) saveSessions();
-    console.log(`[store] 소유자 없는 구 세션 ${legacy.length}개 삭제`);
-  }
-}
-
-// 실시간 번역 모드 개편(3종 → 2종) 이전 — 부팅 시 1회, 바뀐 세션만 저장.
-// 구 'PC 음성 번역'(oneway)은 소스가 PC 소리였으므로 src 가 없으면 system 으로 채운다(신규 생성 기본값 mic 과 다름).
-{
-  let moved = 0;
-  for (const s of sessions) {
-    if (s.pipeline !== 'soniox' || !s.preset) continue;
-    const m = normalizeMode(s.preset, s.src, s.preset === 'oneway' ? 'system' : 'mic');
-    if (m && (m.preset !== s.preset || m.src !== s.src)) { s.preset = m.preset; s.src = m.src; saveSessions(s.id); moved++; }
-  }
-  if (moved) console.log(`[store] 실시간 번역 모드 이전 ${moved}개 (live/oneway/twoway·구 프리셋 → 실시간 번역/양방향 통역 + 소스)`);
-}
+migrateSessions(); // 소유자 없는 구 세션 정리 + 실시간 번역 모드 이전(store/sessions.js)
 
 /* ================================================================== */
 /*  인증 (사용자 계정 + 관리자) — 호스트(데스크톱)만 보호               */
 /*  관리자: 환경변수 ADMIN_ID/ADMIN_PASSWORD. 일반 사용자: 관리자가 생성.*/
 /*  모바일 뷰어는 항상 공개: /ws/viewer, GET /api/sessions/:id, /api/qr  */
 /* ================================================================== */
-const ADMIN_ID = process.env.ADMIN_ID || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
-const AUTH_SECRET =
-  process.env.AUTH_SECRET || crypto.createHash('sha256').update('kac::' + ADMIN_PASSWORD).digest('hex');
-const AUTH_COOKIE = 'kac_auth';
 if (!process.env.ADMIN_PASSWORD)
   console.warn('[auth] ADMIN_PASSWORD 미설정 — 기본값 "admin" 사용 중. 운영 전 반드시 설정하세요.');
 // 운영(production) 게이트: 기본 비밀번호·파생 시크릿은 쿠키 위조(관리자 탈취)로 직결되므로 기동을 중단한다.
@@ -953,13 +297,6 @@ function requireAdmin(req, res, next) {
   if (u.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
   req.user = u;
   next();
-}
-function addUsage(userId, ms) {
-  if (!userId || !ms || ms < 0) return;
-  const u = users.find((x) => x.id === userId); // 관리자는 가상 사용자라 집계 대상 아님
-  if (!u) return;
-  u.usageMs = (u.usageMs || 0) + ms;
-  saveUsers();
 }
 
 /* ---- 본인 계정: 프로필(이메일·환경설정) + 정보 변경 + 탈퇴 ----
@@ -1061,41 +398,6 @@ app.delete('/api/me', requireAuth, (req, res) => {
   clearAuthCookie(res);
   res.json({ ok: true });
 });
-/* ---- 경량 모니터링: 프로세스 상태 + 최근 오류(서버·클라이언트) ---- */
-const metrics = { startedAt: Date.now(), errors: [], clientErrors: [], saveFail: null, deskLogFull: [] };
-/* deskLog(응대 기록) 보존 상한 — 넘치면 가장 오래된 응대부터 버리되, 관리자가 알 수 있게 기록을 남긴다.
-   (지금까지는 조용히 잘려서 데이터가 사라진 사실 자체를 아무도 몰랐다)
-
-   건수 상한과 별개로 **바이트 상한**을 함께 둔다: 데스크 세션은 deskLog 를 품은 문서 1개라
-   Mongo 문서 한도(16MB)를 넘기면 replaceOne 이 통째로 실패한다 — 오래된 응대 몇 건이 잘리는 것과 달리
-   그 데스크의 저장이 전부 멈춰 새 응대까지 사라진다. 잘림보다 훨씬 나쁜 실패라 먼저 막는다.
-   item.toks(단어별 신뢰도)는 지우지 않는다 — tools/eval/conf-analyze.mjs 가 이걸 읽어 confFix 임계값 근거를
-   뽑고, 공항 실소음·실억양의 신뢰도 분포는 시범 기간에만 얻을 수 있는 데이터다. */
-const DESKLOG_MAX_BYTES = 8 * 1024 * 1024;
-function capDeskLog(session) {
-  if (!Array.isArray(session.deskLog)) return;
-  let dropped = 0;
-  if (session.deskLog.length > DESKLOG_CAP) {
-    dropped = session.deskLog.length - DESKLOG_CAP;
-    session.deskLog = session.deskLog.slice(-DESKLOG_CAP);
-  }
-  let bytes = Buffer.byteLength(JSON.stringify(session.deskLog));
-  while (bytes > DESKLOG_MAX_BYTES && session.deskLog.length > 1) {
-    bytes -= Buffer.byteLength(JSON.stringify(session.deskLog.shift()));
-    dropped++;
-  }
-  if (!dropped) return;
-  const hit = metrics.deskLogFull.find((x) => x.id === session.id);
-  if (hit) { hit.dropped += dropped; hit.at = Date.now(); }
-  else metrics.deskLogFull.push({ id: session.id, title: session.title || '', dropped, at: Date.now() });
-  if (metrics.deskLogFull.length > 30) metrics.deskLogFull.shift();
-}
-function logErr(scope, err) {
-  const e = { at: Date.now(), scope, msg: String((err && err.message) || err).slice(0, 300) };
-  metrics.errors.push(e);
-  if (metrics.errors.length > 100) metrics.errors.shift();
-  console.error(`[${scope}]`, (err && err.stack) || err);
-}
 process.on('uncaughtException', (e) => logErr('uncaught', e));
 // 재배포·재시작(SIGTERM/SIGINT) 시 디바운스 저장분(세션 ~400ms·사용량 ~1s) 유실 방지 — flush 후 종료
 let shuttingDown = false;
@@ -1259,7 +561,7 @@ app.delete('/api/admin/logs/desk/:sid/:idx', requireAdmin, (req, res) => {
 // 소프트 삭제된 세션의 로그까지 지우면 남는 게 없으므로 껍데기도 완전 제거(저장소 포함)
 const purgeIfDeleted = (s) => {
   if (!s.deletedAt) return false;
-  sessions = sessions.filter((x) => x.id !== s.id);
+  setSessions(sessions.filter((x) => x.id !== s.id));
   deleteSessionStore(s.id);
   if (!col) saveSessions();
   return true;
@@ -1437,7 +739,7 @@ app.post('/api/admin/reset-all', requireAdmin, async (req, res) => {
     s.wayfindLog = [];
     s.updatedAt = Date.now();
   }
-  sessions = kept;
+  setSessions(kept);
   dirtySessions.clear();
   try {
     if (col) {
@@ -1471,11 +773,10 @@ app.put('/api/desk-registry', requireAdmin, async (req, res) => {
     floor: ['1F', '2F', '3F', '4F'].includes(d.floor) ? d.floor : '1F',
     side: ['E', 'W', 'S', 'N'].includes(d.side) ? d.side : 'S',
   })).filter((d) => d.name);
-  deskRegistry = { desks };
+  setDeskRegistry({ desks });
   try { await persistDeskRegistry(); } catch (e) { return res.status(500).json({ error: '저장 실패: ' + e.message }); }
   res.json(deskRegistry);
 });
-
 
 /* ---- 관리자 2FA(TOTP, RFC 6238) ----
    Google Authenticator 등 표준 OTP 앱 호환. 시크릿은 env ADMIN_TOTP_SECRET(우선) 또는
@@ -1629,7 +930,7 @@ function deleteUserAccount(id) {
   }
   const owned = sessions.filter((s) => s.owner === id).map((s) => s.id);
   if (owned.length) {
-    sessions = sessions.filter((s) => s.owner !== id);
+    setSessions(sessions.filter((s) => s.owner !== id));
     owned.forEach((sid) => { deleteSessionStore(sid); closeSessionRoom(sid); });
     if (!col) saveSessions();
   }
@@ -1676,8 +977,6 @@ app.get('/api/admin/usage', requireAdmin, (req, res) => {
    - Cartesia: GET /usage/credits (⚠ 관리자 키 CARTESIA_ADMIN_API_KEY = sk_car_admin_… 필요) — 일별 크레딧
    - OpenAI: GET /v1/organization/costs (⚠ 관리자 키 OPENAI_ADMIN_API_KEY = sk-admin-… 필요) — 일별 비용(USD)
    키가 없는 벤더는 configured=false 로 내려 UI 가 내부 집계 폴백을 안내한다. 10분 캐시(과금·쿼터 보호). */
-const CARTESIA_ADMIN_API_KEY = process.env.CARTESIA_ADMIN_API_KEY || '';
-const OPENAI_ADMIN_API_KEY = process.env.OPENAI_ADMIN_API_KEY || '';
 // 벤더 사용량 API 공용 fetch — 429(레이트리밋)면 Retry-After 만큼 기다렸다 1회 재시도.
 // (OpenAI costs API 는 30req/min 제한 — 재배포 직후 부팅 갱신이 겹치면 429 가 났다가 10분간 오류로 남던 문제)
 async function vendorFetch(url, opts) {
@@ -1884,7 +1183,7 @@ app.get('/api/terms-config', requireAuth, (req, res) => {
 });
 app.put('/api/terms-config', requireAdmin, async (req, res) => {
   // 신 스키마(entries) + 구형(terms/translationTerms/alt, JSON 업로드) 모두 정규화 수용
-  termsConfig = { ...normalizeTermsConfig(req.body || {}), updatedAt: Date.now() };
+  setTermsConfig({ ...normalizeTermsConfig(req.body || {}), updatedAt: Date.now() });
   try { await persistTermsConfig(); }
   catch (e) {
     // 저장 실패를 200 으로 숨기지 않는다 — 관리자는 저장된 줄 알지만 재기동 시 유실되던 문제
@@ -2139,7 +1438,7 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
       saveSessions();
     } else {
       // 일반 세션: 대화 기록까지 완전 삭제(2026-10-22 — 삭제한 대화가 관리자 로그에 남지 않게, 회의 녹취 개인정보)
-      sessions = sessions.filter((x) => x.id !== s.id);
+      setSessions(sessions.filter((x) => x.id !== s.id));
       deleteSessionStore(s.id);
       if (!col) saveSessions();
     }
@@ -2242,7 +1541,6 @@ function isSelfEcho(sessionId, text) {
   }
   return false;
 }
-
 
 /* ------------------------------------------------------------------ */
 /*  로컬 네트워크 IP (모바일 접속용)                                    */
@@ -2395,26 +1693,6 @@ function viewerAccessOk(req, sessionId) {
   return !!currentUser(req) || viewerTokenValid(sessionId, req.query && req.query.t);
 }
 
-/* ---- 참여 코드(2026-10-27): 짧은 QR 주소 /j/K7Q2M9 · 안내데스크 /desk/K7Q2M9 ----
-   세션마다 6자리(헷갈리는 0·O·1·I·L 제외 31자 → 약 8.9억 가지)를 한 번 만들어 세션에 저장한다(인쇄 QR 이 계속 유효).
-   코드를 아는 것 = 뷰어 토큰을 가진 것과 같은 권한 — 페이지가 그 세션의 토큰을 받아 기존 경로(/ws/viewer?t=)로 접속한다.
-   무작위 대입은 IP 당 틀린 코드 횟수로 막는다. */
-const JOIN_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-function newJoinCode() {
-  let c;
-  do { c = Array.from(crypto.randomBytes(6), (b) => JOIN_ALPHABET[b % JOIN_ALPHABET.length]).join(''); }
-  while (sessions.some((x) => x.joinCode === c));
-  return c;
-}
-function ensureJoinCode(s) {
-  if (!s.joinCode) { s.joinCode = newJoinCode(); saveSessions(s.id); }
-  return s.joinCode;
-}
-function sessionByJoinCode(code) {
-  const c = String(code || '').trim().toUpperCase();
-  if (!/^[0-9A-Z]{6}$/.test(c)) return null;
-  return sessions.find((x) => !x.deletedAt && x.joinCode === c) || null;
-}
 const joinMisses = new Map(); // ip -> { n, at } — 틀린 코드 10분에 20번 넘으면 잠시 차단
 function joinBlocked(ip) {
   const m = joinMisses.get(ip);
