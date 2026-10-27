@@ -11,11 +11,13 @@ import { b32encode, totpVerify, echoNorm, echoMatch } from './server/util/securi
 import { kstDay, CONFFIX, confFixReal, confFixTrigger, confFixMark, isAckOnly, stripFillers, deskCtlAllowed } from './server/util/pipeline_util.js';
 import path from 'path';
 import { Readable } from 'node:stream';
-import { PORT, OPENAI_API_KEY, TRANSLATE_MODEL, REFINE_MODEL, TARGET_LANG, ITEMS_CAP, PRESET_SRC, normalizeMode, SX_MAX_FAILS, sxRetryDelay, DESKLOG_CAP, SONIOX_API_KEY, SONIOX_LANGS, CARTESIA_API_KEY, CARTESIA_VERSION, CARTESIA_MODEL, DESKTOP_REPO, GITHUB_TOKEN, DESKTOP_DOWNLOAD_URL, LANG_NAMES, ALL_LANGS, STATIC_DIR, DATA_DIR, PRICE_WHISPER_PER_MIN, PRICE_TRANSLATE_PER_MIN, ADMIN_ID, ADMIN_PASSWORD, AUTH_SECRET, AUTH_COOKIE, CARTESIA_ADMIN_API_KEY, OPENAI_ADMIN_API_KEY } from './server/config.js';
+import { PORT, OPENAI_API_KEY, TRANSLATE_MODEL, REFINE_MODEL, TARGET_LANG, ITEMS_CAP, PRESET_SRC, normalizeMode, SX_MAX_FAILS, sxRetryDelay, DESKLOG_CAP, SONIOX_API_KEY, SONIOX_LANGS, CARTESIA_API_KEY, CARTESIA_VERSION, CARTESIA_MODEL, DESKTOP_REPO, GITHUB_TOKEN, DESKTOP_DOWNLOAD_URL, LANG_NAMES, ALL_LANGS, STATIC_DIR, PRICE_WHISPER_PER_MIN, PRICE_TRANSLATE_PER_MIN, ADMIN_ID, ADMIN_PASSWORD, AUTH_COOKIE, CARTESIA_ADMIN_API_KEY, OPENAI_ADMIN_API_KEY } from './server/config.js';
 import { metrics, logErr } from './server/metrics.js';
-import { dataKey, writeDataFile, readDataFile, sessions, users, usageDaily, usageHourly, vendorUsage, termsConfig, deskRegistry, profiles, col, profilesCol, setSessions, setTermsConfig, setDeskRegistry, loadStore, recordTts, persistDeskRegistry, dirtySessions, sessionsFlushInflight, saveSessions, flushSessions, deleteSessionStore, saveUsers, flushUsers, deleteUserStore, saveProfiles, deleteProfileStore, costOfDay, recordUsage, flushUsage, persistTermsConfig, addUsage } from './server/store/index.js';
+import { dataKey, sessions, users, usageDaily, usageHourly, vendorUsage, termsConfig, deskRegistry, profiles, col, profilesCol, setSessions, setTermsConfig, setDeskRegistry, loadStore, recordTts, persistDeskRegistry, dirtySessions, sessionsFlushInflight, saveSessions, flushSessions, deleteSessionStore, saveUsers, flushUsers, deleteUserStore, saveProfiles, deleteProfileStore, costOfDay, recordUsage, flushUsage, persistTermsConfig, addUsage } from './server/store/index.js';
 import { TERM_LANGS, TERM_CATEGORIES, DEFAULT_SERVED_LANGS, sanitizeCatScope, normalizeTermsConfig, initTermsConfig } from './server/store/terms.js';
 import { getSession, getSessionAny, newId, migrateSessions, capDeskLog, ensureJoinCode, sessionByJoinCode } from './server/store/sessions.js';
+import { authBootCheck, isHttps, hashPassword, makeUser, verifyPassword, findUser, authToken, currentUser, requireAuth, requireAdmin, PASSWORD_MIN_LEN, EMAIL_RE, PREF_RULES, publicUser, clearAuthCookie, securityCfg, loadSecurityCfg, saveSecurityCfg, adminTotpSecret, LOGIN_WINDOW_MS, LOGIN_MAX_FAIL, loginFails, loginIp, loginKey, viewerToken, viewerTokenValid, viewerAccessOk } from './server/auth/index.js';
+import { forceHttps, securityHeaders, csrfGuard } from './server/auth/middleware.js';
 import { openSonioxWs, buildSonioxContextRaw, buildSonioxContext, validateSonioxPair, langJudge } from './server/vendors/soniox.js';
 import { confFixTerms, confFixLLM, reasoningEffort, polishText, translateText, spacingPolish } from './server/vendors/openai.js';
 import { cartesiaVoiceId, TTS_TEST_PHRASE, cartesiaTTSStream, cartesiaWarmup } from './server/vendors/cartesia.js';
@@ -28,38 +30,12 @@ app.set('trust proxy', 1); // Render 등 프록시 뒤 — req.ip / x-forwarded-
 
 // FORCE_HTTPS=1: http 접속을 https 로 301 리다이렉트(프록시 뒤에선 x-forwarded-proto 기준).
 // Render 등 관리형 호스팅은 자체적으로 https 를 강제하므로 자가 호스팅에서만 필요.
-if (process.env.FORCE_HTTPS === '1') {
-  app.use((req, res, next) => {
-    if (isHttps(req)) return next();
-    // PUBLIC_HOST 가 설정돼 있으면 그 호스트로만 리다이렉트(스푸핑된 Host/X-Forwarded-Host 로 인한 오픈 리다이렉트 방지)
-    const host = process.env.PUBLIC_HOST || String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-    if (!host || /^(localhost|127\.)/.test(host)) return next(); // 로컬 개발은 예외
-    return res.redirect(301, `https://${host}${req.originalUrl}`);
-  });
-}
+if (process.env.FORCE_HTTPS === '1') app.use(forceHttps); // auth/middleware.js
 
 // 보안 헤더
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
-  next();
-});
+app.use(securityHeaders);
 // CSRF 완화: /api 의 상태변경 요청은 동일 출처만 허용(쿠키 인증 보호)
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api') && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH' || req.method === 'DELETE')) {
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-    // Origin 이 없으면 Referer 로 폴백 검사(둘 다 없으면 브라우저 발 요청이 아니므로 통과 — curl 등 API 클라이언트)
-    const src = req.headers.origin || req.headers.referer;
-    if (src) {
-      let oh = '';
-      try { oh = new URL(src).host; } catch {}
-      if (oh && oh !== host) return res.status(403).json({ error: 'cross-origin request blocked' });
-    }
-  }
-  next();
-});
+app.use(csrfGuard);
 // JSON 바디 한도 차등: 기본 256kb(무인증 엔드포인트 대용량 파싱 DoS 방지),
 // 용어집 CSV 업로드(수천 행)가 오는 /api/terms-config 만 16mb 허용.
 const bigJson = express.json({ limit: '16mb' });
@@ -97,127 +73,7 @@ await loadStore();
 await initTermsConfig(); // 용어 시드·마이그레이션·기본 번역 병합(store/terms.js)
 
 migrateSessions(); // 소유자 없는 구 세션 정리 + 실시간 번역 모드 이전(store/sessions.js)
-
-/* ================================================================== */
-/*  인증 (사용자 계정 + 관리자) — 호스트(데스크톱)만 보호               */
-/*  관리자: 환경변수 ADMIN_ID/ADMIN_PASSWORD. 일반 사용자: 관리자가 생성.*/
-/*  모바일 뷰어는 항상 공개: /ws/viewer, GET /api/sessions/:id, /api/qr  */
-/* ================================================================== */
-if (!process.env.ADMIN_PASSWORD)
-  console.warn('[auth] ADMIN_PASSWORD 미설정 — 기본값 "admin" 사용 중. 운영 전 반드시 설정하세요.');
-// 운영(production) 게이트: 기본 비밀번호·파생 시크릿은 쿠키 위조(관리자 탈취)로 직결되므로 기동을 중단한다.
-// (파생 시크릿은 비밀번호만 알면 오프라인에서 계산 가능 — 2FA 도 우회됨. SECURITY_GUIDE.md 참고)
-// 검증 환경 등에서 의도적으로 건너뛰려면 ALLOW_INSECURE=1.
-if (process.env.NODE_ENV === 'production' && process.env.ALLOW_INSECURE !== '1') {
-  if (!process.env.AUTH_SECRET) {
-    console.error('\n[중단] 운영 환경에서 AUTH_SECRET 이 설정되지 않았습니다. `node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"` 로 생성해 환경변수로 설정하세요.\n');
-    process.exit(1);
-  }
-  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD === 'admin') {
-    console.error('\n[중단] 운영 환경에서 ADMIN_PASSWORD 가 기본값입니다. 강한 비밀번호로 설정하세요.\n');
-    process.exit(1);
-  }
-}
-if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET)
-  console.warn('[auth] (운영) AUTH_SECRET 미설정 — ADMIN_PASSWORD 에서 파생됩니다. 비번 변경 시 전원 로그아웃되니 AUTH_SECRET 고정 권장.');
-
-function getCookie(req, name) {
-  const h = req.headers.cookie || '';
-  for (const part of h.split(';')) {
-    const i = part.indexOf('=');
-    if (i < 0) continue;
-    if (part.slice(0, i).trim() === name) {
-      // 깨진 %-인코딩(%zz 등) 쿠키 1개가 모든 API 를 500 으로 만들지 않게 — 파싱 실패는 미로그인 취급
-      try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; }
-    }
-  }
-  return null;
-}
-function isHttps(req) {
-  return String(req.headers['x-forwarded-proto'] || req.protocol || '').split(',')[0].trim() === 'https';
-}
-function hashPassword(password, salt) {
-  return crypto.scryptSync(String(password), salt, 32).toString('hex');
-}
-function makeUser({ id, username, password, role }) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  return {
-    id, username: username || id, salt, hash: hashPassword(password, salt),
-    role: role || 'user', createdAt: Date.now(), usageMs: 0,
-  };
-}
-function verifyPassword(user, password) {
-  if (!user || !user.salt) return false;
-  const h = Buffer.from(hashPassword(password, user.salt), 'hex');
-  const e = Buffer.from(user.hash, 'hex');
-  return h.length === e.length && crypto.timingSafeEqual(h, e);
-}
-// 관리자는 env 기반 가상 사용자(저장 안 함).
-function findUser(id) {
-  if (id === ADMIN_ID) return { id: ADMIN_ID, username: '관리자', role: 'admin' };
-  return users.find((u) => u.id === id) || null;
-}
-// 토큰에 발급 시각을 포함해 30일 후 만료(탈취 쿠키가 영구히 유효하던 문제 수정).
-// 형식: id.발급ms.hmac — 구 형식(id.hmac)은 검증 실패로 자연 로그아웃(1회 재로그인).
-const TOKEN_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
-function authToken(id) {
-  const ts = Date.now().toString(36);
-  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(`${id}.${ts}`).digest('hex');
-  return `${encodeURIComponent(id)}.${ts}.${sig}`;
-}
-function userFromToken(tok) {
-  if (!tok) return null;
-  // 뒤에서부터 분해(id 에 '.' 이 포함될 수 있음): id.ts.sig
-  const p1 = tok.lastIndexOf('.');
-  const p2 = p1 > 0 ? tok.lastIndexOf('.', p1 - 1) : -1;
-  if (p2 < 0) return null;
-  const sig = tok.slice(p1 + 1);
-  const ts = tok.slice(p2 + 1, p1);
-  const id = decodeURIComponent(tok.slice(0, p2));
-  const issued = parseInt(ts, 36);
-  if (!Number.isFinite(issued) || Date.now() - issued > TOKEN_MAX_AGE_MS) return null;
-  const expect = crypto.createHmac('sha256', AUTH_SECRET).update(`${id}.${ts}`).digest('hex');
-  if (sig.length !== expect.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
-  return findUser(id);
-}
-function currentUser(req) {
-  return userFromToken(getCookie(req, AUTH_COOKIE));
-}
-function requireAuth(req, res, next) {
-  const u = currentUser(req);
-  if (!u) return res.status(401).json({ error: 'unauthorized' });
-  req.user = u;
-  next();
-}
-function requireAdmin(req, res, next) {
-  const u = currentUser(req);
-  if (!u) return res.status(401).json({ error: 'unauthorized' });
-  if (u.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-  req.user = u;
-  next();
-}
-
-/* ---- 본인 계정: 프로필(이메일·환경설정) + 정보 변경 + 탈퇴 ----
-   응답의 user 형태는 /api/me·PATCH /api/me·로그인 공통: { id, username, role, email, prefs }. */
-const PASSWORD_MIN_LEN = 4; // 비밀번호 최소 길이 — 본인 변경·관리자 생성/재설정 공통
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; // 단순 형식(x@y.z)만 — 실제 도달 여부는 검증하지 않음
-// 계정 동기화 환경설정(폰 앱 옵션) 화이트리스트 — 키별 검증 함수: 통과 시 저장할 값, 실패 시 undefined.
-// 정책: 모르는 키는 조용히 버린다(구/신 앱 버전 혼재 대비), 아는 키의 잘못된 값은 400(앱 버그를 드러냄),
-//       null 은 해당 키 삭제(기본값으로 되돌리기). 나머지 키는 기존 값에 병합.
-const PREF_RULES = {
-  sysLang: (v) => (['ko', 'en', 'ja'].includes(v) ? v : undefined),           // 시스템 UI 언어
-  nativeLang: (v) => (typeof v === 'string' && /^[a-z]{2,3}$/.test(v) ? v : undefined), // 내 언어(ISO 코드)
-  theme: (v) => (['light', 'dark', 'system'].includes(v) ? v : undefined),
-  fontScale: (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0.8 && v <= 1.6 ? Math.round(v * 20) / 20 : undefined), // 0.05 단위
-  ttsGender: (v) => (['f', 'm'].includes(v) ? v : undefined),                 // TTS 음성 성별
-};
-function publicUser(u) {
-  const p = profiles.get(u.id);
-  return { id: u.id, username: u.username, role: u.role, email: (p && p.email) || '', prefs: { ...((p && p.prefs) || {}) } };
-}
-function clearAuthCookie(res) {
-  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-}
+authBootCheck(); // 기본 비밀번호 경고 + 운영 게이트(auth/index.js)
 
 app.get('/api/me', (req, res) => {
   const u = currentUser(req);
@@ -676,14 +532,7 @@ app.put('/api/desk-registry', requireAdmin, async (req, res) => {
   res.json(deskRegistry);
 });
 
-/* ---- 관리자 2FA(TOTP, RFC 6238) ----
-   Google Authenticator 등 표준 OTP 앱 호환. 시크릿은 env ADMIN_TOTP_SECRET(우선) 또는
-   data/security.json(관리자 페이지에서 설정, DATA_KEY 설정 시 암호화 저장). */
-const SECURITY_FILE = path.join(DATA_DIR, 'security.json');
-let securityCfg = { adminTotpSecret: '' };
-try { if (fs.existsSync(SECURITY_FILE)) securityCfg = { ...securityCfg, ...JSON.parse(readDataFile(SECURITY_FILE)) }; } catch (e) { console.error('[2fa] security.json 로드 실패', e.message); }
-function saveSecurityCfg() { try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); writeDataFile(SECURITY_FILE, JSON.stringify(securityCfg, null, 2)); } catch (e) { console.error('[2fa] 저장 실패', e); } }
-const adminTotpSecret = () => process.env.ADMIN_TOTP_SECRET || securityCfg.adminTotpSecret || '';
+loadSecurityCfg(); // 관리자 2FA 시크릿(data/security.json)
 let pending2faSecret = ''; // 설정 진행 중 시크릿(코드 확인 후 저장)
 app.get('/api/admin/2fa', requireAdmin, (req, res) => res.json({ enabled: !!adminTotpSecret(), viaEnv: !!process.env.ADMIN_TOTP_SECRET }));
 app.post('/api/admin/2fa/setup', requireAdmin, async (req, res) => {
@@ -712,18 +561,6 @@ app.post('/api/admin/2fa/disable', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// 로그인 무차별 대입 방어: (IP+ID) 조합당 15분 내 8회 실패 시 15분 잠금.
-//  ── IP 단독으로 잠그면 공항 사내 NAT(직원 수십 명이 같은 공인 IP)에서 한 명의 오타가
-//     전 직원을 잠그므로, 계정 ID 를 키에 포함해 실패한 그 계정만 잠기게 한다.
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_MAX_FAIL = 8;
-const loginFails = new Map(); // "ip|id" -> { count, first, lockUntil }
-function loginIp(req) {
-  return String(req.ip || (req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || 'ip').trim();
-}
-function loginKey(req, id) {
-  return loginIp(req) + '|' + String(id || '').trim().toLowerCase();
-}
 app.post('/api/login', (req, res) => {
   const b = req.body || {};
   const id = String(b.id || '').trim();
@@ -1371,25 +1208,6 @@ async function sendLatestInstaller(res, plat) {
   } catch (e) {
     res.status(502).send('다운로드 실패: ' + ((e && e.message) || '오류'));
   }
-}
-
-/* ---- 뷰어(공개 QR) 접근 토큰 --------------------------------------------
-   세션 id 로부터 AUTH_SECRET 으로 파생하는 무상태 서명. QR/링크에 &t= 로 실어 보내고,
-   서버가 재계산해 대조한다. 세션마다 고정이라 인쇄 QR 이 계속 유효(데스크 운영과 호환)이고,
-   저장/마이그레이션이 필요 없다 — 기존 세션도 자동 적용. 목적: 세션 id 열거로 뷰어를 무단
-   개설하는 자동화 접근 차단(자원 고갈형 DoS 는 뷰어 접속 상한이 별도로 막는다).
-   로그인한 직원/관리자는 토큰 없이도 접근 가능(호스트 앱·관리자 화면 그대로 동작). */
-function viewerToken(sessionId) {
-  return crypto.createHmac('sha256', AUTH_SECRET).update('viewer:' + String(sessionId)).digest('hex').slice(0, 16);
-}
-function viewerTokenValid(sessionId, t) {
-  if (!t) return false;
-  const a = Buffer.from(String(t)); const b = Buffer.from(viewerToken(sessionId));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-// 공개 뷰어 라우트 게이트: 유효 토큰 또는 로그인 사용자만 통과.
-function viewerAccessOk(req, sessionId) {
-  return !!currentUser(req) || viewerTokenValid(sessionId, req.query && req.query.t);
 }
 
 const joinMisses = new Map(); // ip -> { n, at } — 틀린 코드 10분에 20번 넘으면 잠시 차단
