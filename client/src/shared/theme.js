@@ -4,36 +4,13 @@ import { createTheme, alpha } from '@mui/material/styles';
    - 보라(바이올렛)는 로고(favicon.svg)에만 남기고 UI 는 전부 뉴트럴 —
      주 버튼은 라이트=거의 검정(#1F1E1D 바탕·백색 글자), 다크=거의 백색(#FAF9F5 바탕·검정 글자).
    - radius 체계: shape 8 기준(sx borderRadius:1=8px, 1.5=12px). */
-// 시그니처 보라(favicon.svg 와 동일 계열) — 로고 + 관리자 데이터 시각화(그래프·강조 수치)와
-// nav 관리자 활성 하위메뉴에만 사용. 일반 버튼·본문에는 쓰지 않는다.
+// 시그니처 보라(favicon.svg 와 동일 계열) — 로고 + 관리자 데이터 시각화(그래프·강조 수치)에만 사용.
+// 일반 버튼·본문에는 쓰지 않는다(PC 새 화면 ?ui=v2 는 brand 테마).
 export const ACCENT = { dark: '#8579ff', light: '#5b4fe8' };
 // ---- 라운딩 표준 (sx borderRadius 단위: 1 = 8px) ----
 // panel: 카드·검색창·다이얼로그 내부 패널(12px) / control: 버튼·셀렉트류(theme shape 기본 8px 사용)
 // row: 목록 행 hover 배경(16px) / pill: 완전 원형. 새 UI 는 이 토큰만 사용할 것.
 export const RADIUS = { panel: 1.5, control: 1, row: 2, pill: 999 };
-// 사이드바 토큰 — Nav 에서 사용. nav 는 항상 콘텐츠보다 밝게:
-// 라이트=거의 백색(#FAF9F5) / 캔버스 #F5F4EE, 다크=#262624 / 캔버스 #1F1E1D.
-export const SIDEBAR = {
-  light: {
-    bg: '#ffffff',
-    text: 'rgba(31,30,29,0.85)',
-    textStrong: '#1f1e1d',
-    muted: 'rgba(31,30,29,0.52)',
-    hover: 'rgba(31,30,29,0.06)',
-    active: 'rgba(31,30,29,0.10)',
-    border: 'rgba(31,30,29,0.10)',
-  },
-  dark: {
-    bg: '#262624',
-    text: 'rgba(250,249,245,0.85)',
-    textStrong: '#faf9f5',
-    muted: 'rgba(250,249,245,0.52)',
-    hover: 'rgba(250,249,245,0.07)',
-    active: 'rgba(250,249,245,0.12)',
-    border: 'rgba(250,249,245,0.09)',
-  },
-};
-
 // brand: PC 새 화면(?ui=v2) — 폰 화면과 같은 보라 주색·흰 바탕·더 둥근 모서리
 export function buildTheme(mode, { brand = false } = {}) {
   const dark = mode === 'dark';

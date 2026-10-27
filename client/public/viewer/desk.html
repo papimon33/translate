@@ -121,7 +121,7 @@
     opacity:0; pointer-events:none; transition:opacity .25s; z-index:20; max-width:86vw; text-align:center; }
   #toast.show { opacity:.94; }
 
-  /* 대화 흐름(transcript): 아래=최신(선명), 위로 갈수록 흐려짐(마스크) — 지도 포함 */
+  /* 대화 흐름(transcript): 아래=최신(선명), 위로 갈수록 흐려짐(마스크) */
   /* 하단 정렬은 justify-content:flex-end 대신 ::before 스페이서로 — flex-end + overflow 조합은
      iOS 사파리에서 위쪽 넘친 내용이 스크롤 불가(clipping)해지는 문제가 있음 */
   #stage { flex-direction:column; align-items:stretch; overflow-y:auto;
@@ -145,20 +145,6 @@
   .turn.draft .bub { opacity:.5; }
   .turn.staff .bub { background:var(--bubStaff); color:var(--bubStaffFg); border-bottom-left-radius:7px; }
   .turn.self  .bub { background:var(--bubSelf);  color:var(--bubSelfFg);  border-bottom-right-radius:7px; }
-
-  /* 길안내 맵 — 화면 상단 고정 플로팅(대화와 독립). 탭하거나 10초 뒤 자동으로 닫힌다. */
-  .item.map { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 14px); left:14px; right:14px; z-index:70; margin:0;
-    border:1px solid var(--line); border-radius:20px; overflow:hidden; background:var(--card);
-    box-shadow:0 14px 44px rgba(0,0,0,.28); display:flex; flex-direction:column; cursor:pointer; }
-  .mapHead { display:flex; align-items:center; gap:9px; padding:11px 14px; border-bottom:1px solid var(--line); }
-  .mapHead .mIco { color:var(--accent); display:inline-flex; flex:0 0 auto; }
-  .mapHead .mName { font-size:calc(16px * var(--fs)); font-weight:800; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .mapHead .mChips { margin-left:auto; display:flex; gap:6px; flex:0 0 auto; }
-  .mapHead .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); color:var(--chipFg);
-    font-size:13px; font-weight:700; padding:4px 10px; border-radius:20px; white-space:nowrap; }
-  .mapHead .mClose { border:none; background:transparent; color:var(--muted); font-size:17px; font-weight:700;
-    cursor:pointer; padding:4px 8px; margin-left:2px; flex:0 0 auto; }
-  .mapHolder { height:46vh; overflow:hidden; }
 
   /* 발화 대기: 마이크 + '말씀하세요'(손님 언어) + 점 애니메이션 */
   #dots { position:absolute; inset:0; display:flex; flex-direction:column; gap:20px; align-items:center; justify-content:center; pointer-events:none; }
@@ -364,35 +350,8 @@ const UI = {
   },
   consentBtn: { ko:'동의하고 시작', en:'Agree and start', ja:'同意して開始', zh:'同意并开始', vi:'Đồng ý và bắt đầu', th:'ยอมรับและเริ่ม', id:'Setuju dan mulai', ru:'Принять и начать', tl:'Sumang-ayon at magsimula', es:'Aceptar y comenzar', fr:'Accepter et commencer', de:'Zustimmen und starten', ar:'الموافقة والبدء' },
   endBtn: { ko:'대화 종료', en:'End conversation', ja:'会話を終了', zh:'结束对话', vi:'Kết thúc', th:'จบการสนทนา', id:'Akhiri percakapan', ru:'Завершить', tl:'Tapusin', es:'Finalizar', fr:'Terminer', de:'Beenden', ar:'إنهاء المحادثة' },
-  walk:         { ko:'도보', en:'Walk', ja:'徒歩', zh:'步行', vi:'Đi bộ' },
-  min:          { ko:'분', en:' min', ja:'分', zh:'分钟', vi:' phút' },
 };
 function t(k){ const d = UI[k] || {}; return d[curLang] || d.en || d.ko || k; }
-/* 시설 카테고리 → 손님 언어 라벨(ko/en/ja/zh, 그 외 en 폴백) */
-const CAT_EN = { restroom:'Restroom', smoking:'Smoking area', pharmacy:'Pharmacy', convenience:'Convenience store',
-  exchange:'Currency exchange', charging:'Charging station', lounge:'Lounge', nursing:'Nursing room', prayer:'Prayer room',
-  water:'Water fountain', security:'Security check', immigration:'Immigration', customs:'Customs', duty_free:'Duty free',
-  info_desk:'Information', baggage:'Baggage claim', gate:'Gate', food:'Restaurant', ticket:'Bus tickets',
-  wheelchair:'Wheelchair', stroller:'Stroller', aed:'AED', elevator:'Elevator', escalator:'Escalator', stairs:'Stairs' };
-const CAT_JA = { restroom:'トイレ', smoking:'喫煙所', pharmacy:'薬局', convenience:'コンビニ',
-  exchange:'両替所', charging:'充電スペース', lounge:'ラウンジ', nursing:'授乳室', prayer:'祈祷室',
-  water:'給水機', security:'保安検査場', immigration:'出入国審査', customs:'税関', duty_free:'免税店',
-  info_desk:'案内所', baggage:'手荷物受取所', gate:'搭乗ゲート', food:'レストラン', ticket:'バス乗車券',
-  wheelchair:'車椅子', stroller:'ベビーカー', aed:'AED', elevator:'エレベーター', escalator:'エスカレーター', stairs:'階段' };
-const CAT_ZH = { restroom:'洗手间', smoking:'吸烟区', pharmacy:'药店', convenience:'便利店',
-  exchange:'货币兑换', charging:'充电站', lounge:'休息室', nursing:'母婴室', prayer:'祈祷室',
-  water:'饮水机', security:'安检', immigration:'边检', customs:'海关', duty_free:'免税店',
-  info_desk:'问询处', baggage:'行李提取处', gate:'登机口', food:'餐厅', ticket:'巴士车票',
-  wheelchair:'轮椅', stroller:'婴儿车', aed:'AED', elevator:'电梯', escalator:'自动扶梯', stairs:'楼梯' };
-function catLabel(m){
-  if (curLang === 'ko') return m.ko || '';
-  if (curLang === 'ja') return CAT_JA[m.category] || CAT_EN[m.category] || m.ko || '';
-  if (curLang === 'zh') return CAT_ZH[m.category] || CAT_EN[m.category] || m.ko || '';
-  return CAT_EN[m.category] || m.ko || '';
-}
-function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||'';
-  return curLang==='ko' ? (n+'층') : curLang==='ja' ? (n+'階') : curLang==='zh' ? (n+'层') : (n+'F'); }
-
 /* ---- transcript 표시 ----
    발화 언어(lang) 기준으로 안내원(ko)/손님을 판별 — 번역이 늦게 도착해도 말풍선 방향이 바뀌지 않음.
    화자 라벨(안내원/나)은 표시하지 않고 좌우 정렬만 유지. */
@@ -415,7 +374,6 @@ function upsert(item){
     const bub = document.createElement('div'); bub.className = 'bub';
     el.appendChild(bub);
     c = { el, bub }; cards.set(item.id, c); $('stage').appendChild(el);
-    // (지도는 상단 플로팅 — 새 발화가 와도 유지, 10초 뒤 또는 탭으로 닫힘)
   }
   c.texts = item.texts || {}; c.source = item.source || '';
   // 확정 메시지는 draft 를 아예 안 보내므로 매번 덮어써야 한다(유지하면 영영 흐린 채로 남는다)
@@ -432,7 +390,6 @@ function rerender(){ cards.forEach(renderCard); }
 function clearAll(){
   cards.forEach(c => { try { c.el.remove(); } catch {} });
   cards.clear();
-  removeMap();
   $('dots').style.display = 'flex';
 }
 function applySxInfo(info){
@@ -450,93 +407,13 @@ function applySxInfo(info){
   }
   if(!started){ if (entered && hostActive) enterStage(info.b); return; } // 접속 시 이미 통역 중이면 바로 통역 화면으로
   curLang = info.b || curLang; setSvcPair();
-  rerender(); syncEndBtnLabel(); try { mapApi && mapApi.setLang(curLang); } catch {}
+  rerender(); syncEndBtnLabel();
 }
 function setSvcPair(){
   if (curLang === 'auto') { $('svcPair').textContent = 'Detecting language…'; $('svcLive').textContent = 'Speak in your language'; $('svcDot').style.display = ''; return; }
   $('svcPair').textContent = curLang === 'ko' ? '한국어' : '한국어 ↔ ' + (LANGNAME[curLang] || String(curLang).toUpperCase()); $('svcLive').textContent = t('interpreting'); $('svcDot').style.display = '';
 }
 function setSvcConnecting(){ $('svcPair').textContent = t('connecting'); $('svcLive').textContent = ''; $('svcDot').style.display = 'none'; }
-
-/* ---- 길안내 맵 (화면 상단 고정 플로팅, 단일 인스턴스) — 탭 또는 10초 뒤 닫힘 ---- */
-let mapApi = null, mapLoading = false, mapBlock = null, mapLoadTries = 0, mapHideTimer = null;
-const MAP_HIDE_MS = 10000;
-function loadMapScripts(cb){
-  if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
-  if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
-  if (mapLoadTries >= 3) return; // 에셋 404/오프라인 시 wayfind 마다 스크립트 태그가 무한 누적되던 문제 방지
-  mapLoadTries++;
-  mapLoading = true;
-  let n = 0; const done = () => { if (++n >= 2) { mapLoading = false; cb(); } };
-  for (const src of ['/map/wayfinding_data.js', '/map/airport25d.js']) {
-    const s = document.createElement('script'); s.src = src; s.onload = done; s.onerror = done; document.head.appendChild(s);
-  }
-}
-function ensureMapBlock(){
-  if (mapBlock) return mapBlock;
-  mapBlock = document.createElement('div'); mapBlock.className = 'item map';
-  const head = document.createElement('div'); head.className = 'mapHead';
-  head.innerHTML = '<span class="mIco"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span><span class="mName"></span><span class="mChips"></span><button class="mClose" aria-label="Close">✕</button>';
-  const holder = document.createElement('div'); holder.className = 'mapHolder';
-  mapBlock.appendChild(head); mapBlock.appendChild(holder);
-  mapBlock._holder = holder; mapBlock._head = head;
-  document.body.appendChild(mapBlock);
-  return mapBlock;
-}
-function mapTapClose(){ removeMap(); } // 지도만이 아니라 '화면 아무 곳이나' 탭하면 닫힘
-function removeMap(){
-  clearTimeout(mapHideTimer); mapHideTimer = null;
-  document.removeEventListener('click', mapTapClose, true);
-  // destroy() 를 호출해야 코멧 애니메이션 rAF 루프가 멈춘다 — 응대마다 루프가 누적돼 CPU/발열이 점증하던 문제
-  if (mapApi) { try { mapApi.destroy(); } catch {} }
-  if (mapBlock) { try { mapBlock.remove(); } catch {} }
-  mapBlock = null; mapApi = null;
-}
-function fillMapHead(m, res){
-  if (!mapBlock) return;
-  mapBlock._head.querySelector('.mName').textContent = catLabel(m) + ' · ' + floorLbl(m.floor);
-  const chips = mapBlock._head.querySelector('.mChips'); chips.textContent = '';
-  const sums = (res && res.summaries) || [];
-  if (sums.length){
-    const best = sums.reduce((a,b) => (b && a && b.meters < a.meters ? b : a), sums[0]);
-    if (best){
-      let html = '<span class="chip">' + t('walk') + ' ' + Math.max(1, Math.round(best.minutes||0)) + t('min') + '</span>';
-      if (best.meters) html += '<span class="chip">' + Math.round(best.meters) + ' m</span>';
-      chips.innerHTML = html;
-    }
-  }
-}
-function showWayfind(m){
-  if (!started) return;
-  loadMapScripts(() => {
-    // 에셋 로드 실패(404/오프라인) 시 빈 플로팅 카드가 10초간 화면을 덮지 않도록 — 카드 생성 전에 확인
-    if (!window.AirportMap25D || !window.AIRPORT_DATA) return;
-    const block = ensureMapBlock();
-    // 10초 뒤 자동 닫힘(새 안내가 오면 타이머 리셋). 다음 발화로는 닫히지 않는다.
-    clearTimeout(mapHideTimer);
-    mapHideTimer = setTimeout(removeMap, MAP_HIDE_MS);
-    // 화면 아무 곳이나 탭 → 닫힘(오픈 직후 터치 오등록 방지 300ms)
-    document.removeEventListener('click', mapTapClose, true);
-    setTimeout(() => { if (mapBlock) document.addEventListener('click', mapTapClose, true); }, 300);
-    const doRoute = () => {
-      try {
-        mapApi.setLang(curLang);
-        // 후보 시설이 여러 개면 전부 경로가 그려져 겹쳐 보이던 문제 →
-        // 1차 계산으로 최단 후보를 고른 뒤 그 하나만 다시 그린다.
-        let res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: m.dests });
-        const ok = (res.routes || []).filter((r) => r && !r.error && r.summary);
-        if (ok.length > 1) {
-          const best = ok.reduce((a, b) => ((b.summary.meters || 1e9) < (a.summary.meters || 1e9) ? b : a), ok[0]);
-          res = mapApi.showRoute({ deskFloor: m.deskFloor||'1F', deskSide: m.deskSide||'S', dest: best._dest });
-        }
-        fillMapHead(m, res);
-      } catch (e) {}
-    };
-    if (mapApi) { doRoute(); return; }
-    // 첫 생성: 층 래스터화(비동기) 끝난 뒤 경로 표시
-    mapApi = AirportMap25D.create({ container: block._holder, data: window.AIRPORT_DATA, lang: curLang, onReady: doRoute });
-  });
-}
 
 /* ---- WS: 입장 후 상시 연결 유지 — 호스트가 시작해도(desk-active) 뷰어가 즉시 통역 화면으로 전환 ---- */
 let refused = false; // 서버가 접속을 거부(정원 초과·IP 상한) — 안내 후 15초 뒤 다시 시도
@@ -581,7 +458,6 @@ function ensureWs(){
     else if (m.type === 'desk-guest-sens') setGuestSens(m.value); // 호스트가 여객 마이크 민감도 변경
     else if (m.type === 'desk-mic2') setHostMic2(!!m.on); // PC 호스트가 여객 마이크 직접 공급(2대 모드) — 이 태블릿은 표출 전용
     else if (m.type === 'desk-active') enterStage(m.lang);   // 통역 시작(손님 선택 또는 호스트 시작)
-    else if (m.type === 'wayfind') showWayfind(m);           // 시설 안내(호스트 승인 후) → 채팅 아래 인라인 지도
     else if (m.type === 'desk-idle-warn') showIdleWarn(m.secondsLeft || 10); // 무음 종료 예고(터치로 연장)
     // pendingLang(고지 화면, 동의 전)도 포함 — 아니면 손님이 언어만 고르고 자리를 떠도 '대기모드로'가 안 먹혀 다음 손님이 그 언어로 오인 시작됨
     else if (m.type === 'desk-reset') { if (started || pendingStart || pendingLang) backToTouch(started); } // 대화 종료 → (인사 후) 터치 화면
@@ -607,7 +483,6 @@ function enterStage(lang){
   if (lang) curLang = lang;
   $('speakTxt').textContent = t('speak'); // 발화 유도(손님 언어)
   setSvcPair(); rerender();
-  try { mapApi && mapApi.setLang(curLang); } catch {}
   show('stage');
   guestMicStart(); // 2채널: 여객 태블릿 마이크 상시 캡처 시작(실패 시 데스크 마이크 단일 채널로 동작)
 }

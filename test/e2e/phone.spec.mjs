@@ -46,11 +46,14 @@ test('실시간 번역 한 바퀴', async ({ page, browser }) => {
   await viewer.close();
 });
 
-test('목록 길게 누르기 — 이름 바꾸기', async ({ page }) => {
+test('목록 — 안내데스크는 안 보이고, 길게 누르면 이름 바꾸기', async ({ page }) => {
   await page.addInitScript(androidAudioStub);
   await login(page.request);
   await createSession(page.request, { title: 'E2E 길게', preset: 'twoway' });
+  await createSession(page.request, { title: 'E2E 폰에 안 보이는 데스크', pipeline: 'desk' }); // 안내데스크는 PC 전용
   await page.goto('/');
+  await expect(page.getByText('E2E 길게')).toBeVisible();
+  await expect(page.getByText('E2E 폰에 안 보이는 데스크')).toHaveCount(0);
   const row = page.getByText('E2E 길게');
   await row.dispatchEvent('contextmenu');
   await page.getByText('이름 바꾸기').click();

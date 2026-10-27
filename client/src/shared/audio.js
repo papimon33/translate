@@ -306,7 +306,7 @@ export async function startRecorder(opts) {
     pipeline === 'desk'
       ? `&sxSens=${encodeURIComponent(sxSens)}&sxMaxDelay=${encodeURIComponent(sxMaxDelay)}&sxLatency=${encodeURIComponent(sxLatency)}${
           deskLangs ? `&deskLangs=${encodeURIComponent(deskLangs)}` : ''
-        }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}${deskGuestSens != null ? `&deskGuestSens=${encodeURIComponent(deskGuestSens)}` : ''}${opts.wayfind === false ? '&wayfind=0' : ''}`
+        }${deskIdle ? `&deskIdle=${encodeURIComponent(deskIdle)}` : ''}${deskGuestSens != null ? `&deskGuestSens=${encodeURIComponent(deskGuestSens)}` : ''}`
       : ''
   }`;
   // 양방향 통역의 채널 분리: 채널마다 언어가 정해져 있으면 엔진이 언어를 추측할 필요가 없다(오판 제거).
@@ -429,7 +429,7 @@ export async function startRecorder(opts) {
   let nativeMicUsed = false; // 네이티브 캡처가 실제로 시작됐는지(stop 에서 브리지 정지용)
   // 녹음 중 변경된 제어 상태 — 자동 재연결 시 새 소켓은 시작 시점 URL 파라미터로 초기화되므로
   // 변경분(TTS on/off, 발화멈춤, 여객 민감도)을 재전송해 서버 상태가 되돌아가는 문제를 막는다
-  const ctlState = { audioOut: null, tts: null, guestSens: null, deskIdle: null, dropAcks: null, confFix: null, wayfindOn: null };
+  const ctlState = { audioOut: null, tts: null, guestSens: null, deskIdle: null, dropAcks: null, confFix: null };
   const resendState = (sock) => {
     try {
       if (ctlState.tts != null) sock.send(JSON.stringify({ type: 'tts', on: ctlState.tts.on, local: ctlState.tts.local !== false, ...(ctlState.tts.gender ? { gender: ctlState.tts.gender } : {}) }));
@@ -438,7 +438,6 @@ export async function startRecorder(opts) {
       if (ctlState.deskIdle != null) sock.send(JSON.stringify({ type: 'desk-idle', value: ctlState.deskIdle }));
       if (ctlState.dropAcks != null) sock.send(JSON.stringify({ type: 'dropAcks', on: ctlState.dropAcks }));
       if (ctlState.confFix != null) sock.send(JSON.stringify({ type: 'confFix', on: ctlState.confFix }));
-      if (ctlState.wayfindOn != null) sock.send(JSON.stringify({ type: 'wayfind-on', on: ctlState.wayfindOn }));
     } catch {}
   };
 
@@ -944,9 +943,6 @@ export async function startRecorder(opts) {
   function deskReset() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-reset-now' })); } catch {} } }
   // 데스크: 호스트 수동 통역 시작(손님 언어 지정) — soniox 세션이 이때 열림
   function deskStart(lang) { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'desk-start', lang })); } catch {} } }
-  // 데스크: 길안내 제안 승인(뷰어에 지도 표시) / 무시
-  function wayfindShow() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-show' })); } catch {} } }
-  function wayfindDismiss() { for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-dismiss' })); } catch {} } }
   // 녹음 중 마이크 민감도 실시간 변경(0~100) — 클라이언트 볼륨 게이트만 조정, 연결 유지
   function setMicSens(v) {
     micSensVal = Number(v);
@@ -975,8 +971,6 @@ export async function startRecorder(opts) {
   function setDropAcks(on) { ctlState.dropAcks = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'dropAcks', on: !!on })); } catch {} } }
   // 고급옵션: 저신뢰 자동 교정(GPT) — 녹음 중 실시간 토글
   function setConfFix(on) { ctlState.confFix = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'confFix', on: !!on })); } catch {} } }
-  // 데스크: 길안내 지도 기능 on/off — 녹음 중 실시간 토글(끄면 서버가 감지·GPT 분류 생략)
-  function setWayfindOn(on) { ctlState.wayfindOn = !!on; for (const p of pipes) { try { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ type: 'wayfind-on', on: !!on })); } catch {} } }
 
-  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, wayfindShow, wayfindDismiss, setMicSens, setMicSens2, setMicAuto, setGuestSens, setDeskIdle, setDropAcks, setConfFix, setWayfindOn };
+  return { stop, setAudioOut, setVolume, setMuted, setTts, deskReset, deskStart, setMicSens, setMicSens2, setMicAuto, setGuestSens, setDeskIdle, setDropAcks, setConfFix };
 }

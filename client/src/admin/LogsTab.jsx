@@ -201,7 +201,7 @@ function LogsPanel() {
         {/* 본문 */}
         {rows.length === 0 && (
           <EmptyHint icon={<RecordVoiceOverIcon sx={{ fontSize: 22 }} />} title={ql ? '검색 결과가 없습니다' : (mode === 'desk' ? '응대 기록이 없습니다' : '세션이 없습니다')}
-            desc={ql ? '다른 검색어를 시도해 보세요.' : (mode === 'desk' ? "'데스크 안내'에서 세션을 만들면 응대별 대화가 여기에 쌓입니다." : '세션이 생기면 대화 로그가 여기에 표시됩니다.')} />
+            desc={ql ? '다른 검색어를 시도해 보세요.' : (mode === 'desk' ? "새 세션에서 안내데스크를 만들면 응대별 대화가 여기에 쌓입니다." : '세션이 생기면 대화 로그가 여기에 표시됩니다.')} />
         )}
         {rows.map((r, i) => (
           <Box key={mode === 'desk' ? `${r.deskId}:${r.idx}` : r.id}

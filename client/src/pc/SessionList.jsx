@@ -16,9 +16,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import DialogTitle from '@mui/material/DialogTitle';
 import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Select from '@mui/material/Select';
+import Divider from '@mui/material/Divider';
 import Checkbox from '@mui/material/Checkbox';
 import Skeleton from '@mui/material/Skeleton';
 import Fab from '@mui/material/Fab';
@@ -38,6 +36,7 @@ import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import { api } from '../shared/api.js';
 import { RADIUS } from '../shared/theme.js';
+import { IcoHeadset } from './icons.jsx';
 
 function rel(ts) {
   const d = Date.now() - ts;
@@ -76,16 +75,18 @@ export function IconMode3(props) {
     </Box>
   );
 }
-// 새 세션 모달 — 모드 2종(번역 방향). 음성 입력(마이크/시스템)은 세션 안에서 고른다.
+// 새 세션 모달 — 모드 2종(번역 방향) + 관리자에게만 안내데스크(별도 항목). 음성 입력(마이크/시스템)은 세션 안에서 고른다.
 export const SITUATIONS = [
-  { v: 'oneway', title: '실시간 번역', badge: '강의·영상·웨비나', example: '들리는 음성을 원하는 언어로 번역 — 마이크 또는 시스템', Icon: IconMode1 },
-  { v: 'twoway', title: '양방향 통역', badge: '대면 대화·온라인 회의', example: '서로의 언어를 실시간으로 번역 — 마이크 또는 시스템 + 마이크', Icon: IconMode3 },
+  { v: 'oneway', title: '실시간 번역', badge: '강의·영상·웨비나', example: '마이크나 시스템 소리를 원하는 언어로 번역합니다.', Icon: IconMode1 },
+  { v: 'twoway', title: '양방향 통역', badge: '대면 대화·온라인 회의', example: '서로의 언어를 실시간으로 번역합니다. 마이크 또는 시스템 소리와 마이크를 함께 씁니다.', Icon: IconMode3 },
 ];
 // 세션 모드 표시명(라이브 헤더·목록 배지). 구 프리셋(live/online/mobile/field/meeting)은 서버가 부팅 시
 // 이 둘로 이전하지만, 이전 전 응답·캐시 대비로 같은 이름에 매핑해 둔다.
 export const TYPE_NAME = { oneway: '실시간 번역', twoway: '양방향 통역', live: '실시간 번역', online: '실시간 번역', mobile: '양방향 통역', field: '양방향 통역', meeting: '양방향 통역' };
 // 세션 모드 → 아이콘(목록·모달 공용)
 export const MODE_ICON = { oneway: IconMode1, twoway: IconMode3, live: IconMode1, online: IconMode1, mobile: IconMode3, field: IconMode3, meeting: IconMode3 };
+// 안내데스크 세션(PC 전용 — 폰 앱 목록에는 나오지 않는다). 서버가 관리자만 만들 수 있게 막는다.
+const DESK_OPTION = { v: 'desk', title: '안내데스크', badge: '대면 안내', example: '안내원과 손님의 대화를 서로의 언어로 번역합니다. 손님용 태블릿은 QR 코드로 연결합니다.', Icon: IcoHeadset };
 
 // 세션 목록 행 아이콘 — 유형 무관 단일 채팅 아이콘(요청: 목록 아이콘 통일)
 export function IcoChat(props) {
@@ -113,6 +114,39 @@ function Highlight({ text, q }) {
   return parts;
 }
 
+// 새 세션 모달의 항목 카드(아이콘 · 이름 · 배지 · 설명 · 선택 표시)
+function OptionCard({ p, sel, onClick }) {
+  const Ic = p.Icon;
+  return (
+    <Box
+      onClick={onClick}
+      role="button"
+      aria-pressed={sel}
+      sx={{
+        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2, borderRadius: 3.5, p: 1.75,
+        border: 2, borderColor: sel ? 'primary.main' : 'divider',
+        bgcolor: (t) => (sel ? alpha(t.palette.primary.main, 0.08) : 'transparent'),
+        transition: 'border-color .12s, background .12s',
+        '&:hover': { borderColor: sel ? 'primary.main' : 'text.disabled' },
+      }}
+    >
+      <Avatar variant="rounded" sx={{ width: 44, height: 44, borderRadius: 3, flex: 'none', bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>
+        <Ic sx={{ width: 23, height: 23 }} />
+      </Avatar>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 16 }}>{p.title}</Typography>
+          <Chip size="small" label={p.badge} sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
+        </Box>
+        <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.4 }}>{p.example}</Typography>
+      </Box>
+      <Box sx={{ width: 22, height: 22, flex: 'none', borderRadius: '50%', border: 2, borderColor: sel ? 'primary.main' : 'divider', bgcolor: sel ? 'primary.main' : 'transparent', display: 'grid', placeItems: 'center' }}>
+        {sel && <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" sx={{ width: 12, height: 12 }}><path d="M5 13l4 4 10-11" /></Box>}
+      </Box>
+    </Box>
+  );
+}
+
 // 중복되지 않는 기본 제목: "새 세션", "새 세션 1", "새 세션 2" ...
 function uniqueName(base, titles) {
   if (!titles.includes(base)) return base;
@@ -121,19 +155,18 @@ function uniqueName(base, titles) {
   return `${base} ${i}`;
 }
 
-export default function SessionList({ onOpen, user, deskMode, createSignal }) {
+export default function SessionList({ onOpen, user, createSignal }) {
   const isAdmin = user?.role === 'admin';
-  // 안내데스크 세션은 관리자만 생성·삭제(직원은 운영만)
-  const canManage = !deskMode || isAdmin;
+  // 안내데스크 세션은 관리자만 이름 변경·삭제(직원은 운영만)
+  const canManage = (s) => s.pipeline !== 'desk' || isAdmin;
   const [list, setList] = useState(null);
   const [q, setQ] = useState(''); // 검색어 — 제목+대화 내용(서버 검색)
   const [dlg, setDlg] = useState(false);
   const [name, setName] = useState('');
   const [editName, setEditName] = useState(false); // 새 세션 모달 제목 편집
-  const [preset, setPreset] = useState('oneway'); // 세션 모드(oneway=실시간 번역 / twoway=양방향 통역)
-  const [deskStat, setDeskStat] = useState({}); // 데스크 현황판: id → { hostOn, active, lang, viewers }
-  const [regDesks, setRegDesks] = useState(null); // 안내데스크 레지스트리(관리자 사전 정의) — 데스크 세션 생성 시 선택
-  const [deskId, setDeskId] = useState('');
+  const [autoName, setAutoName] = useState(true); // 제목을 손대지 않았으면 고른 항목에 맞춰 기본 제목을 바꾼다
+  const [preset, setPreset] = useState('oneway'); // oneway=실시간 번역 / twoway=양방향 통역 / desk=안내데스크
+  const [deskStat, setDeskStat] = useState({}); // 안내데스크 현황: id → { hostOn, active, lang, viewers }
   const [menu, setMenu] = useState(null);
   const [snack, setSnack] = useState(null);
   const [rename, setRename] = useState(null); // { id, val } 제목 변경
@@ -144,9 +177,10 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   const dismissOnboard = () => { setShowOnboard(false); localStorage.setItem('kac-onboard-v1', '1'); };
 
   const reload = () => api.list(q.trim()).then(setList).catch(() => {});
-  // 데스크 현황판: 전 데스크 상태(호스트 연결·응대 중·뷰어 수)를 10초 주기로 — 어느 데스크가 살아있는지 한눈에
+  // 안내데스크 현황: 목록에 안내데스크 세션이 있으면 상태(호스트 연결·응대 중·뷰어 수)를 10초 주기로
+  const hasDesk = (list || []).some((s) => s.pipeline === 'desk');
   useEffect(() => {
-    if (!deskMode) return;
+    if (!hasDesk) return undefined;
     let dead = false;
     const tick = () => api.deskStatus().then((rows) => {
       if (dead || !Array.isArray(rows)) return;
@@ -157,7 +191,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     tick();
     const iv = setInterval(tick, 10000);
     return () => { dead = true; clearInterval(iv); };
-  }, [deskMode]);
+  }, [hasDesk]);
 
   // 검색어 변경 시 디바운스 재조회(내용 검색은 서버에서)
   useEffect(() => {
@@ -167,31 +201,26 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
   // 명령 팔레트(⌘K)의 '새 세션 만들기' → 생성 모달 열기
   useEffect(() => { if (createSignal) openDlg(); }, [createSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const base = deskMode ? '안내데스크' : '새 세션';
+  const baseOf = (v) => (v === 'desk' ? '안내데스크' : '새 세션');
+  const titles = () => (list || []).map((s) => s.title);
   const openDlg = () => {
-    const titles = (list || []).map((s) => s.title);
-    setName(uniqueName(base, titles));
+    setName(uniqueName(baseOf('oneway'), titles()));
+    setAutoName(true);
     setEditName(false);
     setPreset('oneway'); // 모달을 열 때마다 기본 모드(실시간 번역)로
-    if (deskMode) {
-      // 레지스트리(관리자 사전 정의)에서 데스크 목록 로드 — 세션은 '데스크 선택 + 세션명'으로만 생성
-      api.deskRegistry().then((r) => {
-        const ds = (r && r.desks) || [];
-        setRegDesks(ds);
-        setDeskId((prev) => (ds.some((d) => d.id === prev) ? prev : (ds[0] ? ds[0].id : '')));
-      }).catch(() => setRegDesks([]));
-    }
     setDlg(true);
+  };
+  const pickPreset = (v) => {
+    setPreset(v);
+    if (autoName) setName(uniqueName(baseOf(v), titles()));
   };
 
   const [creating, setCreating] = useState(false); // 만들기 연타 → 세션 2개 생성 방지
   const create = async () => {
     if (creating) return;
-    const titles = (list || []).map((s) => s.title);
-    const title = name.trim() || uniqueName(base, titles);
-    if (deskMode && !deskId) { setSnack({ ok: false, msg: '안내데스크를 먼저 선택하세요. (관리자 페이지 > 안내데스크에서 등록)' }); return; }
-    const body = deskMode
-      ? { title, pipeline: 'desk', inLang: 'auto', deskId }
+    const title = name.trim() || uniqueName(baseOf(preset), titles());
+    const body = preset === 'desk'
+      ? { title, pipeline: 'desk', inLang: 'auto' }
       : { title, pipeline: 'soniox', preset, inLang: 'auto' };
     setCreating(true);
     try {
@@ -261,57 +290,55 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
     catch (e) { setSnack({ ok: false, msg: '제목 변경 실패: ' + (e.message || '네트워크 오류') }); }
     reload();
   };
-  // 데스크 메뉴는 desk 세션만, 실시간 번역 메뉴는 desk 외 세션만
-  const shown = (list || []).filter((s) => (deskMode ? s.pipeline === 'desk' : s.pipeline !== 'desk'));
+  const shown = list || [];
   const empty = list && shown.length === 0;
+  const anyManageable = shown.some(canManage);
 
   return (
     <>
       <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, sm: 4 } }}>
         <Box sx={{ maxWidth: 860, mx: 'auto' }}>
-          {/* 페이지 제목 + 상단 버튼(선택·새 세션) 한 줄 — 데스크는 관리자만(직원은 운영만) */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: { xs: 1.5, sm: 2.5 }, mb: { xs: 1.5, sm: 2.5 }, minHeight: 40 }}>
-            <Typography sx={{ flex: 1, minWidth: 0, textAlign: 'left', fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {deskMode ? '데스크 안내' : '실시간 번역'}
-            </Typography>
-            {canManage && selMode && (
+          {/* 검색 + 상단 버튼(선택·새 세션) 한 줄 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, mb: { xs: 1.5, sm: 2.5 }, minHeight: 40 }}>
+            {/* 검색 — 제목·대화 내용(서버 검색, Claude 스타일) */}
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              {list && (shown.length > 0 || q.trim()) && !selMode && (
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="대화 검색 (제목·내용)"
+                  InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ fontSize: 20, color: 'text.disabled' }} /></InputAdornment>) }}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: RADIUS.panel, bgcolor: 'background.paper' } }}
+                />
+              )}
+            </Box>
+            {selMode && (
               <>
                 <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary', mr: 0.5 }}>{selIds.size}개 선택</Typography>
                 <Button size="small" onClick={exitSel} sx={{ color: 'text.secondary' }}>취소</Button>
                 <Button size="small" variant="contained" color="error" disabled={!selIds.size} onClick={bulkDelete} startIcon={<DeleteOutlineIcon />}>삭제</Button>
               </>
             )}
-            {canManage && !selMode && shown.length > 0 && (
+            {!selMode && anyManageable && (
               <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary', flex: 'none' }}>선택</Button>
             )}
-            {canManage && !selMode && (
+            {!selMode && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={openDlg} sx={{ flex: 'none', display: { xs: 'none', sm: 'inline-flex' } }}>
                 새 세션
               </Button>
             )}
           </Box>
 
-          {/* 검색 — 제목·대화 내용(서버 검색, Claude 스타일) */}
-          {list && (shown.length > 0 || q.trim()) && (
-            <TextField
-              fullWidth
-              size="small"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="대화 검색 (제목·내용)"
-              InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ fontSize: 20, color: 'text.disabled' }} /></InputAdornment>) }}
-              sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: RADIUS.panel, bgcolor: 'background.paper' } }}
-            />
-          )}
-
           {/* 첫 사용 온보딩: 모드 3종 안내(1회 표시) */}
-          {!deskMode && showOnboard && (
+          {showOnboard && (
             <Card sx={{ p: 2.5, mb: 2.5, border: 1, borderColor: 'divider' }}>
               <Typography sx={{ fontWeight: 800, fontSize: 15, mb: 1 }}>처음이신가요? 상황에 맞는 모드를 고르세요</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, mb: 1.5 }}>
                 {SITUATIONS.map((p) => (
                   <Typography key={p.v} sx={{ fontSize: 13.5, color: 'text.secondary' }}>
-                    <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{p.title}</Box> — {p.example}
+                    <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{p.title}</Box>: {p.example}
                   </Typography>
                 ))}
               </Box>
@@ -343,18 +370,14 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                 <RecordVoiceOverIcon sx={{ fontSize: 38 }} />
               </Avatar>
               <Typography sx={{ fontSize: 18, fontWeight: 800, color: 'text.primary' }}>
-                {deskMode ? '안내데스크가 없어요' : '아직 세션이 없어요'}
+                아직 세션이 없어요
               </Typography>
               <Typography sx={{ fontSize: 14, mt: 0.75, mb: 3 }}>
-                {deskMode
-                  ? (canManage ? '안내데스크를 만들어 대면 통역을 시작하세요. (데스크마다 별도 세션)' : '관리자가 안내데스크를 만들면 여기에 표시됩니다.')
-                  : '새 세션을 만들고 외국어를 실시간으로 번역해 보세요.'}
+                새 세션을 만들고 외국어를 실시간으로 번역해 보세요.
               </Typography>
-              {canManage && (
-                <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
-                  새 세션 만들기
-                </Button>
-              )}
+              <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={openDlg}>
+                새 세션 만들기
+              </Button>
             </Box>
           )}
 
@@ -370,12 +393,14 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
           {/* 목록 — Claude 채팅 목록 스타일: 모드 아이콘 · 제목 · 구분선 · 우측 시간(hover 시 케밥으로 전환) */}
           {shown.map((s, si) => {
             const checked = selIds.has(s.id);
-            const v2Row = PC_V2 && !deskMode; // PC 새 화면: 폰 목록과 같은 줄(모드 아이콘 + '날짜 · 언어')
+            const desk = s.pipeline === 'desk';
+            const manage = canManage(s);
+            const v2Row = PC_V2; // PC 새 화면: 폰 목록과 같은 줄(모드 아이콘 + '날짜 · 언어')
             const searching = !!q.trim();
             return (
             <Box
               key={s.id}
-              onClick={() => (selMode ? toggleSel(s.id) : onOpen(s))}
+              onClick={() => (selMode ? (manage && toggleSel(s.id)) : onOpen(s))}
               sx={{
                 display: 'flex', alignItems: searching && s.snippet ? 'flex-start' : 'center', gap: 1.5, px: 2, py: 1.9,
                 borderRadius: 2, cursor: 'pointer', position: 'relative',
@@ -389,10 +414,12 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               }}
             >
               {selMode && (
-                <Checkbox checked={checked} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
+                <Checkbox checked={checked} disabled={!manage} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
               )}
               {/* 유형 무관 단일 채팅 아이콘(스니펫 있을 땐 첫 줄에 정렬). PC 새 화면은 폰 목록과 같은 모드 아이콘 */}
-              {v2Row ? <ModeIcon preset={s.preset} size={40} /> : (
+              {v2Row && desk ? (
+                <Box sx={{ width: 40, height: 40, flex: 'none', borderRadius: '12px', display: 'grid', placeItems: 'center', bgcolor: (t) => alpha(t.palette.text.primary, 0.06) }}><IcoHeadset sx={{ width: 21, height: 21 }} /></Box>
+              ) : v2Row ? <ModeIcon preset={s.preset} size={40} /> : (
                 <IcoChat sx={{ width: 19, height: 19, flex: 'none', color: 'text.secondary', opacity: 0.85, mt: searching && s.snippet ? '2px' : 0, alignSelf: searching && s.snippet ? 'flex-start' : 'center' }} />
               )}
               <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -406,11 +433,11 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                 )}
                 {v2Row && !(searching && s.snippet) && (
                   <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {[shortDate(s.updatedAt || s.createdAt, 'ko-KR'), sessionLangs(s, (c) => langName(c, 'ko'), { two: '양방향 통역', one: '실시간 번역' })].filter(Boolean).join(' · ')}
+                    {[shortDate(s.updatedAt || s.createdAt, 'ko-KR'), desk ? '안내데스크' : sessionLangs(s, (c) => langName(c, 'ko'), { two: '양방향 통역', one: '실시간 번역' })].filter(Boolean).join(' · ')}
                   </Typography>
                 )}
               </Box>
-              {deskMode && (() => {
+              {desk && (() => {
                 const st = deskStat[s.id];
                 if (!st) return null;
                 const label = st.active ? `응대 중${st.lang ? ' · ' + st.lang.toUpperCase() : ''}` : st.hostOn ? '대기' : '오프라인';
@@ -424,14 +451,14 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                   </Tooltip>
                 );
               })()}
-              {deskMode && s.deskName && (
+              {desk && s.deskName && (
                 <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' }, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
                   {s.deskName}
                 </Typography>
               )}
-              {!v2Row && s.preset && TYPE_NAME[s.preset] && (
+              {!v2Row && (desk || (s.preset && TYPE_NAME[s.preset])) && (
                 <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>
-                  {TYPE_NAME[s.preset]}
+                  {desk ? '안내데스크' : TYPE_NAME[s.preset]}
                 </Typography>
               )}
               {!v2Row && <Typography className="rowTime" sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right', transition: 'opacity .12s', display: { xs: 'none', sm: 'block' }, alignSelf: searching && s.snippet ? 'flex-start' : 'center', mt: searching && s.snippet ? '2px' : 0 }}>{rel(s.updatedAt)}</Typography>}
@@ -460,21 +487,19 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
         </Box>
       </Box>
 
-      {/* 모바일: 우하단 고정 + 버튼(화면 이동해도 위치 유지) — 데스크는 관리자만 */}
-      {canManage && (
-        <Fab
-          color="primary"
-          aria-label="새 세션"
-          onClick={openDlg}
-          sx={{ position: 'fixed', right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', display: { xs: 'flex', sm: 'none' }, zIndex: 1200 }}
-        >
-          <AddIcon />
-        </Fab>
-      )}
+      {/* 좁은 창: 우하단 고정 + 버튼(화면 이동해도 위치 유지) */}
+      <Fab
+        color="primary"
+        aria-label="새 세션"
+        onClick={openDlg}
+        sx={{ position: 'fixed', right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', display: { xs: 'flex', sm: 'none' }, zIndex: 1200 }}
+      >
+        <AddIcon />
+      </Fab>
 
       <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}
         slotProps={{ paper: { sx: { '& .MuiMenuItem-root': { fontSize: 13 } } } }}>
-        {canManage && (
+        {menu && canManage(menu.session) && (
           <MenuItem onClick={() => startRename(menu.session)}>
             <ListItemIcon>
               <EditOutlinedIcon fontSize="small" />
@@ -488,7 +513,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
           </ListItemIcon>
           대화내역 저장
         </MenuItem>
-        {canManage && (
+        {menu && canManage(menu.session) && (
           <MenuItem onClick={() => removeSession(menu.session)} sx={{ color: 'error.main' }}>
             <ListItemIcon>
               <DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} />
@@ -507,7 +532,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               fullWidth
               size="small"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); setAutoName(false); }}
               onBlur={() => setEditName(false)}
               onKeyDown={(e) => { if (e.key === 'Enter') setEditName(false); }}
               sx={{ mb: 1 }}
@@ -527,56 +552,14 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
             </Box>
           )}
 
-          {!deskMode && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mt: 2 }}>
-              {SITUATIONS.map((p) => {
-                const sel = preset === p.v;
-                const Ic = p.Icon;
-                return (
-                  <Box
-                    key={p.v}
-                    onClick={() => setPreset(p.v)}
-                    role="button"
-                    sx={{
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2, borderRadius: 3.5, p: 1.75,
-                      border: 2, borderColor: sel ? 'primary.main' : 'divider',
-                      bgcolor: (t) => (sel ? alpha(t.palette.primary.main, 0.08) : 'transparent'),
-                      transition: 'border-color .12s, background .12s',
-                      '&:hover': { borderColor: sel ? 'primary.main' : 'text.disabled' },
-                    }}
-                  >
-                    <Avatar variant="rounded" sx={{ width: 44, height: 44, borderRadius: 3, flex: 'none', bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' }}>
-                      <Ic sx={{ width: 23, height: 23 }} />
-                    </Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                        <Typography sx={{ fontWeight: 800, fontSize: 16 }}>{p.title}</Typography>
-                        <Chip size="small" label={p.badge} sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), color: 'primary.main' }} />
-                      </Box>
-                      <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.4 }}>{p.example}</Typography>
-                    </Box>
-                    <Box sx={{ width: 22, height: 22, flex: 'none', borderRadius: '50%', border: 2, borderColor: sel ? 'primary.main' : 'divider', bgcolor: sel ? 'primary.main' : 'transparent', display: 'grid', placeItems: 'center' }}>
-                      {sel && <Box component="svg" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" sx={{ width: 12, height: 12 }}><path d="M5 13l4 4 10-11" /></Box>}
-                    </Box>
-                  </Box>
-                );
-              })}
-            </Box>
-          )}
-          {deskMode && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mt: 2 }}>
+            {SITUATIONS.map((p) => <OptionCard key={p.v} p={p} sel={preset === p.v} onClick={() => pickPreset(p.v)} />)}
+          </Box>
+          {/* 안내데스크 — 번역 모드와 성격이 달라 따로 둔다(관리자만 만들 수 있다) */}
+          {isAdmin && (
             <>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mt: 2.5, mb: 1 }}>안내데스크 선택 (위치는 관리자 등록값 사용)</Typography>
-              {regDesks && regDesks.length === 0 ? (
-                <Typography sx={{ fontSize: 13, color: 'warning.main' }}>
-                  등록된 안내데스크가 없습니다. 관리자 페이지 &gt; 안내데스크에서 먼저 등록하세요.
-                </Typography>
-              ) : (
-                <Select size="small" fullWidth value={deskId} onChange={(e) => setDeskId(e.target.value)} displayEmpty>
-                  {(regDesks || []).map((d) => (
-                    <MenuItem key={d.id} value={d.id}>{d.name} · {d.floor} {({ E: '동', W: '서', S: '남', N: '북' })[d.side] || d.side}</MenuItem>
-                  ))}
-                </Select>
-              )}
+              <Divider sx={{ my: 2, fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>다른 세션</Divider>
+              <OptionCard p={DESK_OPTION} sel={preset === 'desk'} onClick={() => pickPreset('desk')} />
             </>
           )}
         </DialogContent>

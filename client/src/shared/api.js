@@ -31,7 +31,6 @@ export const api = {
   viewers: (id) => fetch('/api/sessions/' + id + '/viewers').then(json), // 지금 접속한 뷰어 수(호스트 화면)
   deskStatus: () => fetch('/api/desk-status').then(json), // 전 데스크 실시간 현황(호스트·응대·뷰어)
   // 안내데스크 사전 정의(레지스트리) — 관리자 등록, 세션 생성 시 선택
-  deskRegistry: () => fetch('/api/desk-registry').then(json),
   saveDeskRegistry: (body) =>
     fetch('/api/desk-registry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
   desktopInfo: () => fetch('/api/desktop/info').then(json), // 데스크톱 앱 최신 설치본 정보
@@ -118,7 +117,6 @@ export const api = {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '해제 실패');
       return r.json();
     }),
-  adminDeskStats: () => fetch('/api/admin/desk-stats').then(json),
   // 자주 묻는 질문(GPT 클러스터링) / 용어 적중 분석 / 정형 안내 멘트
   adminTermsHit: () => fetch('/api/admin/terms-hit').then(json),
   adminHealth: () => fetch('/api/admin/health').then(json),

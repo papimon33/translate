@@ -2,16 +2,8 @@ import React, { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'rea
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
-import Drawer from '@mui/material/Drawer';
-import AppBar from '@mui/material/AppBar';
-import Toolbar from '@mui/material/Toolbar';
-import IconButton from '@mui/material/IconButton';
-import Typography from '@mui/material/Typography';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import MenuIcon from '@mui/icons-material/Menu';
-import { alpha } from '@mui/material/styles';
 import { buildTheme } from './shared/theme.js';
-import Nav from './pc/Nav.jsx';
+import TopBar from './pc/TopBar.jsx';
 import SessionList from './pc/SessionList.jsx';
 import Login from './auth/Login.jsx';
 import CommandPalette from './pc/CommandPalette.jsx';
@@ -19,6 +11,7 @@ import { api } from './shared/api.js';
 import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE, PC_V2 } from './shared/env.js';
 import AppDownload from './phone/AppDownload.jsx';
 import { getPrefs, subscribePrefs, resolveTheme } from './shared/prefs.js';
+import { isAdminTab } from './admin/tabs.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
 const TranslateView = lazy(() => import('./session/TranslateView.jsx'));
@@ -37,15 +30,12 @@ export default function App() {
     try { mq = window.matchMedia('(prefers-color-scheme: dark)'); mq.addEventListener('change', sync); } catch {}
     return () => { un(); try { mq && mq.removeEventListener('change', sync); } catch {} };
   }, []);
-  const [collapsed, setCollapsed] = useState(localStorage.getItem('kac-nav') === '1');
   const [session, setSession] = useState(null); // 열린 세션(null=목록)
   const [view, setView] = useState('sessions'); // 'sessions' | 'admin'
-  const [adminTab, setAdminTab] = useState('usage'); // 관리자 하위메뉴(nav) 선택
+  const [adminTab, setAdminTab] = useState('usage'); // 관리자 화면 탭
   const [user, setUser] = useState(undefined); // undefined=확인중, null=로그아웃
-  const [drawer, setDrawer] = useState(false); // 모바일 네비 드로어
-  const [isFs, setIsFs] = useState(false); // 전체화면(데스크 안내) — nav 숨김
+  const [isFs, setIsFs] = useState(false); // 전체화면(안내데스크) — 위 띠 숨김
   const theme = useMemo(() => buildTheme(mode, { brand: PC_V2 }), [mode]);
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
     const h = () => setIsFs(!!(document.fullscreenElement || document.webkitFullscreenElement));
@@ -66,11 +56,6 @@ export default function App() {
     setMode(next);
     localStorage.setItem('kac-theme', next);
   };
-  const toggleCollapsed = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('kac-nav', next ? '1' : '0');
-  };
   const logout = async () => {
     try {
       await api.logout();
@@ -79,13 +64,11 @@ export default function App() {
     setSession(null);
     setView('sessions');
     if (!MOBILE_UI) { try { window.history.replaceState({ view: 'sessions', session: null }, '', '/'); } catch {} }
-    setDrawer(false);
   };
 
-  // PC 화면 주소(2026-10-27): / 목록 · /s/<세션> · /desks 안내데스크 목록 · /admin/<탭>.
+  // PC 화면 주소(2026-10-27): / 목록(실시간 번역·안내데스크 세션 함께) · /s/<세션> · /admin/<탭>.
   // 새로고침·즐겨찾기·링크 공유가 된다. 폰 화면(MobileApp)은 주소를 쓰지 않는다(앱 WebView).
-  // ⚠ 안드로이드 앱은 경로에 'desk' 가 들어가면 손님 태블릿 모드로 바뀐다 — PC 전용 경로라 폰에서는 열리지 않는다.
-  const pathOf = (st) => (st.session ? `/s/${st.session.id}` : st.view === 'desk' ? '/desks' : st.view === 'admin' ? `/admin/${st.adminTab || 'usage'}` : '/');
+  const pathOf = (st) => (st.session ? `/s/${st.session.id}` : st.view === 'admin' ? `/admin/${st.adminTab || 'usage'}` : '/');
   // 첫 진입 주소 → 화면(로그인 뒤에 한 번). 세션 주소는 세션 정보를 받아 와서 연다.
   const routeDone = useRef(false);
   useEffect(() => {
@@ -96,14 +79,14 @@ export default function App() {
     if (m) {
       api.get(decodeURIComponent(m[1])).then((sess) => {
         if (!sess || !sess.id) throw new Error('not found');
-        const st = { session: sess, view: sess.pipeline === 'desk' ? 'desk' : 'sessions' };
+        const st = { session: sess, view: 'sessions' };
         try { window.history.replaceState(st, '', pathOf(st)); } catch {}
         setSession(sess); setView(st.view);
       }).catch(() => { try { window.history.replaceState({ view: 'sessions', session: null }, '', '/'); } catch {} });
       return;
     }
     const a = /^\/admin(?:\/([^/]+))?/.exec(p);
-    const st = p === '/desks' ? { view: 'desk', session: null } : a && user.role === 'admin' ? { view: 'admin', adminTab: a[1] || 'usage', session: null } : { view: 'sessions', session: null };
+    const st = a && user.role === 'admin' ? { view: 'admin', adminTab: isAdminTab(a[1]) ? a[1] : 'usage', session: null } : { view: 'sessions', session: null };
     try { window.history.replaceState(st, '', pathOf(st)); } catch {}
     setView(st.view);
     if (st.view === 'admin') setAdminTab(st.adminTab);
@@ -115,8 +98,7 @@ export default function App() {
       const st = (e && e.state) || { view: 'sessions', session: null };
       setSession(st.session || null);
       setView(st.view || 'sessions');
-      if (st.view === 'admin') setAdminTab(st.adminTab || 'usage'); // 뒤로가기 시 관리자 하위메뉴도 복원
-      setDrawer(false);
+      if (st.view === 'admin') setAdminTab(st.adminTab || 'usage'); // 뒤로가기 시 관리자 탭도 복원
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -126,9 +108,9 @@ export default function App() {
     try { window.history.pushState(next, '', pathOf(next)); } catch {}
     setSession(next.session || null);
     setView(next.view || 'sessions');
-    setDrawer(false);
   };
-  const openSession = (s) => navTo({ session: s, view }); // 현재 목록(실시간/데스크) 위에서 세션 열기
+  const openSession = (s) => navTo({ session: s, view: 'sessions' });
+  const openAdmin = (tab) => { const t = isAdminTab(tab) ? tab : 'usage'; setAdminTab(t); navTo({ view: 'admin', adminTab: t }); };
 
   // ⌘K/Ctrl+K 명령 팔레트 — 세션 검색·이동·새 세션
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -142,6 +124,7 @@ export default function App() {
   }, []);
   const paletteNav = (next) => {
     if (next.openCreate) { navTo({ view: 'sessions' }); setCreateSignal((n) => n + 1); }
+    else if (next.view === 'admin') openAdmin(next.adminTab);
     else navTo(next);
   };
 
@@ -193,7 +176,7 @@ export default function App() {
     );
   }
 
-  // 안드로이드 앱: 메뉴바·안내데스크·관리자 없이 폰 전용 화면
+  // 안드로이드 앱: 안내데스크·관리자 없이 폰 전용 화면
   if (MOBILE_UI) {
     return (
       <ThemeProvider theme={theme}>
@@ -209,87 +192,34 @@ export default function App() {
   const main =
     session ? (
       // key: 세션을 바꾸면 화면을 새로 만든다 — 세션 화면은 상태를 첫 렌더의 세션 값으로 초기화하므로,
-      // 키가 없으면 사이드바에서 다른 세션을 골라도 이전 세션의 모드·언어·녹음 대상이 그대로 남았다.
+      // 키가 없으면 다른 세션을 골라도 이전 세션의 모드·언어·녹음 대상이 그대로 남았다.
       <TranslateView key={session.id} session={session} onBack={() => window.history.back()} />
-    ) : view === 'desk' ? (
-      <SessionList onOpen={openSession} user={user} deskMode createSignal={createSignal} />
     ) : view === 'admin' && user.role === 'admin' ? (
-      <AdminPage user={user} tab={adminTab} />
+      <AdminPage user={user} tab={adminTab} onTab={openAdmin} />
     ) : (
       <SessionList onOpen={openSession} user={user} createSignal={createSignal} />
     );
-  const mainEl = (
-    <Suspense
-      fallback={
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <CircularProgress />
-        </Box>
-      }
-    >
-      {main}
-    </Suspense>
-  );
 
-  const nav = (
-    <Nav
-      v2={PC_V2}
-      collapsed={isMobile ? false : collapsed}
-      mobile={isMobile}
-      onToggleCollapsed={toggleCollapsed}
-      onToggleTheme={toggleTheme}
-      mode={mode}
-      user={user}
-      view={session ? (session.pipeline === 'desk' ? 'desk' : 'sessions') : view}
-      adminTab={adminTab}
-      currentSessionId={session?.id || null}
-      onHome={() => navTo({ view: 'sessions' })}
-      onDesk={() => navTo({ view: 'desk' })}
-      onAdmin={(tab) => { const t = typeof tab === 'string' ? tab : 'usage'; setAdminTab(t); navTo({ view: 'admin', adminTab: t }); }}
-      onOpenSession={(s) => navTo({ session: s, view: s.pipeline === 'desk' ? 'desk' : 'sessions' })}
-      onLogout={logout}
-      onUserUpdate={(u) => setUser(u)}
-    />
-  );
-
-  // 모바일: 상단 AppBar + 햄버거 드로어
-  if (isMobile) {
-    return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-          {offlineBanner}
-          {!isFs && (
-          <AppBar position="static" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-            <Toolbar sx={{ gap: 1, minHeight: 56 }}>
-              <IconButton edge="start" onClick={() => setDrawer(true)} aria-label="메뉴">
-                <MenuIcon />
-              </IconButton>
-              <Box component="img" src="/favicon.svg" alt="AirTalk" sx={{ width: 30, height: 30, borderRadius: 2 }} />
-              <Typography sx={{ fontWeight: 800, fontSize: 16 }}>AirTalk</Typography>
-            </Toolbar>
-          </AppBar>
-          )}
-          <Drawer open={drawer} onClose={() => setDrawer(false)} PaperProps={{ sx: { width: 300 } }}>
-            {nav}
-          </Drawer>
-          <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {mainEl}
-          </Box>
-          <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} user={user} onNavigate={paletteNav} />
-        </Box>
-      </ThemeProvider>
-    );
-  }
-
-  // 데스크톱: 고정 사이드바
+  // PC: 위 띠(로고 · 개인설정) + 본문. 세션 화면은 자체 위 띠(뒤로·제목)가 있어 숨긴다.
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
         {offlineBanner}
-        {!isFs && nav}
-        <Box component="main" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          {mainEl}
+        {!session && !isFs && (
+          <TopBar onHome={() => navTo({ view: 'sessions' })} user={user} mode={mode} onToggleTheme={toggleTheme}
+            onAdmin={() => openAdmin()} onLogout={logout} onUserUpdate={(u) => setUser(u)} />
+        )}
+        <Box component="main" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <Suspense
+            fallback={
+              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CircularProgress />
+              </Box>
+            }
+          >
+            {main}
+          </Suspense>
         </Box>
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} user={user} onNavigate={paletteNav} />
       </Box>

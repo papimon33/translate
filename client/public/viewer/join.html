@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@900&text=airtlk.&display=block" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@900&text=airtlk%C4%B1.&display=block" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.css" />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
 <style>
@@ -60,17 +60,6 @@
   #partial { padding:4px 22px calc(28px + env(safe-area-inset-bottom, 0px)); }
   #partial .line { font-size:var(--fs); color:var(--muted); line-height:1.45; }
   .empty { color:var(--muted); text-align:center; padding:30vh 24px 0; font-size:15px; line-height:1.6; word-break:keep-all; }
-  /* 길안내: 채팅 인라인이 아니라 화면 '상단' 고정 플로팅 — 새 발화가 이어져도 밀려나지 않음 */
-  .mapCard { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); left:12px; right:12px; z-index:60; margin:0;
-    border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel);
-    box-shadow:0 14px 44px rgba(0,0,0,.28); }
-  .mapCard .mHead { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
-  .mapCard .mHead .mIco { color:var(--accent); display:inline-flex; flex:0 0 auto; }
-  .mapCard .mHead .mName { font-weight:800; font-size:calc(var(--fs) - 3px); color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .mapCard .mHead .mChips { margin-left:auto; display:flex; gap:6px; flex:0 0 auto; }
-  .mapCard .mHead .chip { background:var(--bg); border:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:700; padding:3px 9px; border-radius:14px; white-space:nowrap; }
-  .mapCard .mHolder { height:300px; overflow:hidden; }
-
   /* 우상단 아이콘 버튼(가− · 가+ · 듣기(헤드폰) · QR) — 폰 앱 우상단과 같은 모양: 배경 없이 아이콘만, 듣기 켜짐일 때만 옅은 보라 배경(꺼짐 = 사선) */
   .hbtn { flex:none; width:40px; height:40px; padding:0; border:0; border-radius:12px; background:transparent; color:var(--txt); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s, color .15s, opacity .15s; }
   .hbtn svg { width:22px; height:22px; }
@@ -119,9 +108,12 @@
   #landing { position:fixed; inset:0; z-index:40; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px; }
   #landing.hide { display:none; }
   #landing .lcard { width:100%; max-width:340px; text-align:center; }
-  /* 글자 로고 'airtalk.' — 폰 앱과 같은 Nunito 900 + 보라 마침표 */
+  /* 글자 로고 'airtalk.' — 폰 앱과 같은 Nunito 900 + 보라 마침표·보라 i 점(점 없는 ı 위에 보라 i 를 겹쳐 점만 남김, client/src/shared/Wordmark.jsx 와 같은 방식) */
   #landing .lbrand { font-family:'Nunito','Pretendard',system-ui,sans-serif; font-weight:900; font-size:40px; letter-spacing:-.02em; line-height:1; color:var(--txt); margin-bottom:28px; }
   #landing .lbrand .p { color:var(--brand); }
+  #landing .lbrand .i { display:inline-grid; }
+  #landing .lbrand .i > span { grid-area:1/1; }
+  #landing .lbrand .i > span + span { color:var(--brand); clip-path:inset(0 0 .74em 0); }
   #landing .ltitle { font-size:24px; font-weight:800; line-height:1.3; word-break:keep-all; }
   #landing .lmeta { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; color:var(--muted); font-size:14px; font-weight:600; }
   #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:#C9C7BF; }
@@ -143,7 +135,7 @@
 <body>
 <div id="landing">
   <div class="lcard">
-    <div class="lbrand" id="lBrandName" aria-label="AirTalk">airtalk<span class="p">.</span></div>
+    <div class="lbrand" id="lBrandName" role="img" aria-label="AirTalk">a<span class="i"><span>ı</span><span>i</span></span>rtalk<span class="p">.</span></div>
     <div class="ltitle" id="lTitle">Session</div>
     <div class="lmeta"><span class="d" id="lLiveDot"></span><span id="lLive">Waiting</span></div>
     <button id="enterBtn">Enter</button>
@@ -326,71 +318,14 @@ async function keepScreenOn(){
   } catch {}
 }
 
-/* 데스크 길안내: 시설 라벨/문구 현지화(손님 언어, en 폴백) + 인라인 지도 */
+/* 데스크: 손님 언어 표시 문구(en 폴백) */
 const isDesk = () => sessionPipeline === 'desk';
-const CAT_EN = { restroom:'Restroom', smoking:'Smoking area', pharmacy:'Pharmacy', convenience:'Convenience store', exchange:'Currency exchange', charging:'Charging station', lounge:'Lounge', nursing:'Nursing room', prayer:'Prayer room', water:'Water fountain', security:'Security check', immigration:'Immigration', customs:'Customs', duty_free:'Duty free', info_desk:'Information', baggage:'Baggage claim', gate:'Gate', food:'Restaurant', ticket:'Bus tickets', wheelchair:'Wheelchair', stroller:'Stroller', aed:'AED', elevator:'Elevator', escalator:'Escalator', stairs:'Stairs' };
 const DUI = {
   interpreting:{ko:'통역 중',en:'Interpreting',ja:'通訳中',zh:'翻译中',vi:'Đang dịch'},
   staff:{ko:'안내원',en:'Staff',ja:'案内係',zh:'工作人员',vi:'Nhân viên'},
   you:{ko:'나',en:'You',ja:'あなた',zh:'您',vi:'Bạn'},
-  walk:{ko:'도보',en:'Walk',ja:'徒歩',zh:'步行',vi:'Đi bộ'},
-  min:{ko:'분',en:' min',ja:'分',zh:'分钟',vi:' phút'},
 };
 function dt(k){ const d = DUI[k] || {}; return d[curLang] || d.en || d.ko || k; }
-function catLabel(m){ return (curLang === 'ko') ? (m.ko||'') : (CAT_EN[m.category] || m.ko || ''); }
-function floorLbl(f){ const n = String(f||'').replace(/[^0-9]/g,''); if(!n) return f||''; return curLang==='ko' ? (n+'층') : (n+'F'); }
-
-let mapApi = null, mapLoading = false, mapBlock = null, mapHideTimer = null, mapTries = 0;
-const MAP_HIDE_MS = 10000;
-function removeMap(){
-  clearTimeout(mapHideTimer); mapHideTimer = null;
-  document.removeEventListener('click', mapTapClose, true);
-  if (mapApi) { try { mapApi.destroy(); } catch {} } // rAF 애니메이션 루프 정지(누수 방지)
-  if (mapBlock) { try { mapBlock.remove(); } catch {} }
-  mapBlock = null; mapApi = null;
-}
-function mapTapClose(){ removeMap(); } // 화면 아무 곳이나 탭 → 닫힘
-function loadMapScripts(cb){
-  if (window.AirportMap25D && window.AIRPORT_DATA) return cb();
-  if (mapLoading) { setTimeout(()=>loadMapScripts(cb), 200); return; }
-  if (mapTries >= 3) return; // 에셋 404/오프라인 시 wayfind 마다 script 태그가 무한 누적되던 문제 방지(desk 와 동일 수정)
-  mapTries++;
-  mapLoading = true; let n = 0; const done = () => { if (++n >= 2) { mapLoading = false; cb(); } };
-  for (const src of ['/map/wayfinding_data.js','/map/airport25d.js']) { const s=document.createElement('script'); s.src=src; s.onload=done; s.onerror=done; document.head.appendChild(s); }
-}
-function ensureMapBlock(){
-  if (mapBlock) return mapBlock;
-  mapBlock = document.createElement('div'); mapBlock.className = 'mapCard';
-  const head = document.createElement('div'); head.className = 'mHead';
-  head.innerHTML = '<span class="mIco"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span><span class="mName"></span><span class="mChips"></span>';
-  const holder = document.createElement('div'); holder.className = 'mHolder';
-  mapBlock.appendChild(head); mapBlock.appendChild(holder); mapBlock._holder = holder; mapBlock._head = head;
-  return mapBlock;
-}
-function fillMapHead(m, res){
-  if (!mapBlock) return;
-  mapBlock._head.querySelector('.mName').textContent = catLabel(m) + ' · ' + floorLbl(m.floor);
-  const chips = mapBlock._head.querySelector('.mChips'); chips.textContent = '';
-  const sums = (res && res.summaries) || [];
-  if (sums.length){ const best = sums.reduce((a,b)=>(b&&a&&b.meters<a.meters?b:a), sums[0]);
-    if (best){ let html = '<span class="chip">'+dt('walk')+' '+Math.max(1,Math.round(best.minutes||0))+dt('min')+'</span>'; if(best.meters) html+='<span class="chip">'+Math.round(best.meters)+' m</span>'; chips.innerHTML = html; } }
-}
-function showWayfind(m){
-  loadMapScripts(() => {
-    if (!window.AirportMap25D || !window.AIRPORT_DATA) return; // 에셋 실패 시 빈 카드 미표시
-    const block = ensureMapBlock();
-    if (!block.isConnected) document.body.appendChild(block); // 화면 상단 고정 플로팅(피드 인라인 아님)
-    // 10초 뒤 자동 닫힘(새 안내가 오면 리셋). 다음 발화로는 닫히지 않는다.
-    clearTimeout(mapHideTimer);
-    mapHideTimer = setTimeout(removeMap, MAP_HIDE_MS);
-    // 화면 아무 곳이나 탭 → 닫힘. 안내를 띄운 직후의 터치가 바로 닫아버리지 않게 300ms 후 등록.
-    document.removeEventListener('click', mapTapClose, true);
-    setTimeout(() => { if (mapBlock) document.addEventListener('click', mapTapClose, true); }, 300);
-    const doRoute = () => { try { mapApi.setLang(curLang); const res = mapApi.showRoute({ deskFloor:m.deskFloor||'1F', deskSide:m.deskSide||'S', dest:m.dests }); fillMapHead(m,res); } catch(e){} };
-    if (mapApi) { doRoute(); return; }
-    mapApi = AirportMap25D.create({ container: block._holder, data: window.AIRPORT_DATA, lang: curLang, onReady: doRoute });
-  });
-}
 function deskTextOf(c){
   if (c.texts && c.texts[curLang]) return { t:c.texts[curLang], staff:true };  // 안내원 답변(손님 언어)
   if (c.source) return { t:c.source, staff:false };                            // 손님 자기 발화(원문)
@@ -703,7 +638,7 @@ function applyWhoRuns(){
 // 언어를 바꾸면 화면 문구·방향 라벨 언어와 '원문=표시 문장' 여부도 바뀐다
 function rerender(){ applyUi(); cards.forEach(renderLine); applySrc(); applyWhoRuns(); }
 // 데스크: 대화 종료 시 화면 초기화(다음 손님)
-function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); removeMap(); if(empty) empty.style.display=''; }
+function clearAll(){ cards.forEach(c=>c.el.remove()); cards.clear(); order=[]; latestId=null; setPartial(''); if(empty) empty.style.display=''; }
 function setPartial(text){ const s=atBottom(); partialEl.innerHTML = text ? ('<div class="line">'+text.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</div>') : ''; if(s) scrollDown(); }
 
 /* ---- 번역 음성 재생 (translate, 24kHz PCM16) ---- */
@@ -776,7 +711,6 @@ function connect(){
     else if(m.type==='sentence'){ setPartial(''); upsert(m); }
     else if(m.type==='audio'){ if(audioOn) playPcm24(m.b64); }
     else if(m.type==='meta'){ if(sessionPipeline==='soniox' || sessionPipeline==='desk') applySxInfo(m.sxInfo); }
-    else if(m.type==='wayfind'){ if(isDesk()) showWayfind(m); }
     else if(m.type==='desk-reset'){ clearAll(); }
     else if(m.type==='speakers'){ speakerNames = m.speakers || {}; rerenderSpk(); }
     else if(m.type==='host'){ setHostActive(m.active); }

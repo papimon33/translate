@@ -10,7 +10,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import { api } from '../shared/api.js';
 import { TYPE_NAME, MODE_ICON, IconMode2 } from './SessionList.jsx';
-import { IcoGlobe, IcoHeadset, IcoSliders } from './Nav.jsx';
+import { IcoGlobe, IcoHeadset, IcoSliders } from './icons.jsx';
 
 /* ⌘K / Ctrl+K 명령 팔레트 — 세션 검색·이동 + 화면 이동 액션.
    App 에서 전역 키 리스너로 열고, 선택 시 navTo 로 이동한다. */
@@ -30,8 +30,7 @@ export default function CommandPalette({ open, onClose, user, onNavigate }) {
   const items = useMemo(() => {
     const kw = q.trim().toLowerCase();
     const acts = [
-      { kind: 'act', key: 'go-sessions', label: '실시간 번역으로 이동', icon: <IcoGlobe sx={{ width: 18, height: 18 }} />, run: () => onNavigate({ view: 'sessions' }) },
-      { kind: 'act', key: 'go-desk', label: '데스크 안내로 이동', icon: <IcoHeadset sx={{ width: 18, height: 18 }} />, run: () => onNavigate({ view: 'desk' }) },
+      { kind: 'act', key: 'go-sessions', label: '세션 목록으로 이동', icon: <IcoGlobe sx={{ width: 18, height: 18 }} />, run: () => onNavigate({ view: 'sessions' }) },
       ...(isAdmin ? [{ kind: 'act', key: 'go-admin', label: '관리자 페이지로 이동', icon: <IcoSliders sx={{ width: 18, height: 18 }} />, run: () => onNavigate({ view: 'admin' }) }] : []),
       { kind: 'act', key: 'new-session', label: '새 세션 만들기', icon: <AddIcon sx={{ fontSize: 18 }} />, run: () => onNavigate({ view: 'sessions', openCreate: true }) },
     ].filter((a) => !kw || a.label.toLowerCase().includes(kw));
@@ -47,7 +46,7 @@ export default function CommandPalette({ open, onClose, user, onNavigate }) {
   const runItem = (it) => {
     onClose();
     if (!it) return;
-    if (it.kind === 'session') onNavigate({ session: it.session, view: it.session.pipeline === 'desk' ? 'desk' : 'sessions' });
+    if (it.kind === 'session') onNavigate({ session: it.session, view: 'sessions' });
     else it.run();
   };
   const onKey = (e) => {

@@ -102,7 +102,7 @@ const MUTE_AUTOSTOP_MS = 5 * 60 * 1000; // 음소거 지속 시 자동 중지
 const PIPES = [
   { v: 'translate', label: '실시간 통역' },
   { v: 'soniox', label: '다국어 번역' },
-  { v: 'desk', label: '데스크 안내 모드' },
+  { v: 'desk', label: '안내데스크' },
 ];
 // Soniox 엔드포인트 튜닝 테스트용 프리셋 — 민감도 -1.0~1.0 (0.1 단위)
 const SX_SENS = Array.from({ length: 21 }, (_, i) => {
@@ -328,9 +328,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   const [deskGuestMic, setDeskGuestMic] = useState(false); // 데스크: 여객 태블릿 마이크(2채널) 연결 여부
   const [hostLang, setHostLang] = useState('en'); // 데스크: 호스트 수동 시작용 손님 언어
   const deskAutoRef = useRef(false); // 데스크 자동 캡처 시작 1회 가드
-  const [wayfindSug, setWayfindSug] = useState(null); // 데스크: 길안내 제안(호스트 승인 대기)
-  const sugTimerRef = useRef(null); // 제안 자동 소멸 타이머
-  const [mapAuto, setMapAuto] = useState(() => localStorage.getItem('kac-desk-map-auto') === '1'); // 지도 자동 표시(승인 생략)
   const [fontScale, setFontScale] = useState(() => { // 번역 텍스트 크기(고급설정, 기기 저장)
     const v = Number(localStorage.getItem('kac-font-scale'));
     return Number.isFinite(v) && v >= 0.8 && v <= 1.6 ? v : 1;
@@ -352,8 +349,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   const [rnnoise, setRnnoiseOpt] = useState(() => localStorage.getItem('kac-rnnoise') === '1');
   // 저신뢰 자동 교정(β): 연속 저신뢰 발화만 GPT 가 맥락 보고 원문 교정→재번역해 카드 덮어쓰기
   const [confFix, setConfFix] = useState(() => localStorage.getItem('kac-conf-fix') === '1');
-  // 데스크: 길안내 지도 기능 on/off(끄면 감지·GPT 분류·지도 표시 모두 생략)
-  const [wayfindOn, setWayfindOn] = useState(() => localStorage.getItem('kac-desk-wayfind') !== '0');
   // 실시간 번역(soniox): 사용할 마이크 장치 선택(기본 = 시스템 기본 마이크)
   const [micId, setMicId] = useState(() => localStorage.getItem('kac-mic-device') || '');
   const [qr, setQr] = useState(null);
@@ -601,7 +596,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
       setPartials({ left: '', right: '' });
       setViewerActive(false);
       setDeskGuestLang(null);
-      setWayfindSug(null);
       return;
     }
     if (m.type === 'desk-active') { // 통역 시작됨(손님 언어 선택 또는 호스트 수동 시작)
@@ -610,14 +604,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     }
     if (m.type === 'desk-guest-mic') { // 여객 태블릿 마이크 채널 연결 여부(2채널 화자 구분)
       if (cfg.pipeline === 'desk') setDeskGuestMic(!!m.on);
-      return;
-    }
-    if (m.type === 'wayfind-suggest') { // 길안내 감지 → 호스트 승인 대기(자동 표시 설정 시 즉시 승인)
-      if (cfg.pipeline !== 'desk') return;
-      if (localStorage.getItem('kac-desk-map-auto') === '1') { if (recRef.current && recRef.current.wayfindShow) recRef.current.wayfindShow(); return; }
-      setWayfindSug(m);
-      clearTimeout(sugTimerRef.current);
-      sugTimerRef.current = setTimeout(() => setWayfindSug(null), 20000); // 20초 방치 시 제안 소멸(맥락 지난 지도 방지)
       return;
     }
     if (m.type === 'partial' || m.type === 'sentence') setConnecting(false); // 첫 결과 도착 → 연결중 해제
@@ -693,7 +679,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
         mic2: cfg.pipeline === 'desk' && mic2On && micGuestId && !window.AndroidAudio ? { staff: micStaffId || null, guest: micGuestId } : undefined,
         rnnoise: mobile ? false : rnnoise, // 잡음 제거 강화(β): 브라우저 NS 대신 RNNoise(신경망) — 마이크 캡처에만 적용
         micId: cfg.pipeline === 'soniox' && micId ? micId : undefined, // 실시간 번역: 마이크 장치 선택
-        wayfind: cfg.pipeline === 'desk' ? wayfindOn : undefined, // 데스크: 길안내 지도 기능 on/off
         // 스테레오 2채널 자동 판별(양방향 통역 + 마이크) — 모노 기기·단방향은 기존 1채널 그대로
         stereo: cfg.pipeline === 'soniox' && sxMode === 'two' && sourceMode === 'mic',
         stereoKnown: !!(startOpts && startOpts.stereoKnown === true),
@@ -925,24 +910,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
               disabled={false}
               onChange={(e) => { const v = e.target.checked; setConfFix(v); localStorage.setItem('kac-conf-fix', v ? '1' : '0'); if (recRef.current && recRef.current.setConfFix) recRef.current.setConfFix(v); }}
             />
-          )}
-          {cfg.pipeline === 'desk' && (
-            <>
-              <InfoToggle
-                label="길안내 지도"
-                hint="끄면 발화에서 시설·길안내를 감지하지 않고 지도도 표시하지 않습니다(감지용 GPT 호출도 생략). 번역 중에도 바로 적용. 기본 켜짐."
-                checked={wayfindOn}
-                disabled={false}
-                onChange={(e) => { const v = e.target.checked; setWayfindOn(v); localStorage.setItem('kac-desk-wayfind', v ? '1' : '0'); if (recRef.current && recRef.current.setWayfindOn) recRef.current.setWayfindOn(v); }}
-              />
-              <InfoToggle
-                label="지도 자동 표시"
-                hint="켜면 길안내 감지 시 확인 없이 바로 손님 화면에 지도를 표시합니다. 끄면 하단 제안에서 '표시'를 눌러야 표시됩니다."
-                checked={mapAuto}
-                disabled={!wayfindOn}
-                onChange={(e) => { setMapAuto(e.target.checked); localStorage.setItem('kac-desk-map-auto', e.target.checked ? '1' : '0'); }}
-              />
-            </>
           )}
           {cfg.pipeline === 'soniox' && ttsAllowed && ttsOn && (
             <>
@@ -1585,18 +1552,6 @@ export default function TranslateView({ session: initial, onBack, mobile = false
             background: (t) => `linear-gradient(to top, ${t.palette.background.default}, transparent)`,
           }}
         >
-          {/* 길안내 제안(호스트 승인) — 오탐 지도가 손님 화면에 바로 뜨지 않도록 확인 단계 */}
-          {cfg.pipeline === 'desk' && wayfindOn && wayfindSug && (
-            <Paper sx={{ position: 'absolute', bottom: 106, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 1, px: 1.75, py: 0.9, borderRadius: 3, border: 1, borderColor: 'divider', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
-              <Typography sx={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                지도 표시: {wayfindSug.ko} · {String(wayfindSug.floor || '').replace('F', '')}층
-              </Typography>
-              <Button size="small" variant="contained" disableElevation
-                onClick={() => { if (recRef.current && recRef.current.wayfindShow) recRef.current.wayfindShow(); setWayfindSug(null); }}>표시</Button>
-              <Button size="small" variant="text" sx={{ color: 'text.secondary' }}
-                onClick={() => { if (recRef.current && recRef.current.wayfindDismiss) recRef.current.wayfindDismiss(); setWayfindSug(null); }}>무시</Button>
-            </Paper>
-          )}
           {cfg.pipeline === 'desk' ? (
             viewerActive ? (
               <>

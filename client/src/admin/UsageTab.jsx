@@ -139,10 +139,8 @@ function VendorUsage({ brand }) {
   const PERIODS = [[7, '7일'], [14, '14일'], [30, '30일'], ['month', '월별']];
   return (
     <>
-      {/* 페이지 제목 + 기간 세그먼트(활성=시그니처 보라) */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
-        <Typography component="h1" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em' }}>사용량</Typography>
-        <Box sx={{ flex: 1 }} />
+      {/* 기간 세그먼트(활성=시그니처 보라) */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2.5 }}>
         <ToggleButtonGroup size="small" exclusive value={period} onChange={(e, x) => x && setPeriod(x)}
           sx={{ '& .MuiToggleButton-root': { py: 0.35, px: 1.6, fontSize: 12, fontWeight: 700, textTransform: 'none', '&.Mui-selected': { bgcolor: brand, color: '#fff', '&:hover': { bgcolor: brand } } } }}>
           {PERIODS.map(([val, lab]) => <ToggleButton key={val} value={val}>{lab}</ToggleButton>)}
