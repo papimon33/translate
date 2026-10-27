@@ -57,6 +57,9 @@ const sxRetryDelay = (n) => Math.min(SX_RETRY_BASE_MS * 2 ** (n - 1), 15000);
 // 응대 1건 ≈ 2~4KB(toks 제외 후)이므로 1,000건이라도 세션 문서는 수 MB 수준 — Mongo 16MB 한도 안.
 const DESKLOG_CAP = 1000;
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || ''; // Soniox stt-rt-v5 테스트 모드(선택)
+// Soniox 실시간 STT 연결 — 키는 연결 요청의 Authorization 헤더로 보낸다.
+// start(config) 메시지의 api_key 는 2027-01-15 에 중단되므로 config 에는 키를 넣지 않는다.
+const openSonioxWs = () => new WebSocket(SONIOX_WS_URL, { headers: { Authorization: `Bearer ${SONIOX_API_KEY}` } });
 // Soniox stt-rt-v5 지원 언어(60) — 번역은 지원 언어 임의 쌍. 선택 UI/검증에 사용.
 const SONIOX_LANGS = ['af','sq','ar','az','eu','be','bn','bs','bg','ca','zh','hr','cs','da','nl','en','et','fi','fr','gl','de','el','gu','he','hi','hu','id','it','ja','kn','kk','ko','lv','lt','mk','ms','ml','mr','no','fa','pl','pt','pa','ro','ru','sr','sk','sl','es','sw','sv','tl','ta','te','th','tr','uk','ur','vi','cy'];
 const CARTESIA_API_KEY = process.env.CARTESIA_API_KEY || ''; // Cartesia Sonic 실시간 TTS(선택)
@@ -1906,13 +1909,13 @@ function validateSonioxPair(a, b, ctx) {
     let done = false;
     const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { ws.close(); } catch {} resolve(r); };
     let ws;
-    try { ws = new WebSocket(SONIOX_WS_URL); }
+    try { ws = openSonioxWs(); }
     catch (e) { return resolve({ ok: false, error: String(e.message || e) }); }
     const timer = setTimeout(() => finish({ ok: true }), 3000); // 수락되면 오디오 대기로 무응답 → 통과
     ws.on('open', () => {
       try {
         ws.send(JSON.stringify({
-          api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+          model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
           enable_language_identification: true, enable_endpoint_detection: true,
           language_hints: [a, b], translation: { type: 'two_way', language_a: a, language_b: b },
           ...(ctx ? { context: ctx } : {}),
@@ -3370,7 +3373,6 @@ function handleHost(ws) {
     // 잠기면 힌트·context 를 그 언어로 좁혀 1회 재연결한다(아래 lockDetected).
     let lockedIn = null;
     const buildConfig = () => ({
-      api_key: SONIOX_API_KEY,
       model: 'stt-rt-v5',
       audio_format: 'pcm_s16le',
       sample_rate: 24000,
@@ -3586,7 +3588,7 @@ function handleHost(ws) {
     let sxFails = 0; // 토큰 수신 시 0 으로 리셋 — 정상 세션의 간헐적 끊김은 누적되지 않음
     function connectEngine() {
       if (sxClosed || idleStopped) return;
-      const cur = new WebSocket(SONIOX_WS_URL);
+      const cur = openSonioxWs();
       sx = cur;
       cur.on('open', () => {
       if (sx !== cur) return;
@@ -3857,7 +3859,7 @@ function handleHost(ws) {
     // langs = 이번 응대의 활성 언어(ko + 손님 언어) — 해당 언어의 용어 표기·번역쌍만 context 로 주입
     // target = 단방향 세션의 타깃 언어(주면 번역쌍을 X→타깃 방향만 생성 — context 한도 절약)
     const baseConfig = (langs, target) => ({
-      api_key: SONIOX_API_KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+      model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
       client_reference_id: 'u:' + (ws._userId || 'anon') + '|p:desk', // 유저별+파이프라인(안내데스크) 사용량 집계
       enable_language_identification: true, enable_endpoint_detection: true,
       endpoint_sensitivity: Number.isFinite(sens) ? Math.min(1, Math.max(-1, sens)) : 0,
@@ -4097,7 +4099,7 @@ function handleHost(ws) {
       if (closed || phase !== 'active') return;
       const old = sx;
       sxReady = false;
-      const next = new WebSocket(SONIOX_WS_URL);
+      const next = openSonioxWs();
       sx = next;
       next.on('open', () => {
         if (sx !== next) return; // 빠른 재체결 시 구 소켓의 늦은 open 이 준비 상태를 오염시키지 않게
@@ -4185,7 +4187,7 @@ function handleHost(ws) {
       if (closed || phase !== 'active' || !guestMicOn) return;
       const old = gsx;
       gsxReady = false;
-      const next = new WebSocket(SONIOX_WS_URL);
+      const next = openSonioxWs();
       gsx = next;
       next.on('open', () => {
         if (gsx !== next) return; // 구 소켓의 늦은 open 가드(connectSx 와 동일)

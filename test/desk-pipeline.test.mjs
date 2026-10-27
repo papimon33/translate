@@ -43,7 +43,7 @@ test('데스크: 응대 시작→발화 확정→호스트 급이탈 시 응대�
   viewer.send({ type: 'desk-start', lang: 'en' });
   const conn = await fake.nextConnection();
   const config = await conn.waitConfig;
-  assert.equal(config.api_key, 'test-soniox-key', '엔진 config 에 서비스 키가 실려야 함');
+  assert.equal(conn.headers.authorization, 'Bearer test-soniox-key', '서비스 키는 연결 요청의 Authorization 헤더로 보내야 함');
   assert.ok(JSON.stringify(config).includes('en'), '통역 언어(en)가 config 에 반영돼야 함');
 
   // C2 회귀: 0.8초 안에 desk-start 를 다시 난사 → 빈도 제한으로 거부(안내 status)

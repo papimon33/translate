@@ -1,6 +1,7 @@
 /* 가짜 Soniox 엔진(WS 서버) — 파이프라인 테스트용.
    서버(server.js)를 SONIOX_WS_URL=이곳 으로 띄우면 실 엔진 대신 여기에 붙는다(무과금·결정적).
    프로토콜(서버가 기대하는 것만 최소 구현):
+   - 연결(업그레이드) 요청 헤더 → conn.headers 로 캡처(인증은 Authorization: Bearer <키>)
    - 연결 직후 서버가 config JSON(텍스트 1건)을 보낸다 → conn.config 로 캡처
    - 이후 바이너리 = 오디오(집계만), 빈 텍스트 = 종료 신호
    - 테스트가 conn.sendTokens([...]) 로 토큰 이벤트를 재생: { text, is_final, language, confidence, translation_status }
@@ -14,10 +15,11 @@ export async function startFakeSoniox(opts = {}) {
   await new Promise((res) => wss.once('listening', res));
   const connections = [];
   const waiters = [];
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     let resolveConfig;
     const conn = {
       ws,
+      headers: req.headers,
       config: null,
       audioBytes: 0,
       closed: false,
