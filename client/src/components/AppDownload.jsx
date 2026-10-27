@@ -21,7 +21,7 @@ export default function AppDownload({ iphone, onContinueWeb }) {
         </Button>
       ) : (
         <>
-          <Button variant="contained" size="large" href="/download/android" disableElevation
+          <Button variant="contained" size="large" href="/app" disableElevation
             sx={{ width: '100%', maxWidth: 340, height: 54, borderRadius: '14px', fontSize: 16, fontWeight: 700, bgcolor: BRAND, '&:hover': { bgcolor: BRAND_DARK } }}>
             앱 다운로드
           </Button>
@@ -30,6 +30,8 @@ export default function AppDownload({ iphone, onContinueWeb }) {
           </Typography>
         </>
       )}
+      {/* 참여자(번역을 보기만 하는 사람)는 앱 없이 참여 코드로 */}
+      <Button href="/j" size="large" sx={{ mt: 2, color: BRAND, fontWeight: 700, fontSize: 15 }}>참여 코드로 보기</Button>
     </Box>
   );
 }

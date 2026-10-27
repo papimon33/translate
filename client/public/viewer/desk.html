@@ -272,17 +272,18 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-let sessionId = params.get('session') || '';
-let token = params.get('t') || ''; // 뷰어 접근 토큰 — 관리자 QR 로 설치된 URL 에 실려 온다
+// 안내데스크 주소 /desk/<참여 코드>: 서버가 세션 정보를 window.__JOIN 으로 심어 보낸다(2026-10-27). /desk 는 랜딩.
+const JOIN = window.__JOIN || {};
+let sessionId = JOIN.session || params.get('session') || '';
+let token = JOIN.t || params.get('t') || ''; // 뷰어 접근 토큰
 
 /* 브랜드(플레이스홀더 — 운영 시 교체) */
 const BRAND = { name: '공항 안내 통역', sub: 'Airport Interpretation' };
 $('brandName').textContent = BRAND.name; $('brandSub').textContent = BRAND.sub;
 
-// PWA(홈 화면에 추가)로 설치하면 이 manifest 의 start_url 로 재실행된다 — 뷰어 토큰(t)을 안 실으면
-// 홈 화면 아이콘 실행 시 토큰 없는 URL 이 열려 /ws/viewer 가 403 을 내고 태블릿이 영원히 '안내원 준비 중'에
-// 멈춘다(복구 경로가 QR 재스캔뿐이 됨 — 리뷰 지적). 이미 이 페이지가 가진 토큰을 그대로 실어 보낸다.
-(function(){ const mf = $('manifest'); if (mf && sessionId) mf.href = '/desk.webmanifest?session=' + encodeURIComponent(sessionId) + (token ? '&t=' + encodeURIComponent(token) : ''); })();
+// PWA(홈 화면에 추가)로 설치하면 manifest 의 start_url(/desk/<참여 코드>)로 재실행된다 — 서버가 코드로 세션·토큰을
+// 다시 심어 주므로 홈 화면 아이콘으로 열어도 바로 접속된다(예전엔 토큰을 주소에 실어야 했다).
+(function(){ const mf = $('manifest'); if (mf && JOIN.code) mf.href = '/desk.webmanifest?code=' + encodeURIComponent(JOIN.code); })(); // 홈 화면에 추가 → /desk/<코드>로 재실행
 function isStandalone(){
   try { return window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; }
 }

@@ -45,7 +45,7 @@ function createMain() {
 }
 
 function overlayUrl(opts) {
-  const u = new URL(SITE + '/overlay.html');
+  const u = new URL(SITE + '/overlay');
   if (opts && opts.session) u.searchParams.set('session', opts.session);
   if (opts && opts.cap != null) u.searchParams.set('cap', String(opts.cap));
   if (opts && opts.lang) u.searchParams.set('lang', opts.lang);

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -78,13 +78,39 @@ export default function App() {
     setUser(null);
     setSession(null);
     setView('sessions');
+    if (!MOBILE_UI) { try { window.history.replaceState({ view: 'sessions', session: null }, '', '/'); } catch {} }
     setDrawer(false);
   };
 
+  // PC 화면 주소(2026-10-27): / 목록 · /s/<세션> · /desks 안내데스크 목록 · /admin/<탭>.
+  // 새로고침·즐겨찾기·링크 공유가 된다. 폰 화면(MobileApp)은 주소를 쓰지 않는다(앱 WebView).
+  // ⚠ 안드로이드 앱은 경로에 'desk' 가 들어가면 손님 태블릿 모드로 바뀐다 — PC 전용 경로라 폰에서는 열리지 않는다.
+  const pathOf = (st) => (st.session ? `/s/${st.session.id}` : st.view === 'desk' ? '/desks' : st.view === 'admin' ? `/admin/${st.adminTab || 'usage'}` : '/');
+  // 첫 진입 주소 → 화면(로그인 뒤에 한 번). 세션 주소는 세션 정보를 받아 와서 연다.
+  const routeDone = useRef(false);
+  useEffect(() => {
+    if (MOBILE_UI || !user || routeDone.current) return;
+    routeDone.current = true;
+    const p = window.location.pathname;
+    const m = /^\/s\/([^/]+)/.exec(p);
+    if (m) {
+      api.get(decodeURIComponent(m[1])).then((sess) => {
+        if (!sess || !sess.id) throw new Error('not found');
+        const st = { session: sess, view: sess.pipeline === 'desk' ? 'desk' : 'sessions' };
+        try { window.history.replaceState(st, '', pathOf(st)); } catch {}
+        setSession(sess); setView(st.view);
+      }).catch(() => { try { window.history.replaceState({ view: 'sessions', session: null }, '', '/'); } catch {} });
+      return;
+    }
+    const a = /^\/admin(?:\/([^/]+))?/.exec(p);
+    const st = p === '/desks' ? { view: 'desk', session: null } : a && user.role === 'admin' ? { view: 'admin', adminTab: a[1] || 'usage', session: null } : { view: 'sessions', session: null };
+    try { window.history.replaceState(st, '', pathOf(st)); } catch {}
+    setView(st.view);
+    if (st.view === 'admin') setAdminTab(st.adminTab);
+  }, [user]);
   // 브라우저 뒤로가기(popstate) ↔ 앱 화면 연동: 세션 안에서 뒤로가기 → 목록
   useEffect(() => {
     if (MOBILE_UI) return undefined; // 폰 화면은 MobileApp 이 히스토리를 직접 관리
-    try { window.history.replaceState({ view: 'sessions', session: null }, ''); } catch {}
     const onPop = (e) => {
       const st = (e && e.state) || { view: 'sessions', session: null };
       setSession(st.session || null);
@@ -95,9 +121,9 @@ export default function App() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
-  // 화면 이동 시 히스토리에 push(뒤로가기로 직전 화면 복귀)
+  // 화면 이동 시 히스토리에 push(뒤로가기로 직전 화면 복귀) — 주소도 함께
   const navTo = (next) => {
-    try { window.history.pushState(next, ''); } catch {}
+    try { window.history.pushState(next, '', pathOf(next)); } catch {}
     setSession(next.session || null);
     setView(next.view || 'sessions');
     setDrawer(false);

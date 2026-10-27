@@ -1008,7 +1008,8 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           {qr ? (
             <>
               <Box component="img" src={qr.qr} alt="QR" sx={{ width: 230, bgcolor: '#fff', borderRadius: 3, p: 1 }} />
-              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1.5, wordBreak: 'break-all' }}>{qr.url}</Typography>
+              {qr.code && <Typography sx={{ fontSize: 26, fontWeight: 800, letterSpacing: '0.2em', mt: 1.5 }}>{qr.code}</Typography>}
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: qr.code ? 0.5 : 1.5, wordBreak: 'break-all' }}>{qr.url}</Typography>
               <Box sx={{ mt: 1.5 }}>
                 <Button
                   size="small"

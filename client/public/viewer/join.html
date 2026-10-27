@@ -96,6 +96,8 @@
   .qrframe img { width:100%; height:100%; display:block; }
   .qrframe img[hidden], .qrframe .qmsg[hidden] { display:none; }
   .qrframe .qmsg { padding:0 12px; font-size:13px; color:var(--muted); line-height:1.5; text-align:center; }
+  #qrCode { margin-top:12px; text-align:center; font-size:26px; font-weight:800; letter-spacing:.25em; color:var(--txt); }
+  #qrCode[hidden] { display:none; }
   #qrLink { display:block; width:100%; margin-top:10px; padding:0; border:0; background:transparent; color:var(--muted); font-family:inherit; font-size:12.5px; text-align:center; text-overflow:ellipsis; }
   #qrLink:focus { outline:none; }
   .qbtns { display:flex; gap:8px; margin-top:14px; }
@@ -124,6 +126,13 @@
   #landing .lmeta { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; color:var(--muted); font-size:14px; font-weight:600; }
   #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:#C9C7BF; }
   #landing .lmeta .d.on { background:#22c55e; }
+  #codeBox { margin-top:4px; display:flex; flex-direction:column; gap:12px; }
+  #codeBox[hidden] { display:none; }
+  #codeBox .ctitle { font-size:17px; font-weight:700; color:var(--muted); word-break:keep-all; }
+  #codeInput { height:64px; border:2px solid var(--line); border-radius:16px; text-align:center; font-family:'Pretendard',monospace; font-size:30px; font-weight:800; letter-spacing:.3em; text-transform:uppercase; color:var(--txt); background:#fff; outline:none; }
+  #codeInput:focus { border-color:var(--brand); }
+  #codeBox .cerr { min-height:20px; font-size:14px; color:#c2410c; word-break:keep-all; }
+  #codeBtn { height:54px; border:none; border-radius:14px; background:var(--brand); color:#fff; font-family:inherit; font-size:16px; font-weight:700; cursor:pointer; }
   #enterBtn { margin-top:30px; width:100%; height:54px; border:none; border-radius:14px; background:var(--brand); color:#fff; font-family:inherit; font-size:16px; font-weight:700; cursor:pointer; }
   /* 오프라인 안내 배너 — 연결이 끊긴 줄 모르고 대기하는 문제 방지 */
   #netBanner { display:none; position:fixed; top:0; left:0; right:0; z-index:80; background:#e8912d; color:#fff;
@@ -138,6 +147,13 @@
     <div class="ltitle" id="lTitle">Session</div>
     <div class="lmeta"><span class="d" id="lLiveDot"></span><span id="lLive">Waiting</span></div>
     <button id="enterBtn">Enter</button>
+    <!-- 코드 입력(/j): QR 을 못 찍을 때 'airtalk.kr/j' 에서 6자리 참여 코드로 입장 -->
+    <form id="codeBox" hidden autocomplete="off">
+      <div class="ctitle" id="codeTitle">Enter the join code</div>
+      <input id="codeInput" maxlength="6" inputmode="text" autocapitalize="characters" spellcheck="false" aria-label="Join code" />
+      <div class="cerr" id="codeErr" role="alert"></div>
+      <button id="codeBtn" type="submit">Enter</button>
+    </form>
   </div>
 </div>
 <header>
@@ -173,6 +189,7 @@
   <h3 id="qrTitle">Scan to join</h3>
   <p class="hint" id="qrHint"></p>
   <div class="qrframe"><img id="qrImg" alt="QR" hidden /><span class="qmsg" id="qrMsg"></span></div>
+  <div id="qrCode" hidden></div>
   <input id="qrLink" type="text" readonly />
   <div class="qbtns">
     <button class="copy" id="qrCopy">Copy link</button>
@@ -183,8 +200,10 @@
 
 <script>
 const params = new URLSearchParams(location.search);
-const sessionId = params.get('session') || 'default';
-const token = params.get('t') || ''; // 뷰어 접근 토큰(QR 에 포함) — 공개 라우트 접근에 필요
+// 참여 주소 /j/<코드>: 서버가 그 세션 정보를 window.__JOIN 으로 심어 보낸다(2026-10-27). /j 만 열면 코드 입력 화면.
+const JOIN = window.__JOIN || {};
+const sessionId = JOIN.session || params.get('session') || '';
+const token = JOIN.t || params.get('t') || ''; // 뷰어 접근 토큰 — 공개 라우트 접근에 필요
 const tq = token ? ('&t=' + encodeURIComponent(token)) : ''; // ws/qr 쿼리용
 const tq1 = token ? ('?t=' + encodeURIComponent(token)) : ''; // 첫 쿼리(REST)용
 const ALL4 = ['ko','en','ja','zh'];
@@ -235,6 +254,10 @@ const UI = {
   copy:     { ko:'링크 복사', ja:'リンクをコピー', en:'Copy link' },
   copied:   { ko:'복사됨', ja:'コピー済み', en:'Copied' },
   share:    { ko:'공유', ja:'共有', en:'Share' },
+  codeTitle:{ ko:'참여 코드 6자리를 입력해 주세요', ja:'6桁の参加コードを入力してください', en:'Enter the 6-character join code' },
+  codeNotFound:{ ko:'코드를 찾을 수 없어요. 다시 확인해 주세요.', ja:'コードが見つかりません。もう一度ご確認ください。', en:'That code wasn’t found. Please check it and try again.' },
+  codeBlocked:{ ko:'잘못된 시도가 많아요. 잠시 후 다시 시도해 주세요.', ja:'誤った入力が多すぎます。しばらくしてからお試しください。', en:'Too many tries. Please wait a moment and try again.' },
+  joinCode: { ko:'참여 코드', ja:'参加コード', en:'Join code' },
   close:    { ko:'닫기', ja:'閉じる', en:'Close' },
   roomFull: { ko:'지금은 보는 사람이 너무 많아요. 잠시 후 다시 시도해 주세요.', ja:'現在、視聴者が多すぎます。しばらくしてから再度お試しください。', en:'Too many viewers right now — please try again later.' },
   ipLimit:  { ko:'이 기기에서 연결이 너무 많아요. 다른 탭을 닫고 다시 시도해 주세요.', ja:'この端末からの接続が多すぎます。ほかのタブを閉じてもう一度お試しください。', en:'Too many connections from this device. Close other tabs and try again.' },
@@ -442,6 +465,9 @@ function applyUi(){
   document.documentElement.lang = uiLang();
   if (empty) empty.textContent = T('waiting');
   $('enterBtn').textContent = T('enter');
+  $('codeBtn').textContent = T('enter');
+  $('codeTitle').textContent = T('codeTitle');
+  $('codeInput').setAttribute('aria-label', T('joinCode'));
   $('fsDown').setAttribute('aria-label', T('fsDown'));
   $('fsUp').setAttribute('aria-label', T('fsUp'));
   $('audioBtn').setAttribute('aria-label', T('listen'));
@@ -520,6 +546,7 @@ async function loadQr(){
   qrState = 'loading'; renderQr();
   try { const r = await fetch('/api/qr?session='+sessionId+tq); if (!r.ok) throw new Error(r.status); const d = await r.json(); if (!d || !d.qr) throw new Error('no qr');
     $('qrImg').src = d.qr; if (d.url) $('qrLink').value = d.url; qrState = 'ok';
+    if (d.code) { $('qrCode').textContent = d.code; $('qrCode').hidden = false; }
   } catch { qrState = 'fail'; }
   renderQr();
 }
@@ -823,13 +850,29 @@ window.addEventListener('error', (e) => {
 
 applyUi();
 applySrc();
-loadSession();
-loadQr();
-connect();
-// 감시: 열린 연결인데 35초 동안 아무것도 못 받으면(생존 신호 2번 놓침) 죽은 연결로 보고 새로 연결
-setInterval(() => {
-  if (!refused && ws && ws.readyState === 1 && Date.now() - lastRx > 35000) { try { reconnectNow(); } catch {} }
-}, 5000);
+if (!sessionId) {
+  // 코드 입력 화면(/j, 또는 틀린 코드) — 세션이 없으니 연결하지 않는다
+  ['lTitle', 'enterBtn'].forEach((id) => { $(id).style.display = 'none'; });
+  document.querySelector('#landing .lmeta').style.display = 'none';
+  $('codeBox').hidden = false;
+  if (JOIN.notFound) { $('codeInput').value = String(JOIN.code || '').toUpperCase(); $('codeErr').textContent = JOIN.blocked ? T('codeBlocked') : T('codeNotFound'); }
+  $('codeInput').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ''); $('codeErr').textContent = ''; });
+  $('codeBox').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const c = $('codeInput').value.trim().toUpperCase();
+    if (c.length !== 6) { $('codeErr').textContent = T('codeTitle'); return; }
+    location.href = '/j/' + c;
+  });
+  setTimeout(() => { try { $('codeInput').focus(); } catch {} }, 100);
+} else {
+  loadSession();
+  loadQr();
+  connect();
+  // 감시: 열린 연결인데 35초 동안 아무것도 못 받으면(생존 신호 2번 놓침) 죽은 연결로 보고 새로 연결
+  setInterval(() => {
+    if (!refused && ws && ws.readyState === 1 && Date.now() - lastRx > 35000) { try { reconnectNow(); } catch {} }
+  }, 5000);
+}
 </script>
 <script>
 /* 인터넷 연결 감지 — 끊기면 상단 배너, 복구되면 자동 숨김(WS 재연결 로직이 이어받음). 문구는 UI 언어(applyUi 가 갱신) */

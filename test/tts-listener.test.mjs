@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket, { WebSocketServer } from 'ws';
 import { startFakeSoniox } from './helpers/fake-soniox.mjs';
-import { bootServer, loginAdmin, until, wait } from './helpers/boot.mjs';
+import { bootServer, loginAdmin, until, wait, viewerToken } from './helpers/boot.mjs';
 
 function startFakeCartesia() {
   const wss = new WebSocketServer({ port: 0 });
@@ -33,8 +33,7 @@ test('TTS: 듣는 사람이 없으면 합성하지 않고, 듣기를 켠 뒤 문
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
   const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '견학', pipeline: 'soniox', preset: 'oneway' }) }).then((r) => r.json());
-  const qr = await fetch(`${srv.base}/api/qr?session=${sess.id}`, auth).then((r) => r.json());
-  const tok = new URL(qr.url).searchParams.get('t');
+  const tok = await viewerToken(srv.base, cookie, sess.id); // 참여 코드(/j/<코드>) → 토큰
   const wsBase = srv.base.replace('http', 'ws');
 
   // 뷰어(아직 '듣기' 안 켬)

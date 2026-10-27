@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
-import { bootServer, loginAdmin } from './helpers/boot.mjs';
+import { bootServer, loginAdmin, viewerToken } from './helpers/boot.mjs';
 
 test('뷰어: 생존 신호가 주기적으로 오고, 같은 IP 에서 12명이 접속된다', { timeout: 60000 }, async (t) => {
   const srv = await bootServer({ VIEWER_HB_MS: '400' });
@@ -11,8 +11,7 @@ test('뷰어: 생존 신호가 주기적으로 오고, 같은 IP 에서 12명이
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
   const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '견학', pipeline: 'soniox', preset: 'twoway' }) }).then((r) => r.json());
-  const qr = await fetch(`${srv.base}/api/qr?session=${sess.id}`, auth).then((r) => r.json());
-  const tok = new URL(qr.url).searchParams.get('t');
+  const tok = await viewerToken(srv.base, cookie, sess.id); // 참여 코드(/j/<코드>) → 토큰
   const url = `${srv.base.replace('http', 'ws')}/ws/viewer?session=${sess.id}&t=${tok}`;
 
   const socks = [];

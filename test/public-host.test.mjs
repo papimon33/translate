@@ -10,7 +10,7 @@ test('QR: PUBLIC_HOST 가 있으면 뷰어 링크는 그 도메인(https)', { ti
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
   const s = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: 'QR', pipeline: 'soniox', preset: 'oneway' }) }).then((r) => r.json());
   const qr = await fetch(`${srv.base}/api/qr?session=${s.id}`, auth).then((r) => r.json());
-  assert.match(qr.url, /^https:\/\/airtalk\.kr\/mobile\.html\?session=/);
+  assert.equal(qr.url, `https://airtalk.kr/j/${qr.code}`);
   const landing = await fetch(`${srv.base}/api/qr?landing=1`, auth).then((r) => r.json());
-  assert.equal(landing.url, 'https://airtalk.kr/desk.html');
+  assert.equal(landing.url, 'https://airtalk.kr/desk');
 });

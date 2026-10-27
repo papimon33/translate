@@ -155,18 +155,11 @@ for (const f of ['wayfinding_data.js', 'airport25d.js']) {
   app.get('/map/' + f, (req, res) => res.sendFile(new URL('./map/' + f, import.meta.url).pathname));
 }
 
-// 데스크 뷰어 PWA manifest(세션별 start_url) — '홈 화면에 추가'로 실행 시 항상 전체화면 유지
+// 데스크 뷰어 PWA manifest — '홈 화면에 추가'로 실행 시 항상 전체화면 유지. 시작 주소 = /desk/<참여 코드>
+// (참여 코드가 곧 접근 권한이라 토큰을 주소에 싣지 않아도 재실행 후 바로 접속된다. 코드가 없거나 틀리면 /desk 랜딩)
 app.get('/desk.webmanifest', (req, res) => {
-  const session = String(req.query.session || '');
-  const t = String(req.query.t || '');
-  let start = '/desk.html' + (session ? `?session=${encodeURIComponent(session)}` : '');
-  // 홈 화면 아이콘으로 재실행되면 이 start_url 이 그대로 열린다 — t 가 없으면 /ws/viewer 가 403 을 내고
-  // 태블릿이 영원히 '안내원 준비 중'에 멈춘다(복구 경로가 QR 재스캔뿐이 됨, 리뷰 지적).
-  // 여기서 새 토큰을 발급하지 않는다: viewerTokenValid() 를 통과한 값만 그대로 되돌려 싣는다 —
-  // 이 라우트를 호출한 사람은 이미 desk.html(정상 QR 프로비저닝 경로)에서 그 토큰을 받아 쥐고 있었을
-  // 뿐이라, 검증 후 에코는 새로운 유출 경로가 아니다(검증 없이 아무 t 나 실었다면 그때는 위조 토큰을
-  // 심어 유효하지 않은 세션을 뷰어에 노출시킬 수 있었을 것).
-  if (session && viewerTokenValid(session, t)) start += `&t=${encodeURIComponent(t)}`;
+  const s = sessionByJoinCode(req.query.code);
+  const start = s && s.pipeline === 'desk' ? '/desk/' + s.joinCode : '/desk';
   res.type('application/manifest+json').json({
     name: 'KAC Desk', short_name: 'KAC Desk',
     display: 'fullscreen', display_override: ['fullscreen', 'standalone'],
@@ -2329,7 +2322,7 @@ app.get('/download/desktop', requireAuth, (req, res) => {
 });
 // 휴대폰 브라우저 접속 = 로그인 없이 앱 설치 안내(폰은 앱으로만 쓴다) — APK 는 공개 GitHub 릴리스와 같은 파일이고
 // 앱 안에서도 로그인해야 쓸 수 있으므로 공개해도 된다. 안드로이드만(데스크톱 설치본은 그대로 로그인 필요).
-app.get('/download/android', (req, res) => sendLatestInstaller(res, 'android'));
+app.get('/app', (req, res) => sendLatestInstaller(res, 'android')); // 앱 받기(2026-10-27, 예전 /download/android)
 async function sendLatestInstaller(res, plat) {
   const d = await fetchLatestDesktop();
   if (!d.available) return res.status(404).send('설치파일이 아직 준비되지 않았습니다. 관리자에게 문의하세요.');
@@ -2402,6 +2395,81 @@ function viewerAccessOk(req, sessionId) {
   return !!currentUser(req) || viewerTokenValid(sessionId, req.query && req.query.t);
 }
 
+/* ---- 참여 코드(2026-10-27): 짧은 QR 주소 /j/K7Q2M9 · 안내데스크 /desk/K7Q2M9 ----
+   세션마다 6자리(헷갈리는 0·O·1·I·L 제외 31자 → 약 8.9억 가지)를 한 번 만들어 세션에 저장한다(인쇄 QR 이 계속 유효).
+   코드를 아는 것 = 뷰어 토큰을 가진 것과 같은 권한 — 페이지가 그 세션의 토큰을 받아 기존 경로(/ws/viewer?t=)로 접속한다.
+   무작위 대입은 IP 당 틀린 코드 횟수로 막는다. */
+const JOIN_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+function newJoinCode() {
+  let c;
+  do { c = Array.from(crypto.randomBytes(6), (b) => JOIN_ALPHABET[b % JOIN_ALPHABET.length]).join(''); }
+  while (sessions.some((x) => x.joinCode === c));
+  return c;
+}
+function ensureJoinCode(s) {
+  if (!s.joinCode) { s.joinCode = newJoinCode(); saveSessions(s.id); }
+  return s.joinCode;
+}
+function sessionByJoinCode(code) {
+  const c = String(code || '').trim().toUpperCase();
+  if (!/^[0-9A-Z]{6}$/.test(c)) return null;
+  return sessions.find((x) => !x.deletedAt && x.joinCode === c) || null;
+}
+const joinMisses = new Map(); // ip -> { n, at } — 틀린 코드 10분에 20번 넘으면 잠시 차단
+function joinBlocked(ip) {
+  const m = joinMisses.get(ip);
+  if (!m) return false;
+  if (Date.now() - m.at > 10 * 60 * 1000) { joinMisses.delete(ip); return false; }
+  return m.n >= 20;
+}
+function joinMiss(ip) {
+  const m = joinMisses.get(ip);
+  if (!m || Date.now() - m.at > 10 * 60 * 1000) joinMisses.set(ip, { n: 1, at: Date.now() });
+  else m.n++;
+}
+// 뷰어 페이지(빌드 산출물 dist/viewer/*.html)에 이 세션 정보를 심어 보낸다 — 페이지는 window.__JOIN 을 읽는다
+const viewerHtmlCache = new Map();
+function sendViewerPage(res, file, join) {
+  let html = viewerHtmlCache.get(file);
+  if (!html) {
+    try { html = fs.readFileSync(path.join(STATIC_DIR, 'viewer', file), 'utf8'); } catch { return res.status(404).send('viewer page missing — run npm run build'); }
+    if (process.env.NODE_ENV === 'production') viewerHtmlCache.set(file, html);
+  }
+  const inject = `<script>window.__JOIN=${JSON.stringify(join || {}).replace(/</g, '\\u003c')};</script>`;
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(html.replace('</head>', inject + '</head>'));
+}
+function joinPage(req, res, desk) {
+  const code = req.params.code;
+  if (!code) return sendViewerPage(res, desk ? 'desk.html' : 'join.html', {});
+  const ip = loginIp(req);
+  if (joinBlocked(ip)) return sendViewerPage(res, desk ? 'desk.html' : 'join.html', { notFound: true, blocked: true, code: String(code).slice(0, 6) });
+  const s = sessionByJoinCode(code);
+  if (!s) { joinMiss(ip); return sendViewerPage(res, desk ? 'desk.html' : 'join.html', { notFound: true, code: String(code).slice(0, 6) }); }
+  const isDesk = s.pipeline === 'desk';
+  if (isDesk !== !!desk) return res.redirect(302, (isDesk ? '/desk/' : '/j/') + s.joinCode); // 안내데스크는 /desk(앱이 손님 태블릿 모드로 연다)
+  sendViewerPage(res, isDesk ? 'desk.html' : 'join.html', { session: s.id, t: viewerToken(s.id), code: s.joinCode });
+}
+app.get(['/j', '/j/:code'], (req, res) => joinPage(req, res, false));
+// 같은 정보를 JSON 으로(앱·테스트용) — 틀린 코드 횟수 제한은 페이지와 공유
+app.get('/api/join/:code', (req, res) => {
+  const ip = loginIp(req);
+  if (joinBlocked(ip)) return res.status(429).json({ error: 'too many attempts' });
+  const s = sessionByJoinCode(req.params.code);
+  if (!s) { joinMiss(ip); return res.status(404).json({ error: 'not found' }); }
+  res.json({ session: s.id, t: viewerToken(s.id), code: s.joinCode, desk: s.pipeline === 'desk' });
+});
+app.get(['/desk', '/desk/:code'], (req, res) => joinPage(req, res, true));
+app.get('/overlay', (req, res) => sendViewerPage(res, 'overlay.html', {}));
+// 예전 주소(…/mobile.html?session=&t=, …/desk.html) → 새 참여 주소로(이미 찍어 둔 QR·링크용). 토큰이 맞을 때만 그 세션으로.
+app.get(['/mobile.html', '/desk.html'], (req, res) => {
+  const desk = req.path === '/desk.html';
+  const sid = String(req.query.session || '');
+  const s = sid && viewerTokenValid(sid, req.query.t) ? getSession(sid) : null;
+  if (s) return res.redirect(301, (s.pipeline === 'desk' ? '/desk/' : '/j/') + ensureJoinCode(s));
+  res.redirect(301, desk ? '/desk' : '/j');
+});
+
 /* ---- QR (세션별 모바일 URL) ---- */
 app.get('/api/qr', async (req, res) => {
   const sessionId = String(req.query.session || '');
@@ -2425,15 +2493,16 @@ app.get('/api/qr', async (req, res) => {
   }
   // 데스크 안내 모드는 전용(최소 UI·터치 시작·전체화면) 뷰어로. 랜딩(세션 선택)은 desk.html (세션 없이)
   const sess = sessionId ? getSession(sessionId) : null;
-  let url;
-  if (landing) url = `${proto}://${host}/desk.html`;
+  let url, code = null;
+  if (landing) url = `${proto}://${host}/desk`;
   else {
-    const viewer = sess && sess.pipeline === 'desk' ? 'desk.html' : 'mobile.html';
-    url = `${proto}://${host}/${viewer}?session=${encodeURIComponent(sessionId)}&t=${viewerToken(sessionId)}`;
+    if (!sess) return res.status(404).json({ error: 'not found' });
+    code = ensureJoinCode(sess);
+    url = `${proto}://${host}/${sess.pipeline === 'desk' ? 'desk' : 'j'}/${code}`;
   }
   try {
     const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 1 });
-    res.json({ url, qr: dataUrl });
+    res.json({ url, qr: dataUrl, code });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }

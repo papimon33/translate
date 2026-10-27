@@ -9,7 +9,7 @@
 - 실행: `npm start` (= `vite build && node server.js`). 코드 수정 후엔 재시작 필요.
 - 프론트만 빌드: `npm run build` / 서버만: `npm run serve`
 - 프론트 소스는 `client/`, 빌드 산출물 `dist/`(express가 서빙). **`dist`를 직접 수정하지 말 것** — `client/` 고치고 빌드.
-- 모바일 뷰어 `client/public/mobile.html`는 독립 바닐라 JS(React 아님).
+- 뷰어 페이지 `client/public/viewer/`(join.html=QR 참여 뷰어, desk.html=안내데스크 태블릿, overlay.html)는 독립 바닐라 JS(React 아님). 주소는 `/j/<참여 코드>`·`/desk/<코드>`·`/overlay`.
 
 ## 규칙
 - 번역 로직·프롬프트는 `server.js` 한 곳에 모여 있다. 수정 후 실제 음성(또는 TTS)으로 검증할 것.
@@ -25,4 +25,4 @@
 - **고급 설정:** 전문 용어 허용하되 필요한 설명만. 진단 정보는 일반 사용자 화면에 두지 않는다.
 - **말투:** 호스트 앱·관리 화면 = 편안한 존댓말("~하세요/~했습니다"), QR 뷰어(외부 참가자) = 부드러운 존댓말("~해요/~해 주세요").
 - **사용자가 직접 해결해야 하는 곳**(스테레오·모노, 권한 오류)은 조금 길어도 구체적으로. 단순 상태 변경은 짧게.
-- **영어·일본어:** 한국어를 먼저 확정한 뒤 같은 의미로 번역(`client/src/components/mobile/i18n.js`, `mobile.html` UI 표).
+- **영어·일본어:** 한국어를 먼저 확정한 뒤 같은 의미로 번역(`client/src/components/mobile/i18n.js`, `viewer/join.html` UI 표).

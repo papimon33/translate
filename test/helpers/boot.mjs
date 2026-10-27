@@ -80,11 +80,14 @@ export async function until(fn, { timeout = 8000, step = 100, desc = '조건' } 
 
 /* 데스크 뷰어 접근 토큰 — 로그인한 직원만 열 수 있는 QR 라우트에서 받는다.
    공개 목록(/api/desk-sessions)은 토큰을 배포하지 않으므로 실제 프로비저닝과 같은 경로를 쓴다. */
+// QR 은 짧은 참여 주소(/j/<코드>, 2026-10-27) — 코드로 /api/join 에서 토큰을 받는다(뷰어 페이지가 받는 것과 같은 값)
 export async function deskToken(base, cookie, sessionId) {
   const r = await fetch(`${base}/api/qr?session=${encodeURIComponent(sessionId)}`, { headers: { Cookie: cookie } });
   if (!r.ok) throw new Error(`QR 취득 실패 ${r.status}`);
-  const { url } = await r.json();
-  const t = new URL(url).searchParams.get('t');
-  if (!t) throw new Error('QR URL 에 토큰이 없음: ' + url);
-  return t;
+  const { code, url } = await r.json();
+  if (!code) throw new Error('QR 에 참여 코드가 없음: ' + url);
+  const j = await fetch(`${base}/api/join/${code}`).then((x) => x.json());
+  if (!j.t) throw new Error('참여 코드로 토큰을 받지 못함: ' + code);
+  return j.t;
 }
+export const viewerToken = deskToken;

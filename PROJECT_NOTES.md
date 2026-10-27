@@ -87,6 +87,16 @@
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
 - **Soniox 헤더 인증(2026-10-27)**: start(config) 메시지의 `api_key` 가 2027-01-15 에 중단되므로 Soniox 실시간 STT 접속 4곳(실시간 번역·데스크 안내원/여객 채널·용어 실검증)을 `openSonioxWs()`(`Authorization: Bearer <SONIOX_API_KEY>` 헤더)로 바꾸고 config 에서 키를 뺐다. `test/soniox-auth.test.mjs`(가짜 엔진이 `conn.headers` 기록). `eval/*.mjs` 3개는 아직 구 방식.
+- **주소 정리(2026-10-27, 배포 전이라 일괄 변경)**: 사용자에게 보이는 주소를 짧고 의미 있게.
+  · QR 참여 = `/j/<참여 코드>`(6자리, 0·O·1·I·L 제외 31자), 코드 입력 화면 `/j`, 안내데스크 태블릿 = `/desk/<코드>`·랜딩 `/desk`, 오버레이 `/overlay`, 앱 받기 `/app`.
+    세션마다 `joinCode` 를 한 번 만들어 저장(`ensureJoinCode`, 인쇄 QR 유지). 서버가 뷰어 페이지(`dist/viewer/*.html`)에 `window.__JOIN={session,t,code}` 를 심어 보낸다
+    (코드 = 뷰어 토큰과 같은 권한). JSON 은 `/api/join/:code`. 틀린 코드는 IP 당 10분 20번 넘으면 429. `/api/qr` 은 `{url, qr, code}`.
+    데스크 홈 화면 바로가기(manifest start_url)도 `/desk/<코드>` — 토큰을 주소에 싣지 않아도 재실행 후 바로 접속. 예전 `/mobile.html?session&t`·`/desk.html` 은 새 주소로 301.
+    안드로이드 앱은 경로에 'desk' 가 있으면 손님 태블릿 모드 → 안내데스크 세션은 꼭 `/desk/…`(`/j/<데스크 코드>` 는 `/desk/<코드>` 로 302).
+  · 뷰어 파일 이동: `client/public/{mobile,desk,overlay}.html` → `client/public/viewer/{join,desk,overlay}.html`.
+  · PC 화면 주소: `/` 목록, `/s/<세션>`, `/desks`(안내데스크 목록), `/admin/<탭>` — 새로고침·즐겨찾기·링크 공유 가능(App `pathOf`, 로그인 후 첫 주소 해석). 폰 화면은 주소를 쓰지 않음.
+  · 그대로 둔 것: `/api/…`, `/ws/…`, 설치된 앱이 업데이트에 쓰는 `/download/desktop?platform=`.
+  · 폰·PC 링크 공유 시트에 참여 코드 크게 + "airtalk.kr/j 에서 입력". 앱 다운로드 화면(폰 브라우저)에 "참여 코드로 보기"(/j). 테스트 test/join-code.test.mjs.
 - **운영 도메인 airtalk.kr(2026-10-27)**: 가비아 등록, DNS = A `@` 216.24.57.1 + CNAME `www` translate-voxm.onrender.com.(Render 문서 값). Render Custom Domains 에
   airtalk.kr 추가 → 인증서(Google Trust Services) 자동, www·http 는 https://airtalk.kr 로 301. 옛 주소 translate-voxm.onrender.com 도 같은 서비스라 계속 동작.
   · 서버: 환경변수 `PUBLIC_HOST=airtalk.kr` 이면 QR(뷰어·데스크 랜딩 링크)을 항상 https://airtalk.kr 로(`/api/qr`, test/public-host.test.mjs). Render 대시보드에서 설정 필요.

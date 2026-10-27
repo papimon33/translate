@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
-import { bootServer, loginAdmin, until } from './helpers/boot.mjs';
+import { bootServer, loginAdmin, until, viewerToken } from './helpers/boot.mjs';
 
 test('일반 세션 삭제는 관리자 로그에서도 사라지고, 뷰어 수는 실제 뷰어만 센다', { timeout: 60000 }, async (t) => {
   const srv = await bootServer();
@@ -16,8 +16,7 @@ test('일반 세션 삭제는 관리자 로그에서도 사라지고, 뷰어 수
   // 뷰어 수: 처음 0 → QR 링크로 뷰어 1명 접속 → 1, 호스트 화면의 패시브 뷰어(role=host)는 세지 않음
   const count = () => fetch(`${srv.base}/api/sessions/${sess.id}/viewers`, auth).then((r) => r.json()).then((j) => j.n);
   assert.equal(await count(), 0);
-  const qr = await fetch(`${srv.base}/api/qr?session=${sess.id}`, auth).then((r) => r.json());
-  const tok = new URL(qr.url).searchParams.get('t');
+  const tok = await viewerToken(srv.base, cookie, sess.id); // 참여 코드(/j/<코드>) → 토큰
   const wsBase = srv.base.replace('http', 'ws');
   const v = new WebSocket(`${wsBase}/ws/viewer?session=${sess.id}&t=${tok}`);
   await new Promise((res, rej) => { v.once('open', res); v.once('error', rej); });

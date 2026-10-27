@@ -533,7 +533,13 @@ export default function MobileLive(p) {
           {qr ? (
             <>
               <Box component="img" src={qr.qr} alt="QR" sx={{ width: 220, bgcolor: '#fff', borderRadius: '16px', p: 1 }} />
-              <Typography sx={{ fontSize: 12.5, color: 'text.secondary', wordBreak: 'break-all', textAlign: 'center' }}>{qr.url}</Typography>
+              {qr.code && (
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{t('joinCode')}</Typography>
+                  <Typography sx={{ fontSize: 30, fontWeight: 800, letterSpacing: '0.22em', lineHeight: 1.2, pl: '0.22em' }}>{qr.code}</Typography>
+                  <Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{t('joinAt', { host: (() => { try { return new URL(qr.url).host + '/j'; } catch { return '/j'; } })() })}</Typography>
+                </Box>
+              )}
               <Box sx={{ display: 'flex', gap: 1, width: '100%' }}>
                 <ButtonBase onClick={copy} sx={{ flex: 1, height: 50, borderRadius: '14px', bgcolor: 'action.hover', fontSize: 15, fontWeight: 700, color: copied ? 'success.main' : 'text.primary' }}>{copied ? t('copied') : t('copyLink')}</ButtonBase>
                 {/* 앱은 네이티브 공유, 폰 브라우저(iPhone 웹)는 Web Share */}
