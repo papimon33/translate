@@ -25,6 +25,7 @@ import { alpha } from '@mui/material/styles';
 import { SIDEBAR, ACCENT } from '../theme.js';
 import { api } from '../api.js';
 import DesktopAppDialog from './DesktopAppDialog.jsx';
+import Wordmark from './Wordmark.jsx';
 
 const W = 288; // 펼침 폭 — 최근 항목 표기를 위해 확대
 const WC = 72;
@@ -69,7 +70,7 @@ export const ADMIN_TABS = [
   { v: 'system', label: '시스템·보안' },
 ];
 
-export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, adminTab, currentSessionId, onHome, onDesk, onAdmin, onOpenSession, onLogout, onUserUpdate }) {
+export default function Nav({ v2 = false, collapsed, mobile, onToggleCollapsed, onToggleTheme, mode, user, view, adminTab, currentSessionId, onHome, onDesk, onAdmin, onOpenSession, onLogout, onUserUpdate }) {
   const width = collapsed ? WC : W;
   const [menu, setMenu] = useState(null);
   const [edit, setEdit] = useState(false);
@@ -77,7 +78,9 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
   const [recents, setRecents] = useState([]); // 최근 항목(세션) — Claude 사이드바 스타일
   const isAdmin = user?.role === 'admin';
   const initial = (user?.username || user?.id || '?').trim().charAt(0).toUpperCase();
-  const S = SIDEBAR[mode] || SIDEBAR.light; // 사이드바는 테마를 따라감(항상 콘텐츠보다 밝게)
+  const S0 = SIDEBAR[mode] || SIDEBAR.light; // 사이드바는 테마를 따라감(항상 콘텐츠보다 밝게)
+  // PC 새 화면(v2): 폰 화면처럼 옅은 회색 사이드바(흰 본문과 구분) + 선택 항목 옅은 보라
+  const S = v2 ? { ...S0, ...(mode === 'dark' ? {} : { bg: '#F7F7F9', border: 'transparent' }), active: alpha(ACCENT[mode] || ACCENT.light, mode === 'dark' ? 0.2 : 0.12) } : S0;
 
   // 최근 항목: 화면 전환·세션 열기 때마다 갱신(목록 API 는 가볍다)
   React.useEffect(() => {
@@ -109,7 +112,10 @@ export default function Nav({ collapsed, mobile, onToggleCollapsed, onToggleThem
           justifyContent: collapsed ? 'center' : 'flex-start',
         }}
       >
-        {!collapsed && (
+        {!collapsed && v2 && (
+          <Box sx={{ minWidth: 0, flex: 1, pl: 0.75 }}><Wordmark size={24} sx={{ color: S.textStrong }} /></Box>
+        )}
+        {!collapsed && !v2 && (
           <>
             <Box
               component="img"

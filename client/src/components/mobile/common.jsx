@@ -183,7 +183,7 @@ export function BottomSheet({ open, onClose, title, subtitle, action, children, 
       disableBackdropTransition={!IOS}
       ModalProps={{ keepMounted: false }}
       sx={{ zIndex: (th) => th.zIndex.modal + 1 }} /* 설정·계정(전체 화면 Dialog) 위에서도 열리게 — Drawer 기본 z-index 는 Dialog 보다 낮다 */
-      slotProps={{ paper: { sx: { borderTopLeftRadius: '28px', borderTopRightRadius: '28px', maxHeight, bgcolor: 'background.paper', backgroundImage: 'none', pb: 'env(safe-area-inset-bottom)' } } }}
+      slotProps={{ paper: { sx: { borderTopLeftRadius: '28px', borderTopRightRadius: '28px', maxHeight, bgcolor: 'background.paper', backgroundImage: 'none', pb: 'env(safe-area-inset-bottom)', width: { xs: 'auto', sm: 520 }, mx: 'auto' } } }} /* 넓은 화면(PC 새 화면)에선 가운데 폭 520 */
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, maxHeight }}>
         <Box sx={{ alignSelf: 'center', width: 40, height: 4, borderRadius: '999px', bgcolor: 'divider', mt: 1.25, mb: 1.5, flex: 'none' }} />

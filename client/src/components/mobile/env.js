@@ -25,3 +25,12 @@ export const MOBILE_UI = typeof window !== 'undefined' && (
   || /[?&]mobileui=1(&|$)/.test(window.location.search)
   || (() => { try { return localStorage.getItem('kac-mobile-ui') === '1'; } catch { return false; } })()
 );
+
+// PC 새 화면(테스트, 2026-10-26) — 폰 화면과 같은 디자인. 주소에 ?ui=v2 를 붙이면 켜지고(이 브라우저에 기억), ?ui=v1 이면 원래 화면.
+export const PC_V2 = typeof window !== 'undefined' && !MOBILE_UI && (() => {
+  try {
+    const m = /[?&]ui=(v1|v2)(&|$)/.exec(window.location.search);
+    if (m) { if (m[1] === 'v2') localStorage.setItem('kac-pc-ui', 'v2'); else localStorage.removeItem('kac-pc-ui'); }
+    return localStorage.getItem('kac-pc-ui') === 'v2';
+  } catch { return false; }
+})();

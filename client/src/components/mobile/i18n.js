@@ -7,6 +7,8 @@ const D = {
   ko: {
     micCheckTitle: '마이크 확인', micCheckDesc: '각 마이크에 차례로 말해 보세요. 말하는 쪽이 강조됩니다.', micHost: '호스트', micGuest: '상대방', mic1: '마이크 1', mic2: '마이크 2', micChecked: '확인됨', micSpeak: '말해 보세요', 
     micCheckDescOne: '마이크에 대고 말해 보세요.', micOne: '마이크', startOneMic: '마이크 1개로 시작',
+    pcSource: '음성 입력', srcMic: '마이크', srcSystem: 'PC 소리', srcBoth: '마이크 + PC 소리', pcMicDevice: '마이크 장치', defaultMic: '기본 마이크', pcMode: '모드', advanced: '고급 설정', overlayWin: '오버레이 창', lockedWhileRec: '번역 중에는 바꿀 수 없습니다. 중지한 뒤 바꾸세요.',
+    renameShort: '이름 바꾸기', sessionDeleted: '세션을 삭제했습니다.',
     openSettings: '설정 열기', speakerAria: '이 기기에서 번역 음성 재생', muteNeedRec: '번역을 시작한 뒤 음소거할 수 있습니다.',
     mutedMsg: '음소거했습니다.', unmutedMsg: '음소거를 해제했습니다.',
     ttsOnMsg: '참가자의 번역 음성 재생을 켰습니다.', ttsOffMsg: '참가자의 번역 음성 재생을 껐습니다.',
@@ -60,6 +62,8 @@ const D = {
   en: {
     micCheckTitle: 'Check microphones', micCheckDesc: 'Speak into each microphone in turn. The active one is highlighted.', micHost: 'Host', micGuest: 'Guest', mic1: 'Mic 1', mic2: 'Mic 2', micChecked: 'Checked', micSpeak: 'Say something', 
     micCheckDescOne: 'Say something into the microphone.', micOne: 'Microphone', startOneMic: 'Start with one mic',
+    pcSource: 'Audio input', srcMic: 'Microphone', srcSystem: 'PC audio', srcBoth: 'Mic + PC audio', pcMicDevice: 'Microphone device', defaultMic: 'Default microphone', pcMode: 'Mode', advanced: 'Advanced settings', overlayWin: 'Overlay window', lockedWhileRec: "You can't change this while translating. Stop first.",
+    renameShort: 'Rename', sessionDeleted: 'Session deleted.',
     openSettings: 'Open settings', speakerAria: 'Play spoken translation on this device', muteNeedRec: 'Start translating to use mute.',
     mutedMsg: 'Muted.', unmutedMsg: 'Unmuted.',
     ttsOnMsg: 'Spoken translation for participants is on.', ttsOffMsg: 'Spoken translation for participants is off.',
@@ -113,6 +117,8 @@ const D = {
   ja: {
     micCheckTitle: 'マイク確認', micCheckDesc: '各マイクに順番に話してください。話している側が強調されます。', micHost: 'ホスト', micGuest: '相手', mic1: 'マイク 1', mic2: 'マイク 2', micChecked: '確認済み', micSpeak: '話してください', 
     micCheckDescOne: 'マイクに向かって話してください。', micOne: 'マイク', startOneMic: 'マイク1本で開始',
+    pcSource: '音声入力', srcMic: 'マイク', srcSystem: 'PCの音', srcBoth: 'マイク + PCの音', pcMicDevice: 'マイクデバイス', defaultMic: '既定のマイク', pcMode: 'モード', advanced: '詳細設定', overlayWin: 'オーバーレイ', lockedWhileRec: '翻訳中は変更できません。停止してから変更してください。',
+    renameShort: '名前を変更', sessionDeleted: 'セッションを削除しました。',
     openSettings: '設定を開く', speakerAria: 'この端末で翻訳音声を再生', muteNeedRec: '翻訳を開始するとミュートできます。',
     mutedMsg: 'ミュートしました。', unmutedMsg: 'ミュートを解除しました。',
     ttsOnMsg: '参加者の翻訳音声をオンにしました。', ttsOffMsg: '参加者の翻訳音声をオフにしました。',

@@ -86,6 +86,15 @@
   게다가 하트비트가 30초(`HEARTBEAT_MS`)라 서버가 이탈을 알아채기 전 최대 30초 동안 태블릿은 데스크를
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
+- **폰 목록 길게 누르기(2026-10-27)**: 세션 줄을 0.5초 누르면(손가락이 10px 이상 움직이면 취소, PC 는 우클릭) 이름 바꾸기·세션 삭제 시트
+  (`MobileApp` 의 `SessionRow`). 이름 바꾸기 = FormSheet → `api.patch`, 삭제 = 확인 창(데이터 손실 명시) → `api.remove` → "세션을 삭제했습니다." 목록 모드 아이콘 선 굵기 2.4.
+- **PC 새 화면 테스트(?ui=v2, 2026-10-26)**: 주소에 `?ui=v2` → 이 브라우저에 기억(`kac-pc-ui`), `?ui=v1` → 원래 화면. 기본은 기존 화면 그대로.
+  · 전체: `buildTheme(mode, { brand: true })` — 보라 주색(버튼·스위치 등)·흰 바탕·더 둥근 버튼/대화상자. 사이드바(Nav v2)는 옅은 회색 + `airtalk.` 로고 + 선택 항목 옅은 보라.
+  · 세션 목록(SessionList, 데스크 제외): 폰 목록과 같은 줄 — 모드 아이콘 + '날짜 · 언어'(공용 `mobile/sessionMeta.jsx`, 폰 홈도 이걸 씀).
+  · 세션 화면(soniox 실시간 번역·양방향만): 폰 세션 화면 `MobileLive` 를 `desktop` 으로 — 메뉴 항상 표시, 대화 가운데 820px 열, 조작판 가운데 520px,
+    큰 설정은 오른쪽(420px, 우상단 설정 버튼). PC 전용 줄(`pc/PcRows.jsx`): 음성 입력(마이크/PC 소리/둘 다)·마이크 장치·모드·고급 설정(기존 대화상자 그대로)·오버레이 창(데스크톱 앱).
+    PC 소리만 들을 땐 대기 중 마이크 미터를 끔(`meterOff`, 권한 안 묻게). 안내데스크 세션·구 파이프라인·관리자 화면은 기존 구조(색만 보라).
+  · 바텀 시트는 넓은 화면(sm 이상)에서 가운데 폭 520(`common.jsx` BottomSheet).
 - **언어별 글꼴(2026-10-26)**: 한국어·영어 Pretendard(기존), 일본어 Pretendard JP(`Pretendard JP Variable`, jsDelivr dynamic-subset), 중국어 Noto Sans SC(Google Fonts).
   `index.html`·`mobile.html` 의 `[lang|="ja"]`·`[lang|="zh"]` 규칙(!important — MUI 글꼴 지정보다 우선)으로 lang 이 달린 요소에만. 글꼴 파일은 그 글자를 쓸 때만 받는다.
   폰 앱: `Line`/`Bubble` 의 번역문·원문에 lang(번역 키·`m.lang`), 화면 언어가 일본어면 `MobileApp` 이 html lang=ja. 뷰어: 문장·언어 버튼·html lang 이 이미 달려 있음.

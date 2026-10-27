@@ -34,14 +34,16 @@ export const SIDEBAR = {
   },
 };
 
-export function buildTheme(mode) {
+// brand: PC 새 화면(?ui=v2) — 폰 화면과 같은 보라 주색·흰 바탕·더 둥근 모서리
+export function buildTheme(mode, { brand = false } = {}) {
   const dark = mode === 'dark';
-  // 주 색상 = 뉴트럴 반전(Claude 버튼과 동일): 라이트=거의 검정 버튼, 다크=거의 백색 버튼.
-  const primary = dark ? '#faf9f5' : '#1f1e1d';
-  const primaryContrast = dark ? '#1f1e1d' : '#ffffff';
+  // 주 색상 = 뉴트럴 반전(Claude 버튼과 동일): 라이트=거의 검정 버튼, 다크=거의 백색 버튼. brand 면 보라.
+  const primary = brand ? (dark ? ACCENT.dark : ACCENT.light) : dark ? '#faf9f5' : '#1f1e1d';
+  const primaryContrast = brand ? '#ffffff' : dark ? '#1f1e1d' : '#ffffff';
+  const primaryHover = brand ? (dark ? '#9a90ff' : '#4A3FD4') : dark ? '#e8e6df' : '#3d3b38';
   // Claude 앱 팔레트(웜 뉴트럴). nav 가 캔버스보다 항상 밝다:
   // 라이트 캔버스 #FAFAF8(거의 흰색)·카드/nav #FFF, 다크 캔버스 #1F1E1D·카드 #30302E(nav #262624).
-  const bgDefault = dark ? '#1f1e1d' : '#fafaf8';
+  const bgDefault = dark ? '#1f1e1d' : brand ? '#ffffff' : '#fafaf8';
   const bgPaper = dark ? '#30302e' : '#ffffff';
   const divider = dark ? 'rgba(250,249,245,0.10)' : 'rgba(31,30,29,0.12)';
   const textPrimary = dark ? '#faf9f5' : '#1f1e1d';
@@ -87,12 +89,12 @@ export function buildTheme(mode) {
         defaultProps: { disableElevation: true },
         styleOverrides: {
           // 버튼 폰트는 크기(size) 무관 14 고정
-          root: { textTransform: 'none', borderRadius: 8, paddingInline: 14, fontSize: 14 },
+          root: { textTransform: 'none', borderRadius: brand ? 12 : 8, paddingInline: 14, fontSize: 14 },
           containedPrimary: {
             backgroundColor: primary,
             color: primaryContrast,
             boxShadow: 'none',
-            '&:hover': { backgroundColor: dark ? '#e8e6df' : '#3d3b38', boxShadow: 'none' },
+            '&:hover': { backgroundColor: primaryHover, boxShadow: 'none' },
           },
           outlined: { borderColor: divider, '&:hover': { borderColor: alpha(textPrimary, 0.3), backgroundColor: alpha(textPrimary, 0.03) } },
         },
@@ -118,7 +120,7 @@ export function buildTheme(mode) {
         },
       },
       MuiMenu: { styleOverrides: { paper: { borderRadius: 10, border: `1px solid ${divider}`, marginTop: 6, boxShadow: dark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(29,28,29,0.12)' } } },
-      MuiDialog: { styleOverrides: { paper: { borderRadius: 14, border: `1px solid ${divider}` } } },
+      MuiDialog: { styleOverrides: { paper: brand ? { borderRadius: 24, border: 0 } : { borderRadius: 14, border: `1px solid ${divider}` } } },
       MuiTooltip: {
         styleOverrides: {
           tooltip: {

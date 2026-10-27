@@ -16,7 +16,7 @@ import SessionList from './components/SessionList.jsx';
 import Login from './components/Login.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import { api } from './api.js';
-import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE } from './components/mobile/env.js';
+import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE, PC_V2 } from './components/mobile/env.js';
 import AppDownload from './components/AppDownload.jsx';
 import { getPrefs, subscribePrefs, resolveTheme } from './components/mobile/prefs.js';
 
@@ -44,7 +44,7 @@ export default function App() {
   const [user, setUser] = useState(undefined); // undefined=확인중, null=로그아웃
   const [drawer, setDrawer] = useState(false); // 모바일 네비 드로어
   const [isFs, setIsFs] = useState(false); // 전체화면(데스크 안내) — nav 숨김
-  const theme = useMemo(() => buildTheme(mode), [mode]);
+  const theme = useMemo(() => buildTheme(mode, { brand: PC_V2 }), [mode]);
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
@@ -206,6 +206,7 @@ export default function App() {
 
   const nav = (
     <Nav
+      v2={PC_V2}
       collapsed={isMobile ? false : collapsed}
       mobile={isMobile}
       onToggleCollapsed={toggleCollapsed}

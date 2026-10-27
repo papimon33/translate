@@ -24,6 +24,9 @@ import Skeleton from '@mui/material/Skeleton';
 import Fab from '@mui/material/Fab';
 import { alpha } from '@mui/material/styles';
 import Snackbar from '@mui/material/Snackbar';
+import { PC_V2 } from './mobile/env.js';
+import { ModeIcon, shortDate, sessionLangs } from './mobile/sessionMeta.jsx';
+import { langName } from './mobile/i18n.js';
 import MuiAlert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
@@ -367,6 +370,7 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
           {/* 목록 — Claude 채팅 목록 스타일: 모드 아이콘 · 제목 · 구분선 · 우측 시간(hover 시 케밥으로 전환) */}
           {shown.map((s, si) => {
             const checked = selIds.has(s.id);
+            const v2Row = PC_V2 && !deskMode; // PC 새 화면: 폰 목록과 같은 줄(모드 아이콘 + '날짜 · 언어')
             const searching = !!q.trim();
             return (
             <Box
@@ -387,8 +391,10 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
               {selMode && (
                 <Checkbox checked={checked} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
               )}
-              {/* 유형 무관 단일 채팅 아이콘(스니펫 있을 땐 첫 줄에 정렬) */}
-              <IcoChat sx={{ width: 19, height: 19, flex: 'none', color: 'text.secondary', opacity: 0.85, mt: searching && s.snippet ? '2px' : 0, alignSelf: searching && s.snippet ? 'flex-start' : 'center' }} />
+              {/* 유형 무관 단일 채팅 아이콘(스니펫 있을 땐 첫 줄에 정렬). PC 새 화면은 폰 목록과 같은 모드 아이콘 */}
+              {v2Row ? <ModeIcon preset={s.preset} size={40} /> : (
+                <IcoChat sx={{ width: 19, height: 19, flex: 'none', color: 'text.secondary', opacity: 0.85, mt: searching && s.snippet ? '2px' : 0, alignSelf: searching && s.snippet ? 'flex-start' : 'center' }} />
+              )}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography sx={{ fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {searching ? <Highlight text={s.title || '(제목 없음)'} q={q.trim()} /> : (s.title || '(제목 없음)')}
@@ -396,6 +402,11 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                 {searching && s.snippet && (
                   <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <Highlight text={s.snippet} q={q.trim()} />
+                  </Typography>
+                )}
+                {v2Row && !(searching && s.snippet) && (
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {[shortDate(s.updatedAt || s.createdAt, 'ko-KR'), sessionLangs(s, (c) => langName(c, 'ko'), { two: '양방향 통역', one: '실시간 번역' })].filter(Boolean).join(' · ')}
                   </Typography>
                 )}
               </Box>
@@ -418,12 +429,12 @@ export default function SessionList({ onOpen, user, deskMode, createSignal }) {
                   {s.deskName}
                 </Typography>
               )}
-              {s.preset && TYPE_NAME[s.preset] && (
+              {!v2Row && s.preset && TYPE_NAME[s.preset] && (
                 <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>
                   {TYPE_NAME[s.preset]}
                 </Typography>
               )}
-              <Typography className="rowTime" sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right', transition: 'opacity .12s', display: { xs: 'none', sm: 'block' }, alignSelf: searching && s.snippet ? 'flex-start' : 'center', mt: searching && s.snippet ? '2px' : 0 }}>{rel(s.updatedAt)}</Typography>
+              {!v2Row && <Typography className="rowTime" sx={{ flex: 'none', fontSize: 13, color: 'text.secondary', minWidth: 52, textAlign: 'right', transition: 'opacity .12s', display: { xs: 'none', sm: 'block' }, alignSelf: searching && s.snippet ? 'flex-start' : 'center', mt: searching && s.snippet ? '2px' : 0 }}>{rel(s.updatedAt)}</Typography>}
               {!selMode && (
                 <>
                   {/* 데스크톱: hover 시 케밥만(시간 자리로 스왑) — 액션은 케밥 메뉴로 통일 */}

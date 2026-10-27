@@ -4,7 +4,7 @@ import React, { forwardRef } from 'react';
 import Box from '@mui/material/Box';
 import {
   Mic, MicOff, Volume2, VolumeX, Play, ChevronRight, Usb, Bluetooth, Headset, Smartphone, Check,
-  QrCode, Download, Settings, Plus, ArrowRight, ArrowLeftRight, ArrowLeft, LogOut,
+  QrCode, Download, Settings, Plus, ArrowRight, ArrowLeftRight, ArrowLeft, LogOut, Pencil, Trash2,
 } from 'lucide-react';
 
 const STROKE = 1.75;
@@ -36,6 +36,8 @@ export const ArrowRightIcon = wrap(ArrowRight, 'ArrowRightIcon');
 export const SwapIcon = wrap(ArrowLeftRight, 'SwapIcon');
 export const ArrowLeftIcon = wrap(ArrowLeft, 'ArrowLeftIcon');
 export const LogOutIcon = wrap(LogOut, 'LogOutIcon');
+export const PencilIcon = wrap(Pencil, 'PencilIcon');
+export const TrashIcon = wrap(Trash2, 'TrashIcon');
 
 // 'TTS' 글자 모양 아이콘(둥근 선, Lucide 와 같은 굵기) — 하단 TTS 버튼. off 면 사선.
 export const TtsIcon = forwardRef(function TtsIcon({ sx, off, ...rest }, ref) {

@@ -2,7 +2,8 @@
    상태·엔진 로직은 TranslateView 가 그대로 갖고, 이 파일은 그 값을 받아 그리기만 한다.
    · 위: 세션 이름(표시만) · 오른쪽에 이 폰 소리(스피커)·링크 공유(QR)
    · 아래: 떠 있는 회색 조작판(음소거·TTS·시작/중지·언어·종료) — 위로 밀거나 손잡이를 누르면 큰 설정(입력·출력·세션)
-   · 번역을 시작하면 위·아래를 숨기고 화면을 누르면 4초간 보인다 */
+   · 번역을 시작하면 위·아래를 숨기고 화면을 누르면 4초간 보인다
+   · desktop(PC 새 화면 ?ui=v2): 메뉴 항상 표시, 대화는 가운데 열, 큰 설정은 오른쪽에서. PC 전용 줄(음성 입력·마이크 장치·모드·고급 설정)은 pc/PcRows */
 import React, { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -16,9 +17,10 @@ import Dialog from '@mui/material/Dialog';
 import { alpha } from '@mui/material/styles';
 import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, PickSheet, SensSlider, MicSheet, stereoMsg, Group, OptionRow, langOptions, useMicInputs, useIdleMeter, useBackClose, micCurrentName } from './common.jsx';
 import { useT } from './i18n.js';
-import { CheckIcon, MicIcon, MicOffIcon, PlayIcon, QrIcon, LogOutIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
+import { CheckIcon, SettingsIcon, MicIcon, MicOffIcon, PlayIcon, QrIcon, LogOutIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
 import { BRAND, BRAND_SOFT } from '../../brand.js';
 import { api } from '../../api.js';
+import { usePcRows } from '../pc/PcRows.jsx';
 
 const BLUE = '#1F5BBF';
 // 조작판 회색(디스코드의 떠 있는 바) — 대화 배경(흰색)과 구분. 버튼은 배경 없이 아이콘만(시작=보라 사각형만 예외).
@@ -159,6 +161,7 @@ const brandSwitch = { '& .MuiSwitch-switchBase.Mui-checked': { color: '#fff' }, 
 export default function MobileLive(p) {
   const t = useT();
   const { twoway, recording, connecting, messages, fontScale: scale } = p;
+  const desktop = !!p.desktop; // PC 새 화면 — 화면이 바뀌지 않으므로 훅 순서도 고정
   const mic = useMicInputs();
   const [sheet, setSheet] = useState(null); // 'lang' | 'device' | 'voice' | 'share' | 'rename' | 'end' | 'clear' | 'delete'
   const [panel, setPanel] = useState(false); // 큰 설정(조작판을 위로 민 상태)
@@ -178,7 +181,7 @@ export default function MobileLive(p) {
   // 시작을 누르면 먼저 이 미터를 끄고(네이티브 캡처를 번역 경로에 넘김) 번역을 연다.
   const [starting, setStarting] = useState(false);
   // 양방향 통역이면 대기 중에도 2채널로 열어 송신기 1·2(좌·우)를 따로 보여 준다(번역도 같은 방식으로 연다)
-  const idle = useIdleMeter(!recording && !starting, twoway);
+  const idle = useIdleMeter(!recording && !starting && !p.meterOff, twoway); // meterOff: PC 소리만 들을 때(마이크 권한을 묻지 않게)
   const liveLevel = recording ? (p.micMuted ? null : p.level) : idle.l;
   const liveLevel2 = recording ? (p.micMuted || !p.stereoInfo ? null : p.level2) : idle.r;
   // 2채널로 열렸는지(대기 중 미터 / 번역 중 판별) — 상태 안내 문장을 보일지
@@ -261,10 +264,10 @@ export default function MobileLive(p) {
     hideTimer.current = setTimeout(() => setShown(false), 4000);
   };
   const onStageTap = () => {
-    if (!recording) return;
+    if (!recording || desktop) return;
     if (shown) { clearTimeout(hideTimer.current); setShown(false); } else poke();
   };
-  const bars = !recording || shown || !!sheet || panel;
+  const bars = desktop || !recording || shown || !!sheet || panel; // PC 는 항상 표시
   // 메뉴가 나타나고 사라질 때 위·아래 여백이 바뀐다 — 맨 아래를 보고 있었다면 마지막 문장이 메뉴에 가리지 않게 다시 맨 아래로
   const atBottomRef = useRef(true);
   useEffect(() => {
@@ -357,6 +360,7 @@ export default function MobileLive(p) {
     finally { setPreviewing(null); }
   };
   const voiceName = (g) => (g === 'm' ? t('male') : t('female'));
+  const pcx = usePcRows(desktop ? p.pc : null, t, setToast); // PC 전용 줄(폰에선 빈 값)
 
   const controls = (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', alignItems: 'center' }}>
@@ -381,7 +385,7 @@ export default function MobileLive(p) {
 
   const top = (
     <Box onPointerDown={poke} sx={{
-      position: 'absolute', left: 0, right: 0, top: 0, zIndex: 2, display: 'flex', alignItems: 'center', gap: 1, px: 2, pt: 'calc(10px + env(safe-area-inset-top))', pb: 1,
+      position: 'absolute', left: 0, right: 0, top: 0, zIndex: 2, display: 'flex', alignItems: 'center', gap: 1, px: desktop ? 3 : 2, pt: 'calc(10px + env(safe-area-inset-top))', pb: 1,
       bgcolor: 'background.default',
       transform: bars ? 'none' : 'translateY(-110%)', transition: 'transform 220ms ease',
     }}>
@@ -397,15 +401,16 @@ export default function MobileLive(p) {
         </TopBtn>
       )}
       <TopBtn label={t('shareLink')} onClick={() => setSheet('share')}><QrIcon /></TopBtn>
+      {desktop && <TopBtn label={t('openSettings')} onClick={() => setPanel(true)} active={panel}><SettingsIcon /></TopBtn>}
     </Box>
   );
 
   const bottom = (
     <Box onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}
       sx={{
-        position: 'absolute', left: 12, right: 12, bottom: 'calc(12px + env(safe-area-inset-bottom))', zIndex: 2,
+        position: 'absolute', bottom: 'calc(12px + env(safe-area-inset-bottom))', zIndex: 2,
+        ...(desktop ? { left: '50%', width: 'min(520px, calc(100% - 24px))', transform: 'translateX(-50%)' } : { left: 12, right: 12, transform: bars ? 'none' : 'translateY(140%)', transition: 'transform 220ms ease' }),
         borderRadius: '24px', bgcolor: PANEL_BG, boxShadow: '0 6px 24px rgba(0,0,0,0.10)', px: 1, pb: 1, touchAction: 'none',
-        transform: bars ? 'none' : 'translateY(140%)', transition: 'transform 220ms ease',
       }}>
       <ButtonBase onClick={() => setPanel(true)} aria-label={t('openSettings')} sx={{ width: '100%', height: 16, display: 'flex', justifyContent: 'center', borderRadius: '12px' }}>
         <Box sx={{ width: 40, height: 4, borderRadius: '999px', bgcolor: 'divider' }} />
@@ -415,7 +420,7 @@ export default function MobileLive(p) {
   );
 
   const banner = (p.notice || (recording && connecting)) && (
-    <Box sx={{ position: 'absolute', zIndex: 3, left: 16, right: 16, top: bars ? 'calc(70px + env(safe-area-inset-top))' : 'calc(14px + env(safe-area-inset-top))', transition: 'top 220ms ease', px: 2, py: 1.25, borderRadius: '14px', fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 1, bgcolor: (th) => (p.notice ? alpha(th.palette.warning.main, 0.16) : th.palette.background.paper), color: p.notice ? 'warning.dark' : 'text.secondary', boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }}>
+    <Box sx={{ position: 'absolute', zIndex: 3, left: 16, right: 16, ...(desktop ? { maxWidth: 788, mx: 'auto' } : {}), top: bars ? 'calc(70px + env(safe-area-inset-top))' : 'calc(14px + env(safe-area-inset-top))', transition: 'top 220ms ease', px: 2, py: 1.25, borderRadius: '14px', fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 1, bgcolor: (th) => (p.notice ? alpha(th.palette.warning.main, 0.16) : th.palette.background.paper), color: p.notice ? 'warning.dark' : 'text.secondary', boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }}>
       {!p.notice && <CircularProgress size={14} color="inherit" />}
       {p.notice || t('engineConnecting')}
     </Box>
@@ -426,7 +431,7 @@ export default function MobileLive(p) {
       {/* 대화 — 메뉴가 고정(대기)일 땐 위·아래 메뉴 높이만큼 비워 가리지 않게 */}
       <Box ref={p.scrollRef} onClick={onStageTap}
         onScroll={(e) => { const el = e.currentTarget; atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}
-        sx={{ position: 'absolute', inset: 0, overflowY: 'auto', overscrollBehavior: 'contain', px: twoway ? 2 : 3, display: 'flex', flexDirection: 'column', gap: twoway ? 1.75 : 2.75,
+        sx={{ position: 'absolute', inset: 0, overflowY: 'auto', overscrollBehavior: 'contain', px: desktop ? 'max(24px, calc((100% - 820px) / 2))' : twoway ? 2 : 3, display: 'flex', flexDirection: 'column', gap: twoway ? 1.75 : 2.75,
           pt: bars ? 'calc(76px + env(safe-area-inset-top))' : 'calc(20px + env(safe-area-inset-top))',
           pb: bars ? 'calc(108px + env(safe-area-inset-bottom))' : 'calc(40px + env(safe-area-inset-bottom))' }}>
         {messages.length === 0 ? (
@@ -464,14 +469,16 @@ export default function MobileLive(p) {
       )}
 
       {/* 큰 설정 — 조작판을 위로 민 화면(디스코드). 맨 위에 같은 조작 버튼, 아래에 입력·출력·세션 */}
-      <SwipeableDrawer anchor="bottom" open={panel} onOpen={() => setPanel(true)} onClose={() => setPanel(false)} disableSwipeToOpen disableDiscovery ModalProps={{ keepMounted: false }}
-        slotProps={{ paper: { sx: { height: 'calc(100dvh - 64px)', borderTopLeftRadius: '28px', borderTopRightRadius: '28px', bgcolor: PANEL_BG, backgroundImage: 'none' } } }}>
+      <SwipeableDrawer anchor={desktop ? 'right' : 'bottom'} open={panel} onOpen={() => setPanel(true)} onClose={() => setPanel(false)} disableSwipeToOpen disableDiscovery ModalProps={{ keepMounted: false }}
+        slotProps={{ paper: { sx: desktop
+          ? { width: 420, maxWidth: '100%', height: '100%', borderTopLeftRadius: '24px', borderBottomLeftRadius: '24px', bgcolor: PANEL_BG, backgroundImage: 'none', pt: 2 }
+          : { height: 'calc(100dvh - 64px)', borderTopLeftRadius: '28px', borderTopRightRadius: '28px', bgcolor: PANEL_BG, backgroundImage: 'none' } } }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-          <Box sx={{ alignSelf: 'center', width: 40, height: 4, borderRadius: '999px', bgcolor: 'divider', mt: 1.25, mb: 1.5, flex: 'none' }} />
+          {!desktop && <Box sx={{ alignSelf: 'center', width: 40, height: 4, borderRadius: '999px', bgcolor: 'divider', mt: 1.25, mb: 1.5, flex: 'none' }} />}
           <Box sx={{ px: 1.5, pb: 1.5, flex: 'none' }}>{controls}</Box>
           <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2, pb: 'calc(24px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Group title={t('secInput')}>
-              <OptionRow label={t('inputDevice')} value={micCurrentName(mic, t)} onClick={() => setSheet('device')} />
+              {desktop ? pcx.input : <OptionRow label={t('inputDevice')} value={micCurrentName(mic, t)} onClick={() => setSheet('device')} />}
               <OptionRow toggle label={t('autoSens')} onClick={() => p.onMicAuto(!p.micAuto)}
                 value={<Switch edge="end" checked={!!p.micAuto} tabIndex={-1} inputProps={{ 'aria-label': t('autoSens') }} sx={brandSwitch} />} />
               {p.micAuto && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5 }}>{t('autoSensHint')}</Typography>}
@@ -489,11 +496,14 @@ export default function MobileLive(p) {
               <OptionRow label={t('viewers')} value={t('viewersCount', { n: p.viewerCount || 0 })} onClick={() => setSheet('share')} />
               <OptionRow label={t('saveTranscript')} onClick={() => p.onSaveTranscript()} disabled={!p.canSave} />
               <OptionRow label={t('clearHistory')} onClick={() => setSheet('clear')} disabled={!p.canSave} />
+              {pcx.session}
               <OptionRow label={t('deleteSession')} danger onClick={() => setSheet('delete')} />
             </Group>
           </Box>
         </Box>
       </SwipeableDrawer>
+
+      {pcx.sheets}
 
       <MicCheckDialog open={checkOpen} one={micOne} l={idle.l} r={idle.r} checked={checked} t={t}
         onStart={() => (micOne ? passCheck(false, idle.r != null) : passCheck(true, false))}

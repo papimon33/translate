@@ -53,6 +53,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import MobileLive from './mobile/MobileLive.jsx';
 import { setPref } from './mobile/prefs.js';
+import { PC_V2 } from './mobile/env.js';
 import { api } from '../api.js';
 
 function VolumeIcon({ level }) {
@@ -1081,7 +1082,9 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     </>
   );
 
-  if (mobile) {
+  // PC 새 화면(?ui=v2): 실시간 번역·양방향 세션은 폰과 같은 세션 화면(PC 배치 + PC 전용 줄). 데스크·구 파이프라인은 기존 화면.
+  const pcV2 = PC_V2 && !mobile && cfg.pipeline === 'soniox';
+  if (mobile || pcV2) {
     const toggleTts = () => {
       const v = !ttsOn;
       setTtsOn(v);
@@ -1105,6 +1108,16 @@ export default function TranslateView({ session: initial, onBack, mobile = false
     return (
       <>
         <MobileLive
+          desktop={pcV2}
+          meterOff={pcV2 && sourceMode === 'system'}
+          pc={pcV2 ? {
+            recording,
+            sourceMode, srcOpts, onSource: changeSource,
+            micDevs, micId, onMicId: (v) => { setMicId(v); localStorage.setItem('kac-mic-device', v); },
+            mode: presetGroup, onMode: changeMode,
+            onAdvanced: () => setSxSettingsOpen(true), // 기존 고급 설정(텍스트 크기·감도·발화 인식·실험 기능) 그대로
+            isElectron, onOverlay: openOverlay,
+          } : undefined}
           title={sessTitle}
           twoway={twoway}
           recording={recording}

@@ -8,22 +8,23 @@ import ButtonBase from '@mui/material/ButtonBase';
 import InputBase from '@mui/material/InputBase';
 import CircularProgress from '@mui/material/CircularProgress';
 import GlobalStyles from '@mui/material/GlobalStyles';
+import Snackbar from '@mui/material/Snackbar';
 import { alpha, createTheme, useTheme, ThemeProvider } from '@mui/material/styles';
 import TranslateView, { SX_LANGS } from '../TranslateView.jsx';
 import { LANGS } from '../../theme.js';
 import { api } from '../../api.js';
-import { BottomSheet, LangSheet, langOptions } from './common.jsx';
+import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, langOptions } from './common.jsx';
 import { OptionsScreen, AccountScreen } from './OptionsScreen.jsx';
 import { usePrefs, syncWithAccount } from './prefs.js';
 import { useT } from './i18n.js';
 import UpdateSheet from './UpdateSheet.jsx';
 import { pushNav, backNav } from './backstack.js';
+import { ModeIcon, shortDate, sessionLangs } from './sessionMeta.jsx';
 import { appReady } from './env.js';
-import { ArrowRightIcon, CheckIcon, ChevronRightIcon, PlusIcon, SettingsIcon, SwapIcon } from './icons.jsx';
+import { ArrowRightIcon, CheckIcon, ChevronRightIcon, PencilIcon, PlusIcon, SettingsIcon, SwapIcon, TrashIcon } from './icons.jsx';
 import { BRAND } from '../../brand.js';
 import Wordmark from '../Wordmark.jsx';
 
-const isTwo = (preset) => ['twoway', 'mobile', 'field', 'meeting'].includes(preset);
 const SX_CODES = SX_LANGS.map((l) => l.code);
 const IN_CODES = LANGS.map((l) => l.code); // 'auto'(자동 감지) 포함 — 실시간 번역의 입력 언어 힌트
 
@@ -34,39 +35,6 @@ function defaultName(mode, t) {
   return `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())} ${mode === 'twoway' ? t('modeTwoway') : t('modeOneway')}`;
 }
 
-// 목록 부제 '10/24 · 한국어 ⇄ 중국어' — 오늘이면 시각, 아니면 월/일
-function shortDate(ts, t) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(t.locale, { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-// 세션의 언어: 이 폰에서 마지막으로 쓴 값(localStorage) → 서버에 저장된 값 순
-function sessionLangs(s, t) {
-  let pair = null, target = null;
-  try { pair = localStorage.getItem('kac-sx-pair:' + s.id); target = localStorage.getItem('kac-sx-target:' + s.id); } catch {}
-  const sx = s.sxInfo || {};
-  if (isTwo(s.preset)) {
-    const [a, b] = pair ? pair.split('|') : [sx.a, sx.b];
-    return a && b ? `${t.lang(a)} ⇄ ${t.lang(b)}` : t('modeTwoway');
-  }
-  const out = target || sx.target;
-  const src = s.inLang && s.inLang !== 'auto' ? s.inLang : null;
-  if (!out) return t('modeOneway');
-  return src ? `${t.lang(src)} → ${t.lang(out)}` : `→ ${t.lang(out)}`;
-}
-
-function ModeIcon({ preset, size = 46 }) {
-  const two = isTwo(preset);
-  const Icon = two ? SwapIcon : ArrowRightIcon;
-  return (
-    <Box sx={{ width: size, height: size, flex: 'none', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: (t) => (two ? alpha(t.palette.accent.main, t.palette.mode === 'dark' ? 0.22 : 0.1) : alpha(t.palette.text.primary, 0.06)), color: (t) => (two ? (t.palette.mode === 'dark' ? t.palette.accent.main : '#1F5BBF') : t.palette.text.primary) }}>
-      <Icon sx={{ fontSize: 22 }} />
-    </Box>
-  );
-}
-
 // 언어 알약 — 위 작은 글씨(역할) + 언어 이름. 누르면 언어 시트.
 function LangPill({ caption, value, onClick, t }) {
   return (
@@ -74,6 +42,36 @@ function LangPill({ caption, value, onClick, t }) {
       sx={{ flex: 1, minWidth: 0, height: 58, px: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'background.paper', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.1 }}>
       <Typography component="span" sx={{ fontSize: 11.5, color: 'text.secondary', fontWeight: 500 }}>{caption}</Typography>
       <Typography component="span" noWrap sx={{ fontSize: 16, fontWeight: 800, maxWidth: '100%' }}>{t.lang(value)}</Typography>
+    </ButtonBase>
+  );
+}
+
+// 세션 목록 한 줄 — 누르면 열기, 길게 누르면(0.5초, 손가락이 거의 안 움직일 때) 이름 바꾸기·삭제 시트. PC 우클릭도 같음.
+function SessionRow({ s, t, onOpen, onActions }) {
+  const lp = useRef({ timer: null, fired: false, x: 0, y: 0 });
+  const cancel = () => clearTimeout(lp.current.timer);
+  useEffect(() => cancel, []);
+  return (
+    <ButtonBase
+      onPointerDown={(e) => {
+        const r = lp.current;
+        r.fired = false; r.x = e.clientX; r.y = e.clientY;
+        cancel();
+        r.timer = setTimeout(() => { r.fired = true; try { navigator.vibrate && navigator.vibrate(12); } catch {} onActions(s); }, 500);
+      }}
+      onPointerMove={(e) => { const r = lp.current; if (Math.abs(e.clientX - r.x) > 10 || Math.abs(e.clientY - r.y) > 10) cancel(); }}
+      onPointerUp={cancel} onPointerCancel={cancel} onPointerLeave={cancel}
+      onContextMenu={(e) => { e.preventDefault(); cancel(); if (!lp.current.fired) { lp.current.fired = true; onActions(s); } }}
+      onClick={() => { if (lp.current.fired) { lp.current.fired = false; return; } onOpen(s); }}
+      sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1.75, px: 1.5, py: 1.75, borderRadius: '16px', justifyContent: 'flex-start', textAlign: 'left' }}>
+      <ModeIcon preset={s.preset} />
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography noWrap sx={{ fontSize: 16, fontWeight: 700 }}>{s.title || t('untitled')}</Typography>
+        <Typography noWrap sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
+          {[shortDate(s.updatedAt || s.createdAt, t.locale), sessionLangs(s, t.lang, { two: t('modeTwoway'), one: t('modeOneway') })].filter(Boolean).join(' · ')}
+        </Typography>
+      </Box>
+      <ChevronRightIcon sx={{ color: 'text.disabled' }} />
     </ButtonBase>
   );
 }
@@ -231,6 +229,20 @@ function MobileHome({ user, onUser, onLogout }) {
   const [list, setList] = useState(null);
   const [session, setSession] = useState(null);
   const [sheet, setSheet] = useState(false);
+  const [actFor, setActFor] = useState(null);       // 길게 누른 세션 — 이름 바꾸기·삭제 시트
+  const [actStep, setActStep] = useState(null);     // null | 'rename' | 'delete'
+  const [actTarget, setActTarget] = useState(null); // 시트를 닫은 뒤에도 이름 바꾸기·삭제 창이 쓸 세션
+  const [actBusy, setActBusy] = useState(false);
+  const [toast, setToast] = useState('');
+  const pickAct = (step) => { setActTarget(actFor); setActFor(null); setActStep(step); };
+  const closeAct = () => { setActStep(null); };
+  const doDelete = async () => {
+    if (!actTarget) return;
+    setActBusy(true);
+    try { await api.remove(actTarget.id); setActStep(null); setToast(t('sessionDeleted')); reload(); }
+    catch (e) { setToast(t('failMsg', { msg: e.message || t('netError') })); }
+    finally { setActBusy(false); }
+  };
   const [screen, setScreen] = useState(null); // null | 'options' | 'account'
   const [backAsk, setBackAsk] = useState(0); // 세션 화면에서 하드웨어 뒤로가기 → 종료 확인 신호
   const sessionRef = useRef(null);
@@ -325,19 +337,7 @@ function MobileHome({ user, onUser, onLogout }) {
             <Typography sx={{ fontSize: 17, fontWeight: 700 }}>{t('emptyTitle')}</Typography>
             <Typography sx={{ fontSize: 14, color: 'text.secondary', mt: 0.75 }}>{t('emptyHint')}</Typography>
           </Box>
-        ) : sessions.map((s) => (
-          <ButtonBase key={s.id} onClick={() => open(s)}
-            sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1.75, px: 1.5, py: 1.75, borderRadius: '16px', justifyContent: 'flex-start', textAlign: 'left' }}>
-            <ModeIcon preset={s.preset} />
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography noWrap sx={{ fontSize: 16, fontWeight: 700 }}>{s.title || t('untitled')}</Typography>
-              <Typography noWrap sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
-                {[shortDate(s.updatedAt || s.createdAt, t), sessionLangs(s, t)].filter(Boolean).join(' · ')}
-              </Typography>
-            </Box>
-            <ChevronRightIcon sx={{ color: 'text.disabled' }} />
-          </ButtonBase>
-        ))}
+        ) : sessions.map((s) => <SessionRow key={s.id} s={s} t={t} onOpen={open} onActions={setActFor} />)}
       </Box>
 
       <ButtonBase onClick={() => setSheet(true)} aria-label={t('newSession')}
@@ -347,6 +347,27 @@ function MobileHome({ user, onUser, onLogout }) {
 
       {/* 앱 본체 새 버전 알림(홈에서만 — 번역 중에는 방해하지 않는다) */}
       <UpdateSheet />
+
+      {/* 길게 누른 세션: 이름 바꾸기·삭제 */}
+      <BottomSheet open={!!actFor} onClose={() => setActFor(null)} title={(actFor && actFor.title) || t('untitled')}>
+        <Box sx={{ px: 1.5, pb: 2.5, display: 'flex', flexDirection: 'column' }}>
+          <ButtonBase onClick={() => pickAct('rename')} sx={{ minHeight: 56, px: 2, gap: 1.75, borderRadius: '16px', justifyContent: 'flex-start' }}>
+            <PencilIcon sx={{ fontSize: 21 }} />
+            <Typography sx={{ fontSize: 16.5, fontWeight: 700 }}>{t('renameShort')}</Typography>
+          </ButtonBase>
+          <ButtonBase onClick={() => pickAct('delete')} sx={{ minHeight: 56, px: 2, gap: 1.75, borderRadius: '16px', justifyContent: 'flex-start', color: 'error.main' }}>
+            <TrashIcon sx={{ fontSize: 21 }} />
+            <Typography sx={{ fontSize: 16.5, fontWeight: 700 }}>{t('deleteSession')}</Typography>
+          </ButtonBase>
+        </Box>
+      </BottomSheet>
+      <FormSheet open={actStep === 'rename'} onClose={closeAct} title={t('rename')}
+        fields={[{ key: 'title', label: t('sessionName') }]} initial={{ title: (actTarget && actTarget.title) || '' }}
+        validate={(v) => (String(v.title || '').trim() ? '' : t('nameRequired'))}
+        onSubmit={async (v) => { await api.patch(actTarget.id, { title: String(v.title).trim() }); reload(); }} />
+      <ConfirmDialog open={actStep === 'delete'} title={t('deleteSession')} desc={t('deleteConfirm', { name: (actTarget && actTarget.title) || t('untitled') })}
+        okLabel={t('delete')} danger busy={actBusy} onClose={closeAct} onOk={doDelete} />
+      <Snackbar open={!!toast} autoHideDuration={2400} onClose={(e, reason) => { if (reason !== 'clickaway') setToast(''); }} message={toast} />
 
       <NewSessionSheet open={sheet} onClose={() => setSheet(false)} onCreated={(s) => { setSheet(false); open(s); }} />
 
