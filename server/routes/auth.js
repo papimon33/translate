@@ -1,10 +1,10 @@
 /* 로그인·로그아웃 + 관리자 2FA 설정 라우트 */
 import crypto from 'crypto';
 import QRCode from 'qrcode';
-import { ADMIN_ID, ADMIN_PASSWORD, AUTH_COOKIE } from '../config.js';
+import { ADMIN_ID, ADMIN_PASSWORD } from '../config.js';
 import { users } from '../store/index.js';
 import { b32encode, totpVerify } from '../util/security_util.js';
-import { requireAdmin, isHttps, verifyPassword, findUser, authToken, publicUser, clearAuthCookie, securityCfg, saveSecurityCfg, adminTotpSecret, LOGIN_WINDOW_MS, LOGIN_MAX_FAIL, loginFails, loginKey } from '../auth/index.js';
+import { requireAdmin, verifyPassword, findUser, publicUser, clearAuthCookie, securityCfg, saveSecurityCfg, adminTotpSecret, LOGIN_WINDOW_MS, LOGIN_MAX_FAIL, loginFails, loginKey, deviceKind, activeLogin, setAuthCookie, authFromReq, closeLogin } from '../auth/index.js';
 
 let pending2faSecret = ''; // 설정 진행 중 시크릿(코드 확인 후 저장)
 
@@ -82,14 +82,18 @@ export function registerAuthRoutes(app) {
       }
     }
     loginFails.delete(key); // 성공 시 초기화
-    console.log(`[auth] 로그인 성공 id=${user.id} role=${user.role} ip=${key}`);
-    const secure = isHttps(req) ? '; Secure' : '';
-    // remember(자동 로그인) 시 30일 영속 쿠키, 아니면 세션 쿠키(브라우저 종료 시 해제)
-    const persist = b.remember ? '; Max-Age=2592000' : '';
-    res.setHeader('Set-Cookie', `${AUTH_COOKIE}=${authToken(user.id)}; HttpOnly; SameSite=Lax; Path=/${persist}${secure}`);
+    // 로그인 자리: 계정당 PC 1대 + 폰 1대. 같은 종류의 다른 기기에서 로그인 중이면 먼저 확인(화면이 확인 창 → replace 로 다시 요청)
+    const kind = deviceKind(b.device);
+    if (activeLogin(user.id, kind) && b.replace !== true) {
+      return res.status(409).json({ confirmReplace: true, error: '다른 기기에서 사용 중인 계정입니다.' });
+    }
+    console.log(`[auth] 로그인 성공 id=${user.id} role=${user.role} device=${kind} ip=${key}`);
+    setAuthCookie(req, res, user.id, kind, !!b.remember);
     res.json({ user: publicUser(user) });
   });
   app.post('/api/logout', (req, res) => {
+    const a = authFromReq(req);
+    if (a.user) closeLogin(a.user.id, a.kind, a.jti); // 자리를 비워 다음 로그인에 확인 창이 뜨지 않게
     clearAuthCookie(res);
     res.json({ ok: true });
   });

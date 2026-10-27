@@ -20,8 +20,9 @@ async function call(base, method, p, cookie, body) {
   const setCookie = typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie() : [r.headers.get('set-cookie')].filter(Boolean);
   return { status: r.status, body: await r.json().catch(() => null), setCookie };
 }
-async function login(base, id, password) {
-  const r = await call(base, 'POST', '/api/login', null, { id, password });
+// device: 로그인 자리(PC 1 + 폰 1) — 같은 종류로 다시 로그인하면 이전 쿠키가 끊기므로, 기존 쿠키를 살려 둘 땐 다른 종류로
+async function login(base, id, password, device = 'pc') {
+  const r = await call(base, 'POST', '/api/login', null, { id, password, device, replace: true });
   if (r.status !== 200) return null;
   return r.setCookie.map((c) => String(c).split(';')[0]).join('; ');
 }
@@ -48,11 +49,11 @@ test('GET/PATCH /api/me: 응답 형태 + 이메일 검증 + prefs 화이트리�
   // ---- 관리자(가상 사용자): 이메일·prefs 는 저장, username/password 는 거부 ----
   const admin = await loginAdmin(base);
   assert.deepEqual((await call(base, 'GET', '/api/me', admin)).body, {
-    user: { id: 'admin', username: '관리자', role: 'admin', email: '', prefs: {} },
+    user: { id: 'admin', username: '관리자', role: 'admin', perms: { tts: true, desk: true }, email: '', prefs: {} },
   });
   let r = await call(base, 'PATCH', '/api/me', admin, { email: 'ops@airport.kr', prefs: { theme: 'dark', sysLang: 'en' } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body.user, { id: 'admin', username: '관리자', role: 'admin', email: 'ops@airport.kr', prefs: { theme: 'dark', sysLang: 'en' } });
+  assert.deepEqual(r.body.user, { id: 'admin', username: '관리자', role: 'admin', perms: { tts: true, desk: true }, email: 'ops@airport.kr', prefs: { theme: 'dark', sysLang: 'en' } });
   r = await call(base, 'PATCH', '/api/me', admin, { username: '새이름' });
   assert.equal(r.status, 400);
   assert.equal(r.body.error, '관리자 계정은 환경변수로 관리됩니다.');
@@ -64,7 +65,7 @@ test('GET/PATCH /api/me: 응답 형태 + 이메일 검증 + prefs 화이트리�
   const kim = await createUser(base, admin, 'kim', 'pw1234', '김직원');
   assert.ok(kim, '로그인 실패');
   r = await call(base, 'GET', '/api/me', kim);
-  assert.deepEqual(r.body, { user: { id: 'kim', username: '김직원', role: 'user', email: '', prefs: {} } });
+  assert.deepEqual(r.body, { user: { id: 'kim', username: '김직원', role: 'user', perms: { tts: false, desk: false }, email: '', prefs: {} } });
 
   // 이메일: trim 후 저장, 형식 오류·254자 초과는 400(기존 값 유지), '' 는 지움
   r = await call(base, 'PATCH', '/api/me', kim, { email: '  Kim@Example.com ' });
@@ -128,7 +129,7 @@ test('GET/PATCH /api/me: 응답 형태 + 이메일 검증 + prefs 화이트리�
   r = await call(base, 'PATCH', '/api/me', kim, { password: 'abc', passwordConfirm: 'abc', currentPassword: 'pw1234' });
   assert.equal(r.status, 400);
   assert.match(r.body.error, /4자 이상/);
-  assert.ok(await login(base, 'kim', 'pw1234'), '실패한 변경 요청 뒤에도 기존 비밀번호는 유효');
+  assert.ok(await login(base, 'kim', 'pw1234', 'phone'), '실패한 변경 요청 뒤에도 기존 비밀번호는 유효'); // 폰 자리로 — PC 쿠키(kim)는 그대로
   r = await call(base, 'PATCH', '/api/me', kim, { password: 'newpw99', passwordConfirm: 'newpw99', currentPassword: 'pw1234' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(await login(base, 'kim', 'pw1234'), null, '옛 비밀번호는 거부');
@@ -207,7 +208,7 @@ test('DELETE /api/me: 비밀번호 확인 → 사용자·세션·프로필·라�
   await until(() => readProfiles(dataDir) && !readProfiles(dataDir).some((p) => p.id === 'park'), { desc: 'profiles.json 에서 park 제거' });
   // 같은 ID 로 다시 만들면 빈 프로필로 시작
   const park2 = await createUser(base, admin, 'park', 'parkpw');
-  assert.deepEqual((await call(base, 'GET', '/api/me', park2)).body.user, { id: 'park', username: 'park', role: 'user', email: '', prefs: {} });
+  assert.deepEqual((await call(base, 'GET', '/api/me', park2)).body.user, { id: 'park', username: 'park', role: 'user', perms: { tts: false, desk: false }, email: '', prefs: {} });
 });
 
 test('파일 모드: 프로필(관리자 포함)은 서버 재시작 후에도 유지된다', { timeout: 60000 }, async (t) => {
@@ -228,9 +229,9 @@ test('파일 모드: 프로필(관리자 포함)은 서버 재시작 후에도 �
   admin = await loginAdmin(srv.base);
   choi = await login(srv.base, 'choi', 'choipw');
   assert.deepEqual((await call(srv.base, 'GET', '/api/me', admin)).body.user, {
-    id: 'admin', username: '관리자', role: 'admin', email: '', prefs: { fontScale: 1.25, sysLang: 'ko' },
+    id: 'admin', username: '관리자', role: 'admin', perms: { tts: true, desk: true }, email: '', prefs: { fontScale: 1.25, sysLang: 'ko' },
   });
   assert.deepEqual((await call(srv.base, 'GET', '/api/me', choi)).body.user, {
-    id: 'choi', username: 'choi', role: 'user', email: 'choi@example.com', prefs: { nativeLang: 'en', theme: 'dark', ttsGender: 'f' },
+    id: 'choi', username: 'choi', role: 'user', perms: { tts: false, desk: false }, email: 'choi@example.com', prefs: { nativeLang: 'en', theme: 'dark', ttsGender: 'f' },
   });
 });

@@ -11,7 +11,7 @@ import { logErr } from './metrics.js';
 import { loadStore, sessions, dirtySessions, flushSessions, flushUsers, flushUsage } from './store/index.js';
 import { initTermsConfig } from './store/terms.js';
 import { migrateSessions } from './store/sessions.js';
-import { authBootCheck, loadSecurityCfg } from './auth/index.js';
+import { authBootCheck, loadSecurityCfg, migrateUserPerms } from './auth/index.js';
 import { forceHttps, securityHeaders, csrfGuard } from './auth/middleware.js';
 import { kickVendorRefresh } from './vendors/usage.js';
 import { getLanIp } from './util/net_util.js';
@@ -56,10 +56,11 @@ registerViewerAssetRoutes(app);
 
 const server = http.createServer(app);
 
-/* ---- 부팅: 저장소 로드 → 용어 시드/마이그레이션 → 세션 이전 → 인증 점검 (구 server.js 와 같은 순서·같은 로그) ---- */
+/* ---- 부팅: 저장소 로드 → 용어 시드/마이그레이션 → 세션 이전 → 계정 권한 이전 → 인증 점검 ---- */
 await loadStore();
 await initTermsConfig();
 migrateSessions();
+migrateUserPerms();
 authBootCheck();
 
 /* ---- 프로세스 오류·종료 처리 ---- */

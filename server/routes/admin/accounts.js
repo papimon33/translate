@@ -2,7 +2,7 @@
 import crypto from 'crypto';
 import { ADMIN_ID } from '../../config.js';
 import { users, sessions, setSessions, profiles, col, profilesCol, saveUsers, deleteUserStore, saveSessions, deleteSessionStore, deleteProfileStore } from '../../store/index.js';
-import { requireAdmin, makeUser, hashPassword, PASSWORD_MIN_LEN } from '../../auth/index.js';
+import { requireAdmin, makeUser, hashPassword, closeAllLogins, cleanPerms, PASSWORD_MIN_LEN } from '../../auth/index.js';
 import { closeSessionRoom } from '../../realtime/rooms.js';
 
 // 사용자 계정 완전 삭제 — 관리자 삭제(DELETE /api/admin/users/:id)·본인 탈퇴(DELETE /api/me) 공용.
@@ -30,6 +30,7 @@ export function registerAccountRoutes(app) {
       id: u.id, username: u.username, role: u.role, createdAt: u.createdAt,
       sessionCount: sessions.filter((s) => s.owner === u.id).length,
       usageMs: u.usageMs || 0,
+      perms: cleanPerms(u.perms),
     }));
     res.json(list);
   });
@@ -42,10 +43,19 @@ export function registerAccountRoutes(app) {
     if (password.length < PASSWORD_MIN_LEN) return res.status(400).json({ error: `비밀번호는 ${PASSWORD_MIN_LEN}자 이상이어야 합니다.` });
     if (id === ADMIN_ID || users.some((u) => u.id === id))
       return res.status(409).json({ error: '이미 존재하는 ID 입니다.' });
-    const u = makeUser({ id, username, password, role: 'user' });
+    const u = makeUser({ id, username, password, role: 'user', perms: b.perms }); // 권한은 체크한 것만(기본 꺼짐)
     users.push(u);
     saveUsers();
-    res.json({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, sessionCount: 0, usageMs: 0 });
+    res.json({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, sessionCount: 0, usageMs: 0, perms: u.perms });
+  });
+  // 권한(음성 재생·안내데스크) 켜고 끄기 — 다음 연결부터 적용(진행 중인 번역은 그대로)
+  app.put('/api/admin/users/:id/perms', requireAdmin, (req, res) => {
+    const u = users.find((x) => x.id === req.params.id);
+    if (!u) return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+    u.perms = cleanPerms(req.body);
+    saveUsers();
+    console.log(`[admin] 권한 변경 user=${u.id} ${JSON.stringify(u.perms)}`);
+    res.json({ ok: true, perms: u.perms });
   });
   app.post('/api/admin/users/:id/password', requireAdmin, (req, res) => {
     const u = users.find((x) => x.id === req.params.id);
@@ -56,6 +66,7 @@ export function registerAccountRoutes(app) {
     u.salt = crypto.randomBytes(16).toString('hex');
     u.hash = hashPassword(pw, u.salt);
     saveUsers();
+    closeAllLogins(u.id, 'password'); // 그 사용자의 모든 기기 로그아웃
     console.log(`[admin] 비밀번호 재설정 user=${u.id}`);
     res.json({ ok: true });
   });

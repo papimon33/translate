@@ -446,9 +446,9 @@ function applySxInfo(info){
   rerender();
 }
 async function loadSession(){
-  let title = 'AirTalk', sxInfo = null;
+  let title = 'AirTalk', sxInfo = null, ttsOk = true; // ttsOk: 세션 주인에게 음성 재생 권한이 있을 때만 듣기 버튼
   // 접속 순간 일시 네트워크 오류로 세션 타입을 whisper 기본값으로 오판한 채 굳지 않도록 — 실패 시 5초 뒤 재시도
-  try { const s = await fetch('/api/sessions/'+sessionId+tq1).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; } }
+  try { const s = await fetch('/api/sessions/'+sessionId+tq1).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; ttsOk = s.tts !== false; } }
   catch { setTimeout(loadSession, 5000); }
   titleEl.textContent = title; titleEl.title = title; $('lTitle').textContent = title;
   langSeg.hidden = true;
@@ -459,7 +459,7 @@ async function loadSession(){
   } else if (sessionPipeline === 'soniox') {
     // 실시간 번역: 음성 듣기(TTS 구독). 뷰어 발화(PTT)는 폐지 — 뷰어는 보기·듣기 전용
     applySxInfo(sxInfo);
-    $('audioBtn').style.display = 'flex';
+    $('audioBtn').style.display = ttsOk ? 'flex' : 'none';
   } else if (sessionPipeline === 'desk') {
     // 데스크 안내: 외국인 자기 언어 자동 표시(입력은 호스트 마이크, 뷰어는 표시 전용)
     applySxInfo(sxInfo);

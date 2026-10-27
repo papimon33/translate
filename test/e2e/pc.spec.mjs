@@ -66,3 +66,41 @@ test('새 화면 시험(?ui=v2) — 폰과 같은 세션 화면 + PC 설정 줄'
   await expect(page.getByText('고급 설정')).toBeVisible();
   await page.goto('/?ui=v1');
 });
+
+test('같은 계정으로 다른 PC 로그인 — 확인 창, 이전 PC 는 이유와 함께 로그인 화면', async ({ browser, request }) => {
+  await login(request);
+  await request.post('/api/admin/users', { data: { id: 'e2e-kim', password: 'kimpw1', perms: { tts: false, desk: false } } });
+  const signIn = async (page) => {
+    await page.goto('/');
+    await page.getByLabel('ID').fill('e2e-kim');
+    await page.getByLabel('비밀번호').fill('kimpw1');
+    await page.getByRole('button', { name: '로그인' }).click();
+  };
+  const a = await browser.newPage();
+  await signIn(a);
+  await expect(a.getByRole('button', { name: '개인설정' })).toBeVisible();
+
+  const b = await browser.newPage();
+  await signIn(b);
+  const dlg = b.getByRole('dialog');
+  await expect(dlg.getByText('다른 기기에서 사용 중인 계정입니다')).toBeVisible();
+  await dlg.getByRole('button', { name: '로그인' }).click();
+  await expect(b.getByRole('button', { name: '개인설정' })).toBeVisible();
+
+  await a.reload();
+  await expect(a.getByText('다른 기기에서 이 계정으로 로그인해 로그아웃되었습니다.')).toBeVisible();
+  await a.close();
+  await b.close();
+});
+
+test('관리자 > 계정 관리 — 권한 스위치', async ({ page }) => {
+  await login(page.request);
+  await page.request.post('/api/admin/users', { data: { id: 'e2e-lee', password: 'leepw1' } });
+  await page.goto('/admin/accounts');
+  const sw = page.getByRole('switch', { name: 'e2e-lee 음성 재생' });
+  await expect(sw).not.toBeChecked();
+  await sw.click();
+  await expect(sw).toBeChecked();
+  const users = await (await page.request.get('/api/admin/users')).json();
+  expect(users.find((u) => u.id === 'e2e-lee').perms).toEqual({ tts: true, desk: false });
+});

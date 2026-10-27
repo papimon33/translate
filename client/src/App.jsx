@@ -12,6 +12,7 @@ import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE, PC_V2 } from './shared/env.js';
 import AppDownload from './phone/AppDownload.jsx';
 import { getPrefs, subscribePrefs, resolveTheme } from './shared/prefs.js';
 import { isAdminTab } from './admin/tabs.js';
+import { setPerms, onAuthLost } from './shared/authState.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
 const TranslateView = lazy(() => import('./session/TranslateView.jsx'));
@@ -34,6 +35,8 @@ export default function App() {
   const [view, setView] = useState('sessions'); // 'sessions' | 'admin'
   const [adminTab, setAdminTab] = useState('usage'); // 관리자 화면 탭
   const [user, setUser] = useState(undefined); // undefined=확인중, null=로그아웃
+  const [lostReason, setLostReason] = useState(''); // 다른 기기 로그인·비밀번호 변경으로 로그아웃된 이유(로그인 화면 안내)
+  setPerms(user && user.perms); // 권한(음성 재생·안내데스크) — 화면들이 can() 으로 읽는다
   const [isFs, setIsFs] = useState(false); // 전체화면(안내데스크) — 위 띠 숨김
   const theme = useMemo(() => buildTheme(mode, { brand: PC_V2 }), [mode]);
 
@@ -47,9 +50,17 @@ export default function App() {
   useEffect(() => {
     api
       .me()
-      .then((r) => setUser(r.user || null))
+      .then((r) => { if (!r.user && r.reason) setLostReason(r.reason); setUser(r.user || null); })
       .catch(() => setUser(null));
   }, []);
+  // 다른 기기에서 같은 종류로 로그인했거나 비밀번호가 바뀜 → 로그인 화면(번역 중이면 중지한 뒤에 온다)
+  useEffect(() => onAuthLost((reason) => {
+    setLostReason(reason);
+    setUser(null);
+    setSession(null);
+    setView('sessions');
+    if (!MOBILE_UI) { try { window.history.replaceState({ view: 'sessions', session: null }, '', '/'); } catch {} }
+  }), []);
 
   const toggleTheme = () => {
     const next = mode === 'dark' ? 'light' : 'dark';
@@ -171,7 +182,7 @@ export default function App() {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Login onSuccess={(u) => setUser(u)} />
+        <Login lostReason={lostReason} onSuccess={(u) => { setLostReason(''); routeDone.current = false; setUser(u); }} />
       </ThemeProvider>
     );
   }

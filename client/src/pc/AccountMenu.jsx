@@ -145,6 +145,7 @@ function ProfileEditDialog({ open, user, onClose, onSaved }) {
         <TextField
           fullWidth type="password" label="새 비밀번호 (변경 시에만)" value={pw}
           onChange={(e) => setPw(e.target.value)} sx={{ mb: 2 }} autoComplete="new-password"
+          helperText={pw ? '비밀번호를 바꾸면 다른 기기는 모두 로그아웃됩니다.' : ''}
         />
         <TextField
           fullWidth type="password" label="비밀번호 확인" value={pw2}

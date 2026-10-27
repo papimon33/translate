@@ -1,14 +1,21 @@
+import { authLost } from './authState.js';
+import { MOBILE_UI } from './env.js';
+
 // 모든 응답의 HTTP 상태를 검사 — 오류 바디({error})가 성공값으로 흘러 화면이 깨지던 문제 수정.
 // 실패 시 Error(message)에 status 를 붙여 던진다(호출부 .catch 폴백이 정상 동작).
+// 401 + reason(replaced=다른 기기 로그인, password=비밀번호 변경) → 로그인 화면으로(번역 중이면 중지 뒤에).
 const json = async (r) => {
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
+    if (r.status === 401 && d.reason) authLost(d.reason);
     const e = new Error(d.error || `요청 실패 (${r.status})`);
     e.status = r.status;
     throw e;
   }
   return r.json();
 };
+// 로그인 자리: 계정당 PC 1대 + 폰 1대(같은 종류에서 새로 로그인하면 이전 기기는 로그아웃)
+const DEVICE = MOBILE_UI ? 'phone' : 'pc';
 
 export const api = {
   list: (q) => fetch('/api/sessions' + (q ? '?q=' + encodeURIComponent(q) : '')).then(json), // q=제목+대화내용 검색
@@ -30,22 +37,21 @@ export const api = {
   qr: (id) => fetch('/api/qr?session=' + id).then(json),
   viewers: (id) => fetch('/api/sessions/' + id + '/viewers').then(json), // 지금 접속한 뷰어 수(호스트 화면)
   deskStatus: () => fetch('/api/desk-status').then(json), // 전 데스크 실시간 현황(호스트·응대·뷰어)
-  // 안내데스크 사전 정의(레지스트리) — 관리자 등록, 세션 생성 시 선택
-  saveDeskRegistry: (body) =>
-    fetch('/api/desk-registry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
   desktopInfo: () => fetch('/api/desktop/info').then(json), // 데스크톱 앱 최신 설치본 정보
 
   me: () => fetch('/api/me').then(json),
-  login: (id, password, remember, otp) =>
+  // replace: 같은 종류의 다른 기기 로그인을 끊고 들어간다(확인 창에서 '로그인'을 누른 뒤)
+  login: (id, password, remember, otp, replace) =>
     fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, password, remember: !!remember, ...(otp ? { otp } : {}) }),
+      body: JSON.stringify({ id, password, remember: !!remember, device: DEVICE, ...(otp ? { otp } : {}), ...(replace ? { replace: true } : {}) }),
     }).then(async (r) => {
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         const e = new Error(d.error || '로그인 실패');
         e.need2fa = !!d.need2fa; // 관리자 2FA 코드 필요/불일치
+        e.confirmReplace = !!d.confirmReplace; // 같은 종류의 다른 기기에서 로그인 중 → 확인 필요
         e.status = r.status; // 429(잠금) 구분용
         throw e;
       }
@@ -100,7 +106,14 @@ export const api = {
       return r.json();
     }),
   adminDeleteUser: (id) => fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' }).then(json),
-  // 관리자: 2FA / 데스크 통계 / 시스템 상태 / 오번역 검사
+  // 사용자 권한(음성 재생 tts · 안내데스크 desk) 켜고 끄기
+  adminSetPerms: (id, perms) =>
+    fetch('/api/admin/users/' + encodeURIComponent(id) + '/perms', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(perms),
+    }).then(json),
+  // 관리자: 2FA / 시스템 상태 / 오번역 검사
   admin2fa: () => fetch('/api/admin/2fa').then(json),
   admin2faSetup: () =>
     fetch('/api/admin/2fa/setup', { method: 'POST' }).then(async (r) => {

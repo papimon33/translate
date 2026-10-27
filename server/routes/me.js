@@ -1,13 +1,14 @@
 /* 본인 계정: 조회·정보 변경(이메일·환경설정·이름·비밀번호)·탈퇴 */
 import crypto from 'crypto';
 import { users, profiles, saveUsers, saveProfiles } from '../store/index.js';
-import { currentUser, requireAuth, verifyPassword, hashPassword, publicUser, clearAuthCookie, PASSWORD_MIN_LEN, EMAIL_RE, PREF_RULES } from '../auth/index.js';
+import { authFromReq, requireAuth, verifyPassword, hashPassword, publicUser, clearAuthCookie, closeAllLogins, setAuthCookie, PASSWORD_MIN_LEN, EMAIL_RE, PREF_RULES } from '../auth/index.js';
 import { deleteUserAccount } from './admin/accounts.js';
 
 export function registerMeRoutes(app) {
+  // reason: 로그아웃된 이유(replaced=다른 기기 로그인, password=비밀번호 변경) — 로그인 화면 안내용
   app.get('/api/me', (req, res) => {
-    const u = currentUser(req);
-    res.json({ user: u ? publicUser(u) : null });
+    const a = authFromReq(req);
+    res.json({ user: a.user ? publicUser(a.user) : null, ...(a.reason ? { reason: a.reason } : {}) });
   });
   // 본인 정보 변경(필드 모두 선택): email·prefs 는 관리자 포함 전원, username·password 는 일반 사용자만
   // (관리자는 env 관리 — 해당 필드가 있을 때만 400 이라 관리자도 이메일·환경설정은 저장 가능).
@@ -58,6 +59,9 @@ export function registerMeRoutes(app) {
       if (wantPw) {
         stored.salt = crypto.randomBytes(16).toString('hex');
         stored.hash = hashPassword(String(b.password), stored.salt);
+        // 다른 기기는 모두 로그아웃, 지금 기기는 새 토큰으로 계속
+        closeAllLogins(stored.id, 'password');
+        setAuthCookie(req, res, stored.id, req.auth.kind);
       }
       saveUsers();
     }
@@ -66,7 +70,7 @@ export function registerMeRoutes(app) {
       const prev = profiles.get(id) || { id, email: '', prefs: {} };
       const prefs = { ...(prev.prefs || {}) };
       for (const [k, v] of Object.entries(prefPatch || {})) { if (v === null) delete prefs[k]; else prefs[k] = v; }
-      profiles.set(id, { id, email: email !== undefined ? email : prev.email || '', prefs, updatedAt: Date.now() });
+      profiles.set(id, { ...prev, id, email: email !== undefined ? email : prev.email || '', prefs, updatedAt: Date.now() }); // ...prev: 로그인 자리(logins) 보존
       saveProfiles(id);
     }
     res.json({ user: publicUser(stored || req.user) });

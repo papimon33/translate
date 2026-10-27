@@ -1,11 +1,12 @@
 /* 안내데스크 현황판(실시간 상태) */
 import { sessions } from '../store/index.js';
-import { requireAuth } from '../auth/index.js';
+import { requireAuth, hasPerm } from '../auth/index.js';
 import { rooms, deskCtrl } from '../realtime/rooms.js';
 
 export function registerDeskStatusRoutes(app) {
   /* ---- 데스크 현황: 전 데스크의 실시간 상태(호스트 연결·응대 중·뷰어 수) — 목록 화면 현황판용 ---- */
   app.get('/api/desk-status', requireAuth, (req, res) => {
+    if (!hasPerm(req.user, 'desk')) return res.json([]); // 안내데스크 권한이 없으면 보여 줄 데스크도 없다
     const out = sessions
       .filter((s) => s.pipeline === 'desk' && !s.deletedAt)
       .map((s) => {

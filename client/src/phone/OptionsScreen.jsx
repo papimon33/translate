@@ -12,6 +12,7 @@ import Switch from '@mui/material/Switch';
 import Snackbar from '@mui/material/Snackbar';
 import CircularProgress from '@mui/material/CircularProgress';
 import { api } from '../shared/api.js';
+import { can } from '../shared/authState.js';
 import { SX_LANGS } from '../session/TranslateView.jsx';
 import { usePrefs, setPref } from '../shared/prefs.js';
 import { useT } from '../shared/i18n.js';
@@ -137,7 +138,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
       <Group title={t('secVoice')}>
         <OptionRow label={t('connectedDevice')} value={micCurrentName(mic, t)} onClick={() => setPick('mic')} />
         <OptionRow toggle label={t('autoSens')} onClick={() => setPref('micAuto', !prefs.micAuto)}
-          value={<Switch edge="end" checked={prefs.micAuto} tabIndex={-1} inputProps={{ 'aria-label': t('autoSens') }}
+          value={<Switch edge="end" checked={prefs.micAuto} tabIndex={-1} slotProps={{ input: { 'aria-label': t('autoSens') } }}
             sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#fff' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: BRAND, opacity: 1 } }} />} />
         {prefs.micAuto ? (
           <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5 }}>{t('autoSensHint')}</Typography>
@@ -148,7 +149,7 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
               onChange={(v) => setPref('micSens', v)} />
           </Box>
         )}
-        <OptionRow label={t('ttsVoice')} value={voiceName(prefs.ttsGender)} onClick={() => setPick('voice')} />
+        {can('tts') && <OptionRow label={t('ttsVoice')} value={voiceName(prefs.ttsGender)} onClick={() => setPick('voice')} />}
       </Group>
 
       <Group title={t('secDisplay')}>

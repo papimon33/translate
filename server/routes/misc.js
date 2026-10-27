@@ -1,10 +1,11 @@
 import { CARTESIA_API_KEY, CARTESIA_VERSION, CARTESIA_MODEL } from '../config.js';
-import { requireAuth } from '../auth/index.js';
+import { requireAuth, hasPerm } from '../auth/index.js';
 import { cartesiaVoiceId, TTS_TEST_PHRASE } from '../vendors/cartesia.js';
 
 export function registerMiscRoutes(app) {
   /* 보이스 미리듣기: 출력언어+성별로 짧은 테스트 음성(wav) 생성 */
   app.post('/api/tts/preview', requireAuth, async (req, res) => {
+    if (!hasPerm(req.user, 'tts')) return res.status(403).json({ error: '음성 재생 권한이 없습니다. 관리자에게 요청하세요.' });
     if (!CARTESIA_API_KEY) return res.status(400).json({ error: 'CARTESIA_API_KEY 미설정' });
     const b = req.body || {};
     const lang = ['ko', 'en', 'ja', 'zh'].includes(b.lang) ? b.lang : 'ko';

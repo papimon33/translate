@@ -58,7 +58,7 @@ export async function loginAdmin(base) {
   const r = await fetch(base + '/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'admin', password: 'admin' }),
+    body: JSON.stringify({ id: 'admin', password: 'admin', replace: true }), // 테스트는 '다른 기기 로그아웃' 확인을 거친 것으로
   });
   if (!r.ok) throw new Error('관리자 로그인 실패: ' + r.status);
   const cookies = typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie() : [r.headers.get('set-cookie')].filter(Boolean);

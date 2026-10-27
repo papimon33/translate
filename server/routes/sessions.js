@@ -2,8 +2,11 @@
 import { LANG_NAMES, ALL_LANGS, PRESET_SRC, normalizeMode } from '../config.js';
 import { sessions, setSessions, col, saveSessions, deleteSessionStore } from '../store/index.js';
 import { getSession, newId } from '../store/sessions.js';
-import { requireAuth, viewerAccessOk } from '../auth/index.js';
+import { requireAuth, viewerAccessOk, hasPerm, findUser } from '../auth/index.js';
 import { rooms, broadcast, closeSessionRoom } from '../realtime/rooms.js';
+
+// 세션을 다룰 수 있나: 안내데스크는 안내데스크 권한(공용 운영), 그 외는 주인 또는 관리자
+const canUse = (u, s) => (s.pipeline === 'desk' ? hasPerm(u, 'desk') : s.owner === u.id || u.role === 'admin');
 
 export function registerSessionRoutes(app) {
   /* ---- 세션 REST API ---- */
@@ -44,8 +47,8 @@ export function registerSessionRoutes(app) {
     });
     const list = sessions
       .filter((s) => !s.deletedAt)
-      // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 전 직원이 공용으로 운영 → 모두에게 노출.
-      .filter((s) => (s.pipeline === 'desk' ? true : s.owner === req.user.id))
+      // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 안내데스크 권한이 있는 직원이 공용으로 운영.
+      .filter((s) => (s.pipeline === 'desk' ? hasPerm(req.user, 'desk') : s.owner === req.user.id))
       .filter((s) => (q ? matches(s) : true))
       .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, snippet: snippetOf(s), ...langsOf(s) }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -85,7 +88,7 @@ export function registerSessionRoutes(app) {
   app.get('/api/sessions/:id', (req, res) => {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
-    if (!viewerAccessOk(req, s.id)) return res.status(403).json({ error: 'forbidden' }); // 공개 뷰어: 유효 토큰 또는 로그인 필요
+    if (!viewerAccessOk(req, s.id, s.pipeline === 'desk')) return res.status(403).json({ error: 'forbidden' }); // 공개 뷰어: 유효 토큰 또는 로그인 필요(안내데스크는 권한도)
     // 공개 라우트(뷰어용) — 필요한 필드만 화이트리스트로 반환.
     // 전체 스프레드 금지: deskLog(지난 손님 응대 기록)·owner 등이 노출됐던 문제 수정.
     res.json({
@@ -93,6 +96,7 @@ export function registerSessionRoutes(app) {
       pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, // src: 호스트 화면 재진입 시 소리 입력 복원(목록에서 열 때 이 값이 쓰인다)
       langs: s.langs || [], outLang: s.outLang, inLang: s.inLang,
       sxInfo: s.sxInfo || null, speakers: s.speakers || {},
+      tts: hasPerm(findUser(s.owner), 'tts'), // 세션 주인에게 음성 재생 권한이 있어야 QR 뷰어에 듣기 버튼
       items: s.items || [],
     });
   });
@@ -116,7 +120,7 @@ export function registerSessionRoutes(app) {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
     // 데스크 세션은 전 직원이 운영(층/방향·화자명 등 조작) — 소유자 제한 없음. 그 외에는 본인/관리자만.
-    if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
     // 데스크 세션 제목 변경(관리 행위)은 관리자만
     if (s.pipeline === 'desk' && typeof (req.body || {}).title === 'string' && req.user.role !== 'admin') delete req.body.title;
     // pipeline 은 생성 시 고정. title·inLang 수정 허용. outLang 은 translate 의 타깃 변경용.
@@ -157,7 +161,7 @@ export function registerSessionRoutes(app) {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
     if (s.pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 대화 내역은 관리자만 삭제할 수 있습니다.' });
-    if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
     const n = Array.isArray(s.items) ? s.items.length : 0;
     s.items = [];
     s.updatedAt = Date.now();
@@ -170,7 +174,7 @@ export function registerSessionRoutes(app) {
   app.get('/api/sessions/:id/viewers', requireAuth, (req, res) => {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
-    if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
     const r = rooms.get(s.id);
     res.json({ n: r ? [...r.viewers].filter((v) => !v._hostView).length : 0 });
   });
@@ -179,7 +183,7 @@ export function registerSessionRoutes(app) {
     if (s) {
       // 안내데스크 세션 삭제(관리 행위)는 관리자만
       if (s.pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 세션은 관리자만 삭제할 수 있습니다.' });
-      if (s.pipeline !== 'desk' && s.owner !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+      if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
       if (s.pipeline === 'desk') {
         // 안내데스크(관리자 전용 삭제): 소프트 삭제 — 응대 통계·로그(deskLog)는 관리자 페이지에서 따로 정리
         s.deletedAt = Date.now();

@@ -363,14 +363,17 @@ export default function MobileLive(p) {
   const pcx = usePcRows(desktop ? p.pc : null, t, setToast); // PC 전용 줄(폰에선 빈 값)
 
   const controls = (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', alignItems: 'center' }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${p.ttsPerm ? 5 : 4}, minmax(0, 1fr))`, alignItems: 'center' }}>
       <Ctrl label={muteOn ? t('unmute') : t('mute')} onClick={toggleMute} pressed={muteOn} dim={!recording}
         color={muteOn ? 'error.main' : undefined}>
         {muteOn ? <MicOffIcon /> : <MicIcon />}
       </Ctrl>
-      <Ctrl label={ttsMade ? t('tts') : t('ttsOff')} onClick={toggleTts} pressed={ttsMade} disabled={!p.ttsAllowed} color={ttsMade ? undefined : 'text.secondary'}>
-        <TtsIcon off={!ttsMade} />
-      </Ctrl>
+      {/* 음성 재생 권한이 없으면 버튼 자체를 숨긴다(PC 소리 입력일 때는 흐리게) */}
+      {p.ttsPerm && (
+        <Ctrl label={ttsMade ? t('tts') : t('ttsOff')} onClick={toggleTts} pressed={ttsMade} disabled={!p.ttsAllowed} color={ttsMade ? undefined : 'text.secondary'}>
+          <TtsIcon off={!ttsMade} />
+        </Ctrl>
+      )}
       <Ctrl label={recording ? t('stop') : t('start')} onClick={recording ? p.onStop : start} disabled={starting} bg={BRAND} color="#fff">
         {starting
           ? <CircularProgress size={18} sx={{ color: '#fff' }} />
@@ -480,7 +483,7 @@ export default function MobileLive(p) {
             <Group title={t('secInput')}>
               {desktop ? pcx.input : <OptionRow label={t('inputDevice')} value={micCurrentName(mic, t)} onClick={() => setSheet('device')} />}
               <OptionRow toggle label={t('autoSens')} onClick={() => p.onMicAuto(!p.micAuto)}
-                value={<Switch edge="end" checked={!!p.micAuto} tabIndex={-1} inputProps={{ 'aria-label': t('autoSens') }} sx={brandSwitch} />} />
+                value={<Switch edge="end" checked={!!p.micAuto} tabIndex={-1} slotProps={{ input: { 'aria-label': t('autoSens') } }} sx={brandSwitch} />} />
               {p.micAuto && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5 }}>{t('autoSensHint')}</Typography>}
               {/* 마이크 2개로 나눠 들을 때: 마이크 1·2 감도를 따로 — 막대(진한 선)도 마이크별 입력 크기 */}
               {!p.micAuto && dual && <SensSlider label={t('tx1')} value={p.micSens} native={p.micNative} level={liveLevel} onChange={p.onMicSens} />}
@@ -488,9 +491,11 @@ export default function MobileLive(p) {
               {!p.micAuto && !dual && <SensSlider label={t('inputSens')} value={p.micSens} native={p.micNative} level={liveLevel} hint={t('inputSensHint')} onChange={p.onMicSens} />}
               {twoCh && <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5, wordBreak: 'keep-all' }}>{stereoMsg(chanState, t)}</Typography>}
             </Group>
-            <Group title={t('secOutput')}>
-              <OptionRow label={t('ttsVoice')} value={voiceName(p.gender)} onClick={() => setSheet('voice')} />
-            </Group>
+            {p.ttsPerm && (
+              <Group title={t('secOutput')}>
+                <OptionRow label={t('ttsVoice')} value={voiceName(p.gender)} onClick={() => setSheet('voice')} />
+              </Group>
+            )}
             <Group title={t('secSession')}>
               <OptionRow label={t('sessionName')} value={p.title} onClick={() => setSheet('rename')} />
               <OptionRow label={t('viewers')} value={t('viewersCount', { n: p.viewerCount || 0 })} onClick={() => setSheet('share')} />

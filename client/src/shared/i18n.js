@@ -36,7 +36,7 @@ const D = {
     logout: '로그아웃', logoutConfirm: '로그아웃하시겠습니까?',
     account: '계정', accountInfo: '계정 정보', username: '사용자명', 
     changePassword: '비밀번호 변경', currentPassword: '현재 비밀번호', newPassword: '새 비밀번호', confirmPassword: '새 비밀번호 확인',
-    pwMismatch: '새 비밀번호가 일치하지 않습니다.', pwChanged: '비밀번호를 바꿨습니다.',
+    pwMismatch: '새 비밀번호가 일치하지 않습니다.', pwChanged: '비밀번호를 바꾸고 다른 기기에서 로그아웃했습니다.',
     deleteAccount: '계정 삭제', deleteAccountDesc: '계정과 모든 세션이 삭제되며 되돌릴 수 없습니다. 계속하려면 비밀번호를 입력하세요.',
     saved: '저장했습니다.', 
     
@@ -92,7 +92,7 @@ const D = {
     logout: 'Log out', logoutConfirm: 'Log out?',
     account: 'Account', accountInfo: 'Account info', username: 'Username', 
     changePassword: 'Change password', currentPassword: 'Current password', newPassword: 'New password', confirmPassword: 'Confirm new password',
-    pwMismatch: 'The new passwords do not match.', pwChanged: 'Password changed.',
+    pwMismatch: 'The new passwords do not match.', pwChanged: 'Password changed. Other devices have been signed out.',
     deleteAccount: 'Delete account', deleteAccountDesc: "Your account and all sessions will be deleted and can't be restored. Enter your password to continue.",
     saved: 'Saved.', 
     
@@ -148,7 +148,7 @@ const D = {
     logout: 'ログアウト', logoutConfirm: 'ログアウトしますか？',
     account: 'アカウント', accountInfo: 'アカウント情報', username: 'ユーザー名', 
     changePassword: 'パスワード変更', currentPassword: '現在のパスワード', newPassword: '新しいパスワード', confirmPassword: '新しいパスワード（確認）',
-    pwMismatch: '新しいパスワードが一致しません。', pwChanged: 'パスワードを変更しました。',
+    pwMismatch: '新しいパスワードが一致しません。', pwChanged: 'パスワードを変更し、他の端末からログアウトしました。',
     deleteAccount: 'アカウント削除', deleteAccountDesc: 'アカウントとすべてのセッションが削除され、元に戻せません。続けるにはパスワードを入力してください。',
     saved: '保存しました。', 
     

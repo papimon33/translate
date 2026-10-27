@@ -54,6 +54,7 @@ import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import MobileLive from '../phone/MobileLive.jsx';
 import { setPref } from '../shared/prefs.js';
 import { PC_V2 } from '../shared/env.js';
+import { can, setRecordingFlag } from '../shared/authState.js';
 import { api } from '../shared/api.js';
 
 function VolumeIcon({ level }) {
@@ -297,9 +298,10 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   // 고급옵션: 단독 응답어(네/Yes/Okay 단독 발화) 기록 생략 — 기본 꺼짐(보존)
   const [dropAcks, setDropAcks] = useState(() => localStorage.getItem('kac-drop-acks') === '1');
   const [ttsOn, setTtsOn] = useState(() => { const s = localStorage.getItem('kac-sx-tts'); return s === '1' ? true : s === '0' ? false : !onewayPreset; }); // 음성재생(TTS): 오프라인(대화) 기본 ON, 온라인 OFF
-  // TTS 는 PC 소리를 캡처하지 않을 때만 — 캡처 중이면 TTS 음성이 PC 소리 채널로 되들어가 다시 번역된다.
+  // TTS 는 음성 재생 권한이 있고 PC 소리를 캡처하지 않을 때만 — 캡처 중이면 TTS 음성이 PC 소리 채널로 되들어가 다시 번역된다.
   // (켜 둔 저장값이 있어도 이 조건에서는 합성·재생하지 않는다)
-  const ttsAllowed = sourceMode === 'mic';
+  const ttsPerm = can('tts');
+  const ttsAllowed = ttsPerm && sourceMode === 'mic';
   const [gender, setGender] = useState(() => localStorage.getItem('kac-sx-gender') || 'f'); // 음성 성별
   const [previewing, setPreviewing] = useState(false);
   const previewVoice = async () => {
@@ -321,6 +323,8 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   const [messages, setMessages] = useState([]);
   const [partials, setPartials] = useState({ left: '', right: '' });
   const [recording, setRecording] = useState(false);
+  // 번역 중에는 다른 기기 로그인으로 로그아웃돼도 끊지 않는다(중지한 뒤 로그인 화면으로) — authState 참고
+  useEffect(() => { setRecordingFlag(recording); return () => setRecordingFlag(false); }, [recording]);
   const [recStartAt, setRecStartAt] = useState(null); // 녹음 시작 시각 — 폰 화면 경과 시간 표시
   const [micMuted, setMicMuted] = useState(false); // 발화 일시정지(세션 유지, 마이크만 off)
   const [viewerActive, setViewerActive] = useState(false); // 데스크: 통역(응대) 진행 중인지
@@ -1102,6 +1106,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
           micNative={nativeApp || !!(stereoInfo && stereoInfo.raw)}
           ttsOn={ttsOn}
           ttsAllowed={ttsAllowed}
+          ttsPerm={ttsPerm}
           ttsViewerOnly={ttsViewerOnly}
           messages={messages}
           canSave={messages.length > 0}

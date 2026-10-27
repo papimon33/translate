@@ -31,7 +31,8 @@ export function runSoniox(h) {
   const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
   const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
   const sxB = okL(ws._sxB) ? ws._sxB : 'en';
-  let ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY;
+  const canTts = !!(ws._perms && ws._perms.tts); // 음성 재생 권한(없으면 켜는 요청을 무시 — 화면은 버튼을 숨긴다)
+  let ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY && canTts;
   let gender = ws._gender === 'm' ? 'm' : 'f'; // 음성 성별(출력언어별 보이스 자동 선택)
   const diar = ws._diar === '1'; // 화자 구분(speaker diarization)
   if (ws._tts === '1' && !CARTESIA_API_KEY) {
@@ -387,7 +388,7 @@ export function runSoniox(h) {
       } else if (m.type === 'tts') {
         // 녹음 중 TTS 토글: 합성 on/off + 이 기기(호스트) 재생 여부. local=false 면 '뷰어에게만'(합성은 하되 호스트로 안 보냄)
         ws._audioOut = !!m.on && m.local !== false;
-        ttsOn = !!m.on && !!CARTESIA_API_KEY;
+        ttsOn = !!m.on && !!CARTESIA_API_KEY && canTts;
         if (m.gender === 'm' || m.gender === 'f') gender = m.gender;
         if (!!m.on && !CARTESIA_API_KEY) toHost({ type: 'status', message: 'CARTESIA_API_KEY 미설정 — 음성 재생을 사용할 수 없습니다.' });
         if (ttsOn) { const wLang = sxMode === 'two' ? 'ko' : sxTarget; cartesiaWarmup(cartesiaVoiceId(wLang, gender), wLang).then(() => {}).catch(() => {}); }

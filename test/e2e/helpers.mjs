@@ -1,6 +1,6 @@
 // 화면 테스트 공용 — 로그인·세션 만들기·안드로이드 앱 마이크 흉내
 export async function login(request) {
-  const r = await request.post('/api/login', { data: { id: 'admin', password: 'admin' } });
+  const r = await request.post('/api/login', { data: { id: 'admin', password: 'admin', replace: true } });
   if (!r.ok()) throw new Error('login failed ' + r.status());
 }
 export async function createSession(request, body) {

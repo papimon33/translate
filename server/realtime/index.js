@@ -1,7 +1,8 @@
 /* 실시간(WebSocket) 진입 — 업그레이드 인증·연결 분기(뷰어/호스트)·하트비트. index.js 가 attachRealtime(server) 로 붙인다. */
 import { WebSocketServer, WebSocket } from 'ws';
 import { TARGET_LANG } from '../config.js';
-import { currentUser, viewerTokenValid } from '../auth/index.js';
+import { authFromReq, currentUser, viewerTokenValid, hasPerm, permsOf } from '../auth/index.js';
+import { getSession } from '../store/sessions.js';
 import { logErr } from '../metrics.js';
 import { rooms } from './rooms.js';
 import { handleViewer } from './viewer.js';
@@ -17,6 +18,23 @@ export const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 // 하트비트: 절전·망 단절로 FIN 없이 사라진 소켓을 주기 감지·정리.
 // 없으면 죽은 연결이 데스크 active 표시와 room 을 영구 점유한다.
 const HEARTBEAT_MS = 30000;
+
+// 번역 중인 호스트 연결의 로그인 토큰(jti) — 다른 기기 로그인으로 토큰이 끊겨도, 진행 중인 번역은 중지할 때까지 이어진다.
+// 같은 세션에 그 토큰의 연결이 살아 있거나 끊긴 지 2분 안(망 끊김 재접속·2채널 두 번째 연결)일 때만 통과시킨다 — 새 번역 시작은 막힌다.
+const HOST_GRACE_MS = 2 * 60 * 1000;
+const hostJti = new Map(); // jti -> { sessionId, open, closedAt }
+function hostGraceOk(jti, sessionId) {
+  const r = hostJti.get(jti);
+  return !!r && r.sessionId === sessionId && (r.open > 0 || Date.now() - r.closedAt < HOST_GRACE_MS);
+}
+function trackHostJti(ws, jti) {
+  if (!jti) return;
+  for (const [k, r] of hostJti) if (!r.open && Date.now() - r.closedAt > HOST_GRACE_MS) hostJti.delete(k); // 오래된 기록 정리
+  const r = hostJti.get(jti) || { sessionId: ws._session, open: 0, closedAt: 0 };
+  r.sessionId = ws._session; r.open++;
+  hostJti.set(jti, r);
+  ws.on('close', () => { r.open--; r.closedAt = Date.now(); });
+}
 // 뷰어 생존 신호(앱 메시지) — 브라우저는 위 프로토콜 ping 을 JS 에 보여 주지 않아, 망 전환·절전 복귀 후 '열린 채 죽은' 연결을
 // 뷰어가 스스로 알아챌 수 없다(호스트는 번역 중인데 뷰어 화면만 멈춤). 15초마다 보내고 뷰어는 35초 무수신이면 새로 연결한다.
 const VIEWER_HB_MS = Number(process.env.VIEWER_HB_MS) || 15000; // 테스트에서만 짧게
@@ -27,23 +45,39 @@ export function attachRealtime(server) {
   server.on('upgrade', (req, socket, head) => {
     try {
     const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
-    const hostUser = pathname === '/ws/host' ? currentUser(req) : null;
+    const sessionId = searchParams.get('session') || '';
+    const isDesk = getSession(sessionId)?.pipeline === 'desk';
+    const hostAuth = pathname === '/ws/host'
+      ? authFromReq(req, { grace: (t, reason) => reason === 'replaced' && hostGraceOk(t.jti, sessionId) })
+      : null;
+    const hostUser = hostAuth ? hostAuth.user : null;
     if (pathname === '/ws/host' && !hostUser) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
-    // 공개 뷰어: 유효 토큰(QR 에 포함) 또는 로그인 사용자만. id 열거로 무단 접속하는 것을 막는다.
-    if (pathname === '/ws/viewer' && !currentUser(req) && !viewerTokenValid(searchParams.get('session') || '', searchParams.get('t'))) {
+    // 안내데스크 운영은 안내데스크 권한이 있어야 한다(만들기·삭제는 관리자 — REST 쪽)
+    if (pathname === '/ws/host' && isDesk && !hasPerm(hostUser, 'desk')) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       socket.destroy();
       return;
+    }
+    // 공개 뷰어: 유효 토큰(QR 에 포함) 또는 로그인 사용자만. id 열거로 무단 접속하는 것을 막는다(안내데스크는 로그인만으론 안 되고 권한도).
+    if (pathname === '/ws/viewer' && !viewerTokenValid(sessionId, searchParams.get('t'))) {
+      const u = currentUser(req);
+      if (!u || (isDesk && !hasPerm(u, 'desk'))) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
     }
     if (pathname === '/ws/host' || pathname === '/ws/viewer') {
       wss.handleUpgrade(req, socket, head, (ws) => {
         ws._kind = pathname === '/ws/host' ? 'host' : 'viewer';
         ws._ip = String((req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || '').trim(); // 뷰어 IP당 접속 상한용
         ws._userId = hostUser ? hostUser.id : null;
+        ws._perms = hostUser ? permsOf(hostUser) : {}; // 호스트 권한(tts·desk) — 연결 시점 기준
+        ws._jti = hostAuth ? hostAuth.jti : null; // 로그인 토큰 — 번역 중 재접속 허용 판단(hostGraceOk)
         ws._session = searchParams.get('session') || 'default';
         ws._hostView = searchParams.get('role') === 'host'; // 호스트 화면의 패시브 뷰어 — 데스크 현황판 '뷰어 수'에서 제외
         ws._src = searchParams.get('src') || 'mic'; // mic | system
@@ -87,6 +121,7 @@ export function attachRealtime(server) {
     ws.on('error', (e) => logErr('ws-' + (ws._kind || '?'), e)); // ECONNRESET 등 — error 후 close 가 이어져 락 해제는 기존 경로로
     ws.on('pong', () => { ws._alive = true; });
     if (ws._kind === 'viewer') return handleViewer(ws);
+    trackHostJti(ws, ws._jti);
     return handleHost(ws);
   });
 
