@@ -785,7 +785,7 @@ class MainActivity : Activity() {
         private const val TAG = "AirTalk"
         private const val REQ_MIC = 1
         private const val REQ_SAVE = 2
-        private const val DEFAULT_URL = "https://translate-voxm.onrender.com" // 운영 서버(데스크톱 앱 기본값과 동일)
+        private const val DEFAULT_URL = "https://airtalk.kr" // 운영 서버(2026-10-27 도메인, 옛 translate-voxm.onrender.com 도 같은 서버) — 데스크톱 앱 기본값과 동일
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         private val RETRY_SEC = intArrayOf(2, 4, 8, 15)

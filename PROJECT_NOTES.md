@@ -87,6 +87,11 @@
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
 - **Soniox 헤더 인증(2026-10-27)**: start(config) 메시지의 `api_key` 가 2027-01-15 에 중단되므로 Soniox 실시간 STT 접속 4곳(실시간 번역·데스크 안내원/여객 채널·용어 실검증)을 `openSonioxWs()`(`Authorization: Bearer <SONIOX_API_KEY>` 헤더)로 바꾸고 config 에서 키를 뺐다. `test/soniox-auth.test.mjs`(가짜 엔진이 `conn.headers` 기록). `eval/*.mjs` 3개는 아직 구 방식.
+- **운영 도메인 airtalk.kr(2026-10-27)**: 가비아 등록, DNS = A `@` 216.24.57.1 + CNAME `www` translate-voxm.onrender.com.(Render 문서 값). Render Custom Domains 에
+  airtalk.kr 추가 → 인증서(Google Trust Services) 자동, www·http 는 https://airtalk.kr 로 301. 옛 주소 translate-voxm.onrender.com 도 같은 서비스라 계속 동작.
+  · 서버: 환경변수 `PUBLIC_HOST=airtalk.kr` 이면 QR(뷰어·데스크 랜딩 링크)을 항상 https://airtalk.kr 로(`/api/qr`, test/public-host.test.mjs). Render 대시보드에서 설정 필요.
+  · 앱 기본 주소: 안드로이드 `DEFAULT_URL` = https://airtalk.kr(1.4.4, versionCode 10), 데스크톱 `desktop/main.js` SITE 동일(데스크톱은 태그/수동 빌드 때 반영).
+    주소(출처)가 바뀌므로 앱 업데이트 후 첫 실행에 한 번 다시 로그인, 기기 저장 설정(입력 감도·자동 감도·스테레오 기억·세션별 언어 기억)은 초기화 — 계정 동기화 항목(언어·테마·글자 크기·TTS 음성)은 로그인 후 복원.
 - **폰 목록 길게 누르기(2026-10-27)**: 세션 줄을 0.5초 누르면(손가락이 10px 이상 움직이면 취소, PC 는 우클릭) 이름 바꾸기·세션 삭제 시트
   (`MobileApp` 의 `SessionRow`). 이름 바꾸기 = FormSheet → `api.patch`, 삭제 = 확인 창(데이터 손실 명시) → `api.remove` → "세션을 삭제했습니다." 목록 모드 아이콘 선 굵기 2.4.
 - **PC 새 화면 테스트(?ui=v2, 2026-10-26)**: 주소에 `?ui=v2` → 이 브라우저에 기억(`kac-pc-ui`), `?ui=v1` → 원래 화면. 기본은 기존 화면 그대로.

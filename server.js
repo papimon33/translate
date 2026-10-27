@@ -2413,8 +2413,13 @@ app.get('/api/qr', async (req, res) => {
   // 배포 환경: 요청 host/proto 사용(Render 등은 x-forwarded-* 로 전달).
   let proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
   let host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-  // 로컬 접속(localhost)이면 같은 와이파이 모바일이 닿도록 LAN IP 로 대체.
-  if (!host || /^(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(host)) {
+  // PUBLIC_HOST(운영 도메인, 예: airtalk.kr)가 있으면 어느 주소로 접속했든 QR 은 그 도메인으로 —
+  // 옛 주소(translate-voxm.onrender.com)로 접속한 구버전 앱에서 만든 QR 도 새 도메인을 가리키게(2026-10-27)
+  if (process.env.PUBLIC_HOST) {
+    host = process.env.PUBLIC_HOST;
+    proto = 'https';
+  } else if (!host || /^(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(host)) {
+    // 로컬 접속(localhost)이면 같은 와이파이 모바일이 닿도록 LAN IP 로 대체.
     host = `${getLanIp()}:${PORT}`;
     proto = 'http';
   }

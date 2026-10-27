@@ -19,7 +19,7 @@ cd desktop
 npm install
 npm start
 ```
-- 기본은 배포 사이트(`https://translate-voxm.onrender.com`)를 띄웁니다.
+- 기본은 배포 사이트(`https://airtalk.kr`)를 띄웁니다.
 - 로컬 서버로 테스트(웹앱을 루트에서 `npm start`로 띄운 상태):
   ```bash
   # Windows PowerShell

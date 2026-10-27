@@ -13,7 +13,7 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer } = require('electron');
 const path = require('path');
 
-const SITE = (process.env.KAC_URL || process.env.OVERLAY_URL || 'https://translate-voxm.onrender.com').replace(/\/$/, '');
+const SITE = (process.env.KAC_URL || process.env.OVERLAY_URL || 'https://airtalk.kr').replace(/\/$/, '');
 
 let mainWin = null;
 let overlayWin = null;
