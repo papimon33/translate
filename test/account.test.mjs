@@ -221,8 +221,11 @@ test('파일 모드: 프로필(관리자 포함)은 서버 재시작 후에도 �
   await call(srv.base, 'PATCH', '/api/me', choi, { email: 'choi@example.com', prefs: { nativeLang: 'en', theme: 'dark', ttsGender: 'f' } });
   await until(() => {
     const p = readProfiles(dataDir);
-    return p && p.some((x) => x.id === 'admin') && p.some((x) => x.id === 'choi' && x.prefs?.ttsGender === 'f');
-  }, { desc: 'profiles.json 저장' });
+    let u = null;
+    try { u = JSON.parse(fs.readFileSync(path.join(dataDir, 'users.json'), 'utf8')); } catch {}
+    // users.json 도 기다린다 — 로그인 자리 저장으로 프로필이 먼저 써질 수 있어, 강제 종료(SIGKILL) 전에 choi 계정이 저장돼 있어야 한다
+    return p && p.some((x) => x.id === 'admin') && p.some((x) => x.id === 'choi' && x.prefs?.ttsGender === 'f') && u && u.some((x) => x.id === 'choi');
+  }, { desc: 'profiles.json·users.json 저장' });
   await srv.stop();
 
   srv = await bootServer({ DATA_DIR: dataDir });

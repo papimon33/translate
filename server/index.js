@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { PORT, STATIC_DIR, SONIOX_API_KEY, CARTESIA_ADMIN_API_KEY, OPENAI_ADMIN_API_KEY } from './config.js';
 import { logErr } from './metrics.js';
-import { loadStore, sessions, dirtySessions, flushSessions, flushUsers, flushUsage } from './store/index.js';
+import { loadStore, sessions, dirtySessions, flushSessions, flushUsers, flushUsage, flushProfiles } from './store/index.js';
 import { initTermsConfig } from './store/terms.js';
 import { migrateSessions } from './store/sessions.js';
 import { authBootCheck, loadSecurityCfg, migrateUserPerms } from './auth/index.js';
@@ -65,7 +65,7 @@ authBootCheck();
 
 /* ---- 프로세스 오류·종료 처리 ---- */
 process.on('uncaughtException', (e) => logErr('uncaught', e));
-// 재배포·재시작(SIGTERM/SIGINT) 시 디바운스 저장분(세션 ~400ms·사용량 ~1s) 유실 방지 — flush 후 종료
+// 재배포·재시작(SIGTERM/SIGINT) 시 디바운스 저장분(세션·사용자·프로필 ~400ms·사용량 ~1s) 유실 방지 — flush 후 종료
 let shuttingDown = false;
 async function gracefulShutdown(sig) {
   if (shuttingDown) return;
@@ -73,7 +73,7 @@ async function gracefulShutdown(sig) {
   console.log(`[shutdown] ${sig} — 미저장 변경 flush 후 종료`);
   try {
     for (const s of sessions) dirtySessions.add(s.id);
-    await Promise.allSettled([flushSessions(), flushUsers(), flushUsage()]);
+    await Promise.allSettled([flushSessions(), flushUsers(), flushUsage(), flushProfiles()]); // 프로필 = 로그인 자리 포함 — 빠지면 재시작 직전 로그인이 풀린다
   } catch {}
   process.exit(0);
 }

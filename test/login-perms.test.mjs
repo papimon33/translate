@@ -161,3 +161,14 @@ test('권한 이전: 권한 필드가 없던 기존 계정은 부팅 시 모두 
   const list = (await call(srv.base, 'GET', '/api/admin/users', admin)).body;
   assert.deepEqual(list.find((u) => u.id === 'old').perms, { tts: true, desk: true });
 });
+
+test('재시작(배포) 직전에 로그인해도 정상 종료(SIGTERM)면 로그인이 유지된다', { timeout: 40000 }, async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'airtalk-seat-'));
+  let srv = await bootServer({ DATA_DIR: dataDir });
+  t.after(() => (srv.child.exitCode == null && srv.child.signalCode == null ? srv.stop() : undefined));
+  const admin = await loginAdmin(srv.base); // 저장 디바운스(400ms)가 끝나기 전에 바로 종료한다
+  await new Promise((res) => { srv.child.once('exit', res); srv.child.kill('SIGTERM'); });
+  srv = await bootServer({ DATA_DIR: dataDir });
+  assert.equal((await call(srv.base, 'GET', '/api/me', admin)).body.user?.id, 'admin', '종료 시 프로필(로그인 자리)도 저장돼야 한다');
+});
+

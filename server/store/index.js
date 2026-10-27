@@ -248,7 +248,7 @@ export function saveProfiles(id) {
       .finally(() => { profilesFlushInflight = null; });
   }, 400);
 }
-async function flushProfiles() {
+export async function flushProfiles() {
   const ids = new Set(dirtyProfiles);
   dirtyProfiles.clear();
   if (profilesCol) {

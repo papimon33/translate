@@ -173,9 +173,10 @@ export function authFromReq(req, { grace } = {}) {
   if (!user) return { user: null };
   const s = (loginsOf(t.id) || {})[t.kind];
   if (s && s.jti === t.jti) return { user, kind: t.kind, jti: t.jti };
-  const reason = s && s.prev && s.prev.jti === t.jti ? s.prev.reason : 'replaced';
+  // 이유: 마지막으로 끊긴 토큰이면 그 이유, 아니면 그 자리에 다른 기기가 있을 때만 replaced(자리 기록이 없으면 이유 없이 로그아웃)
+  const reason = s && s.prev && s.prev.jti === t.jti ? s.prev.reason : s && s.jti ? 'replaced' : undefined;
   if (grace && grace(t, reason)) return { user, kind: t.kind, jti: t.jti, replaced: true };
-  return { user: null, ...(reason !== 'logout' ? { reason } : {}) };
+  return { user: null, ...(reason && reason !== 'logout' ? { reason } : {}) };
 }
 export function currentUser(req) {
   return authFromReq(req).user;
