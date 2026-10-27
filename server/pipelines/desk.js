@@ -1,4 +1,4 @@
-/* 안내데스크 파이프라인 — 대기(엔진 없음) → 손님 언어 선택 시 soniox 통역, 2채널(여객 마이크)·누화 판정·길안내·응대 기록.
+/* 안내데스크 파이프라인 — 대기(엔진 없음) → 손님 언어 선택 시 soniox 통역, 2채널(여객 마이크)·누화 판정·응대 기록.
    handleHost(realtime/host.js)가 runDesk(h) 를 호출한다(h = 연결 컨텍스트). runDeskGuestFeed = PC 호스트의 여객 마이크 공급 연결. */
 import { WebSocket } from 'ws';
 import { SONIOX_API_KEY, SONIOX_LANGS, SX_MAX_FAILS, sxRetryDelay } from '../config.js';
@@ -6,8 +6,6 @@ import { saveSessions } from '../store/index.js';
 import { newId, capDeskLog } from '../store/sessions.js';
 import { rooms, deskCtrl, getRoom, broadcast } from '../realtime/rooms.js';
 import { openSonioxWs, buildSonioxContext, langJudge } from '../vendors/soniox.js';
-import { resolveCategoryDests, classifyFacility } from '../desk/wayfind.js';
-import { detectCategory, isLocationAnswer, parseAnswerFloor } from '../desk/wayfind_dict.js';
 import { echoNorm, echoMatch } from '../util/security_util.js';
 import { isAckOnly, stripFillers } from '../util/pipeline_util.js';
 
@@ -94,8 +92,6 @@ export function runDesk(h) {
   // (삭제됨) 무음 시 양 채널 조용한 재연결(컨텍스트 플러시) — 재연결마다 context 가
   // input_text_tokens 로 재청구돼 비용 폭증(runSoniox 와 동일 사유, PROJECT_NOTES 2026-07-15).
   let staffTm = null, guestTm = null; // 채널별 발화 레이턴시 타임스탬프 { s, e } (커밋 시 c 추가)
-  let pendingWayfind = null;  // 호스트 승인 대기 중인 길안내 제안
-  let wayfindOn = ws._wayfind !== '0'; // 길안내 지도 기능(기본 on) — 끄면 감지·GPT 분류 자체를 생략
   let convStartedAt = 0;      // 현재 응대 시작 시각(통계용)
   let convConsentAt = null;   // 현재 응대의 손님 동의 시각(고지 모달 '동의하고 시작')
 
@@ -263,44 +259,6 @@ export function runDesk(h) {
     upsertItem(id, { [targetKeyFor(src)]: out }, txt, null, src || null, undefined, toks, tm);
     if (tgt) polishCommit(id, targetKeyFor(src), txt, tgt); // 번역 다듬기(nano) — 직역투 후교정
     if (confFix) maybeConfFix(id, toks, txt, src, targetKeyFor(src)); // 저신뢰 자동 교정(고급옵션)
-    // 길안내: 안내원(한국어) '답변'에서 시설 언급 감지 → 목적지 전송.
-    // 외국인 질문이 아니라 직원 답변 기준 — 직원의 현장판단(보안구역·특정 시설 지목)을 반영하고,
-    // 기계번역이 아닌 원어민 한국어 원문(txt)에서 매칭하므로 정확도가 높다.
-    if (wayfindOn && phase === 'active' && src === A && txt) {
-      const dfl = (session && session.deskFloor) || '1F';
-      const dsd = (session && session.deskSide) || 'S';
-      // 답변에 '목적지 층'이 있으면(예: "1층으로 내려가세요") 데스크 기본 층 우선순위를 덮어씀(직원 현장판단 반영).
-      const destFloor = parseAnswerFloor(txt, dfl) || dfl;
-      // 오탐 방지: 즉시 뷰어에 쏘지 않고 호스트에 '제안'만 → 호스트가 표시/무시(또는 자동 표시 설정).
-      const fire = (catId, via) => {
-        try {
-          const wf = resolveCategoryDests(catId, destFloor);
-          if (wf && wf.dests.length) {
-            pendingWayfind = { type: 'wayfind', ...wf, deskFloor: dfl, deskSide: dsd };
-            toHost({ ...pendingWayfind, type: 'wayfind-suggest' });
-            if (session) { // 운영 로그: 감지 발화·경로(직매칭/GPT)·표시 여부 — 사전·프롬프트 튜닝용
-              session.wayfindLog = session.wayfindLog || [];
-              session.wayfindLog.push({ at: Date.now(), catId, via, txt: txt.slice(0, 80), shown: false });
-              if (session.wayfindLog.length > 200) session.wayfindLog = session.wayfindLog.slice(-200);
-              saveSessions(session.id);
-            }
-          }
-        } catch {}
-      };
-      // 직전 손님 질문(한국어 번역) — 시설명이 답변에 없어도 질문에서 분류할 수 있게 컨텍스트로 전달
-      const lastGuestQ = session && Array.isArray(session.items)
-        ? [...session.items].reverse().find((it) => it.lang && it.lang !== A && it.texts && it.texts[A])
-        : null;
-      const NEG = /없|말고|아니/; // 부정·비교 표지 → 직매칭 신뢰 불가, GPT 분류로
-      const direct = detectCategory(txt);            // 1) 사전 직매칭(원어민 한국어 → 신뢰도 높음, 무료)
-      if (direct.length && !NEG.test(txt)) fire(direct[0].id, 'direct');
-      else if (direct.length || isLocationAnswer(txt) || (lastGuestQ && isLocationAnswer(lastGuestQ.texts[A]))) {
-        const gen = convStartedAt; // 비동기 분류가 응대 종료 후 도착하면 다음 손님에게 이전 지도가 제안되는 것 방지
-        classifyFacility(txt, lastGuestQ ? lastGuestQ.texts[A] : null)
-          .then((id) => { if (id && phase === 'active' && gen === convStartedAt) fire(id, 'gpt'); })
-          .catch(() => {}); // 2) gpt-5.4-mini
-      }
-    }
   };
 
   // 무음 자동종료: 발화가 들릴 때마다 리셋 → deskIdleMs 동안 '아무 말도' 없으면 대화 종료 → 대기(idle)
@@ -319,7 +277,6 @@ export function runDesk(h) {
   const endConversation = (graceful = true) => {
     clearTimeout(foreignTimer);
     clearTimeout(warnTimer);
-    pendingWayfind = null;
     // 종료 절차 중 commit() 의 자동감지 분기(양방향 재체결·desk-active 브로드캐스트)가 발동하지 않도록
     autoDetect = false;
     // 승계(takeover)로 밀려난 구 파이프라인의 지연 close/타이머가 새 호스트의 진행 중 응대를
@@ -352,7 +309,6 @@ export function runDesk(h) {
     ws._deskActiveStart = 0;
     guestCommit(); // 손님의 마지막 미확정 발화도 기록에 남김
     commit();
-    pendingWayfind = null; // commit() 의 길안내 감지가 종료 직전 발화로 제안을 재설정하는 경우 제거(다음 손님 오표시 방지)
     if (session) {
       if (Array.isArray(session.items) && session.items.length) {
         session.deskLog = session.deskLog || [];
@@ -664,15 +620,6 @@ export function runDesk(h) {
           toHost({ type: 'status', message: `무음 자동 종료: ${deskIdleMs / 1000}초` });
         }
       }
-      else if (m.type === 'wayfind-show') { // 호스트가 길안내 제안 승인 → 뷰어에 지도 표시
-        if (pendingWayfind) {
-          broadcast(sessionId, pendingWayfind);
-          if (session && Array.isArray(session.wayfindLog) && session.wayfindLog.length) { session.wayfindLog[session.wayfindLog.length - 1].shown = true; saveSessions(session.id); }
-          pendingWayfind = null;
-        }
-      }
-      else if (m.type === 'wayfind-dismiss') { pendingWayfind = null; } // 제안 무시
-      else if (m.type === 'wayfind-on') { wayfindOn = !!m.on; if (!wayfindOn) pendingWayfind = null; } // 길안내 지도 기능 on/off(라이브)
     } catch {}
   });
   ws.on('close', () => {

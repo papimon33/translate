@@ -52,12 +52,7 @@ test('실시간 번역: Soniox 연결이 헤더 인증이고 config 에 키가 �
 });
 
 test('데스크: 안내원 채널·여객 채널 모두 헤더 인증이고 config 에 키가 없다', { timeout: 30000 }, async () => {
-  const reg = await fetch(`${srv.base}/api/desk-registry`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie },
-    body: JSON.stringify({ desks: [{ name: '인증 데스크', floor: '1F', side: 'S' }] }),
-  }).then((r) => r.json());
-  assert.ok(reg.desks?.[0]?.id, '데스크 등록 실패: ' + JSON.stringify(reg));
-  const sess = await post('/api/sessions', { title: 'auth desk', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }).then((r) => r.json());
+  const sess = await post('/api/sessions', { title: 'auth desk', pipeline: 'desk', inLang: 'auto' }).then((r) => r.json());
   assert.ok(sess.id, '세션 생성 실패: ' + JSON.stringify(sess));
 
   const host = wsClient(`${wsBase}/ws/host?session=${sess.id}`, { Cookie: cookie });

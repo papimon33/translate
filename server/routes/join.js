@@ -45,13 +45,6 @@ function joinPage(req, res, desk) {
 
 // 구 server.js 에선 express.static 바로 뒤(인증 미들웨어보다 앞)에 등록 — index.js 도 같은 자리에서 호출한다
 export function registerViewerAssetRoutes(app) {
-  // 2.5D 맵 라이브러리/데이터 — 데스크 뷰어 길안내용.
-  // 디렉터리 통째 서빙(express.static)은 인증 미들웨어보다 앞이라 제작용 도구 파일(test.html,
-  // _serve.py, original/*.html 등)까지 무인증 공개됐다 → 뷰어가 실제로 로드하는 2개만 노출한다.
-  for (const f of ['wayfinding_data.js', 'airport25d.js']) {
-    app.get('/map/' + f, (req, res) => res.sendFile(new URL('../../assets/map/' + f, import.meta.url).pathname));
-  }
-
   // 데스크 뷰어 PWA manifest — '홈 화면에 추가'로 실행 시 항상 전체화면 유지. 시작 주소 = /desk/<참여 코드>
   // (참여 코드가 곧 접근 권한이라 토큰을 주소에 싣지 않아도 재실행 후 바로 접속된다. 코드가 없거나 틀리면 /desk 랜딩)
   app.get('/desk.webmanifest', (req, res) => {

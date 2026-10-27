@@ -2,7 +2,7 @@
 import crypto from 'crypto';
 import { ADMIN_PASSWORD, DESKLOG_CAP } from '../../config.js';
 import { metrics } from '../../metrics.js';
-import { sessions, setSessions, dataKey, col, dirtySessions, sessionsFlushInflight, flushSessions, deskRegistry, termsConfig } from '../../store/index.js';
+import { sessions, setSessions, dataKey, col, dirtySessions, sessionsFlushInflight, flushSessions, termsConfig } from '../../store/index.js';
 import { requireAdmin, adminTotpSecret } from '../../auth/index.js';
 import { rooms } from '../../realtime/rooms.js';
 import { wss } from '../../realtime/index.js';
@@ -68,7 +68,6 @@ export function registerDataRoutes(app) {
       clearedLogs += (s.deskLog || []).length;
       s.items = [];
       s.deskLog = [];
-      s.wayfindLog = [];
       s.updatedAt = Date.now();
     }
     setSessions(kept);
@@ -87,10 +86,10 @@ export function registerDataRoutes(app) {
     res.json({ ok: true, removedSessions: removed, keptDesks: kept.length, clearedDeskLogs: clearedLogs });
   });
 
-  /* ---- 전체 데이터 백업(관리자): 세션·데스크 정의·용어·정형 안내를 JSON 한 파일로 ---- */
+  /* ---- 전체 데이터 백업(관리자): 세션·용어를 JSON 한 파일로 ---- */
   app.get('/api/admin/export', requireAdmin, (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="airtalk-backup-${new Date().toISOString().slice(0, 10)}.json"`);
-    res.send(JSON.stringify({ exportedAt: Date.now(), sessions, deskRegistry, termsConfig }, null, 1));
+    res.send(JSON.stringify({ exportedAt: Date.now(), sessions, termsConfig }, null, 1));
   });
 }

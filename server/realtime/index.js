@@ -66,7 +66,6 @@ export function attachRealtime(server) {
         ws._deskGuestSens = searchParams.get('deskGuestSens'); // desk 여객 태블릿 마이크 민감도(0~100)
         ws._dropAcks = searchParams.get('dropAcks');   // 단독 응답어(네/Yes) 기록 생략(고급옵션)
         ws._confFix = searchParams.get('confFix');     // 저신뢰 자동 교정(고급옵션)
-        ws._wayfind = searchParams.get('wayfind');     // 데스크 길안내 지도 on/off('0'=끔)
         // 실시간 번역 채널 분리(양방향 통역을 채널별 단방향으로): 시스템+마이크, 스테레오 마이크 2채널.
         ws._role = searchParams.get('role');           // 'me'(내 채널) | 'them'(상대 채널) | null(단일 채널)
         ws._drop = searchParams.get('drop');           // 이 채널에서 인식되면 버릴 언어(=반대 채널의 언어 → 스피커·핀마이크로 샌 소리)

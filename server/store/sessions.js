@@ -40,6 +40,17 @@ export function migrateSessions() {
     }
     if (moved) console.log(`[store] 실시간 번역 모드 이전 ${moved}개 (live/oneway/twoway·구 프리셋 → 실시간 번역/양방향 통역 + 소스)`);
   }
+
+  // 길안내 지도·안내데스크 등록(층·방향·데스크명) 삭제(2026-10-27) — 남은 필드를 지운다. 부팅 시 1회, 바뀐 세션만 저장.
+  {
+    let cleaned = 0;
+    for (const s of sessions) {
+      let hit = false;
+      for (const k of ['deskFloor', 'deskSide', 'deskName', 'wayfindLog']) if (k in s) { delete s[k]; hit = true; }
+      if (hit) { saveSessions(s.id); cleaned++; }
+    }
+    if (cleaned) console.log(`[store] 길안내·데스크 등록 필드 정리 ${cleaned}개`);
+  }
 }
 
 /* deskLog(응대 기록) 보존 상한 — 넘치면 가장 오래된 응대부터 버리되, 관리자가 알 수 있게 기록을 남긴다.

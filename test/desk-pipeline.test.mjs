@@ -24,9 +24,7 @@ test('데스크: 응대 시작→발화 확정→호스트 급이탈 시 응대�
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
 
   // 데스크 정의 등록 → 데스크 세션 생성
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '테스트 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
-  assert.ok(reg.desks?.[0]?.id, '데스크 등록 실패: ' + JSON.stringify(reg));
-  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: 'E2E 데스크', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: 'E2E 데스크', pipeline: 'desk', inLang: 'auto' }) }).then((r) => r.json());
   assert.ok(sess.id, '세션 생성 실패: ' + JSON.stringify(sess));
 
   // 호스트(안내원 캡처) + 뷰어(손님 태블릿) 접속
@@ -109,8 +107,7 @@ test('데스크: GUEST_LANGS 밖의 언어를 골라도 영어로 바뀌지 않�
 
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '언어 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
-  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '언어 확장', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '언어 확장', pipeline: 'desk', inLang: 'auto' }) }).then((r) => r.json());
 
   const wsBase = srv.base.replace('http', 'ws');
   const host = wsClient(`${wsBase}/ws/host?session=${sess.id}`, { Cookie: cookie });
@@ -135,8 +132,7 @@ test('데스크: 손님 동의 시각이 응대 기록에 남는다', { timeout:
 
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '동의 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
-  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '동의 기록', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '동의 기록', pipeline: 'desk', inLang: 'auto' }) }).then((r) => r.json());
 
   const wsBase = srv.base.replace('http', 'ws');
   const host = wsClient(`${wsBase}/ws/host?session=${sess.id}`, { Cookie: cookie });

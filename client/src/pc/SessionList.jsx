@@ -451,11 +451,6 @@ export default function SessionList({ onOpen, user, createSignal }) {
                   </Tooltip>
                 );
               })()}
-              {desk && s.deskName && (
-                <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' }, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
-                  {s.deskName}
-                </Typography>
-              )}
               {!v2Row && (desk || (s.preset && TYPE_NAME[s.preset])) && (
                 <Typography sx={{ flex: 'none', fontSize: 12.5, color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>
                   {desk ? '안내데스크' : TYPE_NAME[s.preset]}

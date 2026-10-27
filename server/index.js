@@ -21,7 +21,7 @@ import { registerMeRoutes } from './routes/me.js';
 import { registerSystemRoutes, registerDataRoutes } from './routes/admin/system.js';
 import { registerLogRoutes } from './routes/admin/logs.js';
 import { registerTermsAdminRoutes, registerTermsConfigRoutes } from './routes/terms.js';
-import { registerDeskStatusRoutes, registerDeskRegistryRoutes } from './routes/desks.js';
+import { registerDeskStatusRoutes } from './routes/desks.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerAccountRoutes } from './routes/admin/accounts.js';
 import { registerUsageRoutes } from './routes/admin/usage.js';
@@ -51,7 +51,7 @@ if (!fs.existsSync(STATIC_DIR)) {
   console.warn('\n[경고] dist 폴더가 없습니다. 먼저 `npm run build` 를 실행하세요. (npm start 는 자동 빌드)\n');
 }
 app.use(express.static(STATIC_DIR));
-// 데스크 뷰어 자산(2.5D 맵 2개)·PWA manifest — routes/join.js
+// 데스크 뷰어 PWA manifest — routes/join.js
 registerViewerAssetRoutes(app);
 
 const server = http.createServer(app);
@@ -89,7 +89,6 @@ registerLogRoutes(app);
 registerTermsAdminRoutes(app);
 registerDeskStatusRoutes(app);
 registerDataRoutes(app);
-registerDeskRegistryRoutes(app);
 registerAuthRoutes(app);
 registerAccountRoutes(app);
 registerUsageRoutes(app);

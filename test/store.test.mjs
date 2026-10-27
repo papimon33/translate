@@ -10,7 +10,7 @@ import { bootServer, loginAdmin } from './helpers/boot.mjs';
 test('손상된 sessions.json 이 있어도 기동하고, 원본을 .corrupt 로 백업하며, 다른 파일은 정상 로드한다', { timeout: 40000 }, async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'airtalk-corrupt-'));
   fs.writeFileSync(path.join(dataDir, 'sessions.json'), '{이건 JSON 이 아님');
-  fs.writeFileSync(path.join(dataDir, 'desk_registry.json'), JSON.stringify({ desks: [{ id: 'd1', name: '살아있는 데스크', floor: '1F', side: 'S' }] }));
+  fs.writeFileSync(path.join(dataDir, 'users.json'), JSON.stringify([{ id: 'alive', username: '살아있는 사용자', role: 'user', createdAt: 1, usageMs: 0 }]));
 
   const srv = await bootServer({ DATA_DIR: dataDir });
   t.after(() => srv.stop());
@@ -19,10 +19,10 @@ test('손상된 sessions.json 이 있어도 기동하고, 원본을 .corrupt 로
   const backups = fs.readdirSync(dataDir).filter((f) => f.startsWith('sessions.json.corrupt-'));
   assert.equal(backups.length, 1, '손상 원본이 .corrupt-<ts> 로 백업돼야 함: ' + fs.readdirSync(dataDir).join(', '));
 
-  // 이후 파일(desk_registry)은 정상 로드 — 이전 단일 try/catch 에선 전부 빈 상태로 떴다
+  // 이후 파일(users)은 정상 로드 — 이전 단일 try/catch 에선 전부 빈 상태로 떴다
   const cookie = await loginAdmin(srv.base);
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { headers: { Cookie: cookie } }).then((r) => r.json());
-  assert.equal(reg.desks?.[0]?.name, '살아있는 데스크');
+  const users = await fetch(`${srv.base}/api/admin/users`, { headers: { Cookie: cookie } }).then((r) => r.json());
+  assert.ok(users.some((u) => u.id === 'alive' && u.username === '살아있는 사용자'), JSON.stringify(users));
 
   // 세션은 빈 상태로 시작(손상분은 백업에만 존재)
   const list = await fetch(`${srv.base}/api/sessions`, { headers: { Cookie: cookie } }).then((r) => r.json());

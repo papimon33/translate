@@ -45,8 +45,7 @@ test('안내데스크: 안내원 PC 급이탈 → 복귀 후 태블릿 조작 �
 
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '복구 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
-  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '호스트 복구', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '호스트 복구', pipeline: 'desk', inLang: 'auto' }) }).then((r) => r.json());
   assert.ok(sess.id, '세션 생성 실패: ' + JSON.stringify(sess));
 
   const wsBase = srv.base.replace('http', 'ws');
@@ -110,8 +109,7 @@ test('안내데스크: 승계(새 호스트 먼저 접속) 후 구 소켓 close 
 
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '승계 데스크', floor: '1F', side: 'N' }] }) }).then((r) => r.json());
-  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '승계', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '승계', pipeline: 'desk', inLang: 'auto' }) }).then((r) => r.json());
 
   const wsBase = srv.base.replace('http', 'ws');
   const tok = await deskToken(srv.base, cookie, sess.id);

@@ -1,6 +1,6 @@
 /* 세션 REST API(목록·생성·조회·수정·내역 비우기·뷰어 수·삭제) + 데스크 뷰어 랜딩 목록 */
 import { LANG_NAMES, ALL_LANGS, PRESET_SRC, normalizeMode } from '../config.js';
-import { sessions, setSessions, deskRegistry, col, saveSessions, deleteSessionStore } from '../store/index.js';
+import { sessions, setSessions, col, saveSessions, deleteSessionStore } from '../store/index.js';
 import { getSession, newId } from '../store/sessions.js';
 import { requireAuth, viewerAccessOk } from '../auth/index.js';
 import { rooms, broadcast, closeSessionRoom } from '../realtime/rooms.js';
@@ -47,7 +47,7 @@ export function registerSessionRoutes(app) {
       // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 전 직원이 공용으로 운영 → 모두에게 노출.
       .filter((s) => (s.pipeline === 'desk' ? true : s.owner === req.user.id))
       .filter((s) => (q ? matches(s) : true))
-      .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, deskName: s.deskName || null, snippet: snippetOf(s), ...langsOf(s) }))
+      .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, snippet: snippetOf(s), ...langsOf(s) }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
     res.json(list);
   });
@@ -64,18 +64,6 @@ export function registerSessionRoutes(app) {
     // 실시간 번역 모드: oneway(실시간 번역)/twoway(양방향 통역) + 소스. 신규 기본 소스는 마이크
     // (구 프리셋 키가 들어와도 같은 상황으로 매핑 — 캐시된 구 클라 대비).
     const mode = pipeline === 'soniox' ? normalizeMode(b.preset, b.src, 'mic') : null;
-    // 데스크 안내: 레지스트리(관리자 사전 정의)에서 데스크 선택 → 층/방향/데스크명 복사.
-    // deskId 없이 직접 deskFloor/deskSide 를 주는 구형 경로도 하위호환으로 유지.
-    let deskName;
-    if (pipeline === 'desk' && b.deskId) {
-      const reg = (deskRegistry.desks || []).find((d) => d.id === String(b.deskId));
-      if (!reg) return res.status(400).json({ error: '등록되지 않은 안내데스크입니다. 관리자 페이지에서 먼저 등록하세요.' });
-      b.deskFloor = reg.floor;
-      b.deskSide = reg.side;
-      deskName = reg.name;
-    }
-    const deskFloor = pipeline === 'desk' ? (['1F', '2F', '3F', '4F'].includes(b.deskFloor) ? b.deskFloor : '1F') : undefined;
-    const deskSide = pipeline === 'desk' ? (['E', 'W', 'S', 'N'].includes(b.deskSide) ? b.deskSide : 'S') : undefined;
     const s = {
       id: newId(),
       owner: req.user.id, // 소유자
@@ -84,8 +72,6 @@ export function registerSessionRoutes(app) {
       updatedAt: now,
       pipeline, // 생성 후 변경 불가
       ...(mode ? { preset: mode.preset, src: mode.src } : {}),
-      ...(deskFloor ? { deskFloor, deskSide } : {}),
-      ...(deskName ? { deskName } : {}),
       langs,
       outLang,
       inLang: b.inLang || 'auto',
@@ -101,13 +87,12 @@ export function registerSessionRoutes(app) {
     if (!s) return res.status(404).json({ error: 'not found' });
     if (!viewerAccessOk(req, s.id)) return res.status(403).json({ error: 'forbidden' }); // 공개 뷰어: 유효 토큰 또는 로그인 필요
     // 공개 라우트(뷰어용) — 필요한 필드만 화이트리스트로 반환.
-    // 전체 스프레드 금지: deskLog(지난 손님 응대 기록)·wayfindLog·owner 등이 노출됐던 문제 수정.
+    // 전체 스프레드 금지: deskLog(지난 손님 응대 기록)·owner 등이 노출됐던 문제 수정.
     res.json({
       id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt,
       pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, // src: 호스트 화면 재진입 시 소리 입력 복원(목록에서 열 때 이 값이 쓰인다)
       langs: s.langs || [], outLang: s.outLang, inLang: s.inLang,
       sxInfo: s.sxInfo || null, speakers: s.speakers || {},
-      deskFloor: s.deskFloor || null, deskSide: s.deskSide || null,
       items: s.items || [],
     });
   });
@@ -146,10 +131,6 @@ export function registerSessionRoutes(app) {
     } else if (typeof b.src === 'string' && s.pipeline === 'soniox' && (PRESET_SRC[s.preset] || []).includes(b.src)) {
       // 소스는 번역 이력과 무관(방향이 바뀌지 않음) — 이력이 있어도 변경 허용. 녹음 중 변경은 클라가 막는다.
       s.src = b.src;
-    }
-    if (s.pipeline === 'desk') { // 데스크 출발 층/방향
-      if (['1F', '2F', '3F', '4F'].includes(b.deskFloor)) s.deskFloor = b.deskFloor;
-      if (['E', 'W', 'S', 'N'].includes(b.deskSide)) s.deskSide = b.deskSide;
     }
     if (typeof b.outLang === 'string' && LANG_NAMES[b.outLang]) {
       s.outLang = b.outLang;

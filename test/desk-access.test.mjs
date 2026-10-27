@@ -13,8 +13,7 @@ test('데스크 공개 목록은 뷰어 토큰을 배포하지 않는다', { tim
 
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '접근제어 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
-  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '접근제어', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '접근제어', pipeline: 'desk', inLang: 'auto' }) }).then((r) => r.json());
   assert.ok(sess.id, '세션 생성 실패: ' + JSON.stringify(sess));
 
   // 목록은 계속 공개다(id·제목·가동 여부는 비밀이 아니다). 다만 토큰은 없어야 한다.

@@ -25,8 +25,7 @@ test('데스크: 엔진이 연결 즉시 끊겨도 재연결이 8회에서 멈�
   const cookie = await loginAdmin(srv.base);
   const auth = { headers: { 'Content-Type': 'application/json', Cookie: cookie } };
 
-  const reg = await fetch(`${srv.base}/api/desk-registry`, { method: 'PUT', ...auth, body: JSON.stringify({ desks: [{ name: '재시도 데스크', floor: '1F', side: 'S' }] }) }).then((r) => r.json());
-  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '재시도 상한', pipeline: 'desk', inLang: 'auto', deskId: reg.desks[0].id }) }).then((r) => r.json());
+  const sess = await fetch(`${srv.base}/api/sessions`, { method: 'POST', ...auth, body: JSON.stringify({ title: '재시도 상한', pipeline: 'desk', inLang: 'auto' }) }).then((r) => r.json());
   assert.ok(sess.id, '세션 생성 실패: ' + JSON.stringify(sess));
 
   const wsBase = srv.base.replace('http', 'ws');

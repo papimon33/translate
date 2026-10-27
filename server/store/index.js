@@ -36,7 +36,6 @@ const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 const USAGE_HOURLY_FILE = path.join(DATA_DIR, 'usage_hourly.json');
 const TERMS_FILE = path.join(DATA_DIR, 'terms_config.json'); // 고유명사/번역 설정(전역, Soniox context)
 const VENDOR_USAGE_FILE = path.join(DATA_DIR, 'vendor_usage.json'); // 벤더 실사용량 일별 누적(무기한 보관)
-const DESK_REG_FILE = path.join(DATA_DIR, 'desk_registry.json'); // 안내데스크 사전 정의(이름·층·방향) — 관리자 등록, 세션 생성 시 선택
 const PROFILES_FILE = path.join(DATA_DIR, 'profiles.json'); // 사용자별 프로필(이메일·환경설정) — 관리자(가상 사용자)도 포함
 
 export let sessions = [];  // 메모리 캐시(항상 진실의 원천)
@@ -48,7 +47,6 @@ export let usageHourly = {}; // { 'YYYY-MM-DDTHH': { whisperMs, translateMs } } 
 export let vendorUsage = { soniox: {}, cartesia: {}, openai: {}, cartesiaSelf: {} }; // cartesiaSelf: 파이프라인별 자체 집계(벤더 API 는 태그 미지원)
 // 전역 고유명사/번역 설정 — 세션(Soniox) 연결 시 context로 주입. 관리자만 수정, 전원 열람.
 export let termsConfig = { version: 3, servedLangs: [], categoryScope: {}, entries: [], updatedAt: 0 };
-export let deskRegistry = { desks: [] }; // 안내데스크 정의 [{ id, name, floor, side }] — 세션과 분리된 마스터
 // 사용자 프로필: userId -> { id, email, prefs, updatedAt }. users 와 분리한 이유 — 관리자는 env 기반 가상 사용자라
 // users 에 없지만 이메일·환경설정(폰 앱 계정 화면)은 저장돼야 한다. Map 인 이유: id 가 '__proto__' 여도 안전.
 export let profiles = new Map();
@@ -58,13 +56,11 @@ let usageCol = null;
 let usageHourlyCol = null;
 let termsConfigCol = null;
 let vendorUsageCol = null;
-let deskRegistryCol = null;
 export let profilesCol = null;
 
 // 다른 모듈에서 재할당하는 상태(ESM import 는 읽기 전용) — 구 server.js 의 `sessions = …` 등을 대신한다
 export function setSessions(v) { sessions = v; }
 export function setTermsConfig(v) { termsConfig = v; }
-export function setDeskRegistry(v) { deskRegistry = v; }
 
 export async function loadStore() {
   if (MONGODB_URI) {
@@ -99,15 +95,12 @@ export async function loadStore() {
         if (tc) { const { _id, ...rest } = tc; termsConfig = { ...rest, updatedAt: tc.updatedAt || 0 }; } // 전체 보존(entries/servedLangs/categoryScope), 구형은 부팅 마이그레이션
         const vu = await vendorUsageCol.findOne({ _id: 'singleton' });
         if (vu) vendorUsage = { soniox: vu.soniox || {}, cartesia: vu.cartesia || {}, openai: vu.openai || {}, cartesiaSelf: vu.cartesiaSelf || {} };
-        deskRegistryCol = db.collection('deskRegistry');
-        const dr = await deskRegistryCol.findOne({ _id: 'singleton' });
-        if (dr && Array.isArray(dr.desks)) deskRegistry = { desks: dr.desks };
         profiles = new Map((await profilesCol.find({}, { projection: { _id: 0 } }).toArray()).filter((p) => p && p.id).map((p) => [p.id, p]));
         console.log(`[store] MongoDB 연결됨 — 세션 ${sessions.length} / 사용자 ${users.length}`);
         return;
       } catch (e) {
         console.error(`[store] MongoDB 연결 실패 (시도 ${attempt}/3): ${e.message}`);
-        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = vendorUsageCol = deskRegistryCol = profilesCol = null;
+        col = usersCol = usageCol = usageHourlyCol = termsConfigCol = vendorUsageCol = profilesCol = null;
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
       }
     }
@@ -139,7 +132,6 @@ export async function loadStore() {
   loadFile(USAGE_HOURLY_FILE, (v) => { if (v && typeof v === 'object') usageHourly = v; });
   loadFile(TERMS_FILE, (v) => { if (v && typeof v === 'object') termsConfig = { ...v, updatedAt: v.updatedAt || 0 }; }); // 전체 보존, 구형은 부팅 마이그레이션
   loadFile(VENDOR_USAGE_FILE, (v) => { if (v && typeof v === 'object') vendorUsage = { soniox: v.soniox || {}, cartesia: v.cartesia || {}, openai: v.openai || {}, cartesiaSelf: v.cartesiaSelf || {} }; });
-  loadFile(DESK_REG_FILE, (v) => { if (v && Array.isArray(v.desks)) deskRegistry = { desks: v.desks }; });
   loadFile(PROFILES_FILE, (v) => { if (Array.isArray(v)) profiles = new Map(v.filter((p) => p && p.id).map((p) => [p.id, p])); });
 }
 // Cartesia 파이프라인별 자체 집계 — 합성 요청 시 문자수·건수 누적(desk=안내데스크, live=실시간 번역)
@@ -156,10 +148,6 @@ export function recordTts(pipe, chars) {
 export async function persistVendorUsage() {
   if (vendorUsageCol) { await vendorUsageCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...vendorUsage }, { upsert: true }); }
   else { writeDataFile(VENDOR_USAGE_FILE, JSON.stringify(vendorUsage, null, 2)); }
-}
-export async function persistDeskRegistry() {
-  if (deskRegistryCol) { await deskRegistryCol.replaceOne({ _id: 'singleton' }, { _id: 'singleton', ...deskRegistry }, { upsert: true }); }
-  else { writeDataFile(DESK_REG_FILE, JSON.stringify(deskRegistry, null, 2)); }
 }
 
 let saveTimer = null;
