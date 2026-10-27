@@ -24,9 +24,9 @@ import Skeleton from '@mui/material/Skeleton';
 import Fab from '@mui/material/Fab';
 import { alpha } from '@mui/material/styles';
 import Snackbar from '@mui/material/Snackbar';
-import { PC_V2 } from './mobile/env.js';
-import { ModeIcon, shortDate, sessionLangs } from './mobile/sessionMeta.jsx';
-import { langName } from './mobile/i18n.js';
+import { PC_V2 } from '../shared/env.js';
+import { ModeIcon, shortDate, sessionLangs } from '../shared/sessionMeta.jsx';
+import { langName } from '../shared/i18n.js';
 import MuiAlert from '@mui/material/Alert';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
@@ -35,9 +35,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
-import ConfirmDialog from './ConfirmDialog.jsx';
-import { api } from '../api.js';
-import { RADIUS } from '../theme.js';
+import ConfirmDialog from '../shared/ConfirmDialog.jsx';
+import { api } from '../shared/api.js';
+import { RADIUS } from '../shared/theme.js';
 
 function rel(ts) {
   const d = Date.now() - ts;

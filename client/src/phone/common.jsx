@@ -9,12 +9,12 @@ import ButtonBase from '@mui/material/ButtonBase';
 import InputBase from '@mui/material/InputBase';
 import CircularProgress from '@mui/material/CircularProgress';
 import { alpha } from '@mui/material/styles';
-import { useT, endonym } from './i18n.js';
+import { useT, endonym } from '../shared/i18n.js';
 import { openOverlay, closeOverlay } from './backstack.js';
-import { BRAND } from '../../brand.js';
-import { BluetoothIcon, CheckIcon, ChevronRightIcon, HeadsetIcon, MicIcon, PhoneIcon, UsbIcon } from './icons.jsx';
+import { BRAND } from '../shared/brand.js';
+import { BluetoothIcon, CheckIcon, ChevronRightIcon, HeadsetIcon, MicIcon, PhoneIcon, UsbIcon } from '../shared/icons.jsx';
 
-export { MOBILE_UI } from './env.js';
+export { MOBILE_UI } from '../shared/env.js';
 
 export function rel(ts, t) {
   if (!ts) return '';

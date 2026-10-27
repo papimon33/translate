@@ -4,8 +4,8 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { BRAND, BRAND_DARK } from '../brand.js';
-import Wordmark from './Wordmark.jsx';
+import { BRAND, BRAND_DARK } from '../shared/brand.js';
+import Wordmark from '../shared/Wordmark.jsx';
 
 export default function AppDownload({ iphone, onContinueWeb }) {
   return (

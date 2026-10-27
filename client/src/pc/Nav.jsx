@@ -22,10 +22,10 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import InstallDesktopOutlinedIcon from '@mui/icons-material/InstallDesktopOutlined';
 import { alpha } from '@mui/material/styles';
-import { SIDEBAR, ACCENT } from '../theme.js';
-import { api } from '../api.js';
+import { SIDEBAR, ACCENT } from '../shared/theme.js';
+import { api } from '../shared/api.js';
 import DesktopAppDialog from './DesktopAppDialog.jsx';
-import Wordmark from './Wordmark.jsx';
+import Wordmark from '../shared/Wordmark.jsx';
 
 const W = 288; // 펼침 폭 — 최근 항목 표기를 위해 확대
 const WC = 72;

@@ -50,19 +50,19 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
 import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
-import ConfirmDialog from './ConfirmDialog.jsx';
-import MobileLive from './mobile/MobileLive.jsx';
-import { setPref } from './mobile/prefs.js';
-import { PC_V2 } from './mobile/env.js';
-import { api } from '../api.js';
+import ConfirmDialog from '../shared/ConfirmDialog.jsx';
+import MobileLive from '../phone/MobileLive.jsx';
+import { setPref } from '../shared/prefs.js';
+import { PC_V2 } from '../shared/env.js';
+import { api } from '../shared/api.js';
 
 function VolumeIcon({ level }) {
   if (!level) return <VolumeOffIcon fontSize="small" sx={{ color: 'text.disabled' }} />;
   if (level < 0.6) return <VolumeDownIcon fontSize="small" sx={{ color: 'text.secondary' }} />;
   return <VolumeUpIcon fontSize="small" sx={{ color: 'text.secondary' }} />;
 }
-import { LANGS, LANG_LABEL } from '../theme.js';
-import { startRecorder, micGateAbs } from '../audio.js';
+import { LANGS, LANG_LABEL } from '../shared/theme.js';
+import { startRecorder, micGateAbs } from '../shared/audio.js';
 
 const SRC = [
   { v: 'mic', label: '마이크' },

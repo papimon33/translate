@@ -8,7 +8,7 @@ import Avatar from '@mui/material/Avatar';
 import { alpha } from '@mui/material/styles';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
-import { api } from '../api.js';
+import { api } from '../shared/api.js';
 import { TYPE_NAME, MODE_ICON, IconMode2 } from './SessionList.jsx';
 import { IcoGlobe, IcoHeadset, IcoSliders } from './Nav.jsx';
 

@@ -8,10 +8,10 @@ import Typography from '@mui/material/Typography';
 import ButtonBase from '@mui/material/ButtonBase';
 import LinearProgress from '@mui/material/LinearProgress';
 import { BottomSheet } from './common.jsx';
-import { useT } from './i18n.js';
-import { api } from '../../api.js';
-import { ArrowRightIcon } from './icons.jsx';
-import { BRAND } from '../../brand.js';
+import { useT } from '../shared/i18n.js';
+import { api } from '../shared/api.js';
+import { ArrowRightIcon } from '../shared/icons.jsx';
+import { BRAND } from '../shared/brand.js';
 
 const SKIP_KEY = 'kac-upd-skip'; // '나중에' — 같은 버전은 하루 동안 다시 묻지 않는다
 const DAY = 24 * 60 * 60 * 1000;

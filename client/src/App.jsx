@@ -10,21 +10,21 @@ import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import MenuIcon from '@mui/icons-material/Menu';
 import { alpha } from '@mui/material/styles';
-import { buildTheme } from './theme.js';
-import Nav from './components/Nav.jsx';
-import SessionList from './components/SessionList.jsx';
-import Login from './components/Login.jsx';
-import CommandPalette from './components/CommandPalette.jsx';
-import { api } from './api.js';
-import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE, PC_V2 } from './components/mobile/env.js';
-import AppDownload from './components/AppDownload.jsx';
-import { getPrefs, subscribePrefs, resolveTheme } from './components/mobile/prefs.js';
+import { buildTheme } from './shared/theme.js';
+import Nav from './pc/Nav.jsx';
+import SessionList from './pc/SessionList.jsx';
+import Login from './auth/Login.jsx';
+import CommandPalette from './pc/CommandPalette.jsx';
+import { api } from './shared/api.js';
+import { MOBILE_UI, PHONE_BROWSER, IS_IPHONE, PC_V2 } from './shared/env.js';
+import AppDownload from './phone/AppDownload.jsx';
+import { getPrefs, subscribePrefs, resolveTheme } from './shared/prefs.js';
 
 // 무거운 화면은 코드 스플리팅(필요할 때 로드) — 초기 번들 축소
-const TranslateView = lazy(() => import('./components/TranslateView.jsx'));
-const AdminPage = lazy(() => import('./components/AdminPage.jsx'));
+const TranslateView = lazy(() => import('./session/TranslateView.jsx'));
+const AdminPage = lazy(() => import('./admin/AdminPage.jsx'));
 // 안드로이드 앱 전용 폰 화면(메뉴바 없음) — 앱에서만 로드
-const MobileApp = lazy(() => import('./components/mobile/MobileApp.jsx'));
+const MobileApp = lazy(() => import('./phone/MobileApp.jsx'));
 
 export default function App() {
   // 폰 화면은 설정의 테마(라이트/다크/시스템)를 따른다 — 시스템이면 기기 설정 변경에도 바로 반응

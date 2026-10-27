@@ -16,10 +16,10 @@ import Snackbar from '@mui/material/Snackbar';
 import Dialog from '@mui/material/Dialog';
 import { alpha } from '@mui/material/styles';
 import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, PickSheet, SensSlider, MicSheet, stereoMsg, Group, OptionRow, langOptions, useMicInputs, useIdleMeter, useBackClose, micCurrentName } from './common.jsx';
-import { useT } from './i18n.js';
-import { CheckIcon, SettingsIcon, MicIcon, MicOffIcon, PlayIcon, QrIcon, LogOutIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon } from './icons.jsx';
-import { BRAND, BRAND_SOFT } from '../../brand.js';
-import { api } from '../../api.js';
+import { useT } from '../shared/i18n.js';
+import { CheckIcon, SettingsIcon, MicIcon, MicOffIcon, PlayIcon, QrIcon, LogOutIcon, TranslateIcon, TtsIcon, VolumeOffIcon, VolumeOnIcon } from '../shared/icons.jsx';
+import { BRAND, BRAND_SOFT } from '../shared/brand.js';
+import { api } from '../shared/api.js';
 import { usePcRows } from '../pc/PcRows.jsx';
 
 const BLUE = '#1F5BBF';

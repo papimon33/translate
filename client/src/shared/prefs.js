@@ -1,7 +1,7 @@
 /* 폰 화면 옵션 — 기기 localStorage 가 즉시 적용되는 원본이고, 계정 항목은 서버(PATCH /api/me prefs)에 사본을 둔다
    (다른 폰·재설치 후에도 같은 설정). App 첫 번들에서 테마 계산에 쓰므로 MUI 를 끌어오지 않는다. */
 import { useSyncExternalStore } from 'react';
-import { api } from '../../api.js';
+import { api } from './api.js';
 
 // 계정에 동기화하는 항목 → 저장 키. fontScale·ttsGender 는 세션 화면(TranslateView)이 원래 쓰던 키 그대로.
 const SYNCED = {

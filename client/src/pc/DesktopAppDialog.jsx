@@ -11,7 +11,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { alpha } from '@mui/material/styles';
 import DownloadIcon from '@mui/icons-material/Download';
 import InstallDesktopOutlinedIcon from '@mui/icons-material/InstallDesktopOutlined';
-import { api } from '../api.js';
+import { api } from '../shared/api.js';
 
 function fmtSize(n) {
   if (!n) return '';

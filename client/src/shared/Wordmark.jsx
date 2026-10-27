@@ -2,7 +2,7 @@
    안드로이드 앱 시작 화면은 같은 모양의 그림(android/.../drawable-nodpi/splash_wordmark.png)이고, 웹이 첫 화면을 다 그리면 닫힌다(env.js appReady). */
 import React from 'react';
 import Box from '@mui/material/Box';
-import { BRAND } from '../brand.js';
+import { BRAND } from './brand.js';
 
 export default function Wordmark({ size = 23, sx }) {
   return (

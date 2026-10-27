@@ -21,7 +21,7 @@ import Tooltip from '@mui/material/Tooltip';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { alpha, useTheme } from '@mui/material/styles';
-import { ACCENT } from '../theme.js';
+import { ACCENT } from '../shared/theme.js';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import LockResetIcon from '@mui/icons-material/LockReset';
@@ -32,9 +32,9 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import Snackbar from '@mui/material/Snackbar';
 import TermsConfigPage from './TermsConfigPage.jsx';
-import { ADMIN_TABS } from './Nav.jsx';
-import ConfirmDialog from './ConfirmDialog.jsx';
-import { api } from '../api.js';
+import { ADMIN_TABS } from '../pc/Nav.jsx';
+import ConfirmDialog from '../shared/ConfirmDialog.jsx';
+import { api } from '../shared/api.js';
 import { Sparkline, BarTrend } from './charts.jsx';
 
 function fmtDuration(ms) {

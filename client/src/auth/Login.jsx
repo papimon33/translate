@@ -3,11 +3,11 @@ import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import Wordmark from './Wordmark.jsx';
+import Wordmark from '../shared/Wordmark.jsx';
 import Alert from '@mui/material/Alert';
-import { api } from '../api.js';
-import { BRAND, BRAND_DARK } from '../brand.js';
-import { appReady } from './mobile/env.js';
+import { api } from '../shared/api.js';
+import { BRAND, BRAND_DARK } from '../shared/brand.js';
+import { appReady } from '../shared/env.js';
 
 // 아이디·비밀번호는 폰 키보드가 첫 글자를 대문자로 바꾸거나 자동 수정하지 않게
 const PLAIN_INPUT = { autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false };

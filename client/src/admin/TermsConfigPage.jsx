@@ -25,7 +25,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { alpha } from '@mui/material/styles';
-import { api } from '../api.js';
+import { api } from '../shared/api.js';
 
 // 편집·표시 대상 언어. es·fr·pt·ar 는 서버 buildSonioxContext 가 '영어 표기로 폴백'하므로
 // 따로 채울 필요가 없다(비워 두면 자동으로 영어를 따름) → 채워야 할 빈칸처럼 보이지 않게 제외.

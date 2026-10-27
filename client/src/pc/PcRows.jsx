@@ -2,7 +2,7 @@
    폰 세션 화면(MobileLive)이 desktop 일 때만 쓴다. 값·동작은 TranslateView 의 PC 상태 그대로(기능 유지).
    반환: { input, session, sheets } — input·session 은 큰 설정의 '입력'·'세션' 묶음에 넣을 줄들, sheets 는 고르는 시트. */
 import React, { useState } from 'react';
-import { OptionRow, PickSheet } from '../mobile/common.jsx';
+import { OptionRow, PickSheet } from '../phone/common.jsx';
 
 export function usePcRows(pc, t, toast) {
   const [pick, setPick] = useState(null); // 'source' | 'mic' | 'mode'

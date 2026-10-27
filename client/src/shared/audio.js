@@ -235,7 +235,7 @@ export async function startRecorder(opts) {
   let audioCtx;
   try { audioCtx = rnnMod ? new AC({ sampleRate: 48000 }) : new AC(); } catch { audioCtx = new AC(); }
   // 제스처 콘텍스트 소실(RNNoise wasm 로드 지연·iOS 등)로 suspended 로 생성되면 onaudioprocess 가
-  // 아예 안 돌아 '진행 중' 표시인 채 무음이 된다 — desk/mobile.html 과 동일한 resume 방어.
+  // 아예 안 돌아 '진행 중' 표시인 채 무음이 된다 — viewer/desk.html·join.html 과 동일한 resume 방어.
   try { audioCtx.resume && audioCtx.resume().catch(() => {}); } catch {}
   // 모바일 탭 전환·절전 복귀 시 AudioContext 가 suspended 로 남는 경우 자동 재개
   const onVisResume = () => { if (document.visibilityState === 'visible') { try { audioCtx.resume && audioCtx.resume().catch(() => {}); } catch {} } };
@@ -279,7 +279,7 @@ export async function startRecorder(opts) {
   // 마이크 트랙(민감도 변경 시 AGC 실시간 토글용) — 네이티브 마이크는 트랙이 없다(항상 AGC off)
   const micTrack = (() => { const m = sources.find((s) => s.src === 'mic'); return m && m.stream ? m.stream.getAudioTracks()[0] : null; })();
   let noiseFloor = 0.005; // 적응형 소음 바닥(조용할 때로 빠르게 수렴, 소리날 때 아주 느리게 상승)
-  // 여객 마이크(2마이크 모드) 근접 게이트 — 뷰어 태블릿(desk.html gmCalc)과 동일 공식, 여객 민감도(0~100)로 조절
+  // 여객 마이크(2마이크 모드) 근접 게이트 — 뷰어 태블릿(viewer/desk.html gmCalc)과 동일 공식, 여객 민감도(0~100)로 조절
   let gRatio = 4, gAbsMin = 0.017, gFloor = 0.005;
   const calcGuestGate = (v) => {
     const n = Number(v);
