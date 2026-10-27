@@ -12,7 +12,8 @@
 - 뷰어 페이지 `client/public/viewer/`(join.html=QR 참여 뷰어, desk.html=안내데스크 태블릿, overlay.html)는 독립 바닐라 JS(React 아님). 주소는 `/j/<참여 코드>`·`/desk/<코드>`·`/overlay`.
 
 ## 규칙
-- 번역 로직·프롬프트는 `server.js` 한 곳에 모여 있다. 수정 후 실제 음성(또는 TTS)으로 검증할 것.
+- 서버 코드는 `server/`(루트 `server.js` 는 진입 한 줄). 번역 로직은 `server/pipelines/`(soniox·desk·translate), 프롬프트·GPT 호출은 `server/vendors/openai.js`. 수정 후 실제 음성(또는 TTS)으로 검증할 것.
+- 테스트: 서버 `npm test`, 화면 `npm run build && npm run test:e2e`(가짜 엔진, 무과금). 권한(음성 재생·안내데스크)·로그인 자리(PC 1 + 폰 1)는 `server/auth/index.js`.
 - soniox=실시간 번역(단방향/양방향, 세션·데스크), translate=단일+띄어쓰기만 교정. whisper(구 4개국어 동시)는 삭제됨. 다듬기는 항상 on(토글 없음).
 - `.env`에 `OPENAI_API_KEY` 필요. OpenAI 호출은 항상 과금되니 테스트 세션은 끝나고 삭제.
 
@@ -25,4 +26,4 @@
 - **고급 설정:** 전문 용어 허용하되 필요한 설명만. 진단 정보는 일반 사용자 화면에 두지 않는다.
 - **말투:** 호스트 앱·관리 화면 = 편안한 존댓말("~하세요/~했습니다"), QR 뷰어(외부 참가자) = 부드러운 존댓말("~해요/~해 주세요").
 - **사용자가 직접 해결해야 하는 곳**(스테레오·모노, 권한 오류)은 조금 길어도 구체적으로. 단순 상태 변경은 짧게.
-- **영어·일본어:** 한국어를 먼저 확정한 뒤 같은 의미로 번역(`client/src/components/mobile/i18n.js`, `viewer/join.html` UI 표).
+- **영어·일본어:** 한국어를 먼저 확정한 뒤 같은 의미로 번역(`client/src/shared/i18n.js`, `viewer/join.html` UI 표).

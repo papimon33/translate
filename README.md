@@ -9,11 +9,12 @@
 
 | 모드 | 설명 |
 |---|---|
-| **데스크 안내** | 안내데스크 상시 운영: 손님이 태블릿에서 12개 언어 중 선택(그 외 언어는 자동 감지) → 개인정보 고지·동의 → 양방향 통역. 지향성 마이크 2대(PC 직결) 또는 태블릿 마이크 2채널, 길안내 지도(호스트 승인제) |
+| **데스크 안내** | 안내데스크 상시 운영: 손님이 태블릿에서 12개 언어 중 선택(그 외 언어는 자동 감지) → 개인정보 고지·동의 → 양방향 통역. 지향성 마이크 2대(PC 직결) 또는 태블릿 마이크 2채널. PC 전용(새 세션 > 다른 세션, 관리자가 만들고 안내데스크 권한이 있는 계정이 운영) |
 | **실시간 번역** | 모드 2종 — **실시간 번역**(단방향, 소리 입력: 마이크 / PC 소리) · **양방향 통역**(양방향, 소리 입력: 마이크 / PC 소리 + 마이크 = 화상회의). 뷰어는 보기·듣기 전용. 60개 언어 |
 | 공통 | 용어 설정(Soniox context 주입) · 번역 다듬기(GPT) · 저신뢰 자동 교정(GPT·β) · RNNoise 잡음 제거(β) · 적응형 마이크 게이트 |
-| 앱 | Windows/macOS(Electron) · Android(WebView + 네이티브 마이크, AGC 차단) — 프로필 → 앱 설치 |
-| 관리자 | 사용량(벤더 청구 API) · 로그 · 안내데스크 정의 · 계정 · 용어 · 시스템/백업 |
+| 앱 | Windows/macOS(Electron) · Android(WebView + 네이티브 마이크, AGC 차단) — 개인설정 → 앱 설치 |
+| 관리자 | 사용량(벤더 청구 API) · 로그 · 계정(권한: 음성 재생·안내데스크) · 용어 · 시스템/백업 |
+| 로그인 | 계정당 PC 1대 + 폰 1대(같은 종류에서 새로 로그인하면 확인 후 이전 기기 로그아웃), 비밀번호 변경 시 다른 기기 전부 로그아웃 |
 
 ## 설치 & 실행
 
@@ -82,22 +83,25 @@ npm start              # vite build && node server.js  (http://localhost:3000, �
 | **체감 총지연** | `tm.ta − tm.e` | 말 끝 → 소리 시작(TTS 세션의 핵심 KPI) |
 | **응대 응답 지연** | 손님 item `tm.e` → 다음 안내원 item `tm.s` | 데스크 서비스 KPI |
 | **인식 품질** | `toks` confidence 분포 | `node tools/eval/conf-analyze.mjs` — confFix 임계 재튜닝(근거: PROJECT_NOTES 2026-07-14(5)) |
-| **언어 분포·응대량** | `deskLog.lang` · 건수/시간 | 관리자 > 사용량의 데스크 통계 |
+| **언어 분포·응대량** | `deskLog.lang` · 건수/시간 | 관리자 > 로그 > 응대 로그 내려받기(JSON)로 집계 |
 | **누화율** | `deskLog.stats.crossDrops` | 2채널 마이크 간섭 지표(높으면 마이크 배치·민감도 조정) |
 | **번역 정확도** | 응대 로그 → 평가 JSON | 관리자 > 로그 > [평가 JSON 내려받기] → `node tools/eval/score.mjs --auto` |
 
-백업: 관리자 > 시스템·보안 > **전체 데이터 백업(JSON)** — sessions(deskLog 포함)·데스크 정의·용어를 한 파일로.
+백업: 관리자 > 시스템·보안 > **전체 데이터 백업(JSON)** — sessions(deskLog 포함)·용어를 한 파일로.
 
 ## 구조(요약)
 
 ```
-server.js            # 전부: REST + WS(host/viewer) + 파이프라인(runSoniox/runDesk/runTranslate)
-                     #  + Cartesia 상시 WS + confFix + 용어 context + 데스크 레지스트리
-client/src/          # React 앱(TranslateView·SessionList·AdminPage·Nav·audio.js)
-client/public/       # desk.html(데스크 뷰어)·mobile.html(모바일 뷰어) — 독립 바닐라 JS
-android/             # Android 키오스크 앱(WebView + 네이티브 마이크) — android/README.md
+server.js            # 진입 한 줄 → server/index.js (배포 `node server.js` 그대로)
+server/              # config · store(세션·사용자·프로필·용어) · auth(토큰·로그인 자리·권한) · routes(REST, admin/)
+                     #  · realtime(WS·방·호스트·뷰어) · pipelines(soniox·desk·translate) · vendors(soniox·openai·cartesia) · util
+client/src/          # React 앱: shared(api·audio·theme·i18n…) · session(TranslateView) · phone(폰 앱) · pc(위 띠·목록) · admin · auth
+client/public/viewer/  # join.html(QR 뷰어 /j/<코드>)·desk.html(안내데스크 태블릿 /desk/<코드>)·overlay.html — 독립 바닐라 JS
+android/             # Android 앱(WebView + 네이티브 마이크) — android/README.md
 desktop/             # Electron 데스크톱 앱
-tools/eval/                # 평가: dataset·score·conf-analyze·make-tts-audio(6언어 mp3)
+test/                # 서버 테스트 npm test · test/e2e 화면 테스트 npm run test:e2e(빌드 후)
+tools/               # eval(평가: dataset·score·conf-analyze·make-tts-audio) · scripts · tts_samples
+docs/                # 운영·보안·데스크 문서, 설계 기록
 ```
 
 WS 프로토콜·표시 규칙·운영/보안·과금 구조(context = input_text_tokens)는 `PROJECT_NOTES.md` 참고.

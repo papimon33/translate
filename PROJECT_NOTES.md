@@ -25,7 +25,7 @@
 - 1차 언어(ko) 먼저 emit → 나머지 언어 병렬 번역해 같은 카드에 병합(`upsertItem`).
 
 ## 반응형 / UI
-- 메인 React 앱은 반응형(`App.jsx` `useMediaQuery(down('sm'))`). 모바일: 상단 AppBar(햄버거)+임시 Drawer 에 Nav, 데스크톱: 고정 사이드바. 모바일에서도 로그인/호스트 사용 가능(마이크). 별도 `mobile.html` 은 QR 뷰어 전용으로 유지.
+- (2026-10-27 이후) PC 는 왼쪽 메뉴 없이 위 띠(로고·개인설정)만. 아래는 옛 기록 — 메인 React 앱은 반응형(`App.jsx` `useMediaQuery(down('sm'))`). 모바일: 상단 AppBar(햄버거)+임시 Drawer 에 Nav, 데스크톱: 고정 사이드바. 모바일에서도 로그인/호스트 사용 가능(마이크). 별도 `mobile.html` 은 QR 뷰어 전용으로 유지.
 - 용어집 하이라이트는 항상 on(토글 제거). translate 음성 출력 토글 + 볼륨 슬라이더(GainNode, `audio.js setVolume`).
 - 하단 시작/중지 버튼: 검정 rounded 사각형+흰 글씨(Fab 아님). 빈 화면 안내 "버튼을 클릭해 실시간 번역을 시작하세요."는 번역영역 수직 중앙.
 - 세션 목록/내부 헤더에 파이프라인 표기: whisper="다국어 번역", translate="실시간 통역". 세션생성 토글도 동일 라벨.
@@ -37,7 +37,7 @@
 - 세션 내 QR('뷰어 연결') = `desk.html?session=ID`(해당 데스크 전용 뷰어). 데스크 목록 화면의 랜딩 QR은 제거됨(랜딩 `desk.html` 자체는 유지).
 - 뷰어 플로우: **입장 화면**(안내데스크명 + 입장) → 전체화면 + **상시 WS 연결** → **대기 화면**("Touch your language to start translation" 세로 중앙 + 언어 버튼 원탭 시작: English/日本語/中文 + More languages(vi/th/id/ru)) → soniox two_way(ko↔선택언어) → 번역 텍스트 화면(발화 유도 "Please speak" 손님 언어). 전체화면이 풀리면 다음 터치에서 자동 복귀.
 - 뷰어 CX: 무음 종료 10초 전 `desk-idle-warn` 배너(카운트다운, 터치 시 `desk-keepalive`로 연장) / 대화 종료 시 "Thank you" 1.5초 후 대기 화면 / 고급설정에 텍스트 크기(80~160%, `kac-font-scale`).
-- 길안내는 **호스트 승인제**: 감지 시 `wayfind-suggest`(호스트 전용) → 하단 제안 칩 [표시/무시](20초 방치 소멸) → 승인 시 `wayfind-show`로 뷰어 브로드캐스트. 고급설정 '지도 자동 표시'(`kac-desk-map-auto`)면 즉시 승인. 부정어(없/말고/아니) 직매칭 차단→GPT 분류, 분류에 직전 손님 질문(ko 번역) 컨텍스트 동봉. `session.wayfindLog`(최근 200)에 감지·표시 기록. 뷰어 지도: ✕ 닫기, 헤더 탭 접기/펼치기, 새 발화 시 자동 축소, 시설 라벨 ko/en/ja/zh.
+- (2026-10-27 삭제됨) 길안내는 **호스트 승인제**: 감지 시 `wayfind-suggest`(호스트 전용) → 하단 제안 칩 [표시/무시](20초 방치 소멸) → 승인 시 `wayfind-show`로 뷰어 브로드캐스트. 고급설정 '지도 자동 표시'(`kac-desk-map-auto`)면 즉시 승인. 부정어(없/말고/아니) 직매칭 차단→GPT 분류, 분류에 직전 손님 질문(ko 번역) 컨텍스트 동봉. `session.wayfindLog`(최근 200)에 감지·표시 기록. 뷰어 지도: ✕ 닫기, 헤더 탭 접기/펼치기, 새 발화 시 자동 축소, 시설 라벨 ko/en/ja/zh.
 - TTS 재입력 방지(2중): ① `audio.js` — TTS 재생을 **WebRTC 루프백(RTCPeerConnection 쌍)** 경로로 우회해 브라우저 AEC 가 재생음을 마이크에서 제거(실패 시 재생 중 자동 음소거 폴백 `aecActive`). ② 서버 **자기음성 텍스트 필터**(`security_util.js echoMatch` + server `recentTts`/`noteTts`/`isSelfEcho`) — 시스템 오디오 캡처·기기 간 경로로 되돌아온 TTS 문장을 20초 내 유사도 매칭으로 버림(runSoniox·폰 PTT commit 에서 확인, 화면 카드도 제거).
 
 ## 실시간 번역(soniox) 최근 사양
@@ -86,6 +86,28 @@
   게다가 하트비트가 30초(`HEARTBEAT_MS`)라 서버가 이탈을 알아채기 전 최대 30초 동안 태블릿은 데스크를
   '가동 중'으로 표시하고, 그 사이 손님이 언어를 고르면 Soniox 가 열려 과금된 채 무음 종료를 기다린다.
   → 전원 설정에서 "덮개를 닫을 때: 아무 것도 안 함" 으로 두거나 화면만 끄도록 운영 지침에 넣을 것.
+- **파일 구조 정리(2026-10-27)**: 동작 변경 없이 폴더만 나눴다(서버 테스트·화면 테스트로 확인).
+  · 서버: 루트 `server.js` 는 `server/index.js` 를 불러오는 한 줄(배포 `node server.js` 그대로). `server/` = `config.js`·`metrics.js`·`store/`(세션·사용자·프로필·용어 저장)·`auth/`(토큰·로그인 자리·권한·미들웨어)·`routes/`(REST, `routes/admin/`)·`realtime/`(WS 업그레이드·방·호스트·뷰어)·`pipelines/`(soniox·desk·translate)·`vendors/`(soniox·openai·cartesia·사용량)·`util/`.
+    라우트·미들웨어 등록 순서는 분리 전과 같다(express 라우트 표 비교로 확인).
+  · 화면: `client/src/` = `shared/`(api·theme·brand·audio·env·prefs·i18n·icons·Wordmark·ConfirmDialog·sessionMeta·authState) / `session/TranslateView.jsx` / `phone/`(폰 앱 화면, 구 components/mobile + AppDownload) / `pc/`(TopBar·AccountMenu·SessionList·CommandPalette·DesktopAppDialog·PcRows·icons) / `admin/`(탭별 `*Tab.jsx`·TermsConfigPage·charts·format·tabs) / `auth/Login.jsx`.
+  · 최상위: 평가·스크립트·TTS 샘플 → `tools/`, 문서 → `docs/`.
+  · 화면 자동 테스트(Playwright, 이 컴퓨터의 Chrome): `npm run build` 후 `npm run test:e2e`. `test/e2e/server.mjs` 가 가짜 엔진 + 격리 DATA_DIR 로 서버(:3012)를 띄우고, :3013 으로 엔진 문장을 넣는다.
+- **PC 화면 정리(2026-10-27)**: 왼쪽 메뉴(최근 대화·데스크 안내 메뉴 포함) 삭제 → 위 띠 `pc/TopBar.jsx`(왼쪽 로고 = 목록, 오른쪽 위 개인설정 아이콘 `AccountMenu`: 다크 모드·정보 변경·관리자 페이지·앱 설치·로그아웃).
+  관리자 화면은 위 탭(`admin/tabs.js`: 사용량·로그·계정 관리·용어 설정·시스템·보안). 안내데스크 탭(등록·통계)은 삭제. `/desks`·`/admin/desks` 는 목록·사용량으로.
+  안내데스크 세션은 새 세션 창의 '다른 세션' 아래 별도 항목(관리자만 보임 — 서버도 관리자만 생성)으로 만들고, 실시간 번역 세션과 같은 목록에 섞여 보인다(폰 앱 목록에는 안 나옴).
+- **길안내 지도 삭제(2026-10-27)**: 시설 감지·GPT 분류·지도 제안/표시(`wayfind*` 메시지)·QR 뷰어/데스크 태블릿의 지도·`/map` 자산(`assets/map`)·데스크 진행 화면의 지도 설정 전부 삭제.
+  안내데스크 등록(레지스트리: 이름·층·방향)과 데스크 통계 API(`/api/admin/desk-stats`)도 삭제 — 세션은 이름만으로 만든다. 남은 `deskFloor`·`deskSide`·`deskName`·`wayfindLog` 필드는 부팅 시 정리(`migrateSessions`).
+- **로고 i 점도 보라(2026-10-27)**: `shared/Wordmark.jsx` — 점 없는 ı(검정) 위에 같은 자리의 i(보라)를 겹치고 점만 남게 아래를 잘라 낸다(clip-path inset 0.74em, 줄 높이 1 기준). QR 뷰어(join.html) 같은 방식, 앱 시작 그림(splash_wordmark.png)은 점 픽셀만 보라로(다음 앱 빌드부터).
+- **로그인 자리 — 계정당 PC 1대 + 폰 1대(2026-10-27)**: 같은 종류에서 다시 로그인하면 409 `confirmReplace` → 화면 확인 창("다른 기기에서 사용 중인 계정입니다") → `replace` 로 다시 요청하면 이전 기기 토큰 무효.
+  끊긴 기기는 다음 요청에서 401 `reason:'replaced'` → 로그인 화면에 "다른 기기에서 이 계정으로 로그인해 로그아웃되었습니다." 번역 중이면 중지한 뒤에 보낸다(`shared/authState.js`).
+  서버도 번역 중인 호스트 연결은 같은 세션 재접속만 2분 동안 허용(망 끊김·2채널 두 번째 연결), 새 세션 시작은 거부(`realtime/index.js` hostGraceOk).
+  비밀번호 변경: 본인 변경 = 다른 기기 전부 로그아웃(지금 기기는 새 쿠키), 관리자 재설정 = 모든 기기(`reason:'password'`). 로그아웃하면 자리가 빈다.
+  토큰 `id.kind.jti.발급.서명`(30일), 자리는 프로필 `logins[kind] = { jti, at, prev }`(관리자 포함, 파일·Mongo profiles). 기기 종류는 화면이 보냄(폰 화면 = phone). 배포 후 전원 한 번 다시 로그인.
+  데스크 PC 는 데스크마다 계정을 따로 만든다(안내데스크 권한만 켬).
+- **사용자 권한(2026-10-27)**: `user.perms = { tts, desk }`, 관리자는 항상 전부. 관리자 > 계정 관리 줄마다 스위치, 사용자 추가 창 체크(기본 꺼짐). 권한 필드가 없던 기존 계정은 부팅 시 둘 다 켬(`migrateUserPerms`).
+  · 음성 재생(tts): 없으면 폰 TTS 버튼·음성 선택·PC TTS 설정 숨김, 서버는 호스트 TTS 요청 무시·`/api/tts/preview` 403, `GET /api/sessions/:id` 의 `tts:false` → QR 뷰어 듣기 버튼 없음.
+  · 안내데스크(desk): 없으면 목록·조회·현황(`/api/desk-status`)·QR·호스트/뷰어(로그인) 접속 거부. 만들기·이름 변경·삭제는 권한과 무관하게 관리자만.
+  테스트 test/login-perms.test.mjs(서버) + 화면 테스트 3개.
 - **Soniox 헤더 인증(2026-10-27)**: start(config) 메시지의 `api_key` 가 2027-01-15 에 중단되므로 Soniox 실시간 STT 접속 4곳(실시간 번역·데스크 안내원/여객 채널·용어 실검증)을 `openSonioxWs()`(`Authorization: Bearer <SONIOX_API_KEY>` 헤더)로 바꾸고 config 에서 키를 뺐다. `test/soniox-auth.test.mjs`(가짜 엔진이 `conn.headers` 기록). `eval/*.mjs` 3개는 아직 구 방식.
 - **주소 정리(2026-10-27, 배포 전이라 일괄 변경)**: 사용자에게 보이는 주소를 짧고 의미 있게.
   · QR 참여 = `/j/<참여 코드>`(6자리, 0·O·1·I·L 제외 31자), 코드 입력 화면 `/j`, 안내데스크 태블릿 = `/desk/<코드>`·랜딩 `/desk`, 오버레이 `/overlay`, 앱 받기 `/app`.
@@ -94,7 +116,7 @@
     데스크 홈 화면 바로가기(manifest start_url)도 `/desk/<코드>` — 토큰을 주소에 싣지 않아도 재실행 후 바로 접속. 예전 `/mobile.html?session&t`·`/desk.html` 은 새 주소로 301.
     안드로이드 앱은 경로에 'desk' 가 있으면 손님 태블릿 모드 → 안내데스크 세션은 꼭 `/desk/…`(`/j/<데스크 코드>` 는 `/desk/<코드>` 로 302).
   · 뷰어 파일 이동: `client/public/{mobile,desk,overlay}.html` → `client/public/viewer/{join,desk,overlay}.html`.
-  · PC 화면 주소: `/` 목록, `/s/<세션>`, `/desks`(안내데스크 목록), `/admin/<탭>` — 새로고침·즐겨찾기·링크 공유 가능(App `pathOf`, 로그인 후 첫 주소 해석). 폰 화면은 주소를 쓰지 않음.
+  · PC 화면 주소: `/` 목록, `/s/<세션>`, `/admin/<탭>` — 새로고침·즐겨찾기·링크 공유 가능(App `pathOf`, 로그인 후 첫 주소 해석). 폰 화면은 주소를 쓰지 않음.
   · 그대로 둔 것: `/api/…`, `/ws/…`, 설치된 앱이 업데이트에 쓰는 `/download/desktop?platform=`.
   · 폰·PC 링크 공유 시트에 참여 코드 크게 + "airtalk.kr/j 에서 입력". 앱 다운로드 화면(폰 브라우저)에 "참여 코드로 보기"(/j). 테스트 test/join-code.test.mjs.
 - **운영 도메인 airtalk.kr(2026-10-27)**: 가비아 등록, DNS = A `@` 216.24.57.1 + CNAME `www` translate-voxm.onrender.com.(Render 문서 값). Render Custom Domains 에
@@ -440,20 +462,25 @@
 - 길안내(wayfind): 통역 중 안내원(ko) 답변에서 시설 감지 → 뷰어 채팅 아래 인라인 지도.
 - 엔진 토큰은 **현재 소켓 + phase active 일 때만 처리**(종료 후 늦게 도착한 토큰이 다음 응대에 새는 잔여 버퍼 문제 수정). 여객 오디오는 **백프레셔 드랍**(클라 ws.bufferedAmount>128KB·서버 gsx>256KB 시 프레임 버림, 연결 전 큐는 최근 ~2초만) — 밀린 오디오를 그대로 보내면 이후 인식이 계속 지연되는 문제 방지.
 - 입력 언어 판정은 **토큰 다수결**(runSoniox·runDesk 공통, `langVotes`) — 한국어 발화의 첫 단어가 영어로 오인돼도 뒤 토큰들이 교정.
-- **동시접속 승계(takeover)**: 같은 세션·같은 소스로 새 호스트 연결이 오면 기존 연결에 `{type:'takeover'}` 후 종료(나중 연결 우선). 클라는 notice 표시. 로그인 자체는 무상태 HMAC 쿠키라 충돌 없음.
+- **동시접속 승계(takeover)**: 같은 세션·같은 소스로 새 호스트 연결이 오면 기존 연결에 `{type:'takeover'}` 후 종료(나중 연결 우선). 클라는 notice 표시. 로그인은 계정당 PC 1 + 폰 1(아래 '로그인 자리').
 - **2채널 마이크(프로토타입)**: 통역 시작 시 여객 태블릿이 자기 마이크를 상시 캡처해 뷰어 WS 로 스트림(`desk.html guestMicStart`, 근접 게이트 GM_GATE=0.04 미만은 무음 전송) + `{type:'desk-mic',on}` 등록. 서버 `runDesk` 가 **여객 전용 soniox one_way(선택언어→ko, 힌트 고정)** 엔진을 병행 — 채널 자체가 화자 귀속(guest: side='left'/lang=손님언어), 동시 발화도 채널별 독립 인식. 누화 방어: 근접 게이트 + `crossDup`(교차 채널 5초 내 유사 문장=누화 드랍, `echoMatch` 재사용). 여객 마이크 실패/해제 시 기존 단일 채널(two_way)로 자동 폴백. 누화율 측정: `deskLog[].stats={staff,guest,crossDrops}` + 서버 콘솔 `[desk] 채널 통계`. 호스트 응대 칩에 '· 2채널' 표시(`desk-guest-mic`). 뷰어 재접속 시 desk-mic 재등록(소유 소켓 추적으로 구 소켓 close 무시).
 
 ## 표시 규칙
 - **데스크톱**: 출력언어 select(한영일중)로 1개 표시. 선택 언어 없으면 다른언어 대체 X, 원문을 흐리게. 원어표시 토글(회색 원문). 오디오소스 마이크/시스템/모두. 다듬기 토글 없음(필수).
-- **모바일 뷰어**(`client/public/mobile.html`, 바닐라, 2026-10-21 개편): 헤더 = 세션 이름 + 아이콘 4개(A−·A+·TTS·QR). 양방향은 두 언어 세그먼트 토글(선택 = 내 언어, 내 언어 쪽 = 오른쪽), 말풍선 위 `원문 언어 → 번역 언어`(화면 문구 ko/ja/en, 그 밖은 영어). 원문 항상 표시, 라이트 테마만.
+- **QR 뷰어**(`client/public/viewer/join.html`, 바닐라, 2026-10-21 개편): 헤더 = 세션 이름 + 아이콘 4개(A−·A+·TTS·QR). 양방향은 두 언어 세그먼트 토글(선택 = 내 언어, 내 언어 쪽 = 오른쪽), 말풍선 위 `원문 언어 → 번역 언어`(화면 문구 ko/ja/en, 그 밖은 영어). 원문 항상 표시, 라이트 테마만.
 - 선택 언어 미도착 시 한국어 깜빡임 방지: `pick()`이 대체 안 하고 원문 placeholder.
 
 ## 주요 파일
-- `server.js` — 전부(REST, WS host/viewer, 두 파이프라인, GPT 호출). 핵심: `handleHost`>`runWhisper`/`runTranslate`, `segmentTranslate`, `spacingPolish`, `translateText`, `splitSentences`, `upsertItem`.
-- `client/src/components/TranslateView.jsx` — 데스크톱 번역뷰
-- `client/src/components/SessionList.jsx` — 세션목록 + 새세션 모달(파이프라인만 선택)
-- `client/src/components/Nav.jsx`, `App.jsx`, `theme.js`, `audio.js`(캡처/VAD), `api.js`
-- `client/public/mobile.html` — 모바일 뷰어(독립 바닐라 JS)
+- `server.js` — `server/index.js` 를 불러오는 한 줄. 서버 코드는 `server/`:
+  `index.js`(앱·미들웨어·라우트 등록·WS 연결·listen) · `config.js`(환경변수·가격·상한) · `store/`(저장소: 세션·사용자·프로필·용어, 파일/Mongo) ·
+  `auth/`(토큰·로그인 자리·권한·2FA·뷰어 토큰, `middleware.js` = HTTPS·보안 헤더·CSRF) · `routes/`(REST, `routes/admin/`) ·
+  `realtime/`(WS 업그레이드·방·`host.js`·`viewer.js`) · `pipelines/`(`soniox.js` 실시간 번역, `desk.js` 안내데스크, `translate.js` 구 통역) ·
+  `vendors/`(soniox 접속·용어 context, openai 다듬기·교정, cartesia TTS, 사용량) · `util/`.
+- `client/src/session/TranslateView.jsx` — 세션 화면(엔진 연결·상태). 폰·PC 새 화면은 `phone/MobileLive.jsx` 를 그린다.
+- `client/src/pc/` — 위 띠·개인설정·세션 목록(새 세션 창)·명령 팔레트, `client/src/phone/` — 폰 앱 화면, `client/src/admin/` — 관리자 탭들
+- `client/src/shared/` — `api.js`·`audio.js`(캡처·게이트·스테레오·TTS 재생)·`theme.js`·`i18n.js`·`authState.js`(권한·로그아웃 알림) 등
+- `client/public/viewer/` — QR 뷰어(join.html)·안내데스크 태블릿(desk.html)·오버레이(독립 바닐라 JS)
+- `test/` — 서버 테스트(`npm test`), `test/e2e/` — 화면 테스트(`npm run test:e2e`)
 
 ## 메시지 프로토콜 (WS)
 - `{type:'sentence', id, side, source, texts:{lang:text}}` — 같은 id로 언어별/스트리밍 병합
