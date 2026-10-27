@@ -19,7 +19,9 @@ export const androidAudioStub = () => {
     let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s);
   };
   const run = (ch) => { clearInterval(tm); tm = setInterval(() => { if (ch === 2 && window.__kacNA2) window.__kacNA2(frame(2)); else if (window.__kacNA) window.__kacNA(frame(1)); }, 40); };
-  window.AndroidAudio = { start() { run(1); return true; }, startStereo() { run(2); return 2; }, stop() { clearInterval(tm); }, inputLabel() { return 'USB 마이크 (TEST)'; }, inputs() { return '[]'; }, setInput() { return true; } };
+  // __aaStarts: 마이크를 켠 횟수(시작 전엔 켜지 않는지 확인용)
+  window.__aaStarts = 0;
+  window.AndroidAudio = { start() { window.__aaStarts++; run(1); return true; }, startStereo() { window.__aaStarts++; run(2); return 2; }, stop() { clearInterval(tm); }, inputLabel() { return 'USB 마이크 (TEST)'; }, inputs() { return '[]'; }, setInput() { return true; } };
 };
 // 가짜 엔진 조작(test/e2e/server.mjs 의 :3013)
 const ENGINE = 'http://127.0.0.1:3013';

@@ -77,3 +77,43 @@ test('TTS 권한이 없으면 TTS 버튼이 없다', async ({ page }) => {
   await expect(page.getByRole('button', { name: '시작' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^TTS/ })).toHaveCount(0);
 });
+
+test('새 세션 — 단계별(모드 → 두 언어 휠 → 이름), 이름을 비우면 기본 이름', async ({ page }) => {
+  await page.addInitScript(androidAudioStub);
+  await login(page.request);
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 세션' }).click();
+  await expect(page.getByText('어떤 세션을 만들까요?')).toBeVisible();
+  await page.getByRole('radio', { name: '양방향 통역' }).click();
+  await page.getByRole('button', { name: '다음' }).click();
+  await expect(page.getByText('내 언어를 고르세요')).toBeVisible();
+  // 휠: 상대 언어 칸으로 넘어가 일본어 줄을 누른다
+  await page.getByRole('button', { name: '다음' }).click();
+  await expect(page.getByText('상대 언어를 고르세요')).toBeVisible();
+  await page.getByRole('listbox', { name: '상대 언어' }).getByRole('option', { name: '일본어' }).click();
+  await expect(page.getByRole('button', { name: '상대 언어: 일본어' })).toBeVisible();
+  await page.getByRole('button', { name: '다음' }).click();
+  await expect(page.getByRole('textbox', { name: '세션 이름' })).toBeVisible();
+  await page.getByRole('button', { name: '만들기' }).click();
+  await expect(page.getByRole('button', { name: '시작' })).toBeVisible();
+  const list = await (await page.request.get('/api/sessions')).json();
+  expect(list[0].preset).toBe('twoway');
+  expect(list[0].title).toMatch(/양방향 통역$/);
+});
+
+test('마이크는 시작을 누를 때 켠다(대기·설정 중엔 꺼짐)', async ({ page }) => {
+  await page.addInitScript(androidAudioStub);
+  await login(page.request);
+  const s = await createSession(page.request, { title: 'E2E 마이크', preset: 'twoway' });
+  await page.goto('/');
+  await page.getByText(s.title).click();
+  await expect(page.getByRole('button', { name: '시작' })).toBeVisible();
+  await page.getByRole('button', { name: '설정 열기' }).first().click();
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => window.__aaStarts)).toBe(0);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '시작' }).click();
+  await expect(page.getByRole('dialog', { name: '마이크 확인' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__aaStarts)).toBeGreaterThan(0);
+});
+

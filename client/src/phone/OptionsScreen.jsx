@@ -1,6 +1,6 @@
 /* 폰 화면 설정 — 오른쪽에서 밀려 나오는 전체 화면(디스코드 설정 참고). 모든 항목을 한 화면에 두고,
    계정은 맨 위 프로필 카드를 눌러 들어간다. 값은 prefs.js(기기 저장 + 계정 동기화). */
-import React, { forwardRef, useEffect, useState } from 'react';
+import React, { forwardRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Dialog from '@mui/material/Dialog';
 import Slide from '@mui/material/Slide';
@@ -8,7 +8,6 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import ButtonBase from '@mui/material/ButtonBase';
 import Slider from '@mui/material/Slider';
-import Switch from '@mui/material/Switch';
 import Snackbar from '@mui/material/Snackbar';
 import CircularProgress from '@mui/material/CircularProgress';
 import { api } from '../shared/api.js';
@@ -16,7 +15,7 @@ import { can } from '../shared/authState.js';
 import { SX_LANGS } from '../session/TranslateView.jsx';
 import { usePrefs, setPref } from '../shared/prefs.js';
 import { useT } from '../shared/i18n.js';
-import { Group, OptionRow, PickSheet, ConfirmDialog, FormSheet, SensSlider, MicSheet, langOptions, useBackClose, useIdleMeter, useMicInputs, micCurrentName } from './common.jsx';
+import { Group, OptionRow, PickSheet, ConfirmDialog, FormSheet, langOptions, useBackClose } from './common.jsx';
 import UpdateSheet, { useAppVersion } from './UpdateSheet.jsx';
 import { Line, Bubble } from './MobileLive.jsx';
 import { ArrowLeftIcon, ChevronRightIcon, LogOutIcon, PlayIcon } from '../shared/icons.jsx';
@@ -85,17 +84,11 @@ function Avatar({ user, size = 48 }) {
 export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
   const t = useT();
   const prefs = usePrefs();
-  const [pick, setPick] = useState(null); // 'sys' | 'native' | 'voice' | 'theme' | 'mic' | 'size' | 'update'
-  const [meterOn, setMeterOn] = useState(false);
-  const mic = useMicInputs();
+  const [pick, setPick] = useState(null); // 'sys' | 'native' | 'voice' | 'theme' | 'size' | 'update'
   const ver = useAppVersion();
   const [logoutAsk, setLogoutAsk] = useState(false);
   const [previewing, setPreviewing] = useState(null);
   const [toast, setToast] = useState('');
-  const { l: level } = useIdleMeter(open && meterOn);
-  useEffect(() => { if (!open) setMeterOn(false); }, [open]);
-
-  const native = !!window.AndroidAudio;
   const voiceName = (g) => (g === 'm' ? t('male') : t('female'));
   const themeName = (v) => ({ light: t('themeLight'), dark: t('themeDark'), system: t('themeSystem') }[v]);
 
@@ -135,22 +128,12 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
         <OptionRow label={t('nativeLang')} value={t.lang(prefs.nativeLang)} onClick={() => setPick('native')} />
       </Group>
 
-      <Group title={t('secVoice')}>
-        <OptionRow label={t('connectedDevice')} value={micCurrentName(mic, t)} onClick={() => setPick('mic')} />
-        <OptionRow toggle label={t('autoSens')} onClick={() => setPref('micAuto', !prefs.micAuto)}
-          value={<Switch edge="end" checked={prefs.micAuto} tabIndex={-1} slotProps={{ input: { 'aria-label': t('autoSens') } }}
-            sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#fff' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: BRAND, opacity: 1 } }} />} />
-        {prefs.micAuto ? (
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', px: 2.25, py: 1.5, lineHeight: 1.5 }}>{t('autoSensHint')}</Typography>
-        ) : (
-          <Box onPointerDown={() => setMeterOn(true)}>
-            <SensSlider label={t('inputSens')} value={prefs.micSens} native={native} level={level}
-              hint={t('inputSensHint')}
-              onChange={(v) => setPref('micSens', v)} />
-          </Box>
-        )}
-        {can('tts') && <OptionRow label={t('ttsVoice')} value={voiceName(prefs.ttsGender)} onClick={() => setPick('voice')} />}
-      </Group>
+      {/* 마이크 장치·감도는 세션 화면의 설정에서(번역 중에 실제 소리를 보며 고른다) — 공통 설정에는 TTS 음성만 */}
+      {can('tts') && (
+        <Group title={t('secVoice')}>
+          <OptionRow label={t('ttsVoice')} value={voiceName(prefs.ttsGender)} onClick={() => setPick('voice')} />
+        </Group>
+      )}
 
       <Group title={t('secDisplay')}>
         <OptionRow label={t('theme')} value={themeName(prefs.theme)} onClick={() => setPick('theme')} />
@@ -185,7 +168,6 @@ export function OptionsScreen({ open, onBack, user, onAccount, onLogout }) {
       <PickSheet open={pick === 'theme'} onClose={() => setPick(null)} title={t('theme')} value={prefs.theme}
         options={['light', 'dark', 'system'].map((v) => ({ code: v, label: themeName(v) }))} onPick={(v) => setPref('theme', v)} />
 
-      <MicSheet open={pick === 'mic'} onClose={() => setPick(null)} mic={mic} />
       <TextSizeScreen open={pick === 'size'} onBack={() => setPick(null)} />
       <UpdateSheet manual open={pick === 'update'} onClose={() => setPick(null)} />
       <ConfirmDialog open={logoutAsk} title={t('logoutConfirm')} okLabel={t('logout')} danger onClose={() => setLogoutAsk(false)} onOk={() => { setLogoutAsk(false); onLogout(); }} />

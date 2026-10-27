@@ -13,7 +13,7 @@ import { alpha, createTheme, useTheme, ThemeProvider } from '@mui/material/style
 import TranslateView, { SX_LANGS } from '../session/TranslateView.jsx';
 import { LANGS } from '../shared/theme.js';
 import { api } from '../shared/api.js';
-import { BottomSheet, LangSheet, ConfirmDialog, FormSheet, langOptions } from './common.jsx';
+import { BottomSheet, ConfirmDialog, FormSheet, WheelPicker } from './common.jsx';
 import { OptionsScreen, AccountScreen } from './OptionsScreen.jsx';
 import { usePrefs, syncWithAccount } from '../shared/prefs.js';
 import { useT } from '../shared/i18n.js';
@@ -21,29 +21,18 @@ import UpdateSheet from './UpdateSheet.jsx';
 import { pushNav, backNav } from './backstack.js';
 import { ModeIcon, shortDate, sessionLangs } from '../shared/sessionMeta.jsx';
 import { appReady } from '../shared/env.js';
-import { ArrowRightIcon, CheckIcon, ChevronRightIcon, PencilIcon, PlusIcon, SettingsIcon, SwapIcon, TrashIcon } from '../shared/icons.jsx';
-import { BRAND } from '../shared/brand.js';
+import { ChevronRightIcon, PencilIcon, PlusIcon, SettingsIcon, TrashIcon } from '../shared/icons.jsx';
+import { BRAND, BRAND_SOFT } from '../shared/brand.js';
 import Wordmark from '../shared/Wordmark.jsx';
 
 const SX_CODES = SX_LANGS.map((l) => l.code);
 const IN_CODES = LANGS.map((l) => l.code); // 'auto'(자동 감지) 포함 — 실시간 번역의 입력 언어 힌트
 
-// 세션 이름 기본값 '10/22 14:30 양방향 통역' — 현장에서 매번 입력하지 않게 미리 채워 두고 고칠 수 있게(필수는 유지)
+// 세션 이름 자리 표시 '10/22 14:30 양방향 통역' — 비워 두고 만들면 이 이름으로
 function defaultName(mode, t) {
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
   return `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())} ${mode === 'twoway' ? t('modeTwoway') : t('modeOneway')}`;
-}
-
-// 언어 알약 — 위 작은 글씨(역할) + 언어 이름. 누르면 언어 시트.
-function LangPill({ caption, value, onClick, t }) {
-  return (
-    <ButtonBase onClick={onClick} aria-label={`${caption}: ${t.lang(value)}`}
-      sx={{ flex: 1, minWidth: 0, height: 58, px: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'background.paper', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.1 }}>
-      <Typography component="span" sx={{ fontSize: 11.5, color: 'text.secondary', fontWeight: 500 }}>{caption}</Typography>
-      <Typography component="span" noWrap sx={{ fontSize: 16, fontWeight: 800, maxWidth: '100%' }}>{t.lang(value)}</Typography>
-    </ButtonBase>
-  );
 }
 
 // 세션 목록 한 줄 — 누르면 열기, 길게 누르면(0.5초, 손가락이 거의 안 움직일 때) 이름 바꾸기·삭제 시트. PC 우클릭도 같음.
@@ -76,35 +65,41 @@ function SessionRow({ s, t, onOpen, onActions }) {
   );
 }
 
+/* 새 세션(2026-10-27, 토스식 단계) — 한 화면에 질문 하나: ① 모드(실시간 번역 | 양방향 통역) → ② 첫 언어 → ③ 둘째 언어 → ④ 이름.
+   언어 단계는 위에 두 칸(입력·출력 / 내·상대 언어), 아래에 지금 칸의 휠. 이름은 비워 두면 자리 표시 이름(날짜·시각·모드)으로 만든다.
+   버튼은 전부 아래(첫 단계는 다음, 그 뒤로는 뒤로 + 다음/만들기). */
+const NS_STEPS = 4;
 function NewSessionSheet({ open, onClose, onCreated }) {
   const t = useT();
   const prefs = usePrefs();
+  const [step, setStep] = useState(0);
+  const [dir, setDir] = useState(1);           // 넘어가는 방향(화면 미끄러짐)
   const [mode, setMode] = useState('oneway');
-  const [src, setSrc] = useState('auto');   // 실시간 번역: 입력 언어(자동 감지 기본)
-  const [target, setTarget] = useState('ko'); // 실시간 번역: 출력 언어(모국어 기본)
-  const [a, setA] = useState('ko');           // 양방향: 내 언어(모국어 기본)
-  const [b, setB] = useState('en');           // 양방향: 상대 언어(지난번 값)
+  const [src, setSrc] = useState('auto');      // 실시간 번역: 입력 언어(자동 감지 기본)
+  const [target, setTarget] = useState('ko');  // 실시간 번역: 출력 언어(모국어 기본)
+  const [a, setA] = useState('ko');            // 양방향: 내 언어(모국어 기본)
+  const [b, setB] = useState('en');            // 양방향: 상대 언어(지난번 값)
   const [name, setName] = useState('');
-  const [nameEdited, setNameEdited] = useState(false); // 직접 고치기 전엔 기본 이름이 모드를 따라간다
-  const [touched, setTouched] = useState(false);
-  const [pick, setPick] = useState(null);     // 'src' | 'target' | 'a' | 'b'
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const nameRef = useRef(null);
   useEffect(() => {
     if (!open) return;
-    setName(defaultName(mode, t)); setNameEdited(false); setTouched(false); setErr(''); setBusy(false);
+    setStep(0); setDir(1); setMode('oneway'); setName(''); setErr(''); setBusy(false);
     const nat = prefs.nativeLang || 'ko';
     let lastB = null;
     try { lastB = localStorage.getItem('kac-sx-b'); } catch {}
-    setTarget(nat);  // 실시간 번역: 입력은 항상 자동 감지, 출력은 모국어
     setSrc('auto');
+    setTarget(nat);
     setA(nat);
     setB(lastB && lastB !== nat ? lastB : nat === 'en' ? 'ko' : 'en');
     // eslint-disable-next-line
   }, [open]);
 
-  const empty = !name.trim();
+  const oneway = mode === 'oneway';
+  const boxes = oneway
+    ? [{ k: 'src', caption: t('inputLang'), title: t('nsSrc'), value: src, codes: IN_CODES }, { k: 'target', caption: t('outputLang'), title: t('nsTarget'), value: target, codes: SX_CODES }]
+    : [{ k: 'a', caption: t('myLang'), title: t('nsMine'), value: a, codes: SX_CODES }, { k: 'b', caption: t('otherLang'), title: t('nsOther'), value: b, codes: SX_CODES }];
+  const box = boxes[step === 2 ? 1 : 0];
   const pickLang = (k, v) => {
     if (k === 'src') setSrc(v);
     if (k === 'target') setTarget(v);
@@ -112,15 +107,16 @@ function NewSessionSheet({ open, onClose, onCreated }) {
     if (k === 'a') { if (v === b) setB(a); setA(v); }
     if (k === 'b') { if (v === a) setA(b); setB(v); }
   };
+  const fallbackName = defaultName(mode, t);
+  const go = (n) => { setDir(n > step ? 1 : -1); setErr(''); setStep(n); };
   const create = async () => {
     if (busy) return;
-    if (empty) { setTouched(true); try { nameRef.current && nameRef.current.focus(); } catch {} return; }
     setBusy(true); setErr('');
     try {
-      const s = await api.create({ title: name.trim(), pipeline: 'soniox', preset: mode, src: 'mic', inLang: mode === 'oneway' ? src : 'auto' });
+      const s = await api.create({ title: name.trim() || fallbackName, pipeline: 'soniox', preset: mode, src: 'mic', inLang: oneway ? src : 'auto' });
       if (!s || !s.id) throw new Error((s && s.error) || t('netError'));
       try {
-        if (mode === 'oneway') {
+        if (oneway) {
           localStorage.setItem('kac-sx-target', target);
           localStorage.setItem('kac-sx-target:' + s.id, target); // 다시 열 때 이 세션의 출력 언어 복원
         } else {
@@ -129,87 +125,97 @@ function NewSessionSheet({ open, onClose, onCreated }) {
           localStorage.setItem('kac-sx-pair:' + s.id, `${a}|${b}`); // 다시 열 때 이 세션의 두 언어 복원
         }
       } catch {}
-      onCreated({ ...s, _target: mode === 'oneway' ? target : undefined });
+      onCreated({ ...s, _target: oneway ? target : undefined });
     } catch (e) {
       setErr(t('createFail', { msg: e.message || t('netError') }));
       setBusy(false);
     }
   };
-
-  // 모드를 바꾸면(이름을 직접 고치지 않았을 때만) 기본 이름도 그 모드로
-  useEffect(() => { if (open && !nameEdited) setName(defaultName(mode, t)); }, [mode]); // eslint-disable-line
+  const next = () => (step < NS_STEPS - 1 ? go(step + 1) : create());
 
   const modes = [
     { v: 'oneway', title: t('modeOneway'), desc: t('modeOnewayDesc') },
     { v: 'twoway', title: t('modeTwoway'), desc: t('modeTwowayDesc') },
   ];
-  const sheetMeta = {
-    src: { title: t('inputLang'), value: src, codes: IN_CODES },
-    target: { title: t('outputLang'), value: target, codes: SX_CODES },
-    a: { title: t('myLang'), value: a, codes: SX_CODES },
-    b: { title: t('otherLang'), value: b, codes: SX_CODES },
-  }[pick || 'src'];
+  const title = step === 0 ? t('nsMode') : step === 3 ? t('nsName') : box.title;
 
   return (
-    <>
-      <BottomSheet open={open} onClose={onClose}>
-        <Box sx={{ px: 2.5, pb: 3, pt: 0.5, display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
-          <Box role="radiogroup" aria-label={t('newSession')} sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-            {modes.map((m) => {
-              const on = mode === m.v;
-              return (
-                <ButtonBase key={m.v} role="radio" aria-checked={on} onClick={() => setMode(m.v)}
-                  sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.75, p: 2, textAlign: 'left', borderRadius: '18px', border: on ? 2 : 1, borderColor: on ? BRAND : 'divider', bgcolor: 'background.paper', justifyContent: 'flex-start' }}>
-                  <ModeIcon preset={m.v} size={44} />
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontSize: 17, fontWeight: 700 }}>{m.title}</Typography>
-                    <Typography sx={{ fontSize: 13.5, color: 'text.secondary', lineHeight: 1.5, mt: 0.4, wordBreak: 'keep-all' }}>{m.desc}</Typography>
-                  </Box>
-                  <Box sx={{ width: 24, height: 24, flex: 'none', borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: on ? BRAND : 'transparent', border: on ? 0 : 2, borderColor: 'divider' }}>
-                    {on && <CheckIcon sx={{ fontSize: 15, color: '#fff', strokeWidth: 2.5 }} />}
-                  </Box>
-                </ButtonBase>
-              );
-            })}
-          </Box>
+    <BottomSheet open={open} onClose={onClose}>
+      <Box sx={{ height: 'min(560px, calc(86dvh - 30px))', display: 'flex', flexDirection: 'column', px: 2.5, pb: 2.5 }}>
+        {/* 진행 막대 */}
+        <Box aria-hidden="true" sx={{ height: 4, borderRadius: '999px', bgcolor: 'divider', overflow: 'hidden', flex: 'none', mb: 2.5 }}>
+          <Box sx={{ height: '100%', width: `${((step + 1) / NS_STEPS) * 100}%`, bgcolor: BRAND, borderRadius: '999px', transition: 'width 220ms ease' }} />
+        </Box>
+        <Box key={step} sx={{
+          flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column',
+          animation: `${dir > 0 ? 'nsIn' : 'nsBack'} 200ms ease`,
+          '@keyframes nsIn': { from: { opacity: 0, transform: 'translateX(18px)' }, to: { opacity: 1, transform: 'none' } },
+          '@keyframes nsBack': { from: { opacity: 0, transform: 'translateX(-18px)' }, to: { opacity: 1, transform: 'none' } },
+          '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+        }}>
+          <Typography component="h2" sx={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.02em', mb: 2.5, wordBreak: 'keep-all' }}>{title}</Typography>
 
-          {mode === 'oneway' ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <LangPill t={t} caption={t('inputLang')} value={src} onClick={() => setPick('src')} />
-              <ArrowRightIcon aria-hidden="true" sx={{ color: 'text.secondary', flex: 'none' }} />
-              <LangPill t={t} caption={t('outputLang')} value={target} onClick={() => setPick('target')} />
-            </Box>
-          ) : (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <LangPill t={t} caption={t('myLang')} value={a} onClick={() => setPick('a')} />
-              <IconButton aria-label={t('swapLangs')} onClick={() => { setA(b); setB(a); }} sx={{ flex: 'none', width: 44, height: 44 }}>
-                <SwapIcon />
-              </IconButton>
-              <LangPill t={t} caption={t('otherLang')} value={b} onClick={() => setPick('b')} />
-            </Box>
+          {step === 0 && (
+            <>
+              <Box role="radiogroup" aria-label={t('newSession')} sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.25 }}>
+                {modes.map((m) => {
+                  const on = mode === m.v;
+                  return (
+                    <ButtonBase key={m.v} role="radio" aria-checked={on} onClick={() => setMode(m.v)}
+                      sx={{ aspectRatio: '1 / 0.92', borderRadius: '20px', border: 2, borderColor: on ? BRAND : 'divider', bgcolor: on ? (th) => (th.palette.mode === 'dark' ? alpha(BRAND, 0.22) : BRAND_SOFT) : 'background.paper', transition: 'border-color .15s, background-color .15s' }}>
+                      <Typography component="span" sx={{ fontSize: 18, fontWeight: 800, color: on ? BRAND : 'text.primary' }}>{m.title}</Typography>
+                    </ButtonBase>
+                  );
+                })}
+              </Box>
+              <Typography sx={{ mt: 2, px: 0.5, fontSize: 15, lineHeight: 1.55, color: 'text.secondary', wordBreak: 'keep-all', minHeight: '3.1em' }}>
+                {modes.find((m) => m.v === mode).desc}
+              </Typography>
+            </>
           )}
 
-          <Box component="label" sx={{ display: 'flex', flexDirection: 'column', px: 2, pt: 1.25, pb: 1.5, borderRadius: '18px', bgcolor: (th) => alpha(th.palette.text.primary, 0.035), border: 1, borderColor: touched && empty ? 'error.main' : 'transparent' }}>
-            <Typography component="span" sx={{ fontSize: 12.5, fontWeight: 500, color: touched && empty ? 'error.main' : 'text.secondary' }}>{t('sessionName')}</Typography>
-            <InputBase inputRef={nameRef} value={name} onChange={(e) => { setName(e.target.value); setNameEdited(true); }} onBlur={() => setTouched(true)} placeholder={t('sessionNamePh')}
-              inputProps={{ 'aria-label': t('sessionName'), 'aria-required': true, 'aria-invalid': touched && empty, maxLength: 80 }} sx={{ fontSize: 16, py: 0.25 }} />
-          </Box>
-          {touched && empty && <Typography role="alert" sx={{ fontSize: 13, color: 'error.main', mt: -1, px: 0.5 }}>{t('nameRequired')}</Typography>}
-          {err && <Typography role="alert" sx={{ fontSize: 13.5, color: 'error.main' }}>{err}</Typography>}
+          {(step === 1 || step === 2) && (
+            <>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.25, mb: 2 }}>
+                {boxes.map((x, i) => {
+                  const on = (step === 2 ? 1 : 0) === i;
+                  return (
+                    <ButtonBase key={x.k} onClick={() => go(i + 1)} aria-pressed={on} aria-label={`${x.caption}: ${x.k === 'src' && x.value === 'auto' ? t('autoDetect') : t.lang(x.value)}`}
+                      sx={{ height: 66, borderRadius: '16px', border: 2, borderColor: on ? BRAND : 'divider', bgcolor: on ? (th) => (th.palette.mode === 'dark' ? alpha(BRAND, 0.22) : BRAND_SOFT) : 'background.paper', display: 'flex', flexDirection: 'column', gap: 0.25, px: 1 }}>
+                      <Typography component="span" sx={{ fontSize: 12, fontWeight: 600, color: on ? BRAND : 'text.secondary' }}>{x.caption}</Typography>
+                      <Typography component="span" noWrap sx={{ fontSize: 16.5, fontWeight: 800, maxWidth: '100%' }}>{x.k === 'src' && x.value === 'auto' ? t('autoDetect') : t.lang(x.value)}</Typography>
+                    </ButtonBase>
+                  );
+                })}
+              </Box>
+              <WheelPicker label={box.caption} value={box.value} onChange={(v) => pickLang(box.k, v)}
+                options={box.codes.map((c) => ({ code: c, label: c === 'auto' ? t('autoDetect') : t.lang(c) }))} />
+            </>
+          )}
 
-          <ButtonBase onClick={create} disabled={busy} aria-disabled={empty}
-            sx={{ height: 56, borderRadius: '16px', bgcolor: BRAND, color: '#fff', gap: 1.25, fontSize: 16, fontWeight: 700, opacity: busy || empty ? 0.45 : 1 }}>
-            {busy ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : t('create')}
+          {step === 3 && (
+            <Box component="label" sx={{ display: 'flex', alignItems: 'center', px: 2, height: 58, borderRadius: '16px', bgcolor: (th) => alpha(th.palette.text.primary, 0.04) }}>
+              <InputBase autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') create(); }} placeholder={fallbackName}
+                inputProps={{ 'aria-label': t('sessionName'), maxLength: 80 }} sx={{ flex: 1, fontSize: 17 }} />
+            </Box>
+          )}
+          {err && <Typography role="alert" sx={{ fontSize: 13.5, color: 'error.main', mt: 1.5 }}>{err}</Typography>}
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 1, flex: 'none', pt: 2 }}>
+          {step > 0 && (
+            <ButtonBase onClick={() => go(step - 1)} disabled={busy}
+              sx={{ flex: '0 0 32%', height: 56, borderRadius: '16px', bgcolor: (th) => alpha(th.palette.text.primary, 0.06), fontSize: 16, fontWeight: 700 }}>
+              {t('back')}
+            </ButtonBase>
+          )}
+          <ButtonBase onClick={next} disabled={busy}
+            sx={{ flex: 1, height: 56, borderRadius: '16px', bgcolor: BRAND, color: '#fff', fontSize: 16, fontWeight: 700, opacity: busy ? 0.6 : 1 }}>
+            {busy ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : step === NS_STEPS - 1 ? t('create') : t('next')}
           </ButtonBase>
         </Box>
-      </BottomSheet>
-      <LangSheet
-        open={!!pick}
-        onClose={() => setPick(null)}
-        title={sheetMeta.title}
-        tabs={[{ key: 't', label: '', value: sheetMeta.value, options: langOptions(sheetMeta.codes, t), onPick: (v) => pickLang(pick, v) }]}
-      />
-    </>
+      </Box>
+    </BottomSheet>
   );
 }
 

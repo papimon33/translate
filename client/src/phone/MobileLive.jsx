@@ -4,7 +4,7 @@
    · 아래: 떠 있는 회색 조작판(음소거·TTS·시작/중지·언어·종료) — 위로 밀거나 손잡이를 누르면 큰 설정(입력·출력·세션)
    · 번역을 시작하면 위·아래를 숨기고 화면을 누르면 4초간 보인다
    · desktop(PC 새 화면 ?ui=v2): 메뉴 항상 표시, 대화는 가운데 열, 큰 설정은 오른쪽에서. PC 전용 줄(음성 입력·마이크 장치·모드·고급 설정)은 pc/PcRows */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -177,29 +177,35 @@ export default function MobileLive(p) {
   const [previewing, setPreviewing] = useState(null);
   const hideTimer = useRef(null);
   useBackClose(panel, () => setPanel(false));
-  // 대기 중에도 마이크만 켜서(엔진·과금 없음) 입력 크기를 보여 준다 — 시작 전에 소리가 들어오는지 확인용.
-  // 시작을 누르면 먼저 이 미터를 끄고(네이티브 캡처를 번역 경로에 넘김) 번역을 연다.
+  // 마이크는 번역을 시작할 때만 켠다(2026-10-27) — 대기 중엔 끈다. 예외: 시작을 누른 뒤의 마이크 확인 창(양방향 첫 시작)은
+  // 엔진(과금)을 열기 전에 미터만 켜서 송신기 1·2(좌·우)를 확인한다. 확인을 마치면 미터를 끄고 네이티브 캡처를 번역 경로에 넘긴다.
   const [starting, setStarting] = useState(false);
-  // 양방향 통역이면 대기 중에도 2채널로 열어 송신기 1·2(좌·우)를 따로 보여 준다(번역도 같은 방식으로 연다)
-  const idle = useIdleMeter(!recording && !starting && !p.meterOff, twoway); // meterOff: PC 소리만 들을 때(마이크 권한을 묻지 않게)
+  const [checkOpen, setCheckOpen] = useState(false);   // 시작 전 마이크 확인 창
+  const idle = useIdleMeter(checkOpen && !recording && !starting && !p.meterOff, twoway); // meterOff: PC 소리만 들을 때(마이크 권한을 묻지 않게)
+  const idleOn = idle.l != null;
+  // 대기 중(마이크 꺼짐) 2채널 여부는 이 기기에 기억된 판별값으로 — audio.js 가 장치 이름별로 'stereo'/'mono' 를 저장한다(앱은 장치 이름을 캡처 없이 안다)
+  const memStereo = useMemo(() => {
+    if (!twoway || !mic.label) return null;
+    try { return localStorage.getItem('kac-stereo:native:' + mic.label); } catch { return null; }
+  }, [twoway, mic.label, recording]);
   const liveLevel = recording ? (p.micMuted ? null : p.level) : idle.l;
   const liveLevel2 = recording ? (p.micMuted || !p.stereoInfo ? null : p.level2) : idle.r;
-  // 2채널로 열렸는지(대기 중 미터 / 번역 중 판별) — 상태 안내 문장을 보일지
-  const twoCh = twoway && (recording ? !!p.stereoInfo : idle.r != null);
-  // 채널 상태: 번역 중엔 audio.js 판별, 대기 중엔 미터의 좌우 상관 판별(말하기 전에도 'mono'/'stereo')
-  const chanState = recording ? (p.stereoInfo && p.stereoInfo.state) : (twoCh ? idle.layout : null);
+  // 2채널로 열렸는지(번역 중 판별 / 확인 창 미터 / 기억값) — 상태 안내 문장·감도 슬라이더 2개를 보일지
+  const twoCh = twoway && (recording ? !!p.stereoInfo : idleOn ? idle.r != null : memStereo === 'stereo');
+  // 채널 상태: 번역 중엔 audio.js 판별, 확인 창에선 미터의 좌우 상관 판별(말하기 전에도 'mono'/'stereo'), 그 밖엔 기억값
+  const chanState = recording ? (p.stereoInfo && p.stereoInfo.state) : idleOn ? (twoCh ? idle.layout : null) : (twoCh ? 'stereo' : null);
   // 마이크 2개로 나눠 듣는 중인지 — 감도 슬라이더 2개 여부(음소거해도 바뀌지 않게 레벨 대신 상태로 판단)
   const dual = twoCh && chanState !== 'mono';
   // 2채널 판별(대기 중 미터로): 말소리(VOICE_LV 이상)에서 한쪽이 DIFF_LV(약 8dB) 넘게 크면 그쪽 송신기가 따로 들어오는 것.
   // 오른쪽이 확연히 큰 말소리가 3번 이상이면 스테레오로 알고 시작한다(연결 2개를 처음부터 — 송신기 2 첫 문장 지연 없음).
   // 왼쪽만 큰 건 증거로 치지 않는다 — 한쪽 채널만 쓰는 장치도 그렇게 보이므로(audio.js 판별과 같은 기준).
   const stereoEvid = useRef(0);
-  const [checkOpen, setCheckOpen] = useState(false);   // 시작 전 마이크 확인 창(2채널일 때)
   const [checked, setChecked] = useState({ one: false, l: false, r: false });
   const [monoSeen, setMonoSeen] = useState(false);     // 확인 중 좌우가 계속 같은 소리 → 마이크 1개로(경고 대신 그대로 진행)
   const chk = useRef({ one: 0, l: 0, r: 0, same: 0 });
   const tested = useRef(false);                        // 이 세션 화면에서 마이크 확인을 마쳤는지 — 다시 시작할 땐 생략
-  const micOne = idle.r == null || idle.layout === 'mono' || monoSeen; // 확인 창을 마이크 1개로
+  // 확인 창을 마이크 1개로 — 미터 첫 프레임 전에는 기억값으로(창이 1개→2개로 바뀌어 보이지 않게)
+  const micOne = idleOn ? (idle.r == null || idle.layout === 'mono' || monoSeen) : memStereo !== 'stereo';
   useEffect(() => {
     if (recording || idle.l == null) return;
     const l = idle.l, r = idle.r;

@@ -1,6 +1,6 @@
 /* 안드로이드 앱 폰 화면 공용 조각 — 바텀 시트·선택 목록·확인 창·마이크 장치 목록.
    웹 티(PC식 드롭다운·작은 버튼)를 없애는 게 목적이라 선택은 전부 아래에서 올라오는 시트로 한다. */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import SwipeableDrawer from '@mui/material/SwipeableDrawer';
 import Dialog from '@mui/material/Dialog';
@@ -499,3 +499,61 @@ export function MicSheet({ open, onClose, mic, stereo, children }) {
     </BottomSheet>
   );
 }
+
+/* 휠 선택(2026-10-27, 새 세션 언어) — 위아래로 굴려 가운데 줄이 선택된다(스크롤 스냅). 줄을 눌러도 그 줄로 굴러간다.
+   options: [{ code, label, sub? }] · 바깥에서 value 가 바뀌면(칸 전환) 그 줄로 바로 이동.
+   시트(SwipeableDrawer) 안에서 맨 위에서 아래로 굴려도 시트가 닫히지 않게 터치 시작을 시트에 넘기지 않는다(defaultMuiPrevented). */
+const WHEEL_ROW = 46;
+const WHEEL_ROWS = 5;
+export function WheelPicker({ options, value, onChange, label }) {
+  const ref = useRef(null);
+  const settle = useRef(null);
+  const idx = Math.max(0, options.findIndex((o) => o.code === value));
+  const [live, setLive] = useState(idx); // 굴리는 동안 가운데 줄(강조용) — 멈추면 onChange
+  useLayoutEffect(() => {
+    const el = ref.current;
+    setLive(idx);
+    if (el && Math.round(el.scrollTop / WHEEL_ROW) !== idx) el.scrollTop = idx * WHEEL_ROW;
+  }, [idx, options]);
+  useEffect(() => () => clearTimeout(settle.current), []);
+  const at = () => Math.min(options.length - 1, Math.max(0, Math.round((ref.current ? ref.current.scrollTop : 0) / WHEEL_ROW)));
+  const onScroll = () => {
+    setLive(at());
+    clearTimeout(settle.current);
+    settle.current = setTimeout(() => {
+      const o = options[at()];
+      if (o && o.code !== value) onChange(o.code);
+    }, 100);
+  };
+  const go = (i) => { if (ref.current) ref.current.scrollTo({ top: i * WHEEL_ROW, behavior: 'smooth' }); };
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); go(Math.min(options.length - 1, live + 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); go(Math.max(0, live - 1)); }
+  };
+  const cur = options[live];
+  return (
+    <Box sx={{ position: 'relative', height: WHEEL_ROW * WHEEL_ROWS, flex: 'none' }}>
+      <Box aria-hidden="true" sx={{ position: 'absolute', left: 0, right: 0, top: WHEEL_ROW * 2, height: WHEEL_ROW, borderRadius: '14px', bgcolor: (th) => alpha(th.palette.text.primary, 0.05), pointerEvents: 'none' }} />
+      <Box ref={ref} role="listbox" aria-label={label} aria-activedescendant={cur ? 'wheel-' + cur.code : undefined} tabIndex={0}
+        onScroll={onScroll} onKeyDown={onKeyDown} onTouchStart={(e) => { e.nativeEvent.defaultMuiPrevented = true; }}
+        sx={{
+          position: 'relative', height: '100%', overflowY: 'auto', overscrollBehavior: 'contain', scrollSnapType: 'y mandatory',
+          py: `${WHEEL_ROW * 2}px`, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' }, outline: 'none',
+          maskImage: 'linear-gradient(to bottom, transparent 0, #000 32%, #000 68%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, #000 32%, #000 68%, transparent 100%)',
+        }}>
+        {options.map((o, i) => {
+          const on = i === live;
+          return (
+            <Box key={o.code} id={'wheel-' + o.code} role="option" aria-selected={on} onClick={() => go(i)}
+              sx={{ height: WHEEL_ROW, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, px: 2, scrollSnapAlign: 'center', cursor: 'pointer', userSelect: 'none' }}>
+              <Typography component="span" noWrap sx={{ fontSize: on ? 19 : 17, fontWeight: on ? 800 : 500, color: on ? 'text.primary' : 'text.secondary', transition: 'font-size .12s, color .12s' }}>{o.label}</Typography>
+              {o.sub && <Typography component="span" noWrap sx={{ fontSize: 13, color: 'text.disabled' }}>{o.sub}</Typography>}
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
