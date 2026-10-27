@@ -1,4 +1,4 @@
-/* 로그인 자리(계정당 PC 1 + 폰 1)·사용자 권한(음성 재생·안내데스크) 회귀 테스트 (2026-10-27, 가짜 엔진·무과금).
+/* 로그인 자리(계정당 PC 1 + 폰 1)·사용자 권한(TTS·안내데스크) 회귀 테스트 (2026-10-27, 가짜 엔진·무과금).
    - 같은 종류에서 다시 로그인하면 확인(409 confirmReplace) → replace 로 들어가면 이전 기기는 401 reason=replaced.
    - 비밀번호를 바꾸면(본인·관리자 재설정) 다른 기기는 reason=password, 바꾼 기기는 새 쿠키로 계속.
    - 번역 중인 호스트 연결은 토큰이 끊겨도 같은 세션 재접속은 되고, 새 세션 시작은 막힌다.
@@ -114,7 +114,7 @@ test('번역 중 다른 기기 로그인: 진행 중인 세션 재접속은 되�
   for (const w of [host, again]) w.close();
 });
 
-test('권한: 새 계정은 꺼짐, 안내데스크·음성 재생을 서버가 막고, 켜면 바로 쓸 수 있다', { timeout: 60000 }, async (t) => {
+test('권한: 새 계정은 꺼짐, 안내데스크·TTS 를 서버가 막고, 켜면 바로 쓸 수 있다', { timeout: 60000 }, async (t) => {
   const fake = await startFakeSoniox();
   const srv = await bootServer({ SONIOX_WS_URL: fake.url });
   t.after(async () => { await fake.close(); await srv.stop(); });
@@ -134,7 +134,7 @@ test('권한: 새 계정은 꺼짐, 안내데스크·음성 재생을 서버가 
   assert.equal((await call(base, 'GET', `/api/qr?session=${desk.id}`, choi)).status, 403);
   assert.equal(await openHost(base, choi, desk.id), 403);
   assert.equal((await call(base, 'POST', '/api/sessions', choi, { title: 'x', pipeline: 'desk' })).status, 403);
-  // 음성 재생: 미리듣기 거부, 내 세션의 QR 뷰어에 듣기 버튼 없음(tts:false)
+  // TTS: 미리듣기 거부, 내 세션의 QR 뷰어에 듣기 버튼 없음(tts:false)
   assert.equal((await call(base, 'POST', '/api/tts/preview', choi, { lang: 'ko' })).status, 403);
   assert.equal((await call(base, 'GET', `/api/sessions/${mine.id}`, choi)).body.tts, false);
 

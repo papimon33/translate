@@ -106,7 +106,7 @@ export const api = {
       return r.json();
     }),
   adminDeleteUser: (id) => fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' }).then(json),
-  // 사용자 권한(음성 재생 tts · 안내데스크 desk) 켜고 끄기
+  // 사용자 권한(TTS tts · 안내데스크 desk) 켜고 끄기
   adminSetPerms: (id, perms) =>
     fetch('/api/admin/users/' + encodeURIComponent(id) + '/perms', {
       method: 'PUT',

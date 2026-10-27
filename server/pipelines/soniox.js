@@ -31,7 +31,7 @@ export function runSoniox(h) {
   const sxTarget = okL(ws._sxTarget) ? ws._sxTarget : 'en';
   const sxA = okL(ws._sxA) ? ws._sxA : 'ko';
   const sxB = okL(ws._sxB) ? ws._sxB : 'en';
-  const canTts = !!(ws._perms && ws._perms.tts); // 음성 재생 권한(없으면 켜는 요청을 무시 — 화면은 버튼을 숨긴다)
+  const canTts = !!(ws._perms && ws._perms.tts); // TTS 권한(없으면 켜는 요청을 무시 — 화면은 버튼을 숨긴다)
   let ttsOn = ws._tts === '1' && !!CARTESIA_API_KEY && canTts;
   let gender = ws._gender === 'm' ? 'm' : 'f'; // 음성 성별(출력언어별 보이스 자동 선택)
   const diar = ws._diar === '1'; // 화자 구분(speaker diarization)

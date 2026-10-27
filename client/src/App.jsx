@@ -36,7 +36,7 @@ export default function App() {
   const [adminTab, setAdminTab] = useState('usage'); // 관리자 화면 탭
   const [user, setUser] = useState(undefined); // undefined=확인중, null=로그아웃
   const [lostReason, setLostReason] = useState(''); // 다른 기기 로그인·비밀번호 변경으로 로그아웃된 이유(로그인 화면 안내)
-  setPerms(user && user.perms); // 권한(음성 재생·안내데스크) — 화면들이 can() 으로 읽는다
+  setPerms(user && user.perms); // 권한(TTS·안내데스크) — 화면들이 can() 으로 읽는다
   const [isFs, setIsFs] = useState(false); // 전체화면(안내데스크) — 위 띠 숨김
   const theme = useMemo(() => buildTheme(mode, { brand: PC_V2 }), [mode]);
 

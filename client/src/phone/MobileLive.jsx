@@ -368,7 +368,7 @@ export default function MobileLive(p) {
         color={muteOn ? 'error.main' : undefined}>
         {muteOn ? <MicOffIcon /> : <MicIcon />}
       </Ctrl>
-      {/* 음성 재생 권한이 없으면 버튼 자체를 숨긴다(PC 소리 입력일 때는 흐리게) */}
+      {/* TTS 권한이 없으면 버튼 자체를 숨긴다(PC 소리 입력일 때는 흐리게) */}
       {p.ttsPerm && (
         <Ctrl label={ttsMade ? t('tts') : t('ttsOff')} onClick={toggleTts} pressed={ttsMade} disabled={!p.ttsAllowed} color={ttsMade ? undefined : 'text.secondary'}>
           <TtsIcon off={!ttsMade} />

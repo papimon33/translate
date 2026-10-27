@@ -13,7 +13,7 @@
 
 ## 규칙
 - 서버 코드는 `server/`(루트 `server.js` 는 진입 한 줄). 번역 로직은 `server/pipelines/`(soniox·desk·translate), 프롬프트·GPT 호출은 `server/vendors/openai.js`. 수정 후 실제 음성(또는 TTS)으로 검증할 것.
-- 테스트: 서버 `npm test`, 화면 `npm run build && npm run test:e2e`(가짜 엔진, 무과금). 권한(음성 재생·안내데스크)·로그인 자리(PC 1 + 폰 1)는 `server/auth/index.js`.
+- 테스트: 서버 `npm test`, 화면 `npm run build && npm run test:e2e`(가짜 엔진, 무과금). 권한(TTS·안내데스크)·로그인 자리(PC 1 + 폰 1)는 `server/auth/index.js`.
 - soniox=실시간 번역(단방향/양방향, 세션·데스크), translate=단일+띄어쓰기만 교정. whisper(구 4개국어 동시)는 삭제됨. 다듬기는 항상 on(토글 없음).
 - `.env`에 `OPENAI_API_KEY` 필요. OpenAI 호출은 항상 과금되니 테스트 세션은 끝나고 삭제.
 

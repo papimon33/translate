@@ -96,7 +96,7 @@ export function registerSessionRoutes(app) {
       pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, // src: 호스트 화면 재진입 시 소리 입력 복원(목록에서 열 때 이 값이 쓰인다)
       langs: s.langs || [], outLang: s.outLang, inLang: s.inLang,
       sxInfo: s.sxInfo || null, speakers: s.speakers || {},
-      tts: hasPerm(findUser(s.owner), 'tts'), // 세션 주인에게 음성 재생 권한이 있어야 QR 뷰어에 듣기 버튼
+      tts: hasPerm(findUser(s.owner), 'tts'), // 세션 주인에게 TTS 권한이 있어야 QR 뷰어에 듣기 버튼
       items: s.items || [],
     });
   });

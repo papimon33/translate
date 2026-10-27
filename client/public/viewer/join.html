@@ -108,12 +108,12 @@
   #landing { position:fixed; inset:0; z-index:40; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px; }
   #landing.hide { display:none; }
   #landing .lcard { width:100%; max-width:340px; text-align:center; }
-  /* 글자 로고 'airtalk.' — 폰 앱과 같은 Nunito 900 + 보라 마침표·보라 i 점(점 없는 ı 위에 보라 i 를 겹쳐 점만 남김, client/src/shared/Wordmark.jsx 와 같은 방식) */
+  /* 글자 로고 'airtalk.' — 폰 앱과 같은 Nunito 900 + 보라 마침표·보라 i 점(점 없는 ı 위에 보라 마침표를 올림, client/src/shared/Wordmark.jsx 와 같은 방식) */
   #landing .lbrand { font-family:'Nunito','Pretendard',system-ui,sans-serif; font-weight:900; font-size:40px; letter-spacing:-.02em; line-height:1; color:var(--txt); margin-bottom:28px; }
   #landing .lbrand .p { color:var(--brand); }
   #landing .lbrand .i { display:inline-grid; }
   #landing .lbrand .i > span { grid-area:1/1; }
-  #landing .lbrand .i > span + span { color:var(--brand); clip-path:inset(0 0 .74em 0); }
+  #landing .lbrand .i > span + span { color:var(--brand); transform:translate(.005em,-.566em); }
   #landing .ltitle { font-size:24px; font-weight:800; line-height:1.3; word-break:keep-all; }
   #landing .lmeta { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; color:var(--muted); font-size:14px; font-weight:600; }
   #landing .lmeta .d { width:8px; height:8px; border-radius:50%; background:#C9C7BF; }
@@ -135,7 +135,7 @@
 <body>
 <div id="landing">
   <div class="lcard">
-    <div class="lbrand" id="lBrandName" role="img" aria-label="AirTalk">a<span class="i"><span>ı</span><span>i</span></span>rtalk<span class="p">.</span></div>
+    <div class="lbrand" id="lBrandName" role="img" aria-label="AirTalk">a<span class="i"><span>ı</span><span>.</span></span>rtalk<span class="p">.</span></div>
     <div class="ltitle" id="lTitle">Session</div>
     <div class="lmeta"><span class="d" id="lLiveDot"></span><span id="lLive">Waiting</span></div>
     <button id="enterBtn">Enter</button>
@@ -446,7 +446,7 @@ function applySxInfo(info){
   rerender();
 }
 async function loadSession(){
-  let title = 'AirTalk', sxInfo = null, ttsOk = true; // ttsOk: 세션 주인에게 음성 재생 권한이 있을 때만 듣기 버튼
+  let title = 'AirTalk', sxInfo = null, ttsOk = true; // ttsOk: 세션 주인에게 TTS 권한이 있을 때만 듣기 버튼
   // 접속 순간 일시 네트워크 오류로 세션 타입을 whisper 기본값으로 오판한 채 굳지 않도록 — 실패 시 5초 뒤 재시도
   try { const s = await fetch('/api/sessions/'+sessionId+tq1).then(r=>r.json()); if (s){ if(s.title) title = s.title; if(s.pipeline) sessionPipeline = s.pipeline; if(s.outLang) sessionOutLang = s.outLang; sxInfo = s.sxInfo || null; speakerNames = s.speakers || {}; ttsOk = s.tts !== false; } }
   catch { setTimeout(loadSession, 5000); }

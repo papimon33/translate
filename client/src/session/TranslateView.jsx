@@ -298,7 +298,7 @@ export default function TranslateView({ session: initial, onBack, mobile = false
   // 고급옵션: 단독 응답어(네/Yes/Okay 단독 발화) 기록 생략 — 기본 꺼짐(보존)
   const [dropAcks, setDropAcks] = useState(() => localStorage.getItem('kac-drop-acks') === '1');
   const [ttsOn, setTtsOn] = useState(() => { const s = localStorage.getItem('kac-sx-tts'); return s === '1' ? true : s === '0' ? false : !onewayPreset; }); // 음성재생(TTS): 오프라인(대화) 기본 ON, 온라인 OFF
-  // TTS 는 음성 재생 권한이 있고 PC 소리를 캡처하지 않을 때만 — 캡처 중이면 TTS 음성이 PC 소리 채널로 되들어가 다시 번역된다.
+  // TTS 는 TTS 권한이 있고 PC 소리를 캡처하지 않을 때만 — 캡처 중이면 TTS 음성이 PC 소리 채널로 되들어가 다시 번역된다.
   // (켜 둔 저장값이 있어도 이 조건에서는 합성·재생하지 않는다)
   const ttsPerm = can('tts');
   const ttsAllowed = ttsPerm && sourceMode === 'mic';

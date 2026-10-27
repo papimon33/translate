@@ -104,8 +104,8 @@
   비밀번호 변경: 본인 변경 = 다른 기기 전부 로그아웃(지금 기기는 새 쿠키), 관리자 재설정 = 모든 기기(`reason:'password'`). 로그아웃하면 자리가 빈다.
   토큰 `id.kind.jti.발급.서명`(30일), 자리는 프로필 `logins[kind] = { jti, at, prev }`(관리자 포함, 파일·Mongo profiles). 기기 종류는 화면이 보냄(폰 화면 = phone). 배포 후 전원 한 번 다시 로그인.
   데스크 PC 는 데스크마다 계정을 따로 만든다(안내데스크 권한만 켬).
-- **사용자 권한(2026-10-27)**: `user.perms = { tts, desk }`, 관리자는 항상 전부. 관리자 > 계정 관리 줄마다 스위치, 사용자 추가 창 체크(기본 꺼짐). 권한 필드가 없던 기존 계정은 부팅 시 둘 다 켬(`migrateUserPerms`).
-  · 음성 재생(tts): 없으면 폰 TTS 버튼·음성 선택·PC TTS 설정 숨김, 서버는 호스트 TTS 요청 무시·`/api/tts/preview` 403, `GET /api/sessions/:id` 의 `tts:false` → QR 뷰어 듣기 버튼 없음.
+- **사용자 권한(2026-10-27)**: `user.perms = { tts, desk }`(화면 표시 이름 TTS·안내데스크), 관리자는 항상 전부. 관리자 > 계정 관리 줄마다 스위치, 사용자 추가 창 체크(기본 꺼짐). 권한 필드가 없던 기존 계정은 부팅 시 둘 다 켬(`migrateUserPerms`).
+  · TTS(tts): 없으면 폰 TTS 버튼·음성 선택·PC TTS 설정 숨김, 서버는 호스트 TTS 요청 무시·`/api/tts/preview` 403, `GET /api/sessions/:id` 의 `tts:false` → QR 뷰어 듣기 버튼 없음.
   · 안내데스크(desk): 없으면 목록·조회·현황(`/api/desk-status`)·QR·호스트/뷰어(로그인) 접속 거부. 만들기·이름 변경·삭제는 권한과 무관하게 관리자만.
   테스트 test/login-perms.test.mjs(서버) + 화면 테스트 3개.
 - **Soniox 헤더 인증(2026-10-27)**: start(config) 메시지의 `api_key` 가 2027-01-15 에 중단되므로 Soniox 실시간 STT 접속 4곳(실시간 번역·데스크 안내원/여객 채널·용어 실검증)을 `openSonioxWs()`(`Authorization: Bearer <SONIOX_API_KEY>` 헤더)로 바꾸고 config 에서 키를 뺐다. `test/soniox-auth.test.mjs`(가짜 엔진이 `conn.headers` 기록). `eval/*.mjs` 3개는 아직 구 방식.
@@ -121,7 +121,7 @@
   · 폰·PC 링크 공유 시트에 참여 코드 크게 + "airtalk.kr/j 에서 입력". 앱 다운로드 화면(폰 브라우저)에 "참여 코드로 보기"(/j). 테스트 test/join-code.test.mjs.
 - **운영 도메인 airtalk.kr(2026-10-27)**: 가비아 등록, DNS = A `@` 216.24.57.1 + CNAME `www` translate-voxm.onrender.com.(Render 문서 값). Render Custom Domains 에
   airtalk.kr 추가 → 인증서(Google Trust Services) 자동, www·http 는 https://airtalk.kr 로 301. 옛 주소 translate-voxm.onrender.com 도 같은 서비스라 계속 동작.
-  · 서버: 환경변수 `PUBLIC_HOST=airtalk.kr` 이면 QR(뷰어·데스크 랜딩 링크)을 항상 https://airtalk.kr 로(`/api/qr`, test/public-host.test.mjs). Render 대시보드에서 설정 필요.
+  · 서버: 환경변수 `PUBLIC_HOST=airtalk.kr` 이면 QR(뷰어·데스크 랜딩 링크)을 항상 https://airtalk.kr 로(`/api/qr`, test/public-host.test.mjs). Render 대시보드에 설정돼 있음.
   · 앱 기본 주소: 안드로이드 `DEFAULT_URL` = https://airtalk.kr(1.4.4, versionCode 10), 데스크톱 `desktop/main.js` SITE 동일(데스크톱은 태그/수동 빌드 때 반영).
     주소(출처)가 바뀌므로 앱 업데이트 후 첫 실행에 한 번 다시 로그인, 기기 저장 설정(입력 감도·자동 감도·스테레오 기억·세션별 언어 기억)은 초기화 — 계정 동기화 항목(언어·테마·글자 크기·TTS 음성)은 로그인 후 복원.
 - **폰 목록 길게 누르기(2026-10-27)**: 세션 줄을 0.5초 누르면(손가락이 10px 이상 움직이면 취소, PC 는 우클릭) 이름 바꾸기·세션 삭제 시트

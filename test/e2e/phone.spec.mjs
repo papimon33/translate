@@ -13,7 +13,7 @@ test('실시간 번역 한 바퀴', async ({ page, browser }) => {
   await page.goto('/');
   await page.getByText('E2E 폰').click();
   await expect(page.getByRole('button', { name: '시작' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^TTS/ })).toHaveCount(1); // 관리자는 음성 재생 권한 있음(권한 없는 계정 테스트와 짝)
+  await expect(page.getByRole('button', { name: /^TTS/ })).toHaveCount(1); // 관리자는 TTS 권한 있음(권한 없는 계정 테스트와 짝)
 
   const before = (await engine.conns()).total;
   await page.getByRole('button', { name: '시작' }).click();
@@ -64,7 +64,7 @@ test('목록 — 안내데스크는 안 보이고, 길게 누르면 이름 바�
   await expect(page.getByText('E2E 바뀐 이름')).toBeVisible();
 });
 
-test('음성 재생 권한이 없으면 TTS 버튼이 없다', async ({ page }) => {
+test('TTS 권한이 없으면 TTS 버튼이 없다', async ({ page }) => {
   await page.addInitScript(androidAudioStub);
   await login(page.request);
   await page.request.post('/api/admin/users', { data: { id: 'e2e-notts', password: 'nottspw' } });

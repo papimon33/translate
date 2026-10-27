@@ -59,7 +59,7 @@ export function makeUser({ id, username, password, role, perms }) {
 }
 
 /* ---- 사용자별 기능 권한(2026-10-27) — 관리자는 항상 전부 가능 ----
-   tts : 번역 음성 재생(읽은 글자 수만큼 비용) — 없으면 호스트 TTS·뷰어 듣기·음성 미리듣기를 서버가 막는다.
+   tts : 번역 음성 재생 TTS(읽은 글자 수만큼 비용) — 없으면 호스트 TTS·뷰어 듣기·음성 미리듣기를 서버가 막는다.
    desk: 안내데스크 운영(목록에 보이고 열기·시작) — 만들기·이름 변경·삭제는 권한과 무관하게 관리자만. */
 export const PERM_KEYS = ['tts', 'desk'];
 export function cleanPerms(p) {
@@ -73,7 +73,7 @@ export const permsOf = (u) => Object.fromEntries(PERM_KEYS.map((k) => [k, hasPer
 export function migrateUserPerms() {
   let n = 0;
   for (const u of users) if (!u.perms) { u.perms = { tts: true, desk: true }; n++; }
-  if (n) { saveUsers(); console.log(`[auth] 기존 계정 ${n}개에 권한(음성 재생·안내데스크) 부여`); }
+  if (n) { saveUsers(); console.log(`[auth] 기존 계정 ${n}개에 권한(TTS·안내데스크) 부여`); }
 }
 export function verifyPassword(user, password) {
   if (!user || !user.salt) return false;

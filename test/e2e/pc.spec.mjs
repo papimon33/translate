@@ -97,7 +97,7 @@ test('관리자 > 계정 관리 — 권한 스위치', async ({ page }) => {
   await login(page.request);
   await page.request.post('/api/admin/users', { data: { id: 'e2e-lee', password: 'leepw1' } });
   await page.goto('/admin/accounts');
-  const sw = page.getByRole('switch', { name: 'e2e-lee 음성 재생' });
+  const sw = page.getByRole('switch', { name: 'e2e-lee TTS' });
   await expect(sw).not.toBeChecked();
   await sw.click();
   await expect(sw).toBeChecked();

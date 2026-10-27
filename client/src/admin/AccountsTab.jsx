@@ -31,8 +31,8 @@ import { fmtDuration } from './format.js';
 
 // 사용자별 기능 권한 — 관리자는 항상 전부 가능. 안내데스크 만들기·이름 변경·삭제는 권한과 무관하게 관리자만.
 const PERMS = [
-  { k: 'tts', label: '음성 재생', hint: '번역 음성을 읽어 줍니다. 읽은 글자 수만큼 비용이 듭니다.' },
-  { k: 'desk', label: '안내데스크', hint: '목록에 안내데스크 세션이 보이고 운영할 수 있습니다.' },
+  { k: 'tts', label: 'TTS' },
+  { k: 'desk', label: '안내데스크' },
 ];
 const EMPTY_FORM = { id: '', username: '', password: '', perms: { tts: false, desk: false } };
 
@@ -98,7 +98,7 @@ export default function AccountsTab() {
               <TableCell align="right">세션 수</TableCell>
               <TableCell align="right">총 이용 시간</TableCell>
               {PERMS.map((p) => (
-                <TableCell key={p.k} align="center"><Tooltip title={p.hint}><span>{p.label}</span></Tooltip></TableCell>
+                <TableCell key={p.k} align="center">{p.label}</TableCell>
               ))}
               <TableCell align="right">관리</TableCell>
             </TableRow>
@@ -154,9 +154,9 @@ export default function AccountsTab() {
           <TextField fullWidth type="password" label="비밀번호" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && create()} />
           <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary', mt: 2.5, mb: 0.5 }}>권한</Typography>
           {PERMS.map((p) => (
-            <FormControlLabel key={p.k} sx={{ display: 'flex', alignItems: 'flex-start', mr: 0, mb: 0.5 }}
-              control={<Checkbox size="small" checked={!!form.perms[p.k]} onChange={(e) => setForm((f) => ({ ...f, perms: { ...f.perms, [p.k]: e.target.checked } }))} sx={{ pt: 0.5 }} />}
-              label={<Box><Typography sx={{ fontSize: 14, fontWeight: 700 }}>{p.label}</Typography><Typography sx={{ fontSize: 12.5, color: 'text.secondary' }}>{p.hint}</Typography></Box>} />
+            <FormControlLabel key={p.k} sx={{ display: 'flex', mr: 0 }}
+              control={<Checkbox size="small" checked={!!form.perms[p.k]} onChange={(e) => setForm((f) => ({ ...f, perms: { ...f.perms, [p.k]: e.target.checked } }))} />}
+              label={<Typography sx={{ fontSize: 14, fontWeight: 700 }}>{p.label}</Typography>} />
           ))}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>

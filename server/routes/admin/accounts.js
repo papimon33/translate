@@ -48,7 +48,7 @@ export function registerAccountRoutes(app) {
     saveUsers();
     res.json({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, sessionCount: 0, usageMs: 0, perms: u.perms });
   });
-  // 권한(음성 재생·안내데스크) 켜고 끄기 — 다음 연결부터 적용(진행 중인 번역은 그대로)
+  // 권한(TTS·안내데스크) 켜고 끄기 — 다음 연결부터 적용(진행 중인 번역은 그대로)
   app.put('/api/admin/users/:id/perms', requireAdmin, (req, res) => {
     const u = users.find((x) => x.id === req.params.id);
     if (!u) return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
