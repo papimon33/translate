@@ -9,7 +9,7 @@
    - 당시 표본은 전부 한국어 지배 발화 — 데스크 외국어 손님 발화가 쌓이면 이 스크립트로 재측정하고
      server.js 의 CONFFIX 상수를 조정할 것(rules 의 'PROD' 가 현행 규칙과 동기).
 
-   사용법: 서버 실행 중에  node eval/conf-analyze.mjs [BASE] [ID] [PW]
+   사용법: 서버 실행 중에  node tools/eval/conf-analyze.mjs [BASE] [ID] [PW]
            (기본 http://localhost:3000 admin/admin) */
 
 const BASE = process.argv[2] || 'http://localhost:3000';

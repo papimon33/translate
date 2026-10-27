@@ -3,7 +3,7 @@
 공항 실시간 음성 번역 웹앱. **Soniox 실시간 STT+번역**과 **Cartesia TTS**, **GPT(다듬기·교정)**를 조합해
 대면 안내(안내데스크)·회의·현장 통역을 지원합니다. 세션별 대화가 자동 저장되고, QR 로 연결한 태블릿/휴대폰 뷰어에서 함께 봅니다.
 
-> 개발 인수인계·아키텍처 상세는 **`PROJECT_NOTES.md`**(필독), 평가 절차는 `eval/TEST_GUIDE.md`.
+> 개발 인수인계·아키텍처 상세는 **`PROJECT_NOTES.md`**(필독), 평가 절차는 `tools/eval/TEST_GUIDE.md`.
 
 ## 주요 기능
 
@@ -39,7 +39,7 @@ npm start              # vite build && node server.js  (http://localhost:3000, �
 | 보안·부팅 | `test/security.test.mjs` · `boot.test.mjs` | TOTP·저장 암호화·에코 필터, 더미 키 실기동 |
 
 - 새 파이프라인 시나리오는 `test/helpers/fake-soniox.mjs`(토큰 재생) + `helpers/boot.mjs`(격리 부팅)로 작성.
-- **과금되는 실검증**(수동): `node eval/soniox-pairs.mjs` (언어쌍·오디오 재생 진단), 음성 E2E 는 `eval/tts-audio/` mp3 + `score.mjs --auto`.
+- **과금되는 실검증**(수동): `node tools/eval/soniox-pairs.mjs` (언어쌍·오디오 재생 진단), 음성 E2E 는 `tools/eval/tts-audio/` mp3 + `score.mjs --auto`.
 
 ## 로그(데이터) 구조 — 하나의 대화 로그로 여러 분석
 
@@ -81,10 +81,10 @@ npm start              # vite build && node server.js  (http://localhost:3000, �
 | **음성 지연** | `tm.ta − tm.c` | 카드 확정 후 TTS 첫 소리까지(합성 경로 성능) |
 | **체감 총지연** | `tm.ta − tm.e` | 말 끝 → 소리 시작(TTS 세션의 핵심 KPI) |
 | **응대 응답 지연** | 손님 item `tm.e` → 다음 안내원 item `tm.s` | 데스크 서비스 KPI |
-| **인식 품질** | `toks` confidence 분포 | `node eval/conf-analyze.mjs` — confFix 임계 재튜닝(근거: PROJECT_NOTES 2026-07-14(5)) |
+| **인식 품질** | `toks` confidence 분포 | `node tools/eval/conf-analyze.mjs` — confFix 임계 재튜닝(근거: PROJECT_NOTES 2026-07-14(5)) |
 | **언어 분포·응대량** | `deskLog.lang` · 건수/시간 | 관리자 > 사용량의 데스크 통계 |
 | **누화율** | `deskLog.stats.crossDrops` | 2채널 마이크 간섭 지표(높으면 마이크 배치·민감도 조정) |
-| **번역 정확도** | 응대 로그 → 평가 JSON | 관리자 > 로그 > [평가 JSON 내려받기] → `node eval/score.mjs --auto` |
+| **번역 정확도** | 응대 로그 → 평가 JSON | 관리자 > 로그 > [평가 JSON 내려받기] → `node tools/eval/score.mjs --auto` |
 
 백업: 관리자 > 시스템·보안 > **전체 데이터 백업(JSON)** — sessions(deskLog 포함)·데스크 정의·용어를 한 파일로.
 
@@ -97,7 +97,7 @@ client/src/          # React 앱(TranslateView·SessionList·AdminPage·Nav·aud
 client/public/       # desk.html(데스크 뷰어)·mobile.html(모바일 뷰어) — 독립 바닐라 JS
 android/             # Android 키오스크 앱(WebView + 네이티브 마이크) — android/README.md
 desktop/             # Electron 데스크톱 앱
-eval/                # 평가: dataset·score·conf-analyze·make-tts-audio(6언어 mp3)
+tools/eval/                # 평가: dataset·score·conf-analyze·make-tts-audio(6언어 mp3)
 ```
 
 WS 프로토콜·표시 규칙·운영/보안·과금 구조(context = input_text_tokens)는 `PROJECT_NOTES.md` 참고.

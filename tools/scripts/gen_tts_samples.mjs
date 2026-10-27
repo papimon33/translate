@@ -1,5 +1,5 @@
-// 언어별 TTS 테스트 문장 → mp3 저장 (tts_samples/<lang>/<lang>_female|male.mp3)
-// 사용: CARTESIA_API_KEY=sk_car_... node scripts/gen_tts_samples.mjs
+// 언어별 TTS 테스트 문장 → mp3 저장 (tools/tts_samples/<lang>/<lang>_female|male.mp3)
+// 사용: CARTESIA_API_KEY=sk_car_... node tools/scripts/gen_tts_samples.mjs
 //  (또는 .env 에 CARTESIA_API_KEY 가 있으면 자동 인식)
 // 문장: 서버 미리듣기 문장(TTS_TEST_PHRASE) 기준 + ru/es 추가. '라틴어'는 라틴어권(스페인어)로 해석.
 import fs from 'fs';
@@ -25,7 +25,7 @@ const PHRASE = {
 };
 
 for (const [lang, text] of Object.entries(PHRASE)) {
-  fs.mkdirSync(`tts_samples/${lang}`, { recursive: true });
+  fs.mkdirSync(`tools/tts_samples/${lang}`, { recursive: true });
   for (const g of ['f', 'm']) {
     const r = await fetch('https://api.cartesia.ai/tts/bytes', {
       method: 'POST',
@@ -37,9 +37,9 @@ for (const [lang, text] of Object.entries(PHRASE)) {
     });
     if (!r.ok) { console.error(lang, g, 'FAIL', r.status, (await r.text()).slice(0, 120)); continue; }
     const buf = Buffer.from(await r.arrayBuffer());
-    const f = `tts_samples/${lang}/${lang}_${g === 'f' ? 'female' : 'male'}.mp3`;
+    const f = `tools/tts_samples/${lang}/${lang}_${g === 'f' ? 'female' : 'male'}.mp3`;
     fs.writeFileSync(f, buf);
     console.log(f, Math.round(buf.length / 1024) + 'KB');
   }
 }
-console.log('완료 — tts_samples/ 아래 언어별 폴더 확인');
+console.log('완료 — tools/tts_samples/ 아래 언어별 폴더 확인');

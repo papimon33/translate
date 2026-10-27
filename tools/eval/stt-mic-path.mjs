@@ -14,7 +14,7 @@
  *   리샘플링·RNNoise 는 포함하지 않는다. 그건 음향 루프백(스피커→마이크)이라야 완전. 다만 앞선
  *   분석에서 지목한 '진범'(게이트 무음 삽입)은 이걸로 결정론적으로 격리·측정된다.
  *
- * 사용: node eval/stt-mic-path.mjs [script.json]
+ * 사용: node tools/eval/stt-mic-path.mjs [script.json]
  * 키: CARTESIA_API_KEY(최초 TTS, 이후 캐시), SONIOX_API_KEY. ⚠ Soniox 과금.
  */
 import fs from 'node:fs';

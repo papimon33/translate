@@ -22,8 +22,8 @@
    `records-<세션>-<회차>.json` 이 저장됩니다(발화별 인식 원문·번역·방향·언어 포함).
 3. **채점** —
    ```bash
-   node eval/score.mjs records-xxx-0.json --auto                  # OpenAI 채점(과금)
-   node eval/score.mjs records-xxx-0.json --auto --dry            # 무료(CER만)
+   node tools/eval/score.mjs records-xxx-0.json --auto                  # OpenAI 채점(과금)
+   node tools/eval/score.mjs records-xxx-0.json --auto --dry            # 무료(CER만)
    ```
    `--auto` 가 각 발화를 30개 시나리오 정답과 유사도로 대조해 자동 배정하고,
    대본에 없는 잡담·인사말은 "미매칭"으로 제외해 알려줍니다.
@@ -37,12 +37,12 @@
 
 | 항목 | 파일/위치 | 비고 |
 |---|---|---|
-| 정답셋 | `eval/dataset.json` | 30개 시나리오(난이도 하·중·상 각 10) |
-| 낭독 카드 | `eval/wordfiles/KAC_평가_<언어>.docx` | 언어별 7종, 인쇄해서 사용 |
-| 채점기 | `eval/score.mjs` | Node 실행 |
-| 정답셋 원본 | `eval/gen_dataset.py` | 문구 수정 시 여기서 → 재생성 |
+| 정답셋 | `tools/eval/dataset.json` | 30개 시나리오(난이도 하·중·상 각 10) |
+| 낭독 카드 | `tools/eval/wordfiles/KAC_평가_<언어>.docx` | 언어별 7종, 인쇄해서 사용 |
+| 채점기 | `tools/eval/score.mjs` | Node 실행 |
+| 정답셋 원본 | `tools/eval/gen_dataset.py` | 문구 수정 시 여기서 → 재생성 |
 
-> 정답셋·워드파일을 고칠 때는 `eval/gen_dataset.py` 를 수정하고 `python3 eval/gen_dataset.py` 재실행.
+> 정답셋·워드파일을 고칠 때는 `tools/eval/gen_dataset.py` 를 수정하고 `python3 tools/eval/gen_dataset.py` 재실행.
 > (dataset.json 과 워드파일이 함께 갱신됨)
 
 **검수 필수** — es/fr/pt/ar 번역과 파라타항공 표기는 초안입니다. 실측 전 원어민 검수로 확정하세요.
@@ -96,7 +96,7 @@
 - `direction`: `q`(질문, 외국어→한) / `a`(답변, 한→외국어)
 - **CER 정답은 발화된 형태로**: 화자가 "gate twenty-seven"이라 말하면 정답셋의 원문도 그렇게 둬야
   숫자 표기(27 vs twenty-seven) 차이가 인식 오류로 잘못 잡히지 않습니다. (필요 시 gen_dataset.py 조정)
-- 파일 경로 예: `eval/records.json`
+- 파일 경로 예: `tools/eval/records.json`
 
 ---
 
@@ -104,13 +104,13 @@
 
 ```bash
 # (a) 형식·CER 만 — OpenAI 호출 없음, 무료
-node eval/score.mjs eval/records.json --dry
+node tools/eval/score.mjs tools/eval/records.json --dry
 
 # (b) 전체 채점 — OpenAI 적합성 심사까지 (.env 의 OPENAI_API_KEY 사용, 과금)
-node eval/score.mjs eval/records.json --out eval/result.json
+node tools/eval/score.mjs tools/eval/records.json --out tools/eval/result.json
 
 # 심사 모델 지정(기본 gpt-5-mini)
-OPENAI_JUDGE_MODEL=gpt-5 node eval/score.mjs eval/records.json --out eval/result.json
+OPENAI_JUDGE_MODEL=gpt-5 node tools/eval/score.mjs tools/eval/records.json --out tools/eval/result.json
 ```
 
 산출 리포트:
@@ -153,5 +153,5 @@ OPENAI_JUDGE_MODEL=gpt-5 node eval/score.mjs eval/records.json --out eval/result
 수집 전 채점기·형식이 도는지 표본으로 확인:
 
 ```bash
-node eval/score.mjs eval/sample-records.json --dry
+node tools/eval/score.mjs tools/eval/sample-records.json --dry
 ```

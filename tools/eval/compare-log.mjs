@@ -11,7 +11,7 @@
  *   1) 관리자 로그에서 세션 JSON 을 받는다:
  *      curl -b cookie.txt 'http://HOST/api/admin/logs/session/<세션ID>' > log.json
  *      (또는 관리자 페이지 로그에서 대화 전문을 복사해 { "items": [{ "source": "..." }] } 형태로 저장)
- *   2) node eval/compare-log.mjs log.json slot
+ *   2) node tools/eval/compare-log.mjs log.json slot
  *
  * 출력: 콘솔 리포트 + eval/compare-log.out.json
  */
@@ -40,7 +40,7 @@ const cer = (ref, hyp) => { const a = bare(ref), b = bare(hyp); return a.length 
 // ---- 입력 ----
 const [, , logPath, scriptId] = process.argv;
 if (!logPath || !scriptId) {
-  console.error('사용: node eval/compare-log.mjs <세션로그.json> <slot|ai>');
+  console.error('사용: node tools/eval/compare-log.mjs <세션로그.json> <slot|ai>');
   process.exit(1);
 }
 const { scripts } = JSON.parse(fs.readFileSync(path.join(DIR, 'demo-scripts.json'), 'utf8'));

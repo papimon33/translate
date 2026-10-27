@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { b32encode, b32decode, totpCode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from '../security_util.js';
+import { b32encode, b32decode, totpCode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from '../server/util/security_util.js';
 
 test('base32 라운드트립', () => {
   for (const len of [1, 5, 16, 20, 33]) {

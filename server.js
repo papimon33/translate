@@ -6,9 +6,9 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
-import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from './wayfind_dict.js';
-import { b32encode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from './security_util.js';
-import { kstDay, CONFFIX, confFixReal, confFixTrigger, confFixMark, isAckOnly, stripFillers, sanitizeTranslation, deskCtlAllowed } from './pipeline_util.js';
+import { detectCategory, isLocationAnswer, parseAnswerFloor, CATEGORIES } from './server/desk/wayfind_dict.js';
+import { b32encode, totpVerify, deriveDataKey, encryptData, decryptData, echoNorm, echoMatch } from './server/util/security_util.js';
+import { kstDay, CONFFIX, confFixReal, confFixTrigger, confFixMark, isAckOnly, stripFillers, sanitizeTranslation, deskCtlAllowed } from './server/util/pipeline_util.js';
 
 // 엔진 접속 URL — 테스트에서 로컬 fake 엔진으로 오버라이드(실 엔진 호출은 항상 과금되므로)
 const SONIOX_WS_URL = process.env.SONIOX_WS_URL || 'wss://stt-rt.soniox.com/transcribe-websocket';
@@ -152,7 +152,7 @@ app.use(express.static(STATIC_DIR));
 // 디렉터리 통째 서빙(express.static)은 인증 미들웨어보다 앞이라 제작용 도구 파일(test.html,
 // _serve.py, original/*.html 등)까지 무인증 공개됐다 → 뷰어가 실제로 로드하는 2개만 노출한다.
 for (const f of ['wayfinding_data.js', 'airport25d.js']) {
-  app.get('/map/' + f, (req, res) => res.sendFile(new URL('./map/' + f, import.meta.url).pathname));
+  app.get('/map/' + f, (req, res) => res.sendFile(new URL('./assets/map/' + f, import.meta.url).pathname));
 }
 
 // 데스크 뷰어 PWA manifest — '홈 화면에 추가'로 실행 시 항상 전체화면 유지. 시작 주소 = /desk/<참여 코드>
@@ -1069,7 +1069,7 @@ const metrics = { startedAt: Date.now(), errors: [], clientErrors: [], saveFail:
    건수 상한과 별개로 **바이트 상한**을 함께 둔다: 데스크 세션은 deskLog 를 품은 문서 1개라
    Mongo 문서 한도(16MB)를 넘기면 replaceOne 이 통째로 실패한다 — 오래된 응대 몇 건이 잘리는 것과 달리
    그 데스크의 저장이 전부 멈춰 새 응대까지 사라진다. 잘림보다 훨씬 나쁜 실패라 먼저 막는다.
-   item.toks(단어별 신뢰도)는 지우지 않는다 — eval/conf-analyze.mjs 가 이걸 읽어 confFix 임계값 근거를
+   item.toks(단어별 신뢰도)는 지우지 않는다 — tools/eval/conf-analyze.mjs 가 이걸 읽어 confFix 임계값 근거를
    뽑고, 공항 실소음·실억양의 신뢰도 분포는 시범 기간에만 얻을 수 있는 데이터다. */
 const DESKLOG_MAX_BYTES = 8 * 1024 * 1024;
 function capDeskLog(session) {
@@ -1938,7 +1938,7 @@ app.post('/api/terms-config/validate', requireAdmin, async (req, res) => {
   res.json({ at: Date.now(), results });
 });
 
-/* (평가 러너는 제거됨 — 평가는 데스크 응대 로그의 '평가 JSON' 내려받기 + eval/score.mjs --auto 로 진행) */
+/* (평가 러너는 제거됨 — 평가는 데스크 응대 로그의 '평가 JSON' 내려받기 + tools/eval/score.mjs --auto 로 진행) */
 
 /* ---- 세션 REST API ---- */
 app.get('/api/sessions', requireAuth, (req, res) => {
@@ -2548,7 +2548,7 @@ app.get('*', (req, res, next) => {
    soniox 원문 토큰의 confidence 로 '오인식 의심 발화'만 골라 GPT(REFINE_MODEL)가 대화 맥락·용어를
    보고 원문을 교정 → 재번역해 카드를 덮어쓴다(같은 id upsert). TTS 는 이미 재생됐을 수 있어 텍스트만 교정.
 
-   ⚠ 임계 선택 근거(재튜닝 시 필독 — 상세는 PROJECT_NOTES '2026-07-14 (5)', 재분석은 eval/conf-analyze.mjs):
+   ⚠ 임계 선택 근거(재튜닝 시 필독 — 상세는 PROJECT_NOTES '2026-07-14 (5)', 재분석은 tools/eval/conf-analyze.mjs):
    실로그 3세션(테스트 81발화·Le train 68·Bonjour 50, 실단어 토큰 ~4,700)으로 규칙별 발동률을 시뮬레이션한 결과 —
    · '단발 최소 conf ≤ 0.35' 는 세션별 15%/24%/58% 로 편차 극심 → 폐기.
      원인: soniox 는 ①한국어 어절 첫 음절 ②조사·구두점 ③언어 전환 경계(한↔영 코드스위칭)에
@@ -2556,7 +2556,7 @@ app.get('*', (req, res, next) => {
    · 진짜 오인식(찝찝대는/측측대는/逆 등)은 음절이 줄줄이 틀려 저신뢰가 '연속'된다 →
      '연속 2개 이상 conf<0.4' 규칙은 3세션에서 0%/0%/8% 로 안정 발동(이 규칙 채택 = 규칙 C).
    · 연속 규칙도 오탐 가능(담당인력 0.11/0.09 연속인데 정상) → GPT 의 changed=false 가 최종 거름망.
-   · 표본이 전부 한국어 지배 발화라, 데스크 외국어 손님 발화가 쌓이면 eval/conf-analyze.mjs 로 재측정할 것. */
+   · 표본이 전부 한국어 지배 발화라, 데스크 외국어 손님 발화가 쌓이면 tools/eval/conf-analyze.mjs 로 재측정할 것. */
 // 활성 용어를 프롬프트용으로: 외국어 원문이면 '표기=한국어' 쌍, 한국어 원문이면 표기 목록(상위 30개)
 function confFixTerms(srcLang) {
   try {
@@ -2922,7 +2922,7 @@ let _facilities = null; // { '1F':[{name,x,y,in_secure,...}], ... }
 function loadFacilities() {
   if (_facilities) return _facilities;
   try {
-    let s = fs.readFileSync(new URL('./map/wayfinding_data.js', import.meta.url), 'utf8');
+    let s = fs.readFileSync(new URL('./assets/map/wayfinding_data.js', import.meta.url), 'utf8');
     s = s.replace(/^\s*window\.AIRPORT_DATA\s*=/, '').replace(/;\s*$/, '');
     const d = JSON.parse(s);
     _facilities = d.facilities || {};

@@ -4,8 +4,8 @@
  *      (마이크 경로까지 태우려면 스피커로 틀고 마이크로 받으면 됨 — 항공/IT 외래어가 다수 포함돼 있다)
  *
  * 사용:
- *   node eval/make-demo-audio.mjs           # 전체(slot, ai)
- *   node eval/make-demo-audio.mjs slot      # 특정 스크립트만
+ *   node tools/eval/make-demo-audio.mjs           # 전체(slot, ai)
+ *   node tools/eval/make-demo-audio.mjs slot      # 특정 스크립트만
  *
  * 키: CARTESIA_API_KEY (.env). ⚠ 합성은 과금 — 문장별 sha1 캐시(eval/tts-audio/demo-cache/)로 재실행 시 무과금.
  * 출력: eval/tts-audio/demo_<id>.mp3 + demo-manifest.json (문장별 시작 시각 — 인식 결과 대조용)

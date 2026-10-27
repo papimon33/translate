@@ -3,7 +3,7 @@
    - 답변: ko (answer.ko_src)
    - 각 발언은 2초 무음을 사이에 두고 한 파일로 연결. raw PCM(24kHz) 로 받아 무음 삽입 후 lamejs 로 mp3 인코딩.
    출력: eval/tts-audio/questions_<lang>.mp3, answers_ko.mp3, manifest.json
-   사용: node eval/make-tts-audio.mjs   (.env 의 CARTESIA_API_KEY / OPENAI_API_KEY 필요) */
+   사용: node tools/eval/make-tts-audio.mjs   (.env 의 CARTESIA_API_KEY / OPENAI_API_KEY 필요) */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';

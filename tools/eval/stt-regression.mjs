@@ -10,10 +10,10 @@
  *   보장은 아니다. 발굴은 사람 녹음/실로그로, 검증(전후 비교)은 이 루프로 — 하이브리드 권장.
  *
  * 사용:
- *   node eval/stt-regression.mjs                      # 기본 스크립트(stt-script.json), base+terms 둘 다
- *   node eval/stt-regression.mjs my-script.json       # 다른 스크립트
- *   node eval/stt-regression.mjs --base               # 용어 미적용만(빠른 baseline)
- *   node eval/stt-regression.mjs --terms              # 용어 적용만
+ *   node tools/eval/stt-regression.mjs                      # 기본 스크립트(stt-script.json), base+terms 둘 다
+ *   node tools/eval/stt-regression.mjs my-script.json       # 다른 스크립트
+ *   node tools/eval/stt-regression.mjs --base               # 용어 미적용만(빠른 baseline)
+ *   node tools/eval/stt-regression.mjs --terms              # 용어 적용만
  *
  * 키: CARTESIA_API_KEY(TTS), SONIOX_API_KEY(전사) — .env 또는 환경변수.
  * ⚠ Soniox 는 실호출 과금. TTS 는 sha1 캐시(eval/tts-audio/regression/*.pcm) — 재실행 시 무과금.

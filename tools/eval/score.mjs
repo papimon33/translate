@@ -5,11 +5,11 @@
  * 채점 로직은 eval/score_core.mjs 공유(서버 /api/eval/score 도 동일 로직 사용).
  *
  * 사용:
- *   node eval/score.mjs eval/records.json                 # 전체 채점(OpenAI 과금)
- *   node eval/score.mjs eval/records.json --dry           # CER·구조만, OpenAI 호출 없음(무료)
- *   node eval/score.mjs eval/records.json --auto          # scenario_id 없는 항목을 정답 원문 유사도로 자동 매칭
- *   node eval/score.mjs eval/records.json --out out.json  # 상세 결과 JSON 저장
- *   OPENAI_JUDGE_MODEL=gpt-5  node eval/score.mjs ...      # 심사 모델 지정(기본 gpt-5-mini)
+ *   node tools/eval/score.mjs eval/records.json                 # 전체 채점(OpenAI 과금)
+ *   node tools/eval/score.mjs eval/records.json --dry           # CER·구조만, OpenAI 호출 없음(무료)
+ *   node tools/eval/score.mjs eval/records.json --auto          # scenario_id 없는 항목을 정답 원문 유사도로 자동 매칭
+ *   node tools/eval/score.mjs eval/records.json --out out.json  # 상세 결과 JSON 저장
+ *   OPENAI_JUDGE_MODEL=gpt-5  node tools/eval/score.mjs ...      # 심사 모델 지정(기본 gpt-5-mini)
  *
  * --auto: 데스크 응대 로그에서 내려받은 '평가 JSON'(관리자 → 로그 → 응대 상세)은 scenario_id 가
  *   없어도 된다 — 각 발화의 인식 원문을 30개 시나리오의 정답 원문과 CER 로 대조해 가장 가까운
@@ -29,7 +29,7 @@ const AUTO = args.includes('--auto');
 const outIdx = args.indexOf('--out');
 const OUT = outIdx >= 0 ? args[outIdx + 1] : null;
 const recPath = args.find((a) => !a.startsWith('--') && a !== OUT);
-if (!recPath) { console.error('사용법: node eval/score.mjs <records.json> [--dry] [--auto] [--out result.json]'); process.exit(1); }
+if (!recPath) { console.error('사용법: node tools/eval/score.mjs <records.json> [--dry] [--auto] [--out result.json]'); process.exit(1); }
 
 const JUDGE_MODEL = process.env.OPENAI_JUDGE_MODEL || 'gpt-5-mini';
 

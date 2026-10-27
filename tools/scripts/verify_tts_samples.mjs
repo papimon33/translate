@@ -1,6 +1,6 @@
-// tts_samples/ 의 mp3 를 Soniox 비동기 전사 API 에 넣어 "TTS 음성이 STT 로 제대로 인식되는지" 검증하고
-// tts_samples/VERIFICATION.md 리포트를 남긴다. (ffmpeg 불필요 — mp3 를 서버측에서 디코딩)
-// 사용: node scripts/verify_tts_samples.mjs   (.env 의 SONIOX_API_KEY 사용)
+// tools/tts_samples/ 의 mp3 를 Soniox 비동기 전사 API 에 넣어 "TTS 음성이 STT 로 제대로 인식되는지" 검증하고
+// tools/tts_samples/VERIFICATION.md 리포트를 남긴다. (ffmpeg 불필요 — mp3 를 서버측에서 디코딩)
+// 사용: node tools/scripts/verify_tts_samples.mjs   (.env 의 SONIOX_API_KEY 사용)
 import fs from 'fs';
 import path from 'path';
 import { cer, normalize } from '../eval/score_core.mjs';
@@ -49,7 +49,7 @@ async function transcribe(fileId, lang) {
 const rows = [];
 for (const lang of Object.keys(PHRASE)) {
   for (const g of ['female', 'male']) {
-    const fp = `tts_samples/${lang}/${lang}_${g}.mp3`;
+    const fp = `tools/tts_samples/${lang}/${lang}_${g}.mp3`;
     if (!fs.existsSync(fp)) continue;
     process.stdout.write(`${fp} ... `);
     try {
@@ -70,15 +70,15 @@ const pass = rows.filter((r) => r.ok).length;
 const md = [
   '# TTS 샘플 음성 검증 리포트',
   '',
-  `- 생성: Cartesia sonic-3.5 (tts_samples/) · 검증: Soniox stt-async-preview (언어 힌트 지정)`,
+  `- 생성: Cartesia sonic-3.5 (tools/tts_samples/) · 검증: Soniox stt-async-preview (언어 힌트 지정)`,
   `- 판정: 원문 대비 CER ≤ 10% = PASS (문장부호·공백 무시 정규화 후 비교)`,
   `- 결과: **${pass}/${rows.length} PASS** · ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`,
   '',
   '| 파일 | 기대 문장 | 인식 결과 | CER | 판정 |',
   '|---|---|---|---|---|',
-  ...rows.map((r) => `| ${r.fp.replace('tts_samples/', '')} | ${r.expected} | ${r.got} | ${(r.cer * 100).toFixed(1)}% | ${r.ok ? '✅ PASS' : '❌ FAIL'} |`),
+  ...rows.map((r) => `| ${r.fp.replace('tools/tts_samples/', '')} | ${r.expected} | ${r.got} | ${(r.cer * 100).toFixed(1)}% | ${r.ok ? '✅ PASS' : '❌ FAIL'} |`),
   '',
   '정규화 비교 기준: ' + `normalize("${PHRASE.en}") → "${normalize(PHRASE.en)}"`,
 ].join('\n');
-fs.writeFileSync('tts_samples/VERIFICATION.md', md);
-console.log(`\n완료 — ${pass}/${rows.length} PASS → tts_samples/VERIFICATION.md`);
+fs.writeFileSync('tools/tts_samples/VERIFICATION.md', md);
+console.log(`\n완료 — ${pass}/${rows.length} PASS → tools/tts_samples/VERIFICATION.md`);

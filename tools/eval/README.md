@@ -24,7 +24,7 @@
 ## 파일
 
 - `gen_dataset.py` — **정답셋의 원본(single source of truth)**. 번역을 여기서 저작 → `dataset.json` +
-  `wordfiles/*.docx`(언어별) 생성. 내용 수정은 이 파일에서 하고 `python3 eval/gen_dataset.py` 재실행.
+  `wordfiles/*.docx`(언어별) 생성. 내용 수정은 이 파일에서 하고 `python3 tools/eval/gen_dataset.py` 재실행.
 - `dataset.json` — 생성물(채점기 입력). 30개 시나리오(난이도 하·중·상 각 10). 시나리오별 `question.src`(외국어 원문, 언어별)·
   `question.ko_ref`(한국어 모범 번역), `answer.ko_src`(한국어 원문)·`answer.ref`(외국어 모범 번역, 언어별), `traps`.
   항공사명 포함 10문항, 버스터미널 1문항, 항공편 답변 일부는 "항공사 카운터 문의"로 유도.
@@ -38,13 +38,13 @@
 
 ```bash
 # 형식·CER 만(무료, OpenAI 호출 없음)
-node eval/score.mjs eval/sample-records.json --dry
+node tools/eval/score.mjs tools/eval/sample-records.json --dry
 
 # 전체 채점(OpenAI 과금 — .env 의 OPENAI_API_KEY 사용)
-node eval/score.mjs eval/records.json --out eval/result.json
+node tools/eval/score.mjs tools/eval/records.json --out tools/eval/result.json
 
 # 심사 모델 지정(기본 gpt-5-mini)
-OPENAI_JUDGE_MODEL=gpt-5 node eval/score.mjs eval/records.json
+OPENAI_JUDGE_MODEL=gpt-5 node tools/eval/score.mjs tools/eval/records.json
 ```
 
 리포트: 방향·언어별 CER/적합성/정상률, 오류 귀속 분포(STT vs MT), 번역 오류 유형 히스토그램,

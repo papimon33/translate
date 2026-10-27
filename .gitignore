@@ -9,10 +9,10 @@ data/
 .DS_Store
 
 # eval 생성물(오디오·캐시·리포트) — 스크립트로 재생성. 소스(*.mjs/*.json 스크립트·스크립트 데이터)는 커밋.
-#  ⚠ 디렉터리형(eval/tts-audio/)으로 무시하면 ! 예외가 먹지 않으므로 와일드카드로 지정한다.
-eval/tts-audio/*
-eval/*.out.json
-eval/tts-audio.zip
+#  ⚠ 디렉터리형(tools/eval/tts-audio/)으로 무시하면 ! 예외가 먹지 않으므로 와일드카드로 지정한다.
+tools/eval/tts-audio/*
+tools/eval/*.out.json
+tools/eval/tts-audio.zip
 
 android/.gradle/
 android/build/
