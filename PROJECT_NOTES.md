@@ -118,7 +118,7 @@
     (2026-10-28) 안내데스크 세션도 일반 세션처럼 **만든 사람의 것** — 목록·현황은 자기 것만(관리자도), 열기·이름 변경·삭제는 주인(권한 필요) 또는 관리자(주소로). `auth canUseSession`.
     전에는 권한이 있으면 모든 데스크가 보였고, 배포 때 기존 계정은 권한이 자동으로 켜져 다른 계정에도 보였다.
   테스트 test/login-perms.test.mjs(서버) + 화면 테스트 3개.
-- **Soniox 헤더 인증(2026-10-27)**: start(config) 메시지의 `api_key` 가 2027-01-15 에 중단되므로 Soniox 실시간 STT 접속 4곳(실시간 번역·데스크 안내원/여객 채널·용어 실검증)을 `openSonioxWs()`(`Authorization: Bearer <SONIOX_API_KEY>` 헤더)로 바꾸고 config 에서 키를 뺐다. `test/soniox-auth.test.mjs`(가짜 엔진이 `conn.headers` 기록). `eval/*.mjs` 3개는 아직 구 방식.
+- **Soniox 헤더 인증(2026-10-27)**: start(config) 메시지의 `api_key` 가 2027-01-15 에 중단되므로 Soniox 실시간 STT 접속 4곳(실시간 번역·데스크 안내원/여객 채널·용어 실검증)을 `openSonioxWs()`(`Authorization: Bearer <SONIOX_API_KEY>` 헤더)로 바꾸고 config 에서 키를 뺐다. `test/soniox-auth.test.mjs`(가짜 엔진이 `conn.headers` 기록). 평가 도구 3개(`tools/eval/soniox-pairs·stt-mic-path·stt-regression`)도 2026-10-28 헤더 방식으로(Node 내장 WebSocket 의 headers 옵션).
 - **주소 정리(2026-10-27, 배포 전이라 일괄 변경)**: 사용자에게 보이는 주소를 짧고 의미 있게.
   · QR 참여 = `/j/<참여 코드>`(6자리, 0·O·1·I·L 제외 31자), 코드 입력 화면 `/j`, 안내데스크 태블릿 = `/desk/<코드>`·랜딩 `/desk`, 오버레이 `/overlay`, 앱 받기 `/app`.
     세션마다 `joinCode` 를 한 번 만들어 저장(`ensureJoinCode`, 인쇄 QR 유지). 서버가 뷰어 페이지(`dist/viewer/*.html`)에 `window.__JOIN={session,t,code}` 를 심어 보낸다

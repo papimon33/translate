@@ -31,13 +31,13 @@ if (!KEY) { console.error('❌ SONIOX_API_KEY 없음 — .env에 넣거나 환�
 if (typeof WebSocket === 'undefined') { console.error('❌ 이 node에 전역 WebSocket 없음 — node 18+ 필요.'); process.exit(1); }
 
 const baseCfg = {
-  api_key: KEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
+  model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: 24000, num_channels: 1,
   enable_language_identification: true, enable_endpoint_detection: true,
 };
 
 function testPair(lang) {
   return new Promise((resolve) => {
-    const ws = new WebSocket(URL_SX);
+    const ws = new WebSocket(URL_SX, { headers: { Authorization: `Bearer ${KEY}` } }) /* 키는 헤더로(config api_key 는 2027-01-15 중단) */;
     let settled = false, err = null;
     const done = (status) => { if (settled) return; settled = true; try { ws.close(); } catch {} resolve({ lang, status, err }); };
     ws.binaryType = 'arraybuffer';
@@ -58,7 +58,7 @@ function testPair(lang) {
 async function streamAudio(file) {
   if (!file || !fs.existsSync(file)) { console.error('❌ PCM 파일 경로가 필요합니다 (24kHz mono s16le).'); process.exit(1); }
   const buf = fs.readFileSync(file);
-  const ws = new WebSocket(URL_SX);
+  const ws = new WebSocket(URL_SX, { headers: { Authorization: `Bearer ${KEY}` } }) /* 키는 헤더로(config api_key 는 2027-01-15 중단) */;
   const t0 = Date.now();
   let firstLang = null, firstLangT = null;
   ws.binaryType = 'arraybuffer';

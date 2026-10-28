@@ -74,7 +74,7 @@ async function ttsPCM(text) {
 // --- Soniox 전사(원문만) — 필요 시 context.terms 주입 ---
 function transcribe(pcmBuf, terms) {
   return new Promise((resolve) => {
-    const ws = new WebSocket(SX_URL);
+    const ws = new WebSocket(SX_URL, { headers: { Authorization: `Bearer ${SKEY}` } }) /* 키는 헤더로(config api_key 는 2027-01-15 중단) */;
     const finals = [];
     let settled = false;
     const finish = () => { if (settled) return; settled = true; try { ws.close(); } catch {} resolve(finals.join('').trim()); };
@@ -82,7 +82,7 @@ function transcribe(pcmBuf, terms) {
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       const cfg = {
-        api_key: SKEY, model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: RATE, num_channels: 1,
+        model: 'stt-rt-v5', audio_format: 'pcm_s16le', sample_rate: RATE, num_channels: 1,
         enable_language_identification: true, enable_endpoint_detection: true, language_hints: ['ko'],
       };
       if (terms && terms.length) cfg.context = { terms };
