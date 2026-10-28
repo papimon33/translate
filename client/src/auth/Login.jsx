@@ -11,7 +11,10 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import { api } from '../shared/api.js';
 import { BRAND, BRAND_DARK } from '../shared/brand.js';
-import { appReady } from '../shared/env.js';
+import { appReady, MOBILE_UI } from '../shared/env.js';
+
+// 데스크톱 앱 설치본 — 이 컴퓨터가 Mac 이면 dmg, 아니면 Windows exe(서버가 최신 릴리스에서 골라 준다)
+const DESKTOP_HREF = `/download/desktop?platform=${typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '') ? 'mac' : 'win'}`;
 
 // 아이디·비밀번호는 폰 키보드가 첫 글자를 대문자로 바꾸거나 자동 수정하지 않게
 const PLAIN_INPUT = { autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false };
@@ -115,6 +118,13 @@ export default function Login({ onSuccess, lostReason }) {
           sx={{ height: 52, borderRadius: '12px', fontSize: 16, fontWeight: 700, bgcolor: BRAND, color: '#fff', '&:hover': { bgcolor: BRAND_DARK }, '&.Mui-disabled': { bgcolor: BRAND, color: '#fff', opacity: 0.4 } }}>
           {busy ? '확인 중…' : need2fa ? '코드 확인' : '로그인'}
         </Button>
+        {!MOBILE_UI && (
+          <Box sx={{ textAlign: 'center', mt: 2.5 }}>
+            <Box component="a" href={DESKTOP_HREF} sx={{ fontSize: 13.5, color: 'text.secondary', textDecoration: 'none', '&:hover, &:focus-visible': { textDecoration: 'underline', color: 'text.primary' } }}>
+              데스크톱 앱 받기
+            </Box>
+          </Box>
+        )}
       </Box>
       <Dialog open={askReplace} onClose={() => setAskReplace(false)} PaperProps={{ sx: { width: 400, maxWidth: 'calc(100% - 32px)', borderRadius: '20px' } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 1 }}>다른 기기에서 사용 중인 계정입니다</DialogTitle>

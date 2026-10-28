@@ -116,3 +116,10 @@ test('안내데스크 권한이 없으면 새 세션 창에 안내데스크 항�
   await expect(dlg.getByText('실시간 번역', { exact: true })).toBeVisible();
   await expect(dlg.getByText('다른 세션')).toHaveCount(0);
 });
+
+test('로그인 화면 — 로그인 버튼 아래 데스크톱 앱 받기 링크', async ({ page }) => {
+  await page.goto('/');
+  const a = page.getByRole('link', { name: '데스크톱 앱 받기' });
+  await expect(a).toBeVisible();
+  expect(await a.getAttribute('href')).toMatch(/^\/download\/desktop\?platform=(mac|win)$/);
+});

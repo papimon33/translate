@@ -88,11 +88,13 @@ export function registerDownloadRoutes(app) {
       reason: d.available ? null : (d.reason || null),
     });
   });
-  app.get('/download/desktop', requireAuth, (req, res) => {
+  // 설치본은 로그인 없이 받는다(2026-10-28, 로그인 화면 아래 링크) — 앱 안에서 로그인해야 쓸 수 있어 APK(/app)와 같은 이유로 공개.
+  // 설치된 앱의 자동 업데이트도 이 주소(?platform=)를 쓴다.
+  app.get('/download/desktop', (req, res) => {
     const plat = req.query.platform === 'mac' ? 'mac' : req.query.platform === 'android' ? 'android' : 'win';
     sendLatestInstaller(res, plat);
   });
   // 휴대폰 브라우저 접속 = 로그인 없이 앱 설치 안내(폰은 앱으로만 쓴다) — APK 는 공개 GitHub 릴리스와 같은 파일이고
-  // 앱 안에서도 로그인해야 쓸 수 있으므로 공개해도 된다. 안드로이드만(데스크톱 설치본은 그대로 로그인 필요).
+  // 앱 안에서도 로그인해야 쓸 수 있으므로 공개해도 된다.
   app.get('/app', (req, res) => sendLatestInstaller(res, 'android')); // 앱 받기(2026-10-27, 예전 /download/android)
 }
