@@ -37,6 +37,7 @@ import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import { api } from '../shared/api.js';
 import { RADIUS } from '../shared/theme.js';
 import { IcoHeadset } from './icons.jsx';
+import { can } from '../shared/authState.js';
 
 function rel(ts) {
   const d = Date.now() - ts;
@@ -85,7 +86,7 @@ export const SITUATIONS = [
 export const TYPE_NAME = { oneway: '실시간 번역', twoway: '양방향 통역', live: '실시간 번역', online: '실시간 번역', mobile: '양방향 통역', field: '양방향 통역', meeting: '양방향 통역' };
 // 세션 모드 → 아이콘(목록·모달 공용)
 export const MODE_ICON = { oneway: IconMode1, twoway: IconMode3, live: IconMode1, online: IconMode1, mobile: IconMode3, field: IconMode3, meeting: IconMode3 };
-// 안내데스크 세션(PC 전용 — 폰 앱 목록에는 나오지 않는다). 서버가 관리자만 만들 수 있게 막는다.
+// 안내데스크 세션(PC 전용 — 폰 앱 목록에는 나오지 않는다). 안내데스크 권한이 있는 계정만 만들 수 있다(서버도 막는다).
 const DESK_OPTION = { v: 'desk', title: '안내데스크', badge: '대면 안내', example: '안내원과 손님의 대화를 서로의 언어로 번역합니다. 손님용 태블릿은 QR 코드로 연결합니다.', Icon: IcoHeadset };
 
 // 세션 목록 행 아이콘 — 유형 무관 단일 채팅 아이콘(요청: 목록 아이콘 통일)
@@ -155,10 +156,8 @@ function uniqueName(base, titles) {
   return `${base} ${i}`;
 }
 
-export default function SessionList({ onOpen, user, createSignal }) {
-  const isAdmin = user?.role === 'admin';
-  // 안내데스크 세션은 관리자만 이름 변경·삭제(직원은 운영만)
-  const canManage = (s) => s.pipeline !== 'desk' || isAdmin;
+export default function SessionList({ onOpen, createSignal }) {
+  const canDesk = can('desk'); // 목록은 내가 만든 세션만이라 이름 변경·삭제는 모든 줄에서 가능
   const [list, setList] = useState(null);
   const [q, setQ] = useState(''); // 검색어 — 제목+대화 내용(서버 검색)
   const [dlg, setDlg] = useState(false);
@@ -292,7 +291,6 @@ export default function SessionList({ onOpen, user, createSignal }) {
   };
   const shown = list || [];
   const empty = list && shown.length === 0;
-  const anyManageable = shown.some(canManage);
 
   return (
     <>
@@ -321,7 +319,7 @@ export default function SessionList({ onOpen, user, createSignal }) {
                 <Button size="small" variant="contained" color="error" disabled={!selIds.size} onClick={bulkDelete} startIcon={<DeleteOutlineIcon />}>삭제</Button>
               </>
             )}
-            {!selMode && anyManageable && (
+            {!selMode && shown.length > 0 && (
               <Button size="small" onClick={() => setSelMode(true)} sx={{ color: 'text.secondary', flex: 'none' }}>선택</Button>
             )}
             {!selMode && (
@@ -394,13 +392,12 @@ export default function SessionList({ onOpen, user, createSignal }) {
           {shown.map((s, si) => {
             const checked = selIds.has(s.id);
             const desk = s.pipeline === 'desk';
-            const manage = canManage(s);
             const v2Row = PC_V2; // PC 새 화면: 폰 목록과 같은 줄(모드 아이콘 + '날짜 · 언어')
             const searching = !!q.trim();
             return (
             <Box
               key={s.id}
-              onClick={() => (selMode ? (manage && toggleSel(s.id)) : onOpen(s))}
+              onClick={() => (selMode ? toggleSel(s.id) : onOpen(s))}
               sx={{
                 display: 'flex', alignItems: searching && s.snippet ? 'flex-start' : 'center', gap: 1.5, px: 2, py: 1.9,
                 borderRadius: 2, cursor: 'pointer', position: 'relative',
@@ -414,7 +411,7 @@ export default function SessionList({ onOpen, user, createSignal }) {
               }}
             >
               {selMode && (
-                <Checkbox checked={checked} disabled={!manage} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
+                <Checkbox checked={checked} onChange={() => toggleSel(s.id)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0.25, ml: -0.75 }} />
               )}
               {/* 유형 무관 단일 채팅 아이콘(스니펫 있을 땐 첫 줄에 정렬). PC 새 화면은 폰 목록과 같은 모드 아이콘 */}
               {v2Row && desk ? (
@@ -494,7 +491,7 @@ export default function SessionList({ onOpen, user, createSignal }) {
 
       <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}
         slotProps={{ paper: { sx: { '& .MuiMenuItem-root': { fontSize: 13 } } } }}>
-        {menu && canManage(menu.session) && (
+        {menu && (
           <MenuItem onClick={() => startRename(menu.session)}>
             <ListItemIcon>
               <EditOutlinedIcon fontSize="small" />
@@ -508,7 +505,7 @@ export default function SessionList({ onOpen, user, createSignal }) {
           </ListItemIcon>
           대화내역 저장
         </MenuItem>
-        {menu && canManage(menu.session) && (
+        {menu && (
           <MenuItem onClick={() => removeSession(menu.session)} sx={{ color: 'error.main' }}>
             <ListItemIcon>
               <DeleteOutlineIcon fontSize="small" sx={{ color: 'error.main' }} />
@@ -550,8 +547,8 @@ export default function SessionList({ onOpen, user, createSignal }) {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mt: 2 }}>
             {SITUATIONS.map((p) => <OptionCard key={p.v} p={p} sel={preset === p.v} onClick={() => pickPreset(p.v)} />)}
           </Box>
-          {/* 안내데스크 — 번역 모드와 성격이 달라 따로 둔다(관리자만 만들 수 있다) */}
-          {isAdmin && (
+          {/* 안내데스크 — 번역 모드와 성격이 달라 따로 둔다(안내데스크 권한이 있는 계정만) */}
+          {canDesk && (
             <>
               <Divider sx={{ my: 2, fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>다른 세션</Divider>
               <OptionCard p={DESK_OPTION} sel={preset === 'desk'} onClick={() => pickPreset('desk')} />

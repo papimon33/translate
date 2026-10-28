@@ -208,7 +208,7 @@ export default function App() {
     ) : view === 'admin' && user.role === 'admin' ? (
       <AdminPage user={user} tab={adminTab} onTab={openAdmin} />
     ) : (
-      <SessionList onOpen={openSession} user={user} createSignal={createSignal} />
+      <SessionList onOpen={openSession} createSignal={createSignal} />
     );
 
   // PC: 위 띠(로고 · 개인설정) + 본문. 세션 화면은 자체 위 띠(뒤로·제목)가 있어 숨긴다.

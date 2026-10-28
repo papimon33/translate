@@ -8,7 +8,7 @@ export function registerDeskStatusRoutes(app) {
   app.get('/api/desk-status', requireAuth, (req, res) => {
     if (!hasPerm(req.user, 'desk')) return res.json([]); // 안내데스크 권한이 없으면 보여 줄 데스크도 없다
     const out = sessions
-      .filter((s) => s.pipeline === 'desk' && !s.deletedAt)
+      .filter((s) => s.pipeline === 'desk' && !s.deletedAt && s.owner === req.user.id) // 내 안내데스크만(목록과 같은 기준)
       .map((s) => {
         const r = rooms.get(s.id);
         const dc = deskCtrl.get(s.id);

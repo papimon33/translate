@@ -1,7 +1,7 @@
 /* 실시간(WebSocket) 진입 — 업그레이드 인증·연결 분기(뷰어/호스트)·하트비트. index.js 가 attachRealtime(server) 로 붙인다. */
 import { WebSocketServer, WebSocket } from 'ws';
 import { TARGET_LANG } from '../config.js';
-import { authFromReq, currentUser, viewerTokenValid, hasPerm, permsOf } from '../auth/index.js';
+import { authFromReq, currentUser, viewerTokenValid, permsOf, canUseSession } from '../auth/index.js';
 import { getSession } from '../store/sessions.js';
 import { logErr } from '../metrics.js';
 import { rooms } from './rooms.js';
@@ -46,7 +46,8 @@ export function attachRealtime(server) {
     try {
     const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host}`);
     const sessionId = searchParams.get('session') || '';
-    const isDesk = getSession(sessionId)?.pipeline === 'desk';
+    const sess = getSession(sessionId);
+    const isDesk = sess?.pipeline === 'desk';
     const hostAuth = pathname === '/ws/host'
       ? authFromReq(req, { grace: (t, reason) => reason === 'replaced' && hostGraceOk(t.jti, sessionId) })
       : null;
@@ -56,16 +57,16 @@ export function attachRealtime(server) {
       socket.destroy();
       return;
     }
-    // 안내데스크 운영은 안내데스크 권한이 있어야 한다(만들기·삭제는 관리자 — REST 쪽)
-    if (pathname === '/ws/host' && isDesk && !hasPerm(hostUser, 'desk')) {
+    // 안내데스크 운영은 그 데스크의 주인(안내데스크 권한 필요) 또는 관리자만
+    if (pathname === '/ws/host' && isDesk && !canUseSession(hostUser, sess)) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       socket.destroy();
       return;
     }
-    // 공개 뷰어: 유효 토큰(QR 에 포함) 또는 로그인 사용자만. id 열거로 무단 접속하는 것을 막는다(안내데스크는 로그인만으론 안 되고 권한도).
+    // 공개 뷰어: 유효 토큰(QR 에 포함) 또는 로그인 사용자만. id 열거로 무단 접속하는 것을 막는다(안내데스크는 로그인만으론 안 되고 주인·관리자만).
     if (pathname === '/ws/viewer' && !viewerTokenValid(sessionId, searchParams.get('t'))) {
       const u = currentUser(req);
-      if (!u || (isDesk && !hasPerm(u, 'desk'))) {
+      if (!u || (isDesk && !canUseSession(u, sess))) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;

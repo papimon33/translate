@@ -2,7 +2,8 @@
    - 같은 종류에서 다시 로그인하면 확인(409 confirmReplace) → replace 로 들어가면 이전 기기는 401 reason=replaced.
    - 비밀번호를 바꾸면(본인·관리자 재설정) 다른 기기는 reason=password, 바꾼 기기는 새 쿠키로 계속.
    - 번역 중인 호스트 연결은 토큰이 끊겨도 같은 세션 재접속은 되고, 새 세션 시작은 막힌다.
-   - 권한: 새 계정은 기본 꺼짐, 기존 계정은 부팅 시 켜짐. 안내데스크는 목록·열기·접속, TTS 는 미리듣기·뷰어 듣기 표시를 서버가 막는다. */
+   - 권한: 새 계정은 기본 꺼짐, 기존 계정은 부팅 시 켜짐. TTS 는 미리듣기·뷰어 듣기 표시를, 안내데스크는 만들기·열기·접속을 서버가 막는다.
+   - 안내데스크 세션도 만든 사람의 것: 권한이 있는 다른 계정·관리자 목록에도 보이지 않는다. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -114,7 +115,7 @@ test('번역 중 다른 기기 로그인: 진행 중인 세션 재접속은 되�
   for (const w of [host, again]) w.close();
 });
 
-test('권한: 새 계정은 꺼짐, 안내데스크·TTS 를 서버가 막고, 켜면 바로 쓸 수 있다', { timeout: 60000 }, async (t) => {
+test('권한: 새 계정은 꺼짐, TTS·안내데스크를 서버가 막고, 켜면 바로 쓸 수 있다', { timeout: 60000 }, async (t) => {
   const fake = await startFakeSoniox();
   const srv = await bootServer({ SONIOX_WS_URL: fake.url });
   t.after(async () => { await fake.close(); await srv.stop(); });
@@ -122,33 +123,64 @@ test('권한: 새 계정은 꺼짐, 안내데스크·TTS 를 서버가 막고, �
   const admin = await loginAdmin(base);
   const created = await call(base, 'POST', '/api/admin/users', admin, { id: 'choi', password: 'choipw' });
   assert.deepEqual(created.body.perms, { tts: false, desk: false }, '새 계정 기본 꺼짐');
-  const desk = (await call(base, 'POST', '/api/sessions', admin, { title: '1층 데스크', pipeline: 'desk', inLang: 'auto' })).body;
   const choi = (await login(base, 'choi', 'choipw', 'pc')).cookie;
   const mine = (await call(base, 'POST', '/api/sessions', choi, { title: '내 세션', pipeline: 'soniox', preset: 'oneway' })).body;
 
   assert.deepEqual((await call(base, 'GET', '/api/me', choi)).body.user.perms, { tts: false, desk: false });
-  // 안내데스크: 목록·조회·현황·QR·호스트 접속 모두 막힘, 만들기는 관리자만
-  assert.ok(!(await call(base, 'GET', '/api/sessions', choi)).body.some((s) => s.id === desk.id), '목록에서 숨김');
-  assert.equal((await call(base, 'GET', `/api/sessions/${desk.id}`, choi)).status, 403);
-  assert.deepEqual((await call(base, 'GET', '/api/desk-status', choi)).body, []);
-  assert.equal((await call(base, 'GET', `/api/qr?session=${desk.id}`, choi)).status, 403);
-  assert.equal(await openHost(base, choi, desk.id), 403);
+  // 안내데스크 권한 없음: 만들기 거부
   assert.equal((await call(base, 'POST', '/api/sessions', choi, { title: 'x', pipeline: 'desk' })).status, 403);
-  // TTS: 미리듣기 거부, 내 세션의 QR 뷰어에 듣기 버튼 없음(tts:false)
+  // TTS 권한 없음: 미리듣기 거부, 내 세션의 QR 뷰어에 듣기 버튼 없음(tts:false)
   assert.equal((await call(base, 'POST', '/api/tts/preview', choi, { lang: 'ko' })).status, 403);
   assert.equal((await call(base, 'GET', `/api/sessions/${mine.id}`, choi)).body.tts, false);
 
-  // 관리자가 켠다 → 바로 반영
+  // 관리자가 켠다 → 바로 반영: 안내데스크를 직접 만들고 운영
   assert.equal((await call(base, 'PUT', '/api/admin/users/choi/perms', admin, { tts: true, desk: true })).status, 200);
-  assert.ok((await call(base, 'GET', '/api/sessions', choi)).body.some((s) => s.id === desk.id), '목록에 보임');
-  assert.equal((await call(base, 'GET', `/api/sessions/${desk.id}`, choi)).status, 200);
   assert.equal((await call(base, 'GET', `/api/sessions/${mine.id}`, choi)).body.tts, true);
+  const desk = (await call(base, 'POST', '/api/sessions', choi, { title: '1층 데스크', pipeline: 'desk', inLang: 'auto' })).body;
+  assert.ok(desk.id, '안내데스크 만들기');
+  assert.ok((await call(base, 'GET', '/api/sessions', choi)).body.some((s) => s.id === desk.id), '내 목록에 보임');
+  assert.equal((await call(base, 'GET', '/api/desk-status', choi)).body.length, 1);
   const host = await openHost(base, choi, desk.id);
   assert.ok(host instanceof WebSocket, '안내데스크 운영 가능');
   host.close();
-  assert.equal((await call(base, 'DELETE', `/api/sessions/${desk.id}`, choi)).status, 403, '삭제는 여전히 관리자만');
   const list = (await call(base, 'GET', '/api/admin/users', admin)).body;
   assert.deepEqual(list.find((u) => u.id === 'choi').perms, { tts: true, desk: true });
+
+  // 권한을 끄면 내 안내데스크도 못 연다(목록에서 숨김)
+  await call(base, 'PUT', '/api/admin/users/choi/perms', admin, { tts: true, desk: false });
+  assert.ok(!(await call(base, 'GET', '/api/sessions', choi)).body.some((s) => s.id === desk.id));
+  assert.equal((await call(base, 'GET', `/api/sessions/${desk.id}`, choi)).status, 403);
+  assert.equal(await openHost(base, choi, desk.id), 403);
+});
+
+test('안내데스크는 만든 사람에게만 보인다 — 권한이 있는 다른 계정·관리자 목록에도 안 보임', { timeout: 60000 }, async (t) => {
+  const fake = await startFakeSoniox();
+  const srv = await bootServer({ SONIOX_WS_URL: fake.url });
+  t.after(async () => { await fake.close(); await srv.stop(); });
+  const { base } = srv;
+  const admin = await loginAdmin(base);
+  for (const id of ['desk1', 'desk2']) await call(base, 'POST', '/api/admin/users', admin, { id, password: id + 'pw', perms: { desk: true } });
+  const d1 = (await login(base, 'desk1', 'desk1pw', 'pc')).cookie;
+  const d2 = (await login(base, 'desk2', 'desk2pw', 'pc')).cookie;
+  const s1 = (await call(base, 'POST', '/api/sessions', d1, { title: '1번 데스크', pipeline: 'desk' })).body;
+  const sa = (await call(base, 'POST', '/api/sessions', admin, { title: '관리자 데스크', pipeline: 'desk' })).body;
+
+  const ids = async (c) => (await call(base, 'GET', '/api/sessions', c)).body.map((s) => s.id);
+  assert.deepEqual(await ids(d1), [s1.id]);
+  assert.deepEqual(await ids(d2), [], '권한이 있어도 남의 데스크는 안 보임');
+  assert.deepEqual(await ids(admin), [sa.id], '관리자 목록도 자기 것만');
+  // 다른 데스크 계정: 열기·현황·QR·접속·이름 변경·삭제 모두 거부
+  assert.equal((await call(base, 'GET', `/api/sessions/${s1.id}`, d2)).status, 403);
+  assert.deepEqual((await call(base, 'GET', '/api/desk-status', d2)).body, []);
+  assert.equal((await call(base, 'GET', `/api/qr?session=${s1.id}`, d2)).status, 403);
+  assert.equal(await openHost(base, d2, s1.id), 403);
+  assert.equal((await call(base, 'PATCH', `/api/sessions/${s1.id}`, d2, { title: '남의 것' })).status, 403);
+  assert.equal((await call(base, 'DELETE', `/api/sessions/${s1.id}`, d2)).status, 403);
+  // 주인: 이름 변경·삭제 가능, 관리자: 주소로는 열 수 있다
+  assert.equal((await call(base, 'GET', `/api/sessions/${s1.id}`, admin)).status, 200);
+  assert.equal((await call(base, 'PATCH', `/api/sessions/${s1.id}`, d1, { title: '1번 데스크(동)' })).status, 200);
+  assert.equal((await call(base, 'GET', `/api/sessions/${s1.id}`, d1)).body.title, '1번 데스크(동)');
+  assert.equal((await call(base, 'DELETE', `/api/sessions/${s1.id}`, d1)).status, 200);
 });
 
 test('권한 이전: 권한 필드가 없던 기존 계정은 부팅 시 모두 켜진다', { timeout: 40000 }, async (t) => {

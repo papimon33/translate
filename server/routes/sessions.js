@@ -2,11 +2,8 @@
 import { LANG_NAMES, ALL_LANGS, PRESET_SRC, normalizeMode } from '../config.js';
 import { sessions, setSessions, col, saveSessions, deleteSessionStore } from '../store/index.js';
 import { getSession, newId } from '../store/sessions.js';
-import { requireAuth, viewerAccessOk, hasPerm, findUser } from '../auth/index.js';
+import { requireAuth, viewerAccessOk, hasPerm, findUser, canUseSession } from '../auth/index.js';
 import { rooms, broadcast, closeSessionRoom } from '../realtime/rooms.js';
-
-// 세션을 다룰 수 있나: 안내데스크는 안내데스크 권한(공용 운영), 그 외는 주인 또는 관리자
-const canUse = (u, s) => (s.pipeline === 'desk' ? hasPerm(u, 'desk') : s.owner === u.id || u.role === 'admin');
 
 export function registerSessionRoutes(app) {
   /* ---- 세션 REST API ---- */
@@ -47,8 +44,8 @@ export function registerSessionRoutes(app) {
     });
     const list = sessions
       .filter((s) => !s.deletedAt)
-      // 일반 세션은 본인 것만. 안내데스크 세션은 관리자가 만들고 안내데스크 권한이 있는 직원이 공용으로 운영.
-      .filter((s) => (s.pipeline === 'desk' ? hasPerm(req.user, 'desk') : s.owner === req.user.id))
+      // 본인이 만든 세션만(관리자도). 안내데스크 세션은 안내데스크 권한이 있을 때만.
+      .filter((s) => s.owner === req.user.id && (s.pipeline !== 'desk' || hasPerm(req.user, 'desk')))
       .filter((s) => (q ? matches(s) : true))
       .map((s) => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt, count: s.items.length, pipeline: s.pipeline || 'whisper', preset: s.preset || null, src: s.src || null, snippet: snippetOf(s), ...langsOf(s) }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -59,8 +56,8 @@ export function registerSessionRoutes(app) {
     const now = Date.now();
     const b = req.body || {};
     const pipeline = ['translate', 'soniox', 'desk'].includes(b.pipeline) ? b.pipeline : 'soniox'; // whisper(구) 지원 종료 — 기본 soniox
-    // 안내데스크 세션은 관리자만 생성(공용 인프라) — 직원은 운영만
-    if (pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 세션은 관리자만 만들 수 있습니다.' });
+    // 안내데스크 세션은 안내데스크 권한이 있는 계정만(데스크마다 계정을 따로 두고 각자 만든다)
+    if (pipeline === 'desk' && !hasPerm(req.user, 'desk')) return res.status(403).json({ error: '안내데스크 권한이 없습니다. 관리자에게 요청하세요.' });
     // translate 는 단일 출력 언어. desk 는 ko 시작(감지로 동적 확장). soniox 다국어.
     const outLang = b.outLang && LANG_NAMES[b.outLang] ? b.outLang : 'ko';
     const langs = pipeline === 'translate' ? [outLang] : (pipeline === 'desk' ? ['ko'] : ALL_LANGS.slice());
@@ -88,7 +85,7 @@ export function registerSessionRoutes(app) {
   app.get('/api/sessions/:id', (req, res) => {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
-    if (!viewerAccessOk(req, s.id, s.pipeline === 'desk')) return res.status(403).json({ error: 'forbidden' }); // 공개 뷰어: 유효 토큰 또는 로그인 필요(안내데스크는 권한도)
+    if (!viewerAccessOk(req, s.id, s)) return res.status(403).json({ error: 'forbidden' }); // 공개 뷰어: 유효 토큰 또는 로그인 필요(안내데스크는 주인·관리자)
     // 공개 라우트(뷰어용) — 필요한 필드만 화이트리스트로 반환.
     // 전체 스프레드 금지: deskLog(지난 손님 응대 기록)·owner 등이 노출됐던 문제 수정.
     res.json({
@@ -119,10 +116,8 @@ export function registerSessionRoutes(app) {
   app.patch('/api/sessions/:id', requireAuth, (req, res) => {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
-    // 데스크 세션은 전 직원이 운영(층/방향·화자명 등 조작) — 소유자 제한 없음. 그 외에는 본인/관리자만.
-    if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
-    // 데스크 세션 제목 변경(관리 행위)은 관리자만
-    if (s.pipeline === 'desk' && typeof (req.body || {}).title === 'string' && req.user.role !== 'admin') delete req.body.title;
+    // 본인(안내데스크는 권한도) 또는 관리자만
+    if (!canUseSession(req.user, s)) return res.status(403).json({ error: 'forbidden' });
     // pipeline 은 생성 시 고정. title·inLang 수정 허용. outLang 은 translate 의 타깃 변경용.
     const b = req.body || {};
     if (typeof b.title === 'string') s.title = b.title;
@@ -160,8 +155,7 @@ export function registerSessionRoutes(app) {
   app.delete('/api/sessions/:id/items', requireAuth, (req, res) => {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
-    if (s.pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 대화 내역은 관리자만 삭제할 수 있습니다.' });
-    if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
+    if (!canUseSession(req.user, s)) return res.status(403).json({ error: 'forbidden' });
     const n = Array.isArray(s.items) ? s.items.length : 0;
     s.items = [];
     s.updatedAt = Date.now();
@@ -174,7 +168,7 @@ export function registerSessionRoutes(app) {
   app.get('/api/sessions/:id/viewers', requireAuth, (req, res) => {
     const s = getSession(req.params.id);
     if (!s) return res.status(404).json({ error: 'not found' });
-    if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
+    if (!canUseSession(req.user, s)) return res.status(403).json({ error: 'forbidden' });
     const r = rooms.get(s.id);
     res.json({ n: r ? [...r.viewers].filter((v) => !v._hostView).length : 0 });
   });
@@ -182,8 +176,7 @@ export function registerSessionRoutes(app) {
     const s = getSession(req.params.id);
     if (s) {
       // 안내데스크 세션 삭제(관리 행위)는 관리자만
-      if (s.pipeline === 'desk' && req.user.role !== 'admin') return res.status(403).json({ error: '안내데스크 세션은 관리자만 삭제할 수 있습니다.' });
-      if (!canUse(req.user, s)) return res.status(403).json({ error: 'forbidden' });
+      if (!canUseSession(req.user, s)) return res.status(403).json({ error: 'forbidden' });
       if (s.pipeline === 'desk') {
         // 안내데스크(관리자 전용 삭제): 소프트 삭제 — 응대 통계·로그(deskLog)는 관리자 페이지에서 따로 정리
         s.deletedAt = Date.now();

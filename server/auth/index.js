@@ -60,7 +60,7 @@ export function makeUser({ id, username, password, role, perms }) {
 
 /* ---- 사용자별 기능 권한(2026-10-27) — 관리자는 항상 전부 가능 ----
    tts : 번역 음성 재생 TTS(읽은 글자 수만큼 비용) — 없으면 호스트 TTS·뷰어 듣기·음성 미리듣기를 서버가 막는다.
-   desk: 안내데스크 운영(목록에 보이고 열기·시작) — 만들기·이름 변경·삭제는 권한과 무관하게 관리자만. */
+   desk: 안내데스크 세션 만들기·운영 — 세션은 일반 세션처럼 만든 사람의 것(목록·열기·이름 변경·삭제 모두 주인, 관리자는 주소로 열 수 있음). */
 export const PERM_KEYS = ['tts', 'desk'];
 export function cleanPerms(p) {
   return Object.fromEntries(PERM_KEYS.map((k) => [k, !!(p && p[k] === true)]));
@@ -259,9 +259,16 @@ export function viewerTokenValid(sessionId, t) {
   const a = Buffer.from(String(t)); const b = Buffer.from(viewerToken(sessionId));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
-// 공개 뷰어 라우트 게이트: 유효 토큰 또는 로그인 사용자만 통과. 안내데스크 세션은 로그인만으로는 안 되고 안내데스크 권한이 있어야 한다.
-export function viewerAccessOk(req, sessionId, desk) {
+// 세션을 다룰 수 있나(열기·수정·삭제·호스트 접속): 주인 또는 관리자. 안내데스크는 주인이어도 안내데스크 권한이 있어야 한다.
+// (목록은 관리자도 자기 세션만 — routes/sessions.js. 관리자는 주소·로그로 남의 세션을 열 수 있다)
+export function canUseSession(u, s) {
+  if (!u || !s) return false;
+  if (u.role === 'admin') return true;
+  return s.owner === u.id && (s.pipeline !== 'desk' || hasPerm(u, 'desk'));
+}
+// 공개 뷰어 라우트 게이트: 유효 토큰 또는 로그인 사용자만 통과. 안내데스크 세션은 로그인만으로는 안 되고 그 세션을 다룰 수 있어야 한다.
+export function viewerAccessOk(req, sessionId, session) {
   if (viewerTokenValid(sessionId, req.query && req.query.t)) return true;
   const u = currentUser(req);
-  return !!u && (!desk || hasPerm(u, 'desk'));
+  return !!u && (!session || session.pipeline !== 'desk' || canUseSession(u, session));
 }

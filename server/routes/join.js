@@ -88,7 +88,7 @@ export function registerJoinRoutes(app) {
     const landing = req.query.desk === '1' || (!sessionId && req.query.landing === '1');
     if (!sessionId && !landing) return res.status(400).json({ error: 'session required' });
     // 특정 세션 QR 은 유효 토큰(자신의 뷰어에서 공유) 또는 로그인 사용자만. 랜딩(세션 없음)은 공개.
-    if (sessionId && !viewerAccessOk(req, sessionId, getSession(sessionId)?.pipeline === 'desk')) return res.status(403).json({ error: 'forbidden' });
+    if (sessionId && !viewerAccessOk(req, sessionId, getSession(sessionId))) return res.status(403).json({ error: 'forbidden' });
     // 배포 환경: 요청 host/proto 사용(Render 등은 x-forwarded-* 로 전달).
     let proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
     let host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();

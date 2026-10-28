@@ -104,3 +104,15 @@ test('관리자 > 계정 관리 — 권한 스위치', async ({ page }) => {
   const users = await (await page.request.get('/api/admin/users')).json();
   expect(users.find((u) => u.id === 'e2e-lee').perms).toEqual({ tts: true, desk: false });
 });
+
+test('안내데스크 권한이 없으면 새 세션 창에 안내데스크 항목이 없다', async ({ page }) => {
+  await login(page.request);
+  await page.request.post('/api/admin/users', { data: { id: 'e2e-nodesk', password: 'nodeskpw' } });
+  await page.request.post('/api/logout');
+  expect((await page.request.post('/api/login', { data: { id: 'e2e-nodesk', password: 'nodeskpw', replace: true } })).ok()).toBeTruthy();
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 세션' }).first().click();
+  const dlg = page.getByRole('dialog');
+  await expect(dlg.getByText('실시간 번역', { exact: true })).toBeVisible();
+  await expect(dlg.getByText('다른 세션')).toHaveCount(0);
+});
