@@ -13,6 +13,7 @@ data/
 tools/eval/tts-audio/*
 tools/eval/*.out.json
 tools/eval/tts-audio.zip
+tools/eval/out/*
 
 android/.gradle/
 android/build/
