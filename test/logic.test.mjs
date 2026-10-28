@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  kstDay, CONFFIX, confFixTrigger, confFixMark, isAckOnly, stripFillers, sanitizeTranslation, deskCtlAllowed,
+  kstDay, CONFFIX, confFixTrigger, confFixMark, isAckOnly, stripFillers, sanitizeTranslation, deskCtlAllowed, langScriptOk,
 } from '../server/util/pipeline_util.js';
 
 /* ── confFix 트리거: 연속 2+ 저신뢰(<0.4) 또는 극단 단발(≤0.12), 실단어 ≥3, 저신뢰 비율 ≤70% ── */
@@ -104,3 +104,14 @@ test('kstDay: UTC 자정 직전은 KST 로는 다음 날로 버킷된다', () =>
   assert.equal(kstDay(Date.parse('2026-07-15T23:00:00Z')), '2026-07-16');
   assert.equal(kstDay(Date.parse('2026-07-15T10:00:00Z')), '2026-07-15');
 });
+
+test('langScriptOk: 다듬기가 원문 언어(한국어)로 돌아가거나 중국어를 번체로 쓰면 거른다', () => {
+  // 2026-10-28 발표 테스트: 중국어 칸에 한국어 다듬기, 번체자 다듬기가 섞여 나왔다
+  assert.equal(langScriptOk('2025년 12월 11일에 BIM 센터를 공식 개소했습니다.', '2025年12月11日，BIM中心正式开放。', 'zh'), false);
+  assert.equal(langScriptOk('今天的特別報告內容是關於 AI/BIM 中心運營方案的事宜。', '今天的特别报告内容是关于AI/BIM中心运营方案。', 'zh'), false);
+  assert.equal(langScriptOk('今天的特别报告是关于AI/BIM中心运营方案的。', '今天的特别报告内容是关于AI/BIM中心运营方案。', 'zh'), true);
+  assert.equal(langScriptOk('本日の報告はAI・BIMセンターの運営についてです。', '今日の報告はAI・BIMセンター運営方案です。', 'ja'), true, '일본어 한자는 번체 검사 대상 아님');
+  assert.equal(langScriptOk('안내데스크는 2층에 있습니다.', '안내 데스크는 2층입니다.', 'ko'), true);
+  assert.equal(langScriptOk('The 김포 terminal', 'The 김포 terminal opens', 'en'), true, '기계 번역에도 있던 한글은 허용');
+});
+

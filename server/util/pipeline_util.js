@@ -76,6 +76,18 @@ export function stripFillers(text) {
   return s;
 }
 
+/* ── 다듬기 결과가 목표 언어 글자로 쓰였나 ──
+   모델이 가끔 원문 언어(한국어)로 고쳐 쓰거나 중국어를 번체자로 내놓는다(2026-10-28 발표 한→중 테스트에서 확인).
+   기계 번역에 없던 한글이 생기거나(목표가 한국어가 아닐 때), 중국어인데 번체 전용 글자가 생기면 다듬기를 버린다. */
+const HANGUL = /[\uAC00-\uD7A3]/;
+const ZH_TRAD = /[這們個說會對為與關於運營報內開發業務數據機場資訊處現進過還讓統點體號時間長門東車電話經實際從後當種樣檢區國標準輸繼續認識讀寫導應]/;
+export function langScriptOk(out, raw, lang) {
+  const s = String(out || ''), r = String(raw || '');
+  if (lang !== 'ko' && HANGUL.test(s) && !HANGUL.test(r)) return false;
+  if (lang === 'zh' && ZH_TRAD.test(s) && !ZH_TRAD.test(r)) return false;
+  return true;
+}
+
 /* ── GPT 번역 출력 정제 ── */
 export function sanitizeTranslation(out) {
   let s = String(out || '').trim();

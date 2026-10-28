@@ -1,7 +1,7 @@
 /* OpenAI(chat completions) — 저신뢰 자동 교정(confFix) 판정·번역 다듬기(polish)·번역·띄어쓰기 교정 */
 import { OPENAI_API_KEY, REFINE_MODEL, LANG_NAMES } from '../config.js';
 import { termsConfig } from '../store/index.js';
-import { isAckOnly, sanitizeTranslation } from '../util/pipeline_util.js';
+import { isAckOnly, sanitizeTranslation, langScriptOk } from '../util/pipeline_util.js';
 
 /* ------------------------------------------------------------------ */
 /*  번역 출력 정화: 소형 모델이 끼워넣는 군더더기 제거                    */
@@ -111,16 +111,21 @@ export async function polishText(src, tgt, tgtLang, context) {
   if (!OPENAI_API_KEY) return null;
   const t = String(tgt || '').trim();
   if (t.length < 4 || isAckOnly(t)) return null; // 단답·초단문은 다듬을 것이 없음(비용 절약)
-  const langName = LANG_NAMES[tgtLang] || tgtLang;
+  // 중국어는 간체로 못 박는다 — 지정하지 않으면 가끔 번체자로 고쳐 쓴다
+  const langName = tgtLang === 'zh' ? '중국어 간체(简体中文)' : LANG_NAMES[tgtLang] || tgtLang;
   const sys =
     `너는 공항 현장의 전문 통역사다. 외국어 발화의 기계 번역(직역투일 수 있음)을 실제 통역사가 말하듯 자연스러운 ${langName} 구어체로 고쳐라.\n` +
+    `- 출력 언어는 반드시 ${langName}. 원문 언어로 되돌려 쓰지 않는다.\n` +
     '- 의미 추가·삭제 금지. 어색한 직역 어순·조사·표현만 자연스럽게 바꾼다.\n' +
     '- [직전 대화]는 맥락 파악용 — "처음부터요" 같은 단답은 맥락에 맞게 자연스럽게 보완해도 된다.\n' +
     '- 이미 자연스러우면 고치지 말고 그대로 출력한다.\n' +
-    '- 출력은 고친 번역문 한 줄뿐(설명·따옴표·머리말 금지).\n' +
-    '교정 예(한국어 방향): "유럽 내 도입 사례에서요." → "유럽 쪽 구축 사례를 보면요." / ' +
-    '"이제 부탁드립니다." → "그럼 몇 가지 여쭤보겠습니다." / ' +
-    '"유럽의 어떤 나라들에서는 이 시스템이 공항에서 이미 작동하나요?" → "유럽 국가 중에 이 시스템을 공항에서 실제 운영 중인 곳이 있나요?"';
+    '- 출력은 고친 번역문 한 줄뿐(설명·따옴표·머리말 금지).' +
+    // 교정 예는 한국어 방향일 때만 — 다른 언어로 다듬을 때 한국어 예시가 있으면 한국어로 고쳐 쓰는 일이 있었다
+    (tgtLang === 'ko'
+      ? '\n교정 예: "유럽 내 도입 사례에서요." → "유럽 쪽 구축 사례를 보면요." / ' +
+        '"이제 부탁드립니다." → "그럼 몇 가지 여쭤보겠습니다." / ' +
+        '"유럽의 어떤 나라들에서는 이 시스템이 공항에서 이미 작동하나요?" → "유럽 국가 중에 이 시스템을 공항에서 실제 운영 중인 곳이 있나요?"'
+      : '');
   try {
     const body = {
       model: REFINE_MODEL,
@@ -141,6 +146,7 @@ export async function polishText(src, tgt, tgtLang, context) {
     const d = await r.json();
     const out = sanitizeTranslation((d?.choices?.[0]?.message?.content || '').trim());
     if (!out || out === t || out.length > t.length * 3 + 20) return null; // 무변경·폭주(해설 섞임) 방어
+    if (!langScriptOk(out, t, tgtLang)) return null; // 원문 언어로 되돌아갔거나 번체자 — 기계 번역을 그대로 둔다
     return out;
   } catch { return null; }
 }
